@@ -34,6 +34,7 @@ func TestAISchedulingHandler_Features(t *testing.T) {
 	testAISchedulingVerifyOverlaps_InvalidProposalID(t, r)
 	testAISchedulingApplyRollbackOnSplitOverflow(t, db, r)
 	testAISchedulingApplyRepairsLegacySplitFallback(t, db, r)
+	testAISchedulingProposalTrainingLineageLifecycle(t, db, r)
 }
 
 func testAISchedulingAssist(t *testing.T, r *gin.Engine) {
@@ -523,6 +524,81 @@ func testAISchedulingProposalLifecycle(t *testing.T, r *gin.Engine) {
 	}
 }
 
+func testAISchedulingProposalTrainingLineageLifecycle(t *testing.T, db *gorm.DB, r *gin.Engine) {
+	testutil.Request(r, "POST", "/api/v1/products", map[string]interface{}{
+		"product_id": "P-ML-LINEAGE", "product_name": "ML Lineage Product",
+	})
+	testutil.Request(r, "POST", "/api/v1/processes", map[string]interface{}{
+		"process_id": "PRC-ML-LINEAGE", "product_id": "P-ML-LINEAGE", "process_name": "ML Lineage Process",
+	})
+	testutil.Request(r, "POST", "/api/v1/processes/PRC-ML-LINEAGE/steps", map[string]interface{}{
+		"step_id": "STEP-ML-LINEAGE", "step_name": "ML Lineage Step", "machine_type_required": "MLL",
+	})
+	testutil.Request(r, "POST", "/api/v1/machines", map[string]interface{}{
+		"machine_id": "M-ML-LINEAGE", "machine_name": "ML Lineage Machine", "machine_type": "MLL", "capacity_per_hour": 16,
+	})
+	w := testutil.Request(r, "POST", "/api/v1/jobs", map[string]interface{}{
+		"product_id": "P-ML-LINEAGE", "quantity_total": 9, "deadline": "2026-11-15T12:00:00Z",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create ml lineage job: got %d, body: %s", w.Code, w.Body.String())
+	}
+	_, data, _ := testutil.DecodeResponse(w)
+	jobID := data.(map[string]interface{})["job_id"].(string)
+
+	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/jobs/"+jobID+"/proposals", nil)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("generate ml lineage proposal: got %d, body: %s", w.Code, w.Body.String())
+	}
+	success, data, _ := testutil.DecodeResponse(w)
+	if !success {
+		t.Fatal("generate ml lineage proposal: success false")
+	}
+	proposalID := data.(map[string]interface{})["proposal_id"].(string)
+
+	var draftRows []domain.MLTrainingEvent
+	if err := db.Where("proposal_id = ?", proposalID).Order("scheduled_start").Find(&draftRows).Error; err != nil {
+		t.Fatalf("load ml training draft rows: %v", err)
+	}
+	if len(draftRows) == 0 {
+		t.Fatal("expected proposal generation to create draft ml training rows")
+	}
+	for _, row := range draftRows {
+		if row.LineageID == "" {
+			t.Fatal("expected proposal draft row to have lineage_id")
+		}
+		if row.SlotID != nil && *row.SlotID != "" {
+			t.Fatal("expected proposal draft row to have empty slot_id before apply")
+		}
+	}
+
+	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
+		"notes": "ml lineage approval",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("approve ml lineage proposal: got %d, body: %s", w.Code, w.Body.String())
+	}
+	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+		"idempotency_key": "ML-LINEAGE-APPLY",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("apply ml lineage proposal: got %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var appliedRows []domain.MLTrainingEvent
+	if err := db.Where("proposal_id = ?", proposalID).Order("scheduled_start").Find(&appliedRows).Error; err != nil {
+		t.Fatalf("load ml training applied rows: %v", err)
+	}
+	if len(appliedRows) != len(draftRows) {
+		t.Fatalf("expected applied ml training row count %d, got %d", len(draftRows), len(appliedRows))
+	}
+	for _, row := range appliedRows {
+		if row.SlotID == nil || *row.SlotID == "" {
+			t.Fatal("expected applied ml training row to be linked to slot_id")
+		}
+	}
+}
+
 func testAISchedulingGetProposal404(t *testing.T, r *gin.Engine) {
 	w := testutil.Request(r, "GET", "/api/v1/ai/scheduling/proposals/AIPROP-INVALID-999", nil)
 	if w.Code != http.StatusNotFound {
@@ -667,8 +743,8 @@ func testAISchedulingApplyRollbackOnSplitOverflow(t *testing.T, db *gorm.DB, r *
 	}
 	slot1["machine_id"] = "M-RB-2"
 	slot1["machine_name"] = "Rollback Machine 2"
-	slot1["quantity_planned"] = float64(6)
-	slot1["allocation_percent"] = float64(60)
+	slot1["quantity_planned"] = float64(5)
+	slot1["allocation_percent"] = float64(50)
 	slot1["batch_sequence"] = float64(2)
 	proposal["proposed_slots"] = []interface{}{slot0, slot1}
 	raw, err := json.Marshal(proposal)
@@ -690,8 +766,8 @@ func testAISchedulingApplyRollbackOnSplitOverflow(t *testing.T, db *gorm.DB, r *
 	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "ROLLBACK-OVERFLOW",
 	})
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected rollback apply failure, got %d body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected invalid split apply failure, got %d body: %s", w.Code, w.Body.String())
 	}
 
 	var slotCount int64

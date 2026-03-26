@@ -170,6 +170,9 @@ func (s *JobService) createSlotsFromRequest(jobID string, jobSteps []domain.JobS
 		if err := s.slotRepo.Create(slot); err != nil {
 			return err
 		}
+		if s.scheduling != nil {
+			_ = s.scheduling.CaptureMLTrainingEventForSlot(slot.SlotID)
+		}
 		jobStep.Status = domain.JobStepStatusScheduled
 		stepByID[resolvedJobStepID] = jobStep
 		if err := s.stepRepo.Update(&jobStep); err != nil {
@@ -387,6 +390,9 @@ func (s *JobService) Duplicate(jobID string, newDeadline time.Time, newQty int) 
 				Status:                 domain.SlotStatusPlanned,
 			}
 			_ = s.slotRepo.Create(&newSlot)
+			if s.scheduling != nil {
+				_ = s.scheduling.CaptureMLTrainingEventForSlot(newSlot.SlotID)
+			}
 		}
 	}
 	return s.jobRepo.GetByID(newJob.JobID)

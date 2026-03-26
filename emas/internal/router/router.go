@@ -39,6 +39,7 @@ func Setup(db *gorm.DB) *gin.Engine {
 	qualityRepo := repository.NewQualityRepository(db)
 	proposalRepo := repository.NewAIProposalRepository(db)
 	setupRepo := repository.NewSetupRepository(db)
+	trainingRepo := repository.NewMLTrainingEventRepository(db)
 	resourceRepo := repository.NewResourceRepository(db)
 	wipRepo := repository.NewWIPRepository(db)
 	psmRepo := repository.NewProcessStepMaterialRepository(db)
@@ -48,7 +49,7 @@ func Setup(db *gorm.DB) *gin.Engine {
 	msgRepo := repository.NewAIChatMessageRepository(db)
 
 	// Services
-	schedulingSvc := service.NewSchedulingService(productRepo, bomRepo, formulaRepo, processRepo, jobRepo, stepRepo, slotRepo, machineRepo, capRepo, downtimeRepo, maintenanceRepo, invRepo, logRepo, proposalRepo, setupRepo, resourceRepo, wipRepo, psmRepo, settingsRepo)
+	schedulingSvc := service.NewSchedulingService(productRepo, bomRepo, formulaRepo, processRepo, jobRepo, stepRepo, slotRepo, machineRepo, capRepo, downtimeRepo, maintenanceRepo, invRepo, logRepo, proposalRepo, setupRepo, trainingRepo, resourceRepo, wipRepo, psmRepo, settingsRepo)
 	jobSvc := service.NewJobService(jobRepo, stepRepo, slotRepo, processRepo, productRepo, schedulingSvc)
 	slotSvc := service.NewJobSlotService(slotRepo, stepRepo, processRepo, jobRepo, schedulingSvc)
 	processSvc := service.NewProcessService(processRepo)
@@ -56,7 +57,7 @@ func Setup(db *gorm.DB) *gin.Engine {
 	machineSvc := service.NewMachineService(machineRepo, capRepo, downtimeRepo, maintenanceRepo)
 	productSvc := service.NewProductService(productRepo, bomRepo, formulaRepo, processRepo)
 	invSvc := service.NewInventoryService(invRepo)
-	logSvc := service.NewProductionLogService(logRepo, slotRepo, stepRepo, jobRepo, proposalRepo)
+	logSvc := service.NewProductionLogService(logRepo, slotRepo, stepRepo, jobRepo, proposalRepo, schedulingSvc)
 	qualitySvc := service.NewQualityService(qualityRepo)
 	maintenanceSvc := service.NewMaintenanceService(maintenanceRepo, machineRepo)
 	aiPredictiveSvc := service.NewAIPredictiveService(db, jobRepo, stepRepo, slotRepo, proposalRepo, machineRepo, maintenanceRepo, settingsRepo, schedulingSvc, slotSvc, eventRepo)
@@ -170,6 +171,8 @@ func Setup(db *gorm.DB) *gin.Engine {
 		v1.GET("/scheduling/jobs/:id/earliest-completion", schedulingH.EstimateJobCompletion)
 		v1.GET("/scheduling/jobs/:id/solver-preview", schedulingH.SolverPreview)
 		v1.GET("/scheduling/training-dataset", schedulingH.TrainingDataset)
+		v1.GET("/scheduling/training-dataset/stats", schedulingH.TrainingDatasetStats)
+		v1.POST("/scheduling/training-dataset/backfill", middleware.RequireRoles("planner", "manager", "admin"), schedulingH.BackfillTrainingDataset)
 
 		// Production Logs
 		v1.POST("/production-logs", logH.LogProduction)

@@ -141,6 +141,9 @@ func (s *JobSlotService) SplitStep(jobStepID string, splits []dto.CreateSlotRequ
 		if err := s.slotRepo.Create(slot); err != nil {
 			return nil, err
 		}
+		if s.scheduling != nil {
+			_ = s.scheduling.CaptureMLTrainingEventForSlot(slot.SlotID)
+		}
 		created = append(created, *slot)
 	}
 	if len(created) > 0 && jobStep.Status == domain.JobStepStatusPending {
@@ -258,6 +261,9 @@ func (s *JobSlotService) UpdateSlot(id string, req dto.UpdateSlotRequest) (*doma
 	}
 	if err := s.slotRepo.Update(slot); err != nil {
 		return nil, err
+	}
+	if s.scheduling != nil {
+		_ = s.scheduling.CaptureMLTrainingEventForSlot(slot.SlotID)
 	}
 	return s.slotRepo.GetByID(id)
 }

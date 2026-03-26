@@ -43,6 +43,7 @@ Desktop.ini
 
 # Generated ML / simulation artifacts
 ml_artifacts/
+ml_artifacts*/
 simulator_output/
 
 # Coverage and test output
@@ -60,4 +61,3 @@ proposals_overlap_check.csv
 slots_by_machine.json
 _p.json
 _sched_settings.json
-

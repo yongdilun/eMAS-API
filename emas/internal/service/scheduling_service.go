@@ -1,8 +1,10 @@
 package service
 
 import (
+	"crypto/sha256"
 	"emas/internal/domain"
 	"emas/internal/repository"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type DemandTreeNode struct {
@@ -136,35 +140,34 @@ type CompletionEstimate struct {
 }
 
 type TrainingDatasetRow struct {
-	JobID                   string     `json:"job_id"`
-	ProductID               string     `json:"product_id"`
-	JobPriority             string     `json:"job_priority"`
-	JobDeadline             time.Time  `json:"job_deadline"`
-	JobQuantityTotal        int        `json:"job_quantity_total"`
-	JobQuantityCompleted    int        `json:"job_quantity_completed"`
-	CanStartNow             bool       `json:"can_start_now"`
-	EarliestReadyAt         *time.Time `json:"earliest_ready_at,omitempty"`
-	MaterialShortageCount   int        `json:"material_shortage_count"`
-	SubProductShortageCount int        `json:"sub_product_shortage_count"`
-	TotalMaterialDemand     float64    `json:"total_material_demand"`
-	TotalSubProductDemand   float64    `json:"total_sub_product_demand"`
-	ProductNestingDepth     int        `json:"product_nesting_depth"`
-	JobStepID               string     `json:"job_step_id"`
-	StepID                  string     `json:"step_id"`
-	StepSequence            int        `json:"step_sequence"`
-	StepType                string     `json:"step_type"`
-	ProposalID              string     `json:"proposal_id"`
-	ProposalStatus          string     `json:"proposal_status"`
-	ProposalEngine          string     `json:"proposal_engine"`
-	ProposalObjectiveScore  float64    `json:"proposal_objective_score"`
-	ProposalOutcomeRecorded bool       `json:"proposal_outcome_recorded"`
-	ProposalRolloutState    string     `json:"proposal_rollout_state"`
-	EstimateDeviationMins   int        `json:"estimate_deviation_mins"`
-
-	// Snapshot vectors captured at proposal generation time (pre-scheduling context).
-	SnapshotMachineIDs       []string  `json:"snapshot_machine_ids,omitempty"`
-	QueueLengthsVector       []int     `json:"queue_lengths_vector,omitempty"`
-	MachineUtilizationVector []float64 `json:"machine_utilization_vector,omitempty"`
+	LineageID                string     `json:"lineage_id"`
+	JobID                    string     `json:"job_id"`
+	ProductID                string     `json:"product_id"`
+	JobPriority              string     `json:"job_priority"`
+	JobDeadline              time.Time  `json:"job_deadline"`
+	JobQuantityTotal         int        `json:"job_quantity_total"`
+	JobQuantityCompleted     int        `json:"job_quantity_completed"`
+	CanStartNow              bool       `json:"can_start_now"`
+	EarliestReadyAt          *time.Time `json:"earliest_ready_at,omitempty"`
+	MaterialShortageCount    int        `json:"material_shortage_count"`
+	SubProductShortageCount  int        `json:"sub_product_shortage_count"`
+	TotalMaterialDemand      float64    `json:"total_material_demand"`
+	TotalSubProductDemand    float64    `json:"total_sub_product_demand"`
+	ProductNestingDepth      int        `json:"product_nesting_depth"`
+	JobStepID                string     `json:"job_step_id"`
+	StepID                   string     `json:"step_id"`
+	StepSequence             int        `json:"step_sequence"`
+	StepType                 string     `json:"step_type"`
+	ProposalID               string     `json:"proposal_id"`
+	ProposalStatus           string     `json:"proposal_status"`
+	ProposalEngine           string     `json:"proposal_engine"`
+	ProposalObjectiveScore   float64    `json:"proposal_objective_score"`
+	ProposalOutcomeRecorded  bool       `json:"proposal_outcome_recorded"`
+	ProposalRolloutState     string     `json:"proposal_rollout_state"`
+	EstimateDeviationMins    int        `json:"estimate_deviation_mins"`
+	SnapshotMachineIDs       []string   `json:"snapshot_machine_ids,omitempty"`
+	QueueLengthsVector       []int      `json:"queue_lengths_vector,omitempty"`
+	MachineUtilizationVector []float64  `json:"machine_utilization_vector,omitempty"`
 
 	MachineTypeRequired     string     `json:"machine_type_required"`
 	AllowParallelExecution  bool       `json:"allow_parallel_execution"`
@@ -188,8 +191,67 @@ type TrainingDatasetRow struct {
 	ScrapQty                int        `json:"scrap_qty"`
 	SlotStatus              string     `json:"slot_status"`
 	CompletionRatio         float64    `json:"completion_ratio"`
+	PlannedDurationMins     int        `json:"planned_duration_mins"`
+	ActualStart             *time.Time `json:"actual_start,omitempty"`
 	ActualEnd               *time.Time `json:"actual_end,omitempty"`
+	ActualDurationMins      int        `json:"actual_duration_mins"`
 	DelayMinutes            int        `json:"delay_minutes"`
+	PlannedVsActualRatio    float64    `json:"planned_vs_actual_ratio"`
+	ScrapRate               float64    `json:"scrap_rate"`
+
+	QueueWaitMinutes            int        `json:"queue_wait_minutes"`
+	QueueLenAtPlan              int        `json:"queue_len_at_plan"`
+	MaxQueueLen                 int        `json:"max_queue_len"`
+	Util1h                      float64    `json:"util_1h"`
+	Util8h                      float64    `json:"util_8h"`
+	Util24h                     float64    `json:"util_24h"`
+	Util7d                      float64    `json:"util_7d"`
+	PrevProductIDOnMachine      string     `json:"prev_product_id_on_machine"`
+	SetupMinutesPrevChangeover  int        `json:"setup_minutes_prev_changeover"`
+	SameProductAsPrevMachineJob bool       `json:"same_product_as_prev_machine_job"`
+	ChangeoverCount24h          int        `json:"changeover_count_24h"`
+	UpstreamLatenessMinutes     int        `json:"upstream_lateness_minutes"`
+	ReadinessDelayMinutes       int        `json:"readiness_delay_minutes"`
+	DayOfWeek                   int        `json:"day_of_week"`
+	ShiftName                   string     `json:"shift_name"`
+	IsHoliday                   bool       `json:"is_holiday"`
+	IsNearHoliday               bool       `json:"is_near_holiday"`
+	IsWeekend                   bool       `json:"is_weekend"`
+	HoursToShiftEnd             float64    `json:"hours_to_shift_end"`
+	DatasetVersion              string     `json:"dataset_version"`
+	CapturedAt                  time.Time  `json:"captured_at"`
+	OutcomeRecordedAt           *time.Time `json:"outcome_recorded_at,omitempty"`
+}
+
+type TrainingDatasetStats struct {
+	TotalRows               int64      `json:"total_rows"`
+	OutcomeRows             int64      `json:"outcome_rows"`
+	LatestCapturedAt        *time.Time `json:"latest_captured_at,omitempty"`
+	LatestOutcomeRecordedAt *time.Time `json:"latest_outcome_recorded_at,omitempty"`
+	OutcomeRowsSince        int64      `json:"outcome_rows_since,omitempty"`
+}
+
+const mlTrainingDatasetVersion = "v2"
+
+type mlTrainingEventSpec struct {
+	LineageID         string
+	SlotID            *string
+	Job               *domain.Job
+	Step              *domain.JobSteps
+	ProcessStep       *domain.ProcessSteps
+	Proposal          *domain.AIProposal
+	Snapshot          snapshotVectors
+	MachineID         string
+	ScheduledStart    time.Time
+	ScheduledEnd      time.Time
+	QuantityPlanned   int
+	AllocationPercent float64
+	SplitGroupID      string
+	IsParallel        bool
+	BatchSequence     int
+	SlotStatus        string
+	CapturedAt        time.Time
+	Slot              *domain.JobStepScheduleSlots
 }
 
 type SchedulingService struct {
@@ -208,6 +270,7 @@ type SchedulingService struct {
 	logRepo         *repository.ProductionLogRepository
 	proposalRepo    *repository.AIProposalRepository
 	setupRepo       *repository.SetupRepository
+	trainingRepo    *repository.MLTrainingEventRepository
 	resourceRepo    *repository.ResourceRepository
 	wipRepo         *repository.WIPRepository
 	psmRepo         *repository.ProcessStepMaterialRepository
@@ -230,6 +293,7 @@ func NewSchedulingService(
 	logRepo *repository.ProductionLogRepository,
 	proposalRepo *repository.AIProposalRepository,
 	setupRepo *repository.SetupRepository,
+	trainingRepo *repository.MLTrainingEventRepository,
 	resourceRepo *repository.ResourceRepository,
 	wipRepo *repository.WIPRepository,
 	psmRepo *repository.ProcessStepMaterialRepository,
@@ -251,6 +315,7 @@ func NewSchedulingService(
 		logRepo:         logRepo,
 		proposalRepo:    proposalRepo,
 		setupRepo:       setupRepo,
+		trainingRepo:    trainingRepo,
 		resourceRepo:    resourceRepo,
 		wipRepo:         wipRepo,
 		psmRepo:         psmRepo,
@@ -277,10 +342,42 @@ func (s *SchedulingService) WithSlotRepo(slotRepo *repository.JobSlotRepository)
 		logRepo:         s.logRepo,
 		proposalRepo:    s.proposalRepo,
 		setupRepo:       s.setupRepo,
+		trainingRepo:    s.trainingRepo,
 		resourceRepo:    s.resourceRepo,
 		wipRepo:         s.wipRepo,
 		psmRepo:         s.psmRepo,
 		settingsRepo:    s.settingsRepo,
+	}
+}
+
+// WithTransaction returns a copy of s whose DB-backed repositories read through tx.
+// This is required for apply-time validation in SQLite tests and for consistent reads
+// of uncommitted rows during proposal application.
+func (s *SchedulingService) WithTransaction(tx *gorm.DB) *SchedulingService {
+	if tx == nil {
+		return s
+	}
+	return &SchedulingService{
+		productRepo:     repository.NewProductRepository(tx),
+		bomRepo:         repository.NewProductBOMRepository(tx),
+		formulaRepo:     repository.NewFormulaRepository(tx),
+		processRepo:     repository.NewProcessRepository(tx),
+		jobRepo:         repository.NewJobRepository(tx),
+		stepRepo:        repository.NewJobStepRepository(tx),
+		slotRepo:        repository.NewJobSlotRepository(tx),
+		machineRepo:     repository.NewMachineRepository(tx),
+		capRepo:         repository.NewMachineCapabilityRepository(tx),
+		downtimeRepo:    repository.NewMachineDowntimeRepository(tx),
+		maintenanceRepo: repository.NewMaintenanceRepository(tx),
+		inventoryRepo:   repository.NewInventoryRepository(tx),
+		logRepo:         repository.NewProductionLogRepository(tx),
+		proposalRepo:    repository.NewAIProposalRepository(tx),
+		setupRepo:       repository.NewSetupRepository(tx),
+		trainingRepo:    repository.NewMLTrainingEventRepository(tx),
+		resourceRepo:    repository.NewResourceRepository(tx),
+		wipRepo:         repository.NewWIPRepository(tx),
+		psmRepo:         repository.NewProcessStepMaterialRepository(tx),
+		settingsRepo:    repository.NewSystemSettingsRepository(tx),
 	}
 }
 
@@ -543,225 +640,812 @@ func (s *SchedulingService) EstimateJobEarliestCompletion(jobID string) (*Comple
 }
 
 func (s *SchedulingService) ExportTrainingDataset() ([]TrainingDatasetRow, error) {
-	jobs, err := s.jobRepo.ListAll()
+	if s.trainingRepo == nil {
+		return nil, errors.New("ml training repository not configured")
+	}
+	events, err := s.trainingRepo.ListAll()
 	if err != nil {
 		return nil, err
 	}
-	type snapshotVectors struct {
-		MachineIDs               []string  `json:"machine_ids"`
-		QueueLengthsVector       []int     `json:"queue_lengths_vector"`
-		MachineUtilizationVector []float64 `json:"machine_utilization_vector"`
-	}
-	snapshotCache := map[string]*snapshotVectors{}
-	var rows []TrainingDatasetRow
-	for _, job := range jobs {
-		readiness, _ := s.CheckReadiness(job.ProductID, float64(job.QuantityTotal))
-		explosion, _ := s.ExplodeDemand(job.ProductID, float64(job.QuantityTotal))
-		materialShortages := 0
-		subProductShortages := 0
-		totalMaterialQty := 0.0
-		totalSubProductQty := 0.0
-		nestingDepth := 0
-		if readiness != nil {
-			for _, material := range readiness.Materials {
-				if material.ShortageQty > 0 {
-					materialShortages++
-				}
-			}
-			for _, subProduct := range readiness.SubProducts {
-				if subProduct.ShortageQty > 0 {
-					subProductShortages++
-				}
-			}
-			totalMaterialQty = totalMaterialDemand(readiness.Materials)
-			totalSubProductQty = totalSubProductDemand(readiness.SubProducts)
-		}
-		if explosion != nil {
-			nestingDepth = demandTreeDepth(explosion.Tree)
-		}
-		steps, err := s.stepRepo.ListByJobID(job.JobID)
-		if err != nil {
-			return nil, err
-		}
-		for _, step := range steps {
-			if step.StepID == "" {
-				continue
-			}
-			processStep, err := s.processRepo.GetStepByID(step.StepID)
-			if err != nil {
-				continue
-			}
-			slots, err := s.slotRepo.ListByJobStepID(step.JobStepID)
-			if err != nil {
-				return nil, err
-			}
-			for _, slot := range slots {
-				machine, _ := s.machineRepo.GetByID(slot.MachineID)
-				hasCap, cap, _ := s.capRepo.HasCapability(slot.MachineID, step.StepID)
-				var proposal *domain.AIProposal
-				if s.proposalRepo != nil && slot.ProposalID != "" {
-					proposal, _ = s.proposalRepo.GetByID(slot.ProposalID)
-				}
-				// Require proposal snapshots with vectors to prevent target leakage.
-				// Rows without snapshot vectors are skipped to guarantee a consistent dataset shape.
-				var snap *snapshotVectors
-				if proposal != nil && proposal.SnapshotJSON != "" {
-					if cached, ok := snapshotCache[proposal.ProposalID]; ok {
-						snap = cached
-					} else {
-						var decoded snapshotVectors
-						if err := json.Unmarshal([]byte(proposal.SnapshotJSON), &decoded); err == nil &&
-							len(decoded.MachineIDs) > 0 &&
-							len(decoded.QueueLengthsVector) == len(decoded.MachineIDs) &&
-							len(decoded.MachineUtilizationVector) == len(decoded.MachineIDs) {
-							snap = &decoded
-						}
-						snapshotCache[proposal.ProposalID] = snap
-					}
-				}
-				if snap == nil {
-					continue
-				}
-				if !hasCap || cap == nil {
-					cap = &domain.MachineCapabilities{EfficiencyFactor: 1}
-				}
-				calendars, _ := s.machineRepo.ListCalendarByMachineID(slot.MachineID)
-				produced, _ := s.logRepo.SumProducedBySlotID(slot.SlotID)
-				logs, _ := s.logRepo.ListBySlotID(slot.SlotID)
-				scrap := 0
-				var actualEnd *time.Time
-				for _, log := range logs {
-					scrap += log.QuantityScrap
-					if actualEnd == nil || log.EndTime.After(*actualEnd) {
-						end := log.EndTime
-						actualEnd = &end
-					}
-				}
-				completionRatio := 0.0
-				if slot.QuantityPlanned > 0 {
-					completionRatio = float64(produced) / float64(slot.QuantityPlanned)
-				}
-				delayMinutes := 0
-				if actualEnd != nil && actualEnd.After(slot.ScheduledEnd) {
-					delayMinutes = int(actualEnd.Sub(slot.ScheduledEnd).Minutes())
-				}
-				maintenanceDueInDays := 0
-				if machine != nil {
-					base := time.Now()
-					if machine.LastMaintenanceDate != nil {
-						base = *machine.LastMaintenanceDate
-					}
-					dueAt := base.AddDate(0, 0, machine.MaintenanceIntervalDays)
-					maintenanceDueInDays = int(dueAt.Sub(slot.ScheduledStart).Hours() / 24)
-				}
-				rows = append(rows, TrainingDatasetRow{
-					JobID:                job.JobID,
-					ProductID:            job.ProductID,
-					JobPriority:          job.Priority,
-					JobDeadline:          job.Deadline,
-					JobQuantityTotal:     job.QuantityTotal,
-					JobQuantityCompleted: job.QuantityCompleted,
-					CanStartNow:          readiness != nil && readiness.CanStartNow,
-					EarliestReadyAt: func() *time.Time {
-						if readiness == nil {
-							return nil
-						}
-						return readiness.EarliestReadyAt
-					}(),
-					MaterialShortageCount:   materialShortages,
-					SubProductShortageCount: subProductShortages,
-					TotalMaterialDemand:     totalMaterialQty,
-					TotalSubProductDemand:   totalSubProductQty,
-					ProductNestingDepth:     nestingDepth,
-					JobStepID:               step.JobStepID,
-					StepID:                  step.StepID,
-					StepSequence:            step.StepSequence,
-					StepType:                processStep.StepType,
-					ProposalID:              slot.ProposalID,
-					ProposalStatus: func() string {
-						if proposal == nil {
-							return ""
-						}
-						return proposal.Status
-					}(),
-					ProposalEngine: func() string {
-						if proposal == nil {
-							return ""
-						}
-						return proposal.Engine
-					}(),
-					ProposalObjectiveScore: func() float64 {
-						if proposal == nil {
-							return 0
-						}
-						return proposal.ObjectiveScore
-					}(),
-					ProposalOutcomeRecorded: func() bool { return proposal != nil && proposal.OutcomeJSON != "" }(),
-					ProposalRolloutState: func() string {
-						if proposal == nil {
-							return ""
-						}
-						return proposal.RolloutState
-					}(),
-					EstimateDeviationMins: func() int {
-						if proposal == nil {
-							return 0
-						}
-						return proposal.EstimateDeviationMins
-					}(),
-					SnapshotMachineIDs:       snap.MachineIDs,
-					QueueLengthsVector:       snap.QueueLengthsVector,
-					MachineUtilizationVector: snap.MachineUtilizationVector,
-					MachineTypeRequired:      processStep.MachineTypeRequired,
-					AllowParallelExecution:   processStep.AllowParallelExecution,
-					MaxParallelMachines:      processStep.MaxParallelMachines,
-					MinSplitQty:              processStep.MinSplitQty,
-					TransferBatchSize:        processStep.TransferBatchSize,
-					SlotID:                   slot.SlotID,
-					MachineID:                slot.MachineID,
-					MachineStatus: func() string {
-						if machine == nil {
-							return ""
-						}
-						return machine.Status
-					}(),
-					MachineCapacityPerHour: func() int {
-						if machine == nil {
-							return 0
-						}
-						return machine.CapacityPerHour
-					}(),
-					MachineUtilizationRate: func() float64 {
-						if machine == nil {
-							return 0
-						}
-						return machine.UtilizationRate
-					}(),
-					MachineEfficiencyFactor: cap.EfficiencyFactor,
-					MachineHasCalendar:      len(calendars) > 0,
-					MaintenanceDueInDays:    maintenanceDueInDays,
-					ScheduledStart:          slot.ScheduledStart,
-					ScheduledEnd:            slot.ScheduledEnd,
-					QuantityPlanned:         slot.QuantityPlanned,
-					AllocationPercent:       slot.AllocationPercent,
-					IsParallel:              slot.IsParallel,
-					ProducedQty:             produced,
-					ScrapQty:                scrap,
-					SlotStatus:              slot.Status,
-					CompletionRatio:         completionRatio,
-					ActualEnd:               actualEnd,
-					DelayMinutes:            delayMinutes,
-				})
-			}
-		}
+	rows := make([]TrainingDatasetRow, 0, len(events))
+	for _, event := range events {
+		rows = append(rows, toTrainingDatasetRow(event))
 	}
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].JobID == rows[j].JobID {
+			if rows[i].ScheduledStart.Equal(rows[j].ScheduledStart) {
+				if rows[i].LineageID == rows[j].LineageID {
+					return rows[i].SlotID < rows[j].SlotID
+				}
+				return rows[i].LineageID < rows[j].LineageID
+			}
 			return rows[i].ScheduledStart.Before(rows[j].ScheduledStart)
 		}
 		return rows[i].JobID < rows[j].JobID
 	})
 	return rows, nil
+}
+
+func (s *SchedulingService) TrainingDatasetStats(since *time.Time) (*TrainingDatasetStats, error) {
+	if s.trainingRepo == nil {
+		return nil, errors.New("ml training repository not configured")
+	}
+	stats, err := s.trainingRepo.Stats(since)
+	if err != nil {
+		return nil, err
+	}
+	return &TrainingDatasetStats{
+		TotalRows:               stats.TotalRows,
+		OutcomeRows:             stats.OutcomeRows,
+		LatestCapturedAt:        stats.LatestCapturedAt,
+		LatestOutcomeRecordedAt: stats.LatestOutcomeRecordedAt,
+		OutcomeRowsSince:        stats.OutcomeRowsSince,
+	}, nil
+}
+
+func (s *SchedulingService) BackfillMLTrainingEvents() error {
+	if s.trainingRepo == nil || s.jobRepo == nil || s.stepRepo == nil || s.slotRepo == nil {
+		return nil
+	}
+	jobs, err := s.jobRepo.ListAll()
+	if err != nil {
+		return err
+	}
+	for _, job := range jobs {
+		steps, err := s.stepRepo.ListByJobID(job.JobID)
+		if err != nil {
+			return err
+		}
+		for _, step := range steps {
+			slots, err := s.slotRepo.ListByJobStepID(step.JobStepID)
+			if err != nil {
+				return err
+			}
+			for _, slot := range slots {
+				if err := s.CaptureMLTrainingEventForSlot(slot.SlotID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (s *SchedulingService) CaptureMLTrainingEventForSlot(slotID string) error {
+	if s == nil || s.trainingRepo == nil || s.slotRepo == nil || strings.TrimSpace(slotID) == "" {
+		return nil
+	}
+	slot, err := s.slotRepo.GetByID(slotID)
+	if err != nil {
+		return err
+	}
+	event, err := s.buildMLTrainingEventForSlot(slot)
+	if err != nil {
+		return err
+	}
+	return s.trainingRepo.Upsert(event)
+}
+
+func (s *SchedulingService) CaptureMLTrainingEventForProposalRecord(record *domain.AIProposal, proposal *SchedulingProposal) error {
+	if s == nil || s.trainingRepo == nil || record == nil || proposal == nil || len(proposal.ProposedSlots) == 0 {
+		return nil
+	}
+	if err := s.trainingRepo.DeleteDraftByProposalID(record.ProposalID); err != nil {
+		return err
+	}
+	stepCache := make(map[string]*domain.JobSteps)
+	processCache := make(map[string]*domain.ProcessSteps)
+	snap := decodeSnapshotVectors(record)
+	for _, proposed := range proposal.ProposedSlots {
+		step := stepCache[proposed.JobStepID]
+		if step == nil {
+			loaded, err := s.stepRepo.GetByID(proposed.JobStepID)
+			if err != nil {
+				return err
+			}
+			step = loaded
+			stepCache[proposed.JobStepID] = step
+		}
+		processStep := processCache[step.StepID]
+		if processStep == nil {
+			loaded, err := s.processRepo.GetStepByID(step.StepID)
+			if err != nil {
+				return err
+			}
+			processStep = loaded
+			processCache[step.StepID] = processStep
+		}
+		job, err := s.jobRepo.GetByID(step.JobID)
+		if err != nil {
+			return err
+		}
+		capturedAt := record.GeneratedAt
+		if capturedAt.IsZero() {
+			capturedAt = proposed.ScheduledStart
+		}
+		event, err := s.buildMLTrainingEvent(mlTrainingEventSpec{
+			LineageID:         proposalSlotLineageID(record.ProposalID, proposed.JobStepID, proposed.MachineID, proposed.ScheduledStart, proposed.ScheduledEnd, record.ProposalID, proposed.BatchSequence),
+			Job:               job,
+			Step:              step,
+			ProcessStep:       processStep,
+			Proposal:          record,
+			Snapshot:          snap,
+			MachineID:         proposed.MachineID,
+			ScheduledStart:    proposed.ScheduledStart,
+			ScheduledEnd:      proposed.ScheduledEnd,
+			QuantityPlanned:   proposed.QuantityPlanned,
+			AllocationPercent: proposed.AllocationPercent,
+			SplitGroupID:      record.ProposalID,
+			IsParallel:        proposed.IsParallel,
+			BatchSequence:     proposed.BatchSequence,
+			CapturedAt:        capturedAt,
+		})
+		if err != nil {
+			return err
+		}
+		if err := s.trainingRepo.Upsert(event); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SchedulingService) buildMLTrainingEventForSlot(slot *domain.JobStepScheduleSlots) (*domain.MLTrainingEvent, error) {
+	if slot == nil {
+		return nil, errors.New("nil slot")
+	}
+	step, err := s.stepRepo.GetByID(slot.JobStepID)
+	if err != nil {
+		return nil, err
+	}
+	job, err := s.jobRepo.GetByID(step.JobID)
+	if err != nil {
+		return nil, err
+	}
+	processStep, err := s.processRepo.GetStepByID(step.StepID)
+	if err != nil {
+		return nil, err
+	}
+	var proposal *domain.AIProposal
+	if s.proposalRepo != nil && slot.ProposalID != "" {
+		proposal, _ = s.proposalRepo.GetByID(slot.ProposalID)
+	}
+	snap := decodeSnapshotVectors(proposal)
+	capturedAt := job.CreatedAt
+	if proposal != nil && !proposal.GeneratedAt.IsZero() {
+		capturedAt = proposal.GeneratedAt
+	}
+	if capturedAt.IsZero() {
+		capturedAt = slot.ScheduledStart
+	}
+	lineageID := slot.SlotID
+	if slot.ProposalID != "" {
+		splitGroupID := strings.TrimSpace(slot.SplitGroupID)
+		if splitGroupID == "" {
+			splitGroupID = slot.ProposalID
+		}
+		lineageID = proposalSlotLineageID(slot.ProposalID, slot.JobStepID, slot.MachineID, slot.ScheduledStart, slot.ScheduledEnd, splitGroupID, slot.BatchSequence)
+	}
+	slotID := slot.SlotID
+	return s.buildMLTrainingEvent(mlTrainingEventSpec{
+		LineageID:         lineageID,
+		SlotID:            &slotID,
+		Job:               job,
+		Step:              step,
+		ProcessStep:       processStep,
+		Proposal:          proposal,
+		Snapshot:          snap,
+		MachineID:         slot.MachineID,
+		ScheduledStart:    slot.ScheduledStart,
+		ScheduledEnd:      slot.ScheduledEnd,
+		QuantityPlanned:   slot.QuantityPlanned,
+		AllocationPercent: slot.AllocationPercent,
+		SplitGroupID:      slot.SplitGroupID,
+		IsParallel:        slot.IsParallel,
+		BatchSequence:     slot.BatchSequence,
+		SlotStatus:        slot.Status,
+		CapturedAt:        capturedAt,
+		Slot:              slot,
+	})
+}
+
+func proposalSlotLineageID(proposalID, jobStepID, machineID string, scheduledStart, scheduledEnd time.Time, splitGroupID string, batchSequence int) string {
+	payload := fmt.Sprintf(
+		"%s|%s|%s|%s|%s|%s|%d",
+		strings.TrimSpace(proposalID),
+		strings.TrimSpace(jobStepID),
+		strings.TrimSpace(machineID),
+		scheduledStart.UTC().Format(time.RFC3339Nano),
+		scheduledEnd.UTC().Format(time.RFC3339Nano),
+		strings.TrimSpace(splitGroupID),
+		batchSequence,
+	)
+	sum := sha256.Sum256([]byte(payload))
+	return "MLLINE-" + hex.EncodeToString(sum[:16])
+}
+
+func (s *SchedulingService) buildMLTrainingEvent(spec mlTrainingEventSpec) (*domain.MLTrainingEvent, error) {
+	if spec.Job == nil || spec.Step == nil || spec.ProcessStep == nil {
+		return nil, errors.New("ml training event context is incomplete")
+	}
+
+	readiness, _ := s.CheckReadiness(spec.Job.ProductID, float64(spec.Job.QuantityTotal))
+	explosion, _ := s.ExplodeDemand(spec.Job.ProductID, float64(spec.Job.QuantityTotal))
+
+	materialShortages := 0
+	subProductShortages := 0
+	totalMaterialQty := 0.0
+	totalSubProductQty := 0.0
+	nestingDepth := 0
+	var earliestReadyAt *time.Time
+	canStartNow := false
+	if readiness != nil {
+		canStartNow = readiness.CanStartNow
+		earliestReadyAt = readiness.EarliestReadyAt
+		for _, material := range readiness.Materials {
+			if material.ShortageQty > 0 {
+				materialShortages++
+			}
+		}
+		for _, subProduct := range readiness.SubProducts {
+			if subProduct.ShortageQty > 0 {
+				subProductShortages++
+			}
+		}
+		totalMaterialQty = totalMaterialDemand(readiness.Materials)
+		totalSubProductQty = totalSubProductDemand(readiness.SubProducts)
+	}
+	if explosion != nil {
+		nestingDepth = demandTreeDepth(explosion.Tree)
+	}
+
+	machine, _ := s.machineRepo.GetByID(spec.MachineID)
+	_, cap, _ := s.capRepo.HasCapability(spec.MachineID, spec.Step.StepID)
+	if cap == nil {
+		cap = &domain.MachineCapabilities{EfficiencyFactor: 1}
+	}
+	calendars, _ := s.machineRepo.ListCalendarByMachineID(spec.MachineID)
+
+	queueLenAtPlan, maxQueueLen := s.queueFeaturesForEvent(spec, spec.Snapshot)
+	util1h, util8h, util24h, util7d := s.machineUtilizationWindows(spec.MachineID, spec.ScheduledStart)
+	prevProductID, setupMins, samePrevProduct, changeoverCount24h := s.machineHistoryFeatures(spec.MachineID, spec.ScheduledStart, spec.Job.ProductID)
+	upstreamLateness, predecessorReadyAt := s.upstreamLatenessForStep(spec.Step, spec.ScheduledStart)
+	queueReadyAt := predecessorReadyAt
+	if earliestReadyAt != nil && (queueReadyAt == nil || earliestReadyAt.After(*queueReadyAt)) {
+		queueReadyAt = earliestReadyAt
+	}
+	queueWaitMinutes := 0
+	if queueReadyAt != nil && spec.ScheduledStart.After(*queueReadyAt) {
+		queueWaitMinutes = int(spec.ScheduledStart.Sub(*queueReadyAt).Minutes())
+	}
+	readinessDelayMinutes := 0
+	if earliestReadyAt != nil && spec.CapturedAt.Before(*earliestReadyAt) {
+		readinessDelayMinutes = int(earliestReadyAt.Sub(spec.CapturedAt).Minutes())
+	}
+
+	produced, scrap, actualStart, actualEnd, actualDurationMins, completionRatio, delayMinutes, plannedVsActualRatio, scrapRate := s.slotOutcomeMetrics(spec.Slot)
+	maintenanceDueInDays := 0
+	if machine != nil {
+		base := spec.ScheduledStart
+		if machine.LastMaintenanceDate != nil {
+			base = *machine.LastMaintenanceDate
+		}
+		if machine.MaintenanceIntervalDays > 0 {
+			dueAt := base.AddDate(0, 0, machine.MaintenanceIntervalDays)
+			maintenanceDueInDays = int(dueAt.Sub(spec.ScheduledStart).Hours() / 24)
+		}
+	}
+
+	shiftName := s.shiftNameForTime(calendars, spec.ScheduledStart)
+	hoursToShiftEnd := s.hoursToShiftEnd(calendars, spec.ScheduledStart)
+	isHoliday := s.isPublicHolidayFromSettings(spec.ScheduledStart)
+	isNearHoliday := s.isPublicHolidayFromSettings(spec.ScheduledStart.AddDate(0, 0, 1)) || s.isPublicHolidayFromSettings(spec.ScheduledStart.AddDate(0, 0, -1))
+	snapshotMachineIDsJSON, _ := json.Marshal(spec.Snapshot.MachineIDs)
+	queueLengthsJSON, _ := json.Marshal(spec.Snapshot.QueueLengthsVector)
+	utilVectorJSON, _ := json.Marshal(spec.Snapshot.MachineUtilizationVector)
+
+	outcomeRecordedAt := actualEnd
+	if spec.Proposal != nil && spec.Proposal.LastOutcomeRecordedAt != nil {
+		outcomeRecordedAt = spec.Proposal.LastOutcomeRecordedAt
+	}
+
+	return &domain.MLTrainingEvent{
+		LineageID: spec.LineageID,
+		SlotID:    spec.SlotID,
+		JobID:     spec.Job.JobID,
+		JobStepID: spec.Step.JobStepID,
+		ProposalID: func() string {
+			if spec.Proposal != nil {
+				return spec.Proposal.ProposalID
+			}
+			return ""
+		}(),
+		ProductID: spec.Job.ProductID,
+		StepID:    spec.Step.StepID,
+		MachineID: spec.MachineID,
+		MachineType: func() string {
+			if machine != nil {
+				return machine.MachineType
+			}
+			return ""
+		}(),
+		ProposalStatus: func() string {
+			if spec.Proposal != nil {
+				return spec.Proposal.Status
+			}
+			return ""
+		}(),
+		ProposalEngine: func() string {
+			if spec.Proposal != nil {
+				return spec.Proposal.Engine
+			}
+			return ""
+		}(),
+		ProposalObjectiveScore: func() float64 {
+			if spec.Proposal != nil {
+				return spec.Proposal.ObjectiveScore
+			}
+			return 0
+		}(),
+		ProposalRolloutState: func() string {
+			if spec.Proposal != nil {
+				return spec.Proposal.RolloutState
+			}
+			return ""
+		}(),
+		JobPriority:             spec.Job.Priority,
+		JobDeadline:             spec.Job.Deadline,
+		JobQuantityTotal:        spec.Job.QuantityTotal,
+		JobQuantityCompleted:    spec.Job.QuantityCompleted,
+		CanStartNow:             canStartNow,
+		EarliestReadyAt:         earliestReadyAt,
+		MaterialShortageCount:   materialShortages,
+		SubProductShortageCount: subProductShortages,
+		TotalMaterialDemand:     totalMaterialQty,
+		TotalSubProductDemand:   totalSubProductQty,
+		ProductNestingDepth:     nestingDepth,
+		StepSequence:            spec.Step.StepSequence,
+		StepType:                spec.ProcessStep.StepType,
+		MachineTypeRequired:     spec.ProcessStep.MachineTypeRequired,
+		AllowParallelExecution:  spec.ProcessStep.AllowParallelExecution,
+		MaxParallelMachines:     spec.ProcessStep.MaxParallelMachines,
+		MinSplitQty:             spec.ProcessStep.MinSplitQty,
+		TransferBatchSize:       spec.ProcessStep.TransferBatchSize,
+		MachineStatus: func() string {
+			if machine != nil {
+				return machine.Status
+			}
+			return ""
+		}(),
+		MachineCapacityPerHour: func() int {
+			if machine != nil {
+				return machine.CapacityPerHour
+			}
+			return 0
+		}(),
+		MachineUtilizationRate: func() float64 {
+			if machine != nil {
+				return machine.UtilizationRate
+			}
+			return 0
+		}(),
+		MachineEfficiencyFactor:      cap.EfficiencyFactor,
+		MachineHasCalendar:           len(calendars) > 0,
+		MaintenanceDueInDays:         maintenanceDueInDays,
+		SnapshotMachineIDsJSON:       string(snapshotMachineIDsJSON),
+		QueueLengthsVectorJSON:       string(queueLengthsJSON),
+		MachineUtilizationVectorJSON: string(utilVectorJSON),
+		ScheduledStart:               spec.ScheduledStart,
+		ScheduledEnd:                 spec.ScheduledEnd,
+		PlannedDurationMins:          int(spec.ScheduledEnd.Sub(spec.ScheduledStart).Minutes()),
+		QuantityPlanned:              spec.QuantityPlanned,
+		AllocationPercent:            spec.AllocationPercent,
+		SplitGroupID:                 spec.SplitGroupID,
+		IsParallel:                   spec.IsParallel,
+		BatchSequence:                spec.BatchSequence,
+		SlotStatus:                   spec.SlotStatus,
+		ActualStart:                  actualStart,
+		ActualEnd:                    actualEnd,
+		ActualDurationMins:           actualDurationMins,
+		DelayMinutes:                 delayMinutes,
+		ProducedQty:                  produced,
+		ScrapQty:                     scrap,
+		CompletionRatio:              completionRatio,
+		PlannedVsActualRatio:         plannedVsActualRatio,
+		ScrapRate:                    scrapRate,
+		QueueWaitMinutes:             queueWaitMinutes,
+		QueueLenAtPlan:               queueLenAtPlan,
+		MaxQueueLen:                  maxQueueLen,
+		Util1h:                       util1h,
+		Util8h:                       util8h,
+		Util24h:                      util24h,
+		Util7d:                       util7d,
+		PrevProductIDOnMachine:       prevProductID,
+		SetupMinutesPrevChangeover:   setupMins,
+		SameProductAsPrevMachineJob:  samePrevProduct,
+		ChangeoverCount24h:           changeoverCount24h,
+		UpstreamLatenessMinutes:      upstreamLateness,
+		ReadinessDelayMinutes:        readinessDelayMinutes,
+		DayOfWeek:                    int(spec.ScheduledStart.Weekday()),
+		ShiftName:                    shiftName,
+		IsHoliday:                    isHoliday,
+		IsNearHoliday:                isNearHoliday,
+		IsWeekend:                    spec.ScheduledStart.Weekday() == time.Saturday || spec.ScheduledStart.Weekday() == time.Sunday,
+		HoursToShiftEnd:              hoursToShiftEnd,
+		DatasetVersion:               mlTrainingDatasetVersion,
+		CapturedAt:                   spec.CapturedAt,
+		OutcomeRecordedAt:            outcomeRecordedAt,
+	}, nil
+}
+
+func decodeSnapshotVectors(proposal *domain.AIProposal) snapshotVectors {
+	if proposal == nil || proposal.SnapshotJSON == "" {
+		return snapshotVectors{}
+	}
+	var snap snapshotVectors
+	if err := json.Unmarshal([]byte(proposal.SnapshotJSON), &snap); err != nil {
+		return snapshotVectors{}
+	}
+	return snap
+}
+
+func (s *SchedulingService) queueFeaturesForEvent(spec mlTrainingEventSpec, snap snapshotVectors) (int, int) {
+	if spec.MachineID == "" {
+		return 0, 0
+	}
+	if len(snap.MachineIDs) > 0 && len(snap.MachineIDs) == len(snap.QueueLengthsVector) {
+		maxQueue := 0
+		queueAtPlan := 0
+		for idx, machineID := range snap.MachineIDs {
+			if snap.QueueLengthsVector[idx] > maxQueue {
+				maxQueue = snap.QueueLengthsVector[idx]
+			}
+			if machineID == spec.MachineID {
+				queueAtPlan = snap.QueueLengthsVector[idx]
+			}
+		}
+		if queueAtPlan == 0 {
+			queueAtPlan = maxQueue
+		}
+		return queueAtPlan, maxQueue
+	}
+	slots, err := s.slotRepo.ListByMachineID(spec.MachineID)
+	if err != nil {
+		return 0, 0
+	}
+	count := 0
+	for _, other := range slots {
+		if spec.SlotID != nil && other.SlotID == *spec.SlotID {
+			continue
+		}
+		if other.Status == domain.SlotStatusCancelled {
+			continue
+		}
+		if !other.ScheduledEnd.After(spec.ScheduledStart) {
+			count++
+		}
+	}
+	return count, count
+}
+
+func (s *SchedulingService) slotOutcomeMetrics(slot *domain.JobStepScheduleSlots) (int, int, *time.Time, *time.Time, int, float64, int, float64, float64) {
+	if slot == nil {
+		return 0, 0, nil, nil, 0, 0, 0, 0, 0
+	}
+	produced := 0
+	scrap := 0
+	actualStart := slot.ActualStart
+	actualEnd := slot.ActualEnd
+	if s.logRepo != nil {
+		logs, err := s.logRepo.ListBySlotID(slot.SlotID)
+		if err == nil {
+			for _, log := range logs {
+				produced += log.QuantityProduced
+				scrap += log.QuantityScrap
+				if actualStart == nil || log.StartTime.Before(*actualStart) {
+					start := log.StartTime
+					actualStart = &start
+				}
+				if actualEnd == nil || log.EndTime.After(*actualEnd) {
+					end := log.EndTime
+					actualEnd = &end
+				}
+			}
+		}
+	}
+	actualDurationMins := 0
+	if actualStart != nil && actualEnd != nil && actualEnd.After(*actualStart) {
+		actualDurationMins = int(actualEnd.Sub(*actualStart).Minutes())
+	}
+	completionRatio := 0.0
+	if slot.QuantityPlanned > 0 {
+		completionRatio = float64(produced) / float64(slot.QuantityPlanned)
+	}
+	delayMinutes := 0
+	if actualEnd != nil && actualEnd.After(slot.ScheduledEnd) {
+		delayMinutes = int(actualEnd.Sub(slot.ScheduledEnd).Minutes())
+	}
+	plannedVsActualRatio := 0.0
+	plannedDuration := int(slot.ScheduledEnd.Sub(slot.ScheduledStart).Minutes())
+	if plannedDuration > 0 && actualDurationMins > 0 {
+		plannedVsActualRatio = float64(actualDurationMins) / float64(plannedDuration)
+	}
+	scrapRate := 0.0
+	totalOutput := produced + scrap
+	if totalOutput > 0 {
+		scrapRate = float64(scrap) / float64(totalOutput)
+	}
+	return produced, scrap, actualStart, actualEnd, actualDurationMins, completionRatio, delayMinutes, plannedVsActualRatio, scrapRate
+}
+
+func (s *SchedulingService) machineUtilizationWindows(machineID string, anchor time.Time) (float64, float64, float64, float64) {
+	slots, err := s.slotRepo.ListByMachineID(machineID)
+	if err != nil {
+		return 0, 0, 0, 0
+	}
+	calc := func(window time.Duration) float64 {
+		if window <= 0 {
+			return 0
+		}
+		windowStart := anchor.Add(-window)
+		occupied := 0.0
+		for _, slot := range slots {
+			if slot.Status == domain.SlotStatusCancelled {
+				continue
+			}
+			start := slot.ScheduledStart
+			end := slot.ScheduledEnd
+			if !end.After(windowStart) || !start.Before(anchor) {
+				continue
+			}
+			if start.Before(windowStart) {
+				start = windowStart
+			}
+			if end.After(anchor) {
+				end = anchor
+			}
+			if end.After(start) {
+				occupied += end.Sub(start).Minutes()
+			}
+		}
+		return math.Min(1, occupied/window.Minutes())
+	}
+	return calc(time.Hour), calc(8 * time.Hour), calc(24 * time.Hour), calc(7 * 24 * time.Hour)
+}
+
+func (s *SchedulingService) machineHistoryFeatures(machineID string, before time.Time, currentProductID string) (string, int, bool, int) {
+	lastRow, _ := s.slotRepo.GetLastSlotOnMachineBefore(machineID, before)
+	prevProductID := ""
+	setupMins := 0
+	samePrevProduct := false
+	if lastRow != nil {
+		prevProductID = lastRow.ProductID
+		samePrevProduct = prevProductID != "" && prevProductID == currentProductID
+		if s.setupRepo != nil && prevProductID != "" && currentProductID != "" && prevProductID != currentProductID {
+			setupMins, _ = s.setupRepo.GetSetupMinutes(machineID, prevProductID, currentProductID)
+		}
+	}
+	changeoverCount := 0
+	slots, err := s.slotRepo.ListByMachineID(machineID)
+	if err != nil {
+		return prevProductID, setupMins, samePrevProduct, 0
+	}
+	windowStart := before.Add(-24 * time.Hour)
+	stepCache := map[string]*domain.JobSteps{}
+	jobCache := map[string]*domain.Job{}
+	lastProduct := ""
+	for _, slot := range slots {
+		if slot.Status == domain.SlotStatusCancelled || slot.ScheduledEnd.Before(windowStart) || !slot.ScheduledEnd.Before(before) {
+			continue
+		}
+		step := stepCache[slot.JobStepID]
+		if step == nil {
+			step, _ = s.stepRepo.GetByID(slot.JobStepID)
+			if step != nil {
+				stepCache[slot.JobStepID] = step
+			}
+		}
+		if step == nil {
+			continue
+		}
+		job := jobCache[step.JobID]
+		if job == nil {
+			job, _ = s.jobRepo.GetByID(step.JobID)
+			if job != nil {
+				jobCache[step.JobID] = job
+			}
+		}
+		if job == nil {
+			continue
+		}
+		if lastProduct != "" && job.ProductID != lastProduct {
+			changeoverCount++
+		}
+		lastProduct = job.ProductID
+	}
+	return prevProductID, setupMins, samePrevProduct, changeoverCount
+}
+
+func (s *SchedulingService) upstreamLatenessForStep(step *domain.JobSteps, slotStart time.Time) (int, *time.Time) {
+	if step == nil {
+		return 0, nil
+	}
+	steps, err := s.stepRepo.ListByJobID(step.JobID)
+	if err != nil || len(steps) == 0 {
+		return 0, nil
+	}
+	var predecessor *domain.JobSteps
+	for i := range steps {
+		candidate := &steps[i]
+		if candidate.StepSequence < step.StepSequence {
+			if predecessor == nil || candidate.StepSequence > predecessor.StepSequence {
+				predecessor = candidate
+			}
+		}
+	}
+	if predecessor == nil {
+		return 0, nil
+	}
+	slots, err := s.slotRepo.ListByJobStepID(predecessor.JobStepID)
+	if err != nil || len(slots) == 0 {
+		return 0, nil
+	}
+	var predecessorReadyAt *time.Time
+	for _, prevSlot := range slots {
+		end := prevSlot.ScheduledEnd
+		if prevSlot.ActualEnd != nil {
+			end = *prevSlot.ActualEnd
+		}
+		if predecessorReadyAt == nil || end.After(*predecessorReadyAt) {
+			copyEnd := end
+			predecessorReadyAt = &copyEnd
+		}
+	}
+	if predecessorReadyAt == nil || !predecessorReadyAt.After(slotStart) {
+		return 0, predecessorReadyAt
+	}
+	return int(predecessorReadyAt.Sub(slotStart).Minutes()), predecessorReadyAt
+}
+
+func (s *SchedulingService) shiftNameForTime(calendars []domain.MachineCalendar, ts time.Time) string {
+	for _, calendar := range calendars {
+		if (calendar.StartTime.Before(ts) || calendar.StartTime.Equal(ts)) && calendar.EndTime.After(ts) {
+			return calendar.ShiftName
+		}
+	}
+	return ""
+}
+
+func (s *SchedulingService) hoursToShiftEnd(calendars []domain.MachineCalendar, ts time.Time) float64 {
+	for _, calendar := range calendars {
+		if (calendar.StartTime.Before(ts) || calendar.StartTime.Equal(ts)) && calendar.EndTime.After(ts) {
+			return calendar.EndTime.Sub(ts).Hours()
+		}
+	}
+	return 0
+}
+
+func decodeJSONStringSlice(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func decodeJSONIntSlice(raw string) []int {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var out []int
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func decodeJSONFloatSlice(raw string) []float64 {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var out []float64
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func derefString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+func toTrainingDatasetRow(event domain.MLTrainingEvent) TrainingDatasetRow {
+	return TrainingDatasetRow{
+		LineageID:                   event.LineageID,
+		JobID:                       event.JobID,
+		ProductID:                   event.ProductID,
+		JobPriority:                 event.JobPriority,
+		JobDeadline:                 event.JobDeadline,
+		JobQuantityTotal:            event.JobQuantityTotal,
+		JobQuantityCompleted:        event.JobQuantityCompleted,
+		CanStartNow:                 event.CanStartNow,
+		EarliestReadyAt:             event.EarliestReadyAt,
+		MaterialShortageCount:       event.MaterialShortageCount,
+		SubProductShortageCount:     event.SubProductShortageCount,
+		TotalMaterialDemand:         event.TotalMaterialDemand,
+		TotalSubProductDemand:       event.TotalSubProductDemand,
+		ProductNestingDepth:         event.ProductNestingDepth,
+		JobStepID:                   event.JobStepID,
+		StepID:                      event.StepID,
+		StepSequence:                event.StepSequence,
+		StepType:                    event.StepType,
+		ProposalID:                  event.ProposalID,
+		ProposalStatus:              event.ProposalStatus,
+		ProposalEngine:              event.ProposalEngine,
+		ProposalObjectiveScore:      event.ProposalObjectiveScore,
+		ProposalOutcomeRecorded:     event.OutcomeRecordedAt != nil,
+		ProposalRolloutState:        event.ProposalRolloutState,
+		MachineTypeRequired:         event.MachineTypeRequired,
+		AllowParallelExecution:      event.AllowParallelExecution,
+		MaxParallelMachines:         event.MaxParallelMachines,
+		MinSplitQty:                 event.MinSplitQty,
+		TransferBatchSize:           event.TransferBatchSize,
+		SlotID:                      derefString(event.SlotID),
+		MachineID:                   event.MachineID,
+		MachineStatus:               event.MachineStatus,
+		MachineCapacityPerHour:      event.MachineCapacityPerHour,
+		MachineUtilizationRate:      event.MachineUtilizationRate,
+		MachineEfficiencyFactor:     event.MachineEfficiencyFactor,
+		MachineHasCalendar:          event.MachineHasCalendar,
+		MaintenanceDueInDays:        event.MaintenanceDueInDays,
+		ScheduledStart:              event.ScheduledStart,
+		ScheduledEnd:                event.ScheduledEnd,
+		QuantityPlanned:             event.QuantityPlanned,
+		AllocationPercent:           event.AllocationPercent,
+		IsParallel:                  event.IsParallel,
+		ProducedQty:                 event.ProducedQty,
+		ScrapQty:                    event.ScrapQty,
+		SlotStatus:                  event.SlotStatus,
+		CompletionRatio:             event.CompletionRatio,
+		PlannedDurationMins:         event.PlannedDurationMins,
+		ActualStart:                 event.ActualStart,
+		ActualEnd:                   event.ActualEnd,
+		ActualDurationMins:          event.ActualDurationMins,
+		DelayMinutes:                event.DelayMinutes,
+		PlannedVsActualRatio:        event.PlannedVsActualRatio,
+		ScrapRate:                   event.ScrapRate,
+		SnapshotMachineIDs:          decodeJSONStringSlice(event.SnapshotMachineIDsJSON),
+		QueueLengthsVector:          decodeJSONIntSlice(event.QueueLengthsVectorJSON),
+		MachineUtilizationVector:    decodeJSONFloatSlice(event.MachineUtilizationVectorJSON),
+		QueueWaitMinutes:            event.QueueWaitMinutes,
+		QueueLenAtPlan:              event.QueueLenAtPlan,
+		MaxQueueLen:                 event.MaxQueueLen,
+		Util1h:                      event.Util1h,
+		Util8h:                      event.Util8h,
+		Util24h:                     event.Util24h,
+		Util7d:                      event.Util7d,
+		PrevProductIDOnMachine:      event.PrevProductIDOnMachine,
+		SetupMinutesPrevChangeover:  event.SetupMinutesPrevChangeover,
+		SameProductAsPrevMachineJob: event.SameProductAsPrevMachineJob,
+		ChangeoverCount24h:          event.ChangeoverCount24h,
+		UpstreamLatenessMinutes:     event.UpstreamLatenessMinutes,
+		ReadinessDelayMinutes:       event.ReadinessDelayMinutes,
+		DayOfWeek:                   event.DayOfWeek,
+		ShiftName:                   event.ShiftName,
+		IsHoliday:                   event.IsHoliday,
+		IsNearHoliday:               event.IsNearHoliday,
+		IsWeekend:                   event.IsWeekend,
+		HoursToShiftEnd:             event.HoursToShiftEnd,
+		DatasetVersion:              event.DatasetVersion,
+		CapturedAt:                  event.CapturedAt,
+		OutcomeRecordedAt:           event.OutcomeRecordedAt,
+	}
 }
 
 func (s *SchedulingService) expandProduct(productID string, quantity float64, path map[string]bool, materials map[string]*DemandMaterial, subProducts map[string]*DemandSubProduct) (DemandTreeNode, error) {

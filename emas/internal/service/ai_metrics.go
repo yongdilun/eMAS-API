@@ -18,8 +18,16 @@ type AIMetrics struct {
 	AcceptanceRate           float64 `json:"acceptance_rate"`
 	AvgEstimateDeviationMins float64 `json:"avg_estimate_deviation_mins"`
 	AvgScrapQty              float64 `json:"avg_scrap_qty"`
+	MLPredictionSuccesses    int     `json:"ml_prediction_successes"`
+	MLPredictionFailures     int     `json:"ml_prediction_failures"`
+	MLLowConfidenceFallbacks int     `json:"ml_low_confidence_fallbacks"`
+	MLAverageLatencyMs       float64 `json:"ml_average_latency_ms"`
+	MLAverageFeatureCoverage float64 `json:"ml_average_feature_coverage"`
 	RolloutState             string  `json:"rollout_state"`
 	KpiGatePassed            bool    `json:"kpi_gate_passed"`
+
+	mlLatencySamples         int `json:"-"`
+	mlFeatureCoverageSamples int `json:"-"`
 }
 
 func NewAIMetrics() *AIMetrics {
@@ -36,4 +44,30 @@ func (m *AIMetrics) Inc(field *int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	*field = *field + 1
+}
+
+func (m *AIMetrics) RecordMLSuccess(latencyMs, featureCoverage float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.MLPredictionSuccesses++
+	m.mlLatencySamples++
+	m.MLAverageLatencyMs += (latencyMs - m.MLAverageLatencyMs) / float64(m.mlLatencySamples)
+	m.mlFeatureCoverageSamples++
+	m.MLAverageFeatureCoverage += (featureCoverage - m.MLAverageFeatureCoverage) / float64(m.mlFeatureCoverageSamples)
+}
+
+func (m *AIMetrics) RecordMLFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.MLPredictionFailures++
+}
+
+func (m *AIMetrics) RecordMLLowConfidenceFallback(latencyMs, featureCoverage float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.MLLowConfidenceFallbacks++
+	m.mlLatencySamples++
+	m.MLAverageLatencyMs += (latencyMs - m.MLAverageLatencyMs) / float64(m.mlLatencySamples)
+	m.mlFeatureCoverageSamples++
+	m.MLAverageFeatureCoverage += (featureCoverage - m.MLAverageFeatureCoverage) / float64(m.mlFeatureCoverageSamples)
 }

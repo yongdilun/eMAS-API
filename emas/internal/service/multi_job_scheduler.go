@@ -177,26 +177,26 @@ func (s *AIPredictiveService) ScheduleJobSet(ctx context.Context, jobIDs []strin
 		if opts.PersistProposals && s.proposalRepo != nil {
 			now := time.Now().UTC()
 			record := &domain.AIProposal{
-				ProposalID:           proposalID,
-				JobID:                job.JobID,
-				Version:              version,
-				Status:               domain.AIProposalStatusDraft,
-				RolloutState:         featureflags.RolloutState(),
-				Engine:               proposal.Engine,
-				EngineVersion:        proposal.EngineVersion,
-				ObjectiveScore:       proposal.ObjectiveScore,
-				ShadowEngine:         proposal.ShadowEngine,
-				ShadowObjectiveScore: proposal.ShadowObjectiveScore,
-				FallbackReason:       proposal.FallbackReason,
-				InputHash:            snapshotHash,
-				SummaryText:          joinStrings(proposal.Summary),
-				GeneratedBy:          defaultActor(generatedBy),
-				GeneratedAt:          now,
-				CreatedAt:            now,
-				UpdatedAt:            now,
-				SnapshotJSON:         snapshotJSON,
-				ProposalJSON:         mustJSON(proposal),
-				ShadowProposalJSON:   "",
+				ProposalID:            proposalID,
+				JobID:                 job.JobID,
+				Version:               version,
+				Status:                domain.AIProposalStatusDraft,
+				RolloutState:          featureflags.RolloutState(),
+				Engine:                proposal.Engine,
+				EngineVersion:         proposal.EngineVersion,
+				ObjectiveScore:        proposal.ObjectiveScore,
+				ShadowEngine:          proposal.ShadowEngine,
+				ShadowObjectiveScore:  proposal.ShadowObjectiveScore,
+				FallbackReason:        proposal.FallbackReason,
+				InputHash:             snapshotHash,
+				SummaryText:           joinStrings(proposal.Summary),
+				GeneratedBy:           defaultActor(generatedBy),
+				GeneratedAt:           now,
+				CreatedAt:             now,
+				UpdatedAt:             now,
+				SnapshotJSON:          snapshotJSON,
+				ProposalJSON:          mustJSON(proposal),
+				ShadowProposalJSON:    "",
 				EstimatedCompletionAt: proposal.EstimatedCompletion,
 				OutcomeStatus:         "pending_execution",
 			}
@@ -219,7 +219,7 @@ func (s *AIPredictiveService) ScheduleJobSet(ctx context.Context, jobIDs []strin
 
 		for _, ps := range proposal.ProposedSlots {
 			tentativeSlots = append(tentativeSlots, TentativeSlot{
-				MachineID:     ps.MachineID,
+				MachineID:      ps.MachineID,
 				ScheduledStart: ps.ScheduledStart,
 				ScheduledEnd:   ps.ScheduledEnd,
 			})
@@ -255,6 +255,15 @@ func (s *AIPredictiveService) ScheduleJobSet(ctx context.Context, jobIDs []strin
 			record.UpdatedAt = time.Now().UTC()
 			if err := s.proposalRepo.Update(record); err != nil {
 				return nil, nil, err
+			}
+			if s.scheduling != nil {
+				if err := s.scheduling.CaptureMLTrainingEventForProposalRecord(record, p); err != nil {
+					logger.L().Warn("batch_proposal_ml_training_capture_failed",
+						zap.String("proposal_id", p.ProposalID),
+						zap.String("job_id", p.JobID),
+						zap.Error(err),
+					)
+				}
 			}
 		}
 	}
@@ -586,14 +595,14 @@ func logProposalStage(proposals []*SchedulingProposal, stage string) {
 
 // BatchProposalSummary summarizes batch proposal generation results.
 type BatchProposalSummary struct {
-	Generated   int          `json:"generated"`
-	Blocked     int          `json:"blocked"`
-	Skipped     int          `json:"skipped"`
-	OnTimeCount int          `json:"on_time_count"`   // proposals with !is_late
-	LateCount   int          `json:"late_count"`      // proposals with is_late
-	LateJobs    []LateJobRef `json:"late_jobs,omitempty"` // for quick frontend filtering
-	MaxDelayRatio    float64 `json:"max_delay_ratio,omitempty"`
-	StarvedJobsCount int     `json:"starved_jobs_count,omitempty"`
+	Generated        int          `json:"generated"`
+	Blocked          int          `json:"blocked"`
+	Skipped          int          `json:"skipped"`
+	OnTimeCount      int          `json:"on_time_count"`       // proposals with !is_late
+	LateCount        int          `json:"late_count"`          // proposals with is_late
+	LateJobs         []LateJobRef `json:"late_jobs,omitempty"` // for quick frontend filtering
+	MaxDelayRatio    float64      `json:"max_delay_ratio,omitempty"`
+	StarvedJobsCount int          `json:"starved_jobs_count,omitempty"`
 }
 
 // LateJobRef references a job that is late; used in batch summary.

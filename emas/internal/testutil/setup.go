@@ -38,13 +38,20 @@ func NewTestDB(t interface {
 	if sharedTestDB == nil {
 		runtime.GC()
 		debug.FreeOSMemory()
-		db, err := gorm.Open(gormlite.Open(":memory:"), &gorm.Config{})
+		db, err := gorm.Open(gormlite.Open("file:emas_test_shared?mode=memory&cache=shared"), &gorm.Config{})
 		if err != nil {
 			if contains(err.Error(), "CGO_ENABLED") || contains(err.Error(), "cgo") {
 				t.Skip("Skipping test: SQLite requires CGO. Run with CGO_ENABLED=1 and gcc installed.")
 			}
 			t.Fatal("open test db:", err)
 		}
+		sqlDB, err := db.DB()
+		if err != nil {
+			t.Fatal("open test sql db:", err)
+		}
+		sqlDB.SetMaxOpenConns(1)
+		sqlDB.SetMaxIdleConns(1)
+		sqlDB.SetConnMaxLifetime(0)
 		sharedTestDB = newTestDBWithDB(t, db)
 	}
 	if err := resetTestDB(sharedTestDB); err != nil {
@@ -62,6 +69,7 @@ func resetTestDB(db *gorm.DB) error {
 		"quality_inspection_records",
 		"production_logs",
 		"ai_proposals",
+		"ml_training_events",
 		"inventory_reservations",
 		"product_inventory",
 		"inventory_expected_arrivals",

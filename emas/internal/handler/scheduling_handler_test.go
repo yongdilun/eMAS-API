@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"emas/internal/domain"
 	"emas/internal/router"
 	"emas/internal/testutil"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func TestSchedulingHandler_Features(t *testing.T) {
@@ -19,6 +21,7 @@ func TestSchedulingHandler_Features(t *testing.T) {
 	testSchedulingHandlerCandidateMachines(t, r)
 	testSchedulingHandlerPrecedence(t, r)
 	testSchedulingHandlerSolverPreview(t, r)
+	testSchedulingTrainingDatasetMaintenanceFlow(t, db, r)
 }
 
 func testSchedulingHandlerReadiness(t *testing.T, r *gin.Engine) {
@@ -123,11 +126,11 @@ func testSchedulingHandlerPrecedence(t *testing.T, r *gin.Engine) {
 	start := time.Now().UTC().Add(1 * time.Hour)
 	end := start.Add(1 * time.Hour)
 	w = testutil.Request(r, "POST", "/api/v1/scheduling/slots/validate", map[string]interface{}{
-		"job_step_id": secondStepID,
-		"machine_id": "M-WELD",
+		"job_step_id":     secondStepID,
+		"machine_id":      "M-WELD",
 		"scheduled_start": start.Format(time.RFC3339),
-		"scheduled_end": end.Format(time.RFC3339),
-		"quantity": 10,
+		"scheduled_end":   end.Format(time.RFC3339),
+		"quantity":        10,
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("validate slot: got %d, body: %s", w.Code, w.Body.String())
@@ -138,7 +141,14 @@ func testSchedulingHandlerPrecedence(t *testing.T, r *gin.Engine) {
 		t.Fatal("expected validation to fail for unscheduled predecessor")
 	}
 	reasons := payload["reasons"].([]interface{})
-	if len(reasons) == 0 || !strings.Contains(reasons[0].(string), "previous process step") {
+	foundPrecedence := false
+	for _, reason := range reasons {
+		if strings.Contains(reason.(string), "previous process step") {
+			foundPrecedence = true
+			break
+		}
+	}
+	if !foundPrecedence {
 		t.Fatalf("expected precedence reason, got %#v", reasons)
 	}
 }
@@ -177,5 +187,85 @@ func testSchedulingHandlerSolverPreview(t *testing.T, r *gin.Engine) {
 	steps := payload["steps"].([]interface{})
 	if len(steps) == 0 {
 		t.Fatal("expected solver preview steps")
+	}
+}
+
+func testSchedulingTrainingDatasetMaintenanceFlow(t *testing.T, db *gorm.DB, r *gin.Engine) {
+	testutil.Request(r, "POST", "/api/v1/products", map[string]interface{}{
+		"product_id": "P-TRAIN", "product_name": "Training Product",
+	})
+	testutil.Request(r, "POST", "/api/v1/processes", map[string]interface{}{
+		"process_id": "PRC-TRAIN", "product_id": "P-TRAIN", "process_name": "Training Process",
+	})
+	testutil.Request(r, "POST", "/api/v1/processes/PRC-TRAIN/steps", map[string]interface{}{
+		"step_id": "STEP-TRAIN", "step_name": "Training Step", "machine_type_required": "TRN",
+	})
+	testutil.Request(r, "POST", "/api/v1/machines", map[string]interface{}{
+		"machine_id": "M-TRAIN", "machine_name": "Training Machine", "machine_type": "TRN",
+	})
+	w := testutil.Request(r, "POST", "/api/v1/jobs", map[string]interface{}{
+		"product_id": "P-TRAIN", "quantity_total": 12, "deadline": "2026-08-05T10:00:00Z",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create training job: got %d, body: %s", w.Code, w.Body.String())
+	}
+	_, data, _ := testutil.DecodeResponse(w)
+	jobID := data.(map[string]interface{})["job_id"].(string)
+	w = testutil.Request(r, "POST", "/api/v1/job-steps", map[string]interface{}{"job_id": jobID})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create training job steps: got %d, body: %s", w.Code, w.Body.String())
+	}
+	w = testutil.Request(r, "GET", "/api/v1/jobs/"+jobID+"/steps", nil)
+	_, data, _ = testutil.DecodeResponse(w)
+	jobStepID := data.([]interface{})[0].(map[string]interface{})["job_step_id"].(string)
+	w = testutil.Request(r, "POST", "/api/v1/job-steps/split", map[string]interface{}{
+		"job_step_id": jobStepID,
+		"splits": []map[string]interface{}{
+			{"machine_id": "M-TRAIN", "start_time": "2026-08-03T02:00:00Z", "duration_mins": 60, "quantity": 12},
+		},
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create training slot: got %d, body: %s", w.Code, w.Body.String())
+	}
+
+	if err := db.Exec("DELETE FROM ml_training_events").Error; err != nil {
+		t.Fatalf("clear ml_training_events: %v", err)
+	}
+
+	w = testutil.Request(r, "GET", "/api/v1/scheduling/training-dataset", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("training dataset export: got %d, body: %s", w.Code, w.Body.String())
+	}
+	success, data, _ := testutil.DecodeResponse(w)
+	if !success {
+		t.Fatal("training dataset export: success false")
+	}
+	if len(data.([]interface{})) != 0 {
+		t.Fatal("expected read-only export to stay empty after explicit delete")
+	}
+
+	w = testutil.Request(r, "GET", "/api/v1/scheduling/training-dataset/stats", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("training dataset stats: got %d, body: %s", w.Code, w.Body.String())
+	}
+	success, data, _ = testutil.DecodeResponse(w)
+	if !success {
+		t.Fatal("training dataset stats: success false")
+	}
+	if int(data.(map[string]interface{})["total_rows"].(float64)) != 0 {
+		t.Fatal("expected zero rows before explicit backfill")
+	}
+
+	w = testutil.Request(r, "POST", "/api/v1/scheduling/training-dataset/backfill", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("training dataset backfill: got %d, body: %s", w.Code, w.Body.String())
+	}
+
+	var count int64
+	if err := db.Model(&domain.MLTrainingEvent{}).Count(&count).Error; err != nil {
+		t.Fatalf("count training rows after backfill: %v", err)
+	}
+	if count == 0 {
+		t.Fatal("expected explicit backfill to repopulate training rows")
 	}
 }

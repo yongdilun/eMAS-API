@@ -114,6 +114,32 @@ func (h *SchedulingHandler) TrainingDataset(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: data})
 }
 
+func (h *SchedulingHandler) TrainingDatasetStats(c *gin.Context) {
+	var since *time.Time
+	if raw := c.Query("since"); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, dto.Response{Success: false, Error: "invalid since timestamp"})
+			return
+		}
+		since = &parsed
+	}
+	data, err := h.schedulingService.TrainingDatasetStats(since)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, dto.Response{Success: true, Data: data})
+}
+
+func (h *SchedulingHandler) BackfillTrainingDataset(c *gin.Context) {
+	if err := h.schedulingService.BackfillMLTrainingEvents(); err != nil {
+		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, dto.Response{Success: true, Data: map[string]string{"message": "ml training events backfilled"}})
+}
+
 func (h *SchedulingHandler) SolverPreview(c *gin.Context) {
 	jobID := c.Param("id")
 	data, err := h.schedulingService.BuildSolverPreview(jobID)

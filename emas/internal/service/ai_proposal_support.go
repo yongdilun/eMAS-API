@@ -850,6 +850,15 @@ func (s *AIPredictiveService) GenerateProposal(jobID, generatedBy string) (*Sche
 	if err := s.proposalRepo.MarkOtherDraftsStale(jobID, proposalID, now); err != nil {
 		return nil, err
 	}
+	if s.scheduling != nil {
+		if err := s.scheduling.CaptureMLTrainingEventForProposalRecord(record, proposal); err != nil {
+			logger.L().Warn("ai_proposal_ml_training_capture_failed",
+				zap.String("proposal_id", proposalID),
+				zap.String("job_id", jobID),
+				zap.Error(err),
+			)
+		}
+	}
 	if s.metrics != nil {
 		s.metrics.Inc(&s.metrics.ProposalGenerated)
 	}
@@ -1050,7 +1059,7 @@ func (s *AIPredictiveService) ApplyProposalByIDWithOpts(proposalID, appliedBy, i
 		txStepRepo := repository.NewJobStepRepository(tx)
 		txJobRepo := repository.NewJobRepository(tx)
 		txProcessRepo := repository.NewProcessRepository(tx)
-		txScheduling := s.scheduling.WithSlotRepo(txSlotRepo)
+		txScheduling := s.scheduling.WithTransaction(tx)
 		txSlotService := NewJobSlotService(txSlotRepo, txStepRepo, txProcessRepo, txJobRepo, txScheduling)
 		existing, err := txSlotRepo.ListByJobID(record.JobID)
 		if err != nil {
@@ -1082,6 +1091,7 @@ func (s *AIPredictiveService) ApplyProposalByIDWithOpts(proposalID, appliedBy, i
 			}
 			grouped[proposed.JobStepID] = append(grouped[proposed.JobStepID], dto.CreateSlotRequest{
 				JobStepID:         proposed.JobStepID,
+				ProposalID:        record.ProposalID,
 				MachineID:         proposed.MachineID,
 				StartTime:         proposed.ScheduledStart.Format(time.RFC3339),
 				DurationMins:      durationMins,

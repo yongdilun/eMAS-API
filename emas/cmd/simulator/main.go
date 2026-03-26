@@ -35,9 +35,9 @@ type simulatedRow struct {
 	MaterialShortageCount int `json:"material_shortage_count"`
 	QueueLength           int `json:"queue_length"`
 
-	SnapshotMachineIDs        []string  `json:"snapshot_machine_ids"`
-	QueueLengthsVector        []int     `json:"queue_lengths_vector"`
-	MachineUtilizationVector  []float64 `json:"machine_utilization_vector"`
+	SnapshotMachineIDs       []string  `json:"snapshot_machine_ids"`
+	QueueLengthsVector       []int     `json:"queue_lengths_vector"`
+	MachineUtilizationVector []float64 `json:"machine_utilization_vector"`
 
 	ActualEnd    time.Time `json:"actual_end"`
 	DelayMinutes int       `json:"delay_minutes"`
@@ -83,13 +83,14 @@ func main() {
 	logRepo := repository.NewProductionLogRepository(db)
 	proposalRepo := repository.NewAIProposalRepository(db)
 	setupRepo := repository.NewSetupRepository(db)
+	trainingRepo := repository.NewMLTrainingEventRepository(db)
 	resourceRepo := repository.NewResourceRepository(db)
 	settingsRepo := repository.NewSystemSettingsRepository(db)
 	wipRepo := repository.NewWIPRepository(db)
 	psmRepo := repository.NewProcessStepMaterialRepository(db)
 
 	// Services
-	schedulingSvc := service.NewSchedulingService(productRepo, bomRepo, formulaRepo, processRepo, jobRepo, stepRepo, slotRepo, machineRepo, capRepo, downtimeRepo, maintenanceRepo, invRepo, logRepo, proposalRepo, setupRepo, resourceRepo, wipRepo, psmRepo, settingsRepo)
+	schedulingSvc := service.NewSchedulingService(productRepo, bomRepo, formulaRepo, processRepo, jobRepo, stepRepo, slotRepo, machineRepo, capRepo, downtimeRepo, maintenanceRepo, invRepo, logRepo, proposalRepo, setupRepo, trainingRepo, resourceRepo, wipRepo, psmRepo, settingsRepo)
 	jobSlotSvc := service.NewJobSlotService(slotRepo, stepRepo, processRepo, jobRepo, schedulingSvc)
 	eventRepo := repository.NewSchedulingEventRepository(db)
 	aiSvc := service.NewAIPredictiveService(db, jobRepo, stepRepo, slotRepo, proposalRepo, machineRepo, maintenanceRepo, settingsRepo, schedulingSvc, jobSlotSvc, eventRepo)
@@ -189,10 +190,10 @@ func main() {
 				QueueLengthsVector:       snap.QueueLengthsVector,
 				MachineUtilizationVector: snap.MachineUtilizationVector,
 
-				ActualEnd:        actualEnd,
-				DelayMinutes:     delay,
-				SimulationSeed:   *seed,
-				RuleVersion:      fmt.Sprintf("q>5:+30..60;mshort>0:+120..240;order_by=%s", *orderBy),
+				ActualEnd:      actualEnd,
+				DelayMinutes:   delay,
+				SimulationSeed: *seed,
+				RuleVersion:    fmt.Sprintf("q>5:+30..60;mshort>0:+120..240;order_by=%s", *orderBy),
 			}
 			b, _ := json.Marshal(out)
 			_, _ = w.Write(b)
@@ -201,4 +202,3 @@ func main() {
 		}
 	}
 }
-

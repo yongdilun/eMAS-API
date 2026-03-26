@@ -31,11 +31,14 @@ type MLRiskRequest struct {
 }
 
 type MLRiskResponse struct {
-	ProbabilityOfDelay    float64 `json:"probability_of_delay"`
-	DelaySeverity         string  `json:"delay_severity"`
-	PredictedDelayMinutes int     `json:"predicted_delay_minutes"`
-	ModelVersion          string  `json:"model_version"`
-	LatencyMs             float64 `json:"latency_ms"`
+	ProbabilityOfDelay    float64  `json:"probability_of_delay"`
+	DelaySeverity         string   `json:"delay_severity"`
+	PredictedDelayMinutes int      `json:"predicted_delay_minutes"`
+	ConfidenceScore       float64  `json:"confidence_score"`
+	FeatureSummary        []string `json:"feature_summary"`
+	FallbackRecommended   bool     `json:"fallback_recommended"`
+	ModelVersion          string   `json:"model_version"`
+	LatencyMs             float64  `json:"latency_ms"`
 }
 
 type MLInferenceClient struct {
@@ -103,4 +106,3 @@ func (c *MLInferenceClient) PredictDelayRisk(ctx context.Context, req *MLRiskReq
 	}
 	return &out, latency, nil
 }
-

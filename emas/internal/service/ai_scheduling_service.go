@@ -2,16 +2,18 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"emas/internal/domain"
 	"emas/internal/repository"
 	"emas/pkg/featureflags"
 	"emas/pkg/id"
+	"emas/pkg/logger"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -20,6 +22,8 @@ type snapshotVectors struct {
 	QueueLengthsVector       []int     `json:"queue_lengths_vector"`
 	MachineUtilizationVector []float64 `json:"machine_utilization_vector"`
 }
+
+const mlDelayRiskConfidenceThreshold = 0.60
 
 type HighRiskJobPrediction struct {
 	JobID        string  `json:"job_id"`
@@ -193,9 +197,9 @@ type VerifySlotInput struct {
 
 // VerifyOverlapsInput is one proposal for overlap verification
 type VerifyOverlapsInput struct {
-	ProposalID    string             `json:"proposal_id"`
-	JobID         string             `json:"job_id"`
-	ProposedSlots []VerifySlotInput  `json:"proposed_slots"`
+	ProposalID    string            `json:"proposal_id"`
+	JobID         string            `json:"job_id"`
+	ProposedSlots []VerifySlotInput `json:"proposed_slots"`
 }
 
 // VerifyOverlapsResult is the overlap verification report
@@ -212,9 +216,9 @@ type VerifyOverlapsResult struct {
 
 // MachineOverlap describes two slots that overlap on the same machine
 type MachineOverlap struct {
-	MachineID   string    `json:"machine_id"`
-	SlotA       SlotRef   `json:"slot_a"`
-	SlotB       SlotRef   `json:"slot_b"`
+	MachineID    string    `json:"machine_id"`
+	SlotA        SlotRef   `json:"slot_a"`
+	SlotB        SlotRef   `json:"slot_b"`
 	OverlapStart time.Time `json:"overlap_start"`
 	OverlapEnd   time.Time `json:"overlap_end"`
 }
@@ -438,6 +442,7 @@ func (s *AIPredictiveService) buildDelayRiskFromML(job domain.Job) (*DelayRiskDe
 		QueueLengthsVector:       snap.QueueLengthsVector,
 		MachineUtilizationVector: snap.MachineUtilizationVector,
 	}
+	featureCoverage := mlRiskRequestCoverage(req)
 
 	client, err := NewMLInferenceClient(DefaultMLBaseURL(), 45*time.Millisecond)
 	if err != nil {
@@ -445,9 +450,35 @@ func (s *AIPredictiveService) buildDelayRiskFromML(job domain.Job) (*DelayRiskDe
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Millisecond)
 	defer cancel()
-	resp, _, err := client.PredictDelayRisk(ctx, req)
+	resp, latency, err := client.PredictDelayRisk(ctx, req)
 	if err != nil || resp == nil {
+		if s.metrics != nil {
+			s.metrics.RecordMLFailure()
+		}
+		if err != nil {
+			logger.L().Warn("ml_delay_risk_fallback",
+				zap.String("job_id", job.JobID),
+				zap.String("reason", "predict_failed"),
+				zap.Error(err),
+			)
+		}
 		return nil, false
+	}
+	if resp.FallbackRecommended || resp.ConfidenceScore < mlDelayRiskConfidenceThreshold {
+		if s.metrics != nil {
+			s.metrics.RecordMLLowConfidenceFallback(latency.Seconds()*1000, featureCoverage)
+		}
+		logger.L().Info("ml_delay_risk_fallback",
+			zap.String("job_id", job.JobID),
+			zap.String("reason", "low_confidence"),
+			zap.Float64("confidence_score", resp.ConfidenceScore),
+			zap.Bool("fallback_recommended", resp.FallbackRecommended),
+			zap.String("model_version", resp.ModelVersion),
+		)
+		return nil, false
+	}
+	if s.metrics != nil {
+		s.metrics.RecordMLSuccess(latency.Seconds()*1000, featureCoverage)
 	}
 
 	// Map ML outputs into DelayRiskDetail while keeping existing fields.
@@ -467,7 +498,7 @@ func (s *AIPredictiveService) buildDelayRiskFromML(job domain.Job) (*DelayRiskDe
 		Issue:              "ML risk prediction",
 		DelayMinutes:       0,
 		Deadline:           job.Deadline,
-		Reasons:            []string{fmt.Sprintf("ML model %s", resp.ModelVersion)},
+		Reasons:            append([]string{fmt.Sprintf("ML model %s", resp.ModelVersion)}, resp.FeatureSummary...),
 	}
 	if readiness != nil {
 		detail.EarliestReadyAt = readiness.EarliestReadyAt
@@ -477,6 +508,29 @@ func (s *AIPredictiveService) buildDelayRiskFromML(job domain.Job) (*DelayRiskDe
 		detail.EstimatedCompletion = &completion
 	}
 	return detail, true
+}
+
+func mlRiskRequestCoverage(req *MLRiskRequest) float64 {
+	if req == nil {
+		return 0
+	}
+	signals := []bool{
+		strings.TrimSpace(req.JobPriority) != "",
+		req.CanStartNow != nil,
+		strings.TrimSpace(req.Deadline) != "",
+		strings.TrimSpace(req.EstimatedCompletion) != "",
+		len(req.QueueLengthsVector) > 0,
+		len(req.MachineUtilizationVector) > 0,
+		req.MaterialShortageCount != 0,
+		req.SubProductShortageCount != 0,
+	}
+	count := 0
+	for _, signal := range signals {
+		if signal {
+			count++
+		}
+	}
+	return float64(count) / float64(len(signals))
 }
 
 func (s *AIPredictiveService) GetDelayRisk(jobID string) (*DelayRiskDetail, error) {

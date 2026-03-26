@@ -30,10 +30,11 @@ func TestEvaluator_DeviationPenaltyFlipsWinnerAndReducesVolatility(t *testing.T)
 	invRepo := repository.NewInventoryRepository(db)
 	logRepo := repository.NewProductionLogRepository(db)
 	setupRepo := repository.NewSetupRepository(db)
+	trainingRepo := repository.NewMLTrainingEventRepository(db)
 	resourceRepo := repository.NewResourceRepository(db)
 	wipRepo := repository.NewWIPRepository(db)
 	psmRepo := repository.NewProcessStepMaterialRepository(db)
-	schedulingSvc := NewSchedulingService(productRepo, bomRepo, formulaRepo, processRepo, jobRepo, stepRepo, slotRepo, machineRepo, capRepo, downtimeRepo, maintenanceRepo, invRepo, logRepo, proposalRepo, setupRepo, resourceRepo, wipRepo, psmRepo, settingsRepo)
+	schedulingSvc := NewSchedulingService(productRepo, bomRepo, formulaRepo, processRepo, jobRepo, stepRepo, slotRepo, machineRepo, capRepo, downtimeRepo, maintenanceRepo, invRepo, logRepo, proposalRepo, setupRepo, trainingRepo, resourceRepo, wipRepo, psmRepo, settingsRepo)
 	jobSlotSvc := NewJobSlotService(slotRepo, stepRepo, processRepo, jobRepo, schedulingSvc)
 	eventRepo := repository.NewSchedulingEventRepository(db)
 	ai := NewAIPredictiveService(db, jobRepo, stepRepo, slotRepo, proposalRepo, machineRepo, maintenanceRepo, settingsRepo, schedulingSvc, jobSlotSvc, eventRepo)
@@ -82,9 +83,9 @@ func TestEvaluator_DeviationPenaltyFlipsWinnerAndReducesVolatility(t *testing.T)
 		EstimatedCompletion: &aCompletion,
 		ProposedSlots: []ProposedSlot{
 			{
-				JobStepID:     step.JobStepID,
-				StepID:        step.StepID,
-				MachineID:     "M1",
+				JobStepID:      step.JobStepID,
+				StepID:         step.StepID,
+				MachineID:      "M1",
 				ScheduledStart: appliedSlot.ScheduledStart,
 				ScheduledEnd:   appliedSlot.ScheduledEnd,
 			},
@@ -102,9 +103,9 @@ func TestEvaluator_DeviationPenaltyFlipsWinnerAndReducesVolatility(t *testing.T)
 		EstimatedCompletion: &bCompletion,
 		ProposedSlots: []ProposedSlot{
 			{
-				JobStepID:     step.JobStepID,
-				StepID:        step.StepID,
-				MachineID:     "M2", // machine change => deviation penalty
+				JobStepID:      step.JobStepID,
+				StepID:         step.StepID,
+				MachineID:      "M2", // machine change => deviation penalty
 				ScheduledStart: appliedSlot.ScheduledStart.Add(3 * time.Hour),
 				ScheduledEnd:   appliedSlot.ScheduledEnd.Add(3 * time.Hour),
 			},
@@ -119,11 +120,11 @@ func TestEvaluator_DeviationPenaltyFlipsWinnerAndReducesVolatility(t *testing.T)
 	// 1) With no deviation penalty, on-time plan should win.
 	_ = settingsRepo.PutFloat("scheduling.deviation_penalty_weight", 0.0)
 	e0 := &Evaluator{
-		Now:         now,
-		Weights:     Weights{Tardiness: 1.0, DelayRisk: 0.0, Utilization: 0.0, Deviation: 0.0},
-		UtilWindow:  24 * time.Hour,
+		Now:          now,
+		Weights:      Weights{Tardiness: 1.0, DelayRisk: 0.0, Utilization: 0.0, Deviation: 0.0},
+		UtilWindow:   24 * time.Hour,
 		MaxScenarios: 9,
-		Budget:      500 * time.Millisecond,
+		Budget:       500 * time.Millisecond,
 	}
 	r0, err := e0.Evaluate(context.Background(), ai, &job, nil, scenarios)
 	if err != nil {
@@ -139,11 +140,11 @@ func TestEvaluator_DeviationPenaltyFlipsWinnerAndReducesVolatility(t *testing.T)
 	// 2) With a strong deviation penalty from DB, stable plan should win and volatility drops sharply.
 	_ = settingsRepo.PutFloat("scheduling.deviation_penalty_weight", 2.0)
 	e1 := &Evaluator{
-		Now:         now,
-		Weights:     Weights{Tardiness: 1.0, DelayRisk: 0.0, Utilization: 0.0, Deviation: 0.0}, // will be overridden from DB
-		UtilWindow:  24 * time.Hour,
+		Now:          now,
+		Weights:      Weights{Tardiness: 1.0, DelayRisk: 0.0, Utilization: 0.0, Deviation: 0.0}, // will be overridden from DB
+		UtilWindow:   24 * time.Hour,
 		MaxScenarios: 9,
-		Budget:      500 * time.Millisecond,
+		Budget:       500 * time.Millisecond,
 	}
 	r1, err := e1.Evaluate(context.Background(), ai, &job, nil, scenarios)
 	if err != nil {
@@ -320,4 +321,3 @@ func TestDeviationPenalty_PrefersLessChange(t *testing.T) {
 	// Evaluate() with nil service has no applied-slot baseline loaded, so it won't apply deviation penalties.
 	// Here we only assert the deviation metric itself is computed and distinguishable.
 }
-

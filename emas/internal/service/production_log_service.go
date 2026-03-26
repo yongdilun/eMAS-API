@@ -15,6 +15,7 @@ type ProductionLogService struct {
 	stepRepo     *repository.JobStepRepository
 	jobRepo      *repository.JobRepository
 	proposalRepo *repository.AIProposalRepository
+	scheduling   *SchedulingService
 }
 
 func NewProductionLogService(
@@ -23,6 +24,7 @@ func NewProductionLogService(
 	stepRepo *repository.JobStepRepository,
 	jobRepo *repository.JobRepository,
 	proposalRepo *repository.AIProposalRepository,
+	scheduling *SchedulingService,
 ) *ProductionLogService {
 	return &ProductionLogService{
 		logRepo:      logRepo,
@@ -30,6 +32,7 @@ func NewProductionLogService(
 		stepRepo:     stepRepo,
 		jobRepo:      jobRepo,
 		proposalRepo: proposalRepo,
+		scheduling:   scheduling,
 	}
 }
 
@@ -78,6 +81,9 @@ func (s *ProductionLogService) LogProduction(req dto.LogProductionRequest) (*dom
 		_ = s.slotRepo.Update(slot)
 		if slot.ProposalID != "" && s.proposalRepo != nil {
 			s.refreshProposalOutcome(slot.ProposalID)
+		}
+		if s.scheduling != nil {
+			_ = s.scheduling.CaptureMLTrainingEventForSlot(slot.SlotID)
 		}
 	}
 	return pl, nil
