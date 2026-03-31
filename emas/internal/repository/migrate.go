@@ -84,8 +84,10 @@ func migrateMLTrainingEvents(db *gorm.DB) error {
 		if err := db.Exec("ALTER TABLE ml_training_events DROP PRIMARY KEY, ADD PRIMARY KEY (lineage_id)").Error; err != nil && !isIgnorableMLMigrationErr(err) {
 			return err
 		}
-		if err := db.Exec("CREATE INDEX idx_ml_training_events_slot_id ON ml_training_events(slot_id)").Error; err != nil && !isIgnorableMLMigrationErr(err) {
-			return err
+		if !db.Migrator().HasIndex(&domain.MLTrainingEvent{}, "idx_ml_training_events_slot_id") {
+			if err := db.Exec("CREATE INDEX idx_ml_training_events_slot_id ON ml_training_events(slot_id)").Error; err != nil && !isIgnorableMLMigrationErr(err) {
+				return err
+			}
 		}
 	}
 	return nil
