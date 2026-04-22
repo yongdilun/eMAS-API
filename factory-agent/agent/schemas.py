@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 SessionStatus = Literal[
@@ -47,6 +47,14 @@ class PlanDraft(BaseModel):
     # Optional precomputed forms (allowed; validator will reconcile)
     dependency_graph: dict[int, list[int]] | None = None
     parallel_groups: list[list[int]] | None = None
+
+    @field_validator("plan_explanation", "risk_summary")
+    @classmethod
+    def _non_empty_explainability(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must be non-empty")
+        return normalized
 
 
 class ToolInfo(BaseModel):
@@ -175,4 +183,3 @@ class DeadLetterResponse(BaseModel):
     payload: dict[str, Any]
     status: str
     created_at: datetime
-

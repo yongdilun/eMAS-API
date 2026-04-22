@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +30,7 @@ from .schemas import (
     PlanResponse,
     SessionCreateRequest,
     SessionResponse,
+    ToolInfo,
     ValidationErrorResponse,
 )
 from .session_manager import SessionManager
@@ -88,7 +89,13 @@ def _approval_to_response(a: ApprovalRow) -> ApprovalResponse:
     )
 
 
-def build_router(*, settings: Settings, tool_registry: ToolRegistry, event_bus: EventBus) -> APIRouter:
+def build_router(
+    *,
+    settings: Settings,
+    tool_registry: ToolRegistry,
+    event_bus: EventBus,
+    enqueue_session: Any | None = None,
+) -> APIRouter:
     router = APIRouter()
     session_mgr = SessionManager(settings)
     executor = ExecutionEngine(settings, event_bus)
@@ -104,6 +111,19 @@ def build_router(*, settings: Settings, tool_registry: ToolRegistry, event_bus: 
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
         return _session_to_response(sess)
+
+    @router.get("/tools", response_model=list[ToolInfo])
+    async def list_tools(
+        intent: str | None = Query(None, description="Optional user intent to scope tools."),
+        max_tools: int = Query(30, ge=1, le=200, description="Maximum tools returned."),
+        db: AsyncSession = Depends(get_db),
+    ):
+        tools_by_name = await tool_registry.get_tools_by_name(db)
+        if intent:
+            scoped = filter_tools_for_intent(intent=intent, tools_by_name=tools_by_name, max_tools=max_tools)
+            return [tools_by_name[name] for name in scoped.tool_names if name in tools_by_name]
+        names = sorted(tools_by_name.keys())[:max_tools]
+        return [tools_by_name[name] for name in names]
 
     @router.post("/sessions/{session_id}/messages", response_model=MessageResponse)
     async def add_message(session_id: str, req: MessageCreateRequest, db: AsyncSession = Depends(get_db)):
@@ -212,14 +232,63 @@ def build_router(*, settings: Settings, tool_registry: ToolRegistry, event_bus: 
         )
 
     @router.post("/sessions/{session_id}/execute", response_model=SessionResponse)
-    async def execute(session_id: str, db: AsyncSession = Depends(get_db)):
+    async def execute(
+        session_id: str,
+        background: bool = Query(False, description="If true, enqueue execution to the worker pool (when enabled)."),
+        db: AsyncSession = Depends(get_db),
+    ):
         sess = await session_mgr.get_session(db, session_id=session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
         session_mgr.enforce_limits(sess)
+        if background and enqueue_session is not None:
+            # Mark as executing and enqueue.
+            sess.status = "EXECUTING"
+            sess.updated_at = datetime.utcnow()
+            await db.commit()
+            try:
+                await enqueue_session(session_id)
+            except Exception as e:
+                raise HTTPException(status_code=429, detail=f"queue full or enqueue failed: {e}")
+            sess = await session_mgr.get_session(db, session_id=session_id)
+            return _session_to_response(sess)
+
         tools_by_name = await tool_registry.get_tools_by_name(db)
         await executor.execute_until_blocked(db, session=sess, tools_by_name=tools_by_name)
-        # reload session for updated fields
+        sess = await session_mgr.get_session(db, session_id=session_id)
+        return _session_to_response(sess)
+
+    @router.post("/sessions/{session_id}/cancel", response_model=SessionResponse)
+    async def cancel_session(session_id: str, db: AsyncSession = Depends(get_db)):
+        sess = await session_mgr.get_session(db, session_id=session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="session not found")
+        step_rows = (
+            await db.execute(
+                select(PlanStepRow)
+                .where(PlanStepRow.session_id == session_id)
+                .order_by(PlanStepRow.step_index.asc())
+            )
+        ).scalars().all()
+        for step in step_rows:
+            if step.status == "DONE":
+                continue
+            if step.status not in ("SKIPPED", "FAILED", "AMBIGUOUS"):
+                step.status = "SKIPPED"
+                step.completed_at = step.completed_at or datetime.utcnow()
+                step.last_error = step.last_error or "Cancelled"
+        sess.status = "IDLE"
+        sess.error = "Cancelled"
+        sess.updated_at = datetime.utcnow()
+        await db.commit()
+        await event_bus.publish(
+            AgentEvent(
+                event_type="session_cancel",
+                session_id=session_id,
+                payload={},
+                published_at=datetime.utcnow(),
+            )
+        )
         sess = await session_mgr.get_session(db, session_id=session_id)
         return _session_to_response(sess)
 
@@ -265,6 +334,17 @@ def build_router(*, settings: Settings, tool_registry: ToolRegistry, event_bus: 
         row.decided_by = req.decided_by
         row.decided_at = datetime.utcnow()
         row.rejection_reason = req.rejection_reason
+        step = (await db.execute(select(PlanStepRow).where(PlanStepRow.step_id == row.step_id))).scalars().first()
+        if step and step.status not in ("DONE", "SKIPPED", "FAILED", "AMBIGUOUS"):
+            step.status = "SKIPPED"
+            step.completed_at = datetime.utcnow()
+            reason = req.rejection_reason or f"Approval {row.approval_id} rejected"
+            step.last_error = reason
+        sess = await session_mgr.get_session(db, session_id=row.session_id)
+        if sess:
+            sess.status = "IDLE"
+            sess.error = req.rejection_reason or f"Approval {row.approval_id} rejected"
+            sess.updated_at = datetime.utcnow()
         await db.commit()
         await event_bus.publish(
             AgentEvent(
@@ -309,5 +389,30 @@ def build_router(*, settings: Settings, tool_registry: ToolRegistry, event_bus: 
             )
         )
         return {"ok": True}
+
+    @router.post("/admin/regenerate-tools")
+    async def regenerate_tools(db: AsyncSession = Depends(get_db)):
+        # Best-effort regeneration: fetch spec (HTTP then local fallback) and store tools.md hash in DB.
+        from agent.toolgen import fetch_openapi_spec, tools_from_openapi, write_tools_md_and_meta
+        import os
+
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        local_swagger = os.path.join(repo_root, "emas", "docs", "swagger.json")
+        tools_md_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "tools.md"))
+        openapi_url = os.environ.get("OPENAPI_URL", "http://localhost:8080/swagger/doc.json")
+        force_local = os.environ.get("OPENAPI_LOCAL", "").strip() == "1"
+
+        spec = fetch_openapi_spec(openapi_url=openapi_url, local_swagger_json_path=local_swagger, force_local=force_local)
+        tools = tools_from_openapi(spec)
+        result = await write_tools_md_and_meta(db, tools=tools, tools_md_path=tools_md_path, replace_db=True)
+        await event_bus.publish(
+            AgentEvent(
+                event_type="tool_registry_updated",
+                session_id="",
+                payload={"tool_count": result.tool_count, "tools_md_hash": result.tools_md_hash},
+                published_at=datetime.utcnow(),
+            )
+        )
+        return {"ok": True, "tool_count": result.tool_count, "tools_md_hash": result.tools_md_hash}
 
     return router

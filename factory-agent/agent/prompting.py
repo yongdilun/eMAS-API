@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from pydantic.json_schema import models_json_schema
-
 from .schemas import PlanDraft
 
 
@@ -23,8 +21,8 @@ Requirements:
 
 
 def get_plan_draft_json_schema() -> dict[str, Any]:
-    schema, _ = models_json_schema([(PlanDraft, "validation")])
-    return schema
+    # Return the concrete schema for PlanDraft (stable across pydantic versions).
+    return PlanDraft.model_json_schema()
 
 
 def build_planner_prompt(*, user_goal: str, tools_markdown: str, scoped_tool_names: list[str]) -> str:
@@ -44,4 +42,3 @@ def build_planner_prompt(*, user_goal: str, tools_markdown: str, scoped_tool_nam
             json.dumps(schema, indent=2, ensure_ascii=False),
         ]
     )
-

@@ -216,13 +216,25 @@ class ExecutionEngine:
                 await db.commit()
                 continue
 
-            # Approval gate
+            # Approval gate: if approved, continue; if pending, block; if rejected, fail.
             if tool.requires_approval:
                 if not step.approval_id:
                     await self._create_approval(db, session_id=session.session_id, step=step, tool=tool)
-                session.status = "WAITING_APPROVAL"
-                await db.commit()
-                return ExecuteResult(status=session.status, current_step_index=session.current_step_index)
+                approval = (
+                    await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == step.approval_id))
+                ).scalars().first()
+                if not approval or approval.status != "APPROVED":
+                    if approval and approval.status == "REJECTED":
+                        step.status = "SKIPPED"
+                        step.last_error = approval.rejection_reason or f"Approval {approval.approval_id} rejected"
+                        step.completed_at = datetime.utcnow()
+                        session.status = "IDLE"
+                        session.error = step.last_error
+                        await db.commit()
+                        return ExecuteResult(status=session.status, current_step_index=session.current_step_index)
+                    session.status = "WAITING_APPROVAL"
+                    await db.commit()
+                    return ExecuteResult(status=session.status, current_step_index=session.current_step_index)
 
             # Execute
             session.status = "EXECUTING"
@@ -317,4 +329,3 @@ class ExecutionEngine:
         session.completed_at = datetime.utcnow()
         await db.commit()
         return ExecuteResult(status=session.status, current_step_index=session.current_step_index)
-

@@ -97,6 +97,13 @@ class Tool(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
+class ToolRegistryMeta(Base):
+    __tablename__ = "tool_registry_meta"
+    meta_id = Column(Integer, primary_key=True, default=1)
+    tools_md_hash = Column(String(64), nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class Approval(Base):
     __tablename__ = "approvals"
     approval_id = Column(String(36), primary_key=True, default=generate_uuid)

@@ -8,6 +8,10 @@ class Settings:
     redis_url: str | None
     go_api_base_url: str
 
+    # Worker pool / backpressure (Phase 0 scaffold)
+    worker_count: int
+    session_queue_size: int
+
     # Hard limits (Phase 1: tracked + enforced in SessionManager)
     max_plan_steps: int
     max_session_steps: int
@@ -32,6 +36,8 @@ def get_settings() -> Settings:
         database_url=database_url,
         redis_url=redis_url,
         go_api_base_url=go_api_base_url,
+        worker_count=int(os.getenv("AGENT_WORKERS", "4")),
+        session_queue_size=int(os.getenv("SESSION_QUEUE_SIZE", "200")),
         max_plan_steps=int(os.getenv("MAX_PLAN_STEPS", "10")),
         max_session_steps=int(os.getenv("MAX_SESSION_STEPS", "50")),
         max_replans=int(os.getenv("MAX_REPLANS", "5")),
@@ -39,4 +45,3 @@ def get_settings() -> Settings:
         max_session_duration_s=int(os.getenv("MAX_SESSION_DURATION_S", str(60 * 30))),
         http_timeout_s=float(os.getenv("HTTP_TIMEOUT_S", "20")),
     )
-

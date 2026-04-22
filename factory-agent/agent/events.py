@@ -45,7 +45,10 @@ class EventBus:
 
     async def close(self) -> None:
         if self._redis is not None:
-            await self._redis.close()
+            if hasattr(self._redis, "aclose"):
+                await self._redis.aclose()
+            else:  # pragma: no cover
+                await self._redis.close()
         self._redis = None
 
     async def publish(self, event: AgentEvent) -> None:
@@ -58,14 +61,23 @@ class EventBus:
             return
         pubsub = self._redis.pubsub()
         await pubsub.subscribe(self._channel)
-        async for message in pubsub.listen():
-            if message.get("type") != "message":
-                continue
-            data = message.get("data")
+        try:
+            async for message in pubsub.listen():
+                if message.get("type") != "message":
+                    continue
+                data = message.get("data")
+                try:
+                    event = AgentEvent.model_validate_json(data)
+                except Exception:
+                    # Ignore malformed events
+                    continue
+                await handler(event)
+        finally:
             try:
-                event = AgentEvent.model_validate_json(data)
+                await pubsub.unsubscribe(self._channel)
             except Exception:
-                # Ignore malformed events
-                continue
-            await handler(event)
-
+                pass
+            try:
+                await pubsub.aclose()
+            except Exception:
+                pass

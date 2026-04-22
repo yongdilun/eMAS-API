@@ -48,7 +48,7 @@ def filter_tools_for_intent(
     *,
     intent: str,
     tools_by_name: dict[str, ToolInfo],
-    max_tools: int = 40,
+    max_tools: int = 30,
 ) -> ScopedTools:
     ranked = sorted(
         tools_by_name.values(),
@@ -76,4 +76,3 @@ def filter_tools_for_intent(
             seen.add(name)
 
     return ScopedTools(tool_names=merged)
-
