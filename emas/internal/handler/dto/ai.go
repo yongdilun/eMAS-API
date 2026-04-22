@@ -12,11 +12,13 @@ type AICommandResponse struct {
 	ExecutionMode  string                 `json:"execution_mode,omitempty"`
 	Executed       bool                   `json:"executed"`
 	ExecutedCall   *AISuggestedCall       `json:"executed_call,omitempty"`
+	ExecutedCalls  []AISuggestedCall      `json:"executed_calls,omitempty"`
 	SuggestedCalls []AISuggestedCall      `json:"suggested_calls,omitempty"`
 	Insights       interface{}            `json:"insights,omitempty"`
 	Guidance       []string               `json:"guidance,omitempty"`
 	ResultCards    []AIResultCard         `json:"result_cards,omitempty"`
 	BDIResult      *BDIResult             `json:"bdi_result,omitempty"`
+	Sources        []AISourceRef          `json:"sources,omitempty"`
 }
 
 // BDIResult - Belief-Desire-Intention structured output.
@@ -37,8 +39,8 @@ type BDIDesire struct {
 }
 
 type BDIIntention struct {
-	Action          string                 `json:"action"`
-	ExecutableCalls []BDIExecutableCall    `json:"executable_calls"`
+	Action          string              `json:"action"`
+	ExecutableCalls []BDIExecutableCall `json:"executable_calls"`
 }
 
 type BDIExecutableCall struct {
@@ -68,12 +70,12 @@ type AISuggestedCallUI struct {
 
 // AIResultCard is a UI card for display.
 type AIResultCard struct {
-	Kind    string           `json:"kind"`
-	Title   string           `json:"title"`
-	Tone    string           `json:"tone,omitempty"`
-	Summary string           `json:"summary"`
-	Metrics []AIResultMetric `json:"metrics,omitempty"`
-	Bullets []string         `json:"bullets,omitempty"`
+	Kind    string            `json:"kind"`
+	Title   string            `json:"title"`
+	Tone    string            `json:"tone,omitempty"`
+	Summary string            `json:"summary"`
+	Metrics []AIResultMetric  `json:"metrics,omitempty"`
+	Bullets []string          `json:"bullets,omitempty"`
 	Actions []AISuggestedCall `json:"actions,omitempty"`
 }
 
@@ -81,4 +83,12 @@ type AIResultCard struct {
 type AIResultMetric struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
+}
+
+type AISourceRef struct {
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Path        string `json:"path,omitempty"`
+	ReadOnly    bool   `json:"read_only"`
+	Description string `json:"description,omitempty"`
 }

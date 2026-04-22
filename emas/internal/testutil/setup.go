@@ -66,6 +66,8 @@ func resetTestDB(db *gorm.DB) error {
 	tables := []string{
 		"ai_chat_messages",
 		"ai_conversations",
+		"chatbot_tool_execution_snapshots",
+		"chatbot_turn_audits",
 		"quality_inspection_records",
 		"production_logs",
 		"ai_proposals",

@@ -98,6 +98,34 @@ func BatchOrderBy() string {
 	return strings.ToLower(envString("AI_BATCH_ORDER_BY", "epo"))
 }
 
+func ChatbotV2Enabled() bool {
+	return envBool("CHATBOT_V2_ENABLED", true)
+}
+
+func LegacyChatEndpointsEnabled() bool {
+	return envBool("AI_CHAT_LEGACY_ENABLED", true)
+}
+
+func ChatbotTurnTimeoutMs() int {
+	v := envString("CHATBOT_TURN_TIMEOUT_MS", "2500")
+	if parsed := strings.TrimSpace(v); parsed != "" {
+		if n := atoiDefault(parsed, 2500); n > 0 {
+			return n
+		}
+	}
+	return 2500
+}
+
+func ChatbotMaxToolCalls() int {
+	v := envString("CHATBOT_MAX_TOOL_CALLS", "3")
+	if parsed := strings.TrimSpace(v); parsed != "" {
+		if n := atoiDefault(parsed, 3); n > 0 {
+			return n
+		}
+	}
+	return 3
+}
+
 // ApplySkipStalenessCheck when true skips staleness validation on apply (for eval scripts / batch apply).
 func ApplySkipStalenessCheck() bool {
 	return envBool("AI_APPLY_SKIP_STALENESS_CHECK", false)

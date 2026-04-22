@@ -1,12 +1,12 @@
 package service
 
 import (
-	"encoding/json"
-	"errors"
 	"emas/internal/domain"
 	"emas/internal/handler/dto"
 	"emas/internal/repository"
 	"emas/pkg/id"
+	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -86,7 +86,10 @@ func (s *AIChatService) GetConversation(conversationID string) (*domain.AIConver
 }
 
 // SendMessage persists the user message, calls the AI command processor, persists the assistant response, and returns both.
-func (s *AIChatService) SendMessage(conversationID, query string) (*domain.AIChatMessage, *dto.AICommandResponse, error) {
+//
+// requestID is accepted for compatibility with the phase-0 ChatConversationService interface.
+// The legacy chat path does not currently record per-turn audits.
+func (s *AIChatService) SendMessage(conversationID, query, requestID string) (*domain.AIChatMessage, *dto.AICommandResponse, error) {
 	conv, err := s.convRepo.GetByID(conversationID)
 	if err != nil {
 		return nil, nil, ErrConversationNotFound
@@ -114,12 +117,12 @@ func (s *AIChatService) SendMessage(conversationID, query string) (*domain.AICha
 
 	// 3. Persist assistant message with metadata (use current time so it sorts after user message)
 	metaJSON, _ := json.Marshal(map[string]interface{}{
-		"intent":         res.Intent,
-		"action":         res.Action,
-		"result_cards":   res.ResultCards,
-		"entities":       res.Entities,
+		"intent":          res.Intent,
+		"action":          res.Action,
+		"result_cards":    res.ResultCards,
+		"entities":        res.Entities,
 		"suggested_calls": res.SuggestedCalls,
-		"bdi_result":     res.BDIResult,
+		"bdi_result":      res.BDIResult,
 	})
 	assistantMsg := &domain.AIChatMessage{
 		ID:             id.New(),

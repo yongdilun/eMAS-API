@@ -51,6 +51,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.SystemSetting{},
 		&domain.AIConversation{},
 		&domain.AIChatMessage{},
+		&domain.ChatbotTurnAudit{},
+		&domain.ChatbotToolExecutionSnapshot{},
 	); err != nil {
 		return err
 	}

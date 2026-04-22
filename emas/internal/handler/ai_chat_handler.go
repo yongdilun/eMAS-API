@@ -1,10 +1,11 @@
 package handler
 
 import (
-	"encoding/json"
 	"emas/internal/domain"
 	"emas/internal/handler/dto"
+	"emas/internal/middleware"
 	"emas/internal/service"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,11 +14,11 @@ import (
 )
 
 type AIChatHandler struct {
-	chatService *service.AIChatService
+	chatService service.ChatConversationService
 }
 
 // NewAIChatHandler creates a new AI chat handler.
-func NewAIChatHandler(chatService *service.AIChatService) *AIChatHandler {
+func NewAIChatHandler(chatService service.ChatConversationService) *AIChatHandler {
 	return &AIChatHandler{chatService: chatService}
 }
 
@@ -104,7 +105,13 @@ func (h *AIChatHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	_, res, err := h.chatService.SendMessage(id, query)
+	requestID := ""
+	if v, ok := c.Get(middleware.ContextRequestIDKey); ok {
+		if s, ok := v.(string); ok {
+			requestID = s
+		}
+	}
+	_, res, err := h.chatService.SendMessage(id, query, requestID)
 	if err != nil {
 		if err == service.ErrConversationNotFound {
 			c.JSON(http.StatusNotFound, dto.Response{Success: false, Error: "conversation not found"})
@@ -148,4 +155,3 @@ func toConversationResponse(conv *domain.AIConversation, msgs []domain.AIChatMes
 		"messages":   messageList,
 	}
 }
-

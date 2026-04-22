@@ -5,6 +5,7 @@ import (
 	"emas/internal/middleware"
 	"emas/internal/repository"
 	"emas/internal/service"
+	"emas/pkg/featureflags"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -65,6 +66,14 @@ func Setup(db *gorm.DB) *gin.Engine {
 	aiCommandProcessor := service.NewAICommandProcessor(aiOrchestrator, aiPredictiveSvc, jobSvc)
 	aiChatSvc := service.NewAIChatService(convRepo, msgRepo, aiCommandProcessor)
 
+	// Phase 0 chatbot (new foundation, read-only tool execution only).
+	chatPlanner := service.NewKeywordChatPlanner()
+	chatRegistry := service.NewStaticChatToolRegistry(db, jobSvc, machineSvc, invSvc, aiPredictiveSvc, machineRepo, invRepo)
+	chatTurnRepo := repository.NewChatbotTurnAuditRepository(db)
+	chatSnapRepo := repository.NewChatbotToolExecutionSnapshotRepository(db)
+	chatExecutor := service.NewRegistryBackedReadOnlyExecutor(chatRegistry, chatSnapRepo)
+	chatbotSvc := service.NewChatbotService(convRepo, msgRepo, chatTurnRepo, chatPlanner, chatExecutor, chatRegistry)
+
 	// Handlers
 	jobH := handler.NewJobHandler(jobSvc)
 	slotH := handler.NewJobSlotHandler(slotSvc)
@@ -81,7 +90,11 @@ func Setup(db *gorm.DB) *gin.Engine {
 	dashboardH := handler.NewDashboardHandler(db, machineRepo, invRepo)
 	predictiveH := handler.NewPredictiveHandler(aiPredictiveSvc)
 	aiH := handler.NewAIHandler(aiCommandProcessor)
-	aiChatH := handler.NewAIChatHandler(aiChatSvc)
+	var chatService service.ChatConversationService = aiChatSvc
+	if featureflags.ChatbotV2Enabled() {
+		chatService = chatbotSvc
+	}
+	aiChatH := handler.NewAIChatHandler(chatService)
 	aiSchedulingH := handler.NewAISchedulingHandler(aiPredictiveSvc)
 	settingsH := handler.NewSettingsHandler(settingsRepo)
 	schedulingSettingsH := handler.NewSchedulingSettingsHandler(settingsRepo, schedulingSvc)
@@ -207,10 +220,14 @@ func Setup(db *gorm.DB) *gin.Engine {
 		v1.POST("/ai/command", aiH.ParseCommand)
 
 		// AI Chat (persisted conversations)
-		v1.GET("/ai/chats", aiChatH.List)
-		v1.POST("/ai/chats", aiChatH.Create)
-		v1.GET("/ai/chats/:id", aiChatH.Get)
-		v1.POST("/ai/chats/:id/messages", aiChatH.SendMessage)
+		// By default this routes through the new Phase 0 chatbot stack (read-only tools only).
+		// Set AI_CHAT_LEGACY_ENABLED=false to disable these endpoints entirely.
+		if featureflags.LegacyChatEndpointsEnabled() {
+			v1.GET("/ai/chats", aiChatH.List)
+			v1.POST("/ai/chats", aiChatH.Create)
+			v1.GET("/ai/chats/:id", aiChatH.Get)
+			v1.POST("/ai/chats/:id/messages", aiChatH.SendMessage)
+		}
 		v1.GET("/ai/scheduling/jobs/:id/assist", aiSchedulingH.Assist)
 		v1.GET("/ai/scheduling/jobs/:id/delay-risk", aiSchedulingH.DelayRisk)
 		v1.GET("/ai/scheduling/jobs/:id/explanation", aiSchedulingH.Explanation)
