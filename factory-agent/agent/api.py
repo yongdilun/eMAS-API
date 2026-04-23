@@ -34,6 +34,7 @@ from .schemas import (
     DeadLetterResponse,
     MessageCreateRequest,
     MessageResponse,
+    PlanStepResponse,
     PlanCreateRequest,
     PlanResponse,
     SessionCreateRequest,
@@ -98,6 +99,28 @@ def _approval_to_response(a: ApprovalRow) -> ApprovalResponse:
         decided_at=a.decided_at,
         rejection_reason=a.rejection_reason,
         created_at=a.created_at,
+    )
+
+
+def _step_to_response(s: PlanStepRow) -> PlanStepResponse:
+    return PlanStepResponse(
+        step_id=s.step_id,
+        plan_id=s.plan_id,
+        session_id=s.session_id,
+        step_index=s.step_index,
+        tool_name=s.tool_name,
+        args=s.args or {},
+        status=s.status,
+        idempotency_key=s.idempotency_key,
+        requires_approval=bool(s.requires_approval),
+        approval_id=s.approval_id,
+        retry_count=s.retry_count or 0,
+        max_retries=s.max_retries or 0,
+        last_error=s.last_error,
+        result=s.result,
+        result_summary=s.result_summary,
+        started_at=s.started_at,
+        completed_at=s.completed_at,
     )
 
 
@@ -256,6 +279,42 @@ def build_router(
                 sess.version += 1
             await db.commit()
         return _message_to_response(msg)
+
+    @router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])
+    async def list_messages(
+        session_id: str,
+        _: dict[str, Any] = Depends(require_jwt),
+        db: AsyncSession = Depends(get_db),
+    ):
+        sess = await session_mgr.get_session(db, session_id=session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="session not found")
+        rows = (
+            await db.execute(
+                select(MessageRow)
+                .where(MessageRow.session_id == session_id)
+                .order_by(MessageRow.created_at.asc())
+            )
+        ).scalars().all()
+        return [_message_to_response(r) for r in rows]
+
+    @router.get("/sessions/{session_id}/steps", response_model=list[PlanStepResponse])
+    async def list_steps(
+        session_id: str,
+        _: dict[str, Any] = Depends(require_jwt),
+        db: AsyncSession = Depends(get_db),
+    ):
+        sess = await session_mgr.get_session(db, session_id=session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="session not found")
+        rows = (
+            await db.execute(
+                select(PlanStepRow)
+                .where(PlanStepRow.session_id == session_id)
+                .order_by(PlanStepRow.step_index.asc())
+            )
+        ).scalars().all()
+        return [_step_to_response(r) for r in rows]
 
     @router.post(
         "/sessions/{session_id}/plans",

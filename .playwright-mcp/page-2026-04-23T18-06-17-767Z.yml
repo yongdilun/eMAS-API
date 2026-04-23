@@ -1,0 +1,167 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - link "eMAS Logo" [ref=e6] [cursor=pointer]:
+          - /url: /
+          - img "eMAS Logo" [ref=e7]
+        - navigation [ref=e8]:
+          - link "dashboard Dashboard" [ref=e9] [cursor=pointer]:
+            - /url: /
+            - generic [ref=e10]: dashboard
+            - paragraph [ref=e11]: Dashboard
+          - link "work Jobs" [ref=e12] [cursor=pointer]:
+            - /url: /jobs
+            - generic [ref=e13]: work
+            - paragraph [ref=e14]: Jobs
+          - link "calendar_today Scheduling" [ref=e15] [cursor=pointer]:
+            - /url: /scheduling
+            - generic [ref=e16]: calendar_today
+            - paragraph [ref=e17]: Scheduling
+          - link "rule Shortage Resolution" [ref=e18] [cursor=pointer]:
+            - /url: /scheduling/shortage-resolution
+            - generic [ref=e19]: rule
+            - paragraph [ref=e20]: Shortage Resolution
+          - link "leaderboard Production Data" [ref=e21] [cursor=pointer]:
+            - /url: /production-data
+            - generic [ref=e22]: leaderboard
+            - paragraph [ref=e23]: Production Data
+          - link "trending_up Predictive Analysis" [ref=e24] [cursor=pointer]:
+            - /url: /predictive-analysis
+            - generic [ref=e25]: trending_up
+            - paragraph [ref=e26]: Predictive Analysis
+          - link "description Reports" [ref=e27] [cursor=pointer]:
+            - /url: /reports
+            - generic [ref=e28]: description
+            - paragraph [ref=e29]: Reports
+          - link "inventory_2 Storage & Inventory" [ref=e30] [cursor=pointer]:
+            - /url: /storage-inventory
+            - generic [ref=e31]: inventory_2
+            - paragraph [ref=e32]: Storage & Inventory
+          - link "category Products & BOM" [ref=e33] [cursor=pointer]:
+            - /url: /products
+            - generic [ref=e34]: category
+            - paragraph [ref=e35]: Products & BOM
+          - link "precision_manufacturing Machine & Resources" [ref=e36] [cursor=pointer]:
+            - /url: /machine-resources
+            - generic [ref=e37]: precision_manufacturing
+            - paragraph [ref=e38]: Machine & Resources
+        - link "settings Settings" [ref=e40] [cursor=pointer]:
+          - /url: /settings
+          - generic [ref=e41]: settings
+          - paragraph [ref=e42]: Settings
+    - main [ref=e43]:
+      - generic [ref=e44]:
+        - generic [ref=e46]:
+          - generic [ref=e47]:
+            - heading "Dashboard Overview" [level=1] [ref=e48]
+            - paragraph [ref=e49]: Real-time factory performance at a glance.
+          - generic [ref=e50]:
+            - button "notifications" [ref=e51] [cursor=pointer]:
+              - generic [ref=e52]: notifications
+            - button "account_circle" [ref=e53] [cursor=pointer]:
+              - generic [ref=e54]: account_circle
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - paragraph [ref=e57]: OEE
+            - paragraph [ref=e126]: 85.2%
+            - paragraph [ref=e127]:
+              - generic [ref=e128]: arrow_upward
+              - text: +1.5%
+          - generic [ref=e59]:
+            - paragraph [ref=e60]: Production Volume
+            - paragraph [ref=e129]: 10,450 units
+            - paragraph [ref=e130]:
+              - generic [ref=e131]: arrow_upward
+              - text: +5%
+          - generic [ref=e62]:
+            - paragraph [ref=e63]: Downtime
+            - paragraph [ref=e132]: 2.1 hrs
+            - paragraph [ref=e133]:
+              - generic [ref=e134]: arrow_downward
+              - text: "-0.2%"
+          - generic [ref=e65]:
+            - paragraph [ref=e66]: Machine Utilization
+            - paragraph [ref=e135]: 78%
+            - paragraph [ref=e136]:
+              - generic [ref=e137]: arrow_upward
+              - text: +2.5%
+        - generic [ref=e68]:
+          - generic [ref=e69]:
+            - generic [ref=e70]:
+              - generic [ref=e71]:
+                - paragraph [ref=e72]: Production Output
+                - paragraph [ref=e73]: Last 24 Hours
+              - generic [ref=e74]:
+                - paragraph [ref=e75]: "Total:"
+                - paragraph [ref=e76]: 10,450 units
+                - paragraph [ref=e77]: +5%
+            - generic [ref=e78]:
+              - img [ref=e79]
+              - generic [ref=e82]:
+                - paragraph [ref=e83]: 12 AM
+                - paragraph [ref=e84]: 4 AM
+                - paragraph [ref=e85]: 8 AM
+                - paragraph [ref=e86]: 12 PM
+                - paragraph [ref=e87]: 4 PM
+                - paragraph [ref=e88]: 8 PM
+          - generic [ref=e89]:
+            - generic [ref=e90]:
+              - paragraph [ref=e92]: Active Alerts
+              - generic [ref=e94]:
+                - generic [ref=e95]:
+                  - generic [ref=e96]: error
+                  - generic [ref=e97]:
+                    - paragraph [ref=e98]: "Machine #3 Overheating"
+                    - paragraph [ref=e99]: 2 min ago
+                - generic [ref=e100]:
+                  - generic [ref=e101]: warning
+                  - generic [ref=e102]:
+                    - paragraph [ref=e103]: Low Supply Levels
+                    - paragraph [ref=e104]: 15 min ago
+                - generic [ref=e105]:
+                  - generic [ref=e106]: info
+                  - generic [ref=e107]:
+                    - paragraph [ref=e108]: Production Anomaly Detected
+                    - paragraph [ref=e109]: 45 min ago
+            - generic [ref=e110]:
+              - paragraph [ref=e111]: Quick Actions
+              - generic [ref=e112]:
+                - button "play_arrow Start New Batch" [ref=e113] [cursor=pointer]:
+                  - generic [ref=e114]: play_arrow
+                  - paragraph [ref=e115]: Start New Batch
+                - button "build_circle Run Diagnostics" [ref=e116] [cursor=pointer]:
+                  - generic [ref=e117]: build_circle
+                  - paragraph [ref=e118]: Run Diagnostics
+                - button "summarize Generate Report" [ref=e119] [cursor=pointer]:
+                  - generic [ref=e120]: summarize
+                  - paragraph [ref=e121]: Generate Report
+  - button "smart_toy AI Assistant" [ref=e122] [cursor=pointer]:
+    - generic [ref=e124]: smart_toy
+    - generic: AI Assistant
+  - dialog "AI Assistant":
+    - generic [ref=e141]:
+      - generic [ref=e142]:
+        - heading "Factory Agent Chat" [level=2] [ref=e143]
+        - generic [ref=e144]: Ready
+        - generic [ref=e146]:
+          - button "New Session" [active] [ref=e147] [cursor=pointer]
+          - button "Cancel" [disabled] [ref=e148]
+          - link "Settings" [ref=e149] [cursor=pointer]:
+            - /url: /settings
+            - generic [ref=e150]: settings
+          - button "Close" [ref=e151] [cursor=pointer]:
+            - generic [ref=e152]: close
+      - generic [ref=e193]: Failed to fetch
+      - generic [ref=e154]:
+        - generic [ref=e195]: smart_toy
+        - paragraph [ref=e196]: Start a factory-agent session.
+        - paragraph [ref=e197]: Ask for operations tasks requiring safe approvals.
+        - generic [ref=e198]:
+          - button "Check machine 5 status" [ref=e199] [cursor=pointer]
+          - button "Update machine 5 to maintenance" [ref=e200] [cursor=pointer]
+          - button "Show pending approvals" [ref=e201] [cursor=pointer]
+      - generic [ref=e163]:
+        - textbox "Ask factory agent..." [ref=e164]
+        - button "Send" [disabled] [ref=e165]:
+          - generic [ref=e166]: send

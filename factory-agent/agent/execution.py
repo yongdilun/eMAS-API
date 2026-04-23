@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models import Approval as ApprovalRow
 from models import DeadLetter as DeadLetterRow
 from models import ExecutionSnapshot as SnapshotRow
+from models import Message as MessageRow
 from models import Plan as PlanRow
 from models import PlanStep as PlanStepRow
 from models import Session as SessionRow
@@ -81,6 +82,36 @@ class ExecutionEngine:
         if not session.session_started_at:
             return 0
         return int((datetime.utcnow() - session.session_started_at).total_seconds())
+
+    def _summarize_step_result(self, *, tool_name: str, body: dict[str, Any] | None) -> str:
+        if body is None:
+            return f"{tool_name} completed."
+        if isinstance(body, dict):
+            for key in ("message", "detail", "status", "summary"):
+                val = body.get(key)
+                if isinstance(val, str) and val.strip():
+                    return f"{tool_name}: {val.strip()}"
+            keys = ", ".join(list(body.keys())[:4])
+            return f"{tool_name} completed. Response keys: {keys or 'none'}."
+        return f"{tool_name} completed."
+
+    async def _append_tool_result_message(
+        self,
+        db: AsyncSession,
+        *,
+        session_id: str,
+        step: PlanStepRow,
+    ) -> None:
+        text = step.result_summary or self._summarize_step_result(tool_name=step.tool_name, body=step.result)
+        msg = MessageRow(
+            message_id=generate_uuid(),
+            session_id=session_id,
+            role="tool_result",
+            content=text,
+            step_id=step.step_id,
+            tool_name=step.tool_name,
+        )
+        db.add(msg)
 
     def _log_step_status_change(
         self,
@@ -710,6 +741,8 @@ class ExecutionEngine:
             if existing_snapshot and existing_snapshot.http_status and step.status != "DONE":
                 step.status = "DONE" if existing_snapshot.http_status < 400 else "FAILED"
                 step.result = existing_snapshot.response_body
+                if step.status == "DONE":
+                    step.result_summary = self._summarize_step_result(tool_name=tool.name, body=step.result)
                 step.completed_at = datetime.utcnow()
                 self._log_step_status_change(
                     session=session,
@@ -732,6 +765,8 @@ class ExecutionEngine:
                     idempotency_key=step.idempotency_key,
                 )
                 session.version += 1
+                if step.status == "DONE":
+                    await self._append_tool_result_message(db, session_id=session.session_id, step=step)
                 await db.commit()
             else:
                 recovery_step_id = step.step_id
@@ -751,6 +786,7 @@ class ExecutionEngine:
                         )
                         step.status = "DONE"
                         step.result = body
+                        step.result_summary = self._summarize_step_result(tool_name=tool.name, body=body)
                         step.completed_at = datetime.utcnow()
                         self._log_step_status_change(
                             session=session,
@@ -773,6 +809,7 @@ class ExecutionEngine:
                             session_replan_count=session.replan_count,
                         )
                         session.version += 1
+                        await self._append_tool_result_message(db, session_id=session.session_id, step=step)
                         await db.commit()
                         break
                     except Exception as e:
@@ -914,6 +951,14 @@ class ExecutionEngine:
         session.status = "COMPLETED"
         session.completed_at = datetime.utcnow()
         session.version += 1
+        db.add(
+            MessageRow(
+                message_id=generate_uuid(),
+                session_id=session.session_id,
+                role="assistant",
+                content=f"Execution completed successfully. {session.step_count} step(s) completed.",
+            )
+        )
         await db.commit()
         metrics.inc("session_completed_total")
         metrics.inc("session_completion_rate")

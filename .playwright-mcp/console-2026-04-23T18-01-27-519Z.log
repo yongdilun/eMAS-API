@@ -1,0 +1,412 @@
+[     139ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:21548
+[     161ms] [LOG] %c[eMAS 🔍 18:01:27.679] → GET /dashboard/kpis color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[     161ms] [LOG] %c[eMAS 🔍 18:01:27.680] → GET /alerts?status=active color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[     161ms] [LOG] %c[eMAS 🔍 18:01:27.680] → GET /reports/production-output? color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[     162ms] [WARNING] ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition. @ http://127.0.0.1:4173/node_modules/.vite/deps/react-router-dom.js?v=4b4c5178:4410
+[     162ms] [WARNING] ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath. @ http://127.0.0.1:4173/node_modules/.vite/deps/react-router-dom.js?v=4b4c5178:4410
+[     162ms] [LOG] %c[eMAS 🔍 18:01:27.680] → GET /dashboard/kpis color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[     162ms] [LOG] %c[eMAS 🔍 18:01:27.681] → GET /alerts?status=active color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[     162ms] [LOG] %c[eMAS 🔍 18:01:27.681] → GET /reports/production-output? color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[    2481ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/api/v1/dashboard/kpis:0
+[    2482ms] [ERROR] %c[eMAS ❌ 18:01:30.000] Network error reaching http://localhost:8080/api/v1/dashboard/kpis color:#ef4444;font-weight:700 TypeError: Failed to fetch
+    at request (http://127.0.0.1:4173/src/services/api.js:60:17)
+    at get (http://127.0.0.1:4173/src/services/api.js:103:47)
+    at Object.kpis (http://127.0.0.1:4173/src/services/api.js:445:15)
+    at http://127.0.0.1:4173/src/pages/Dashboard.jsx:42:22
+    at commitHookEffectListMount (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:16913:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18154:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18127:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18117:15)
+    at commitPassiveMountEffects (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18107:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19488:11) {method: GET, path: /dashboard/kpis} @ http://127.0.0.1:4173/src/services/logger.js:36
+[    2482ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/api/v1/alerts?status=active:0
+[    2482ms] [ERROR] %c[eMAS ❌ 18:01:30.001] Network error reaching http://localhost:8080/api/v1/alerts?status=active color:#ef4444;font-weight:700 TypeError: Failed to fetch
+    at request (http://127.0.0.1:4173/src/services/api.js:60:17)
+    at get (http://127.0.0.1:4173/src/services/api.js:103:47)
+    at Object.list (http://127.0.0.1:4173/src/services/api.js:453:12)
+    at http://127.0.0.1:4173/src/pages/Dashboard.jsx:43:19
+    at commitHookEffectListMount (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:16913:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18154:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18127:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18117:15)
+    at commitPassiveMountEffects (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18107:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19488:11) {method: GET, path: /alerts?status=active} @ http://127.0.0.1:4173/src/services/logger.js:36
+[    2483ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/api/v1/reports/production-output?:0
+[    2483ms] [ERROR] %c[eMAS ❌ 18:01:30.001] Network error reaching http://localhost:8080/api/v1/reports/production-output? color:#ef4444;font-weight:700 TypeError: Failed to fetch
+    at request (http://127.0.0.1:4173/src/services/api.js:60:17)
+    at get (http://127.0.0.1:4173/src/services/api.js:103:47)
+    at Object.productionOutput (http://127.0.0.1:4173/src/services/api.js:431:43)
+    at http://127.0.0.1:4173/src/pages/Dashboard.jsx:44:20
+    at commitHookEffectListMount (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:16913:34)
+    at commitPassiveMountOnFiber (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18154:19)
+    at commitPassiveMountEffects_complete (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18127:17)
+    at commitPassiveMountEffects_begin (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18117:15)
+    at commitPassiveMountEffects (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18107:11)
+    at flushPassiveEffectsImpl (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19488:11) {method: GET, path: /reports/production-output?} @ http://127.0.0.1:4173/src/services/logger.js:36
+[    2483ms] [WARNING] %c[eMAS ⚠️ 18:01:30.002] Dashboard KPIs unavailable; using demo values color:#f59e0b;font-weight:700 {reason: Cannot connect to eMAS server. Is the backend running? (Failed to fetch)} @ http://127.0.0.1:4173/src/services/logger.js:38
+[    2483ms] [WARNING] %c[eMAS ⚠️ 18:01:30.002] Alerts unavailable color:#f59e0b;font-weight:700 {reason: Cannot connect to eMAS server. Is the backend running? (Failed to fetch)} @ http://127.0.0.1:4173/src/services/logger.js:38
+[    2483ms] [WARNING] %c[eMAS ⚠️ 18:01:30.002] Production output chart unavailable color:#f59e0b;font-weight:700 {reason: Cannot connect to eMAS server. Is the backend running? (Failed to fetch)} @ http://127.0.0.1:4173/src/services/logger.js:38
+[    2484ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/api/v1/dashboard/kpis:0
+[    2484ms] [ERROR] %c[eMAS ❌ 18:01:30.002] Network error reaching http://localhost:8080/api/v1/dashboard/kpis color:#ef4444;font-weight:700 TypeError: Failed to fetch
+    at request (http://127.0.0.1:4173/src/services/api.js:60:17)
+    at get (http://127.0.0.1:4173/src/services/api.js:103:47)
+    at Object.kpis (http://127.0.0.1:4173/src/services/api.js:445:15)
+    at http://127.0.0.1:4173/src/pages/Dashboard.jsx:42:22
+    at commitHookEffectListMount (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:16913:34)
+    at invokePassiveEffectMountInDEV (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18322:19)
+    at invokeEffectsInDev (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19699:19)
+    at commitDoubleInvokeEffectsInDEV (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19684:15)
+    at flushPassiveEffectsImpl (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19501:13)
+    at flushPassiveEffects (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19445:22) {method: GET, path: /dashboard/kpis} @ http://127.0.0.1:4173/src/services/logger.js:36
+[    2484ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/api/v1/alerts?status=active:0
+[    2484ms] [ERROR] %c[eMAS ❌ 18:01:30.003] Network error reaching http://localhost:8080/api/v1/alerts?status=active color:#ef4444;font-weight:700 TypeError: Failed to fetch
+    at request (http://127.0.0.1:4173/src/services/api.js:60:17)
+    at get (http://127.0.0.1:4173/src/services/api.js:103:47)
+    at Object.list (http://127.0.0.1:4173/src/services/api.js:453:12)
+    at http://127.0.0.1:4173/src/pages/Dashboard.jsx:43:19
+    at commitHookEffectListMount (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:16913:34)
+    at invokePassiveEffectMountInDEV (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18322:19)
+    at invokeEffectsInDev (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19699:19)
+    at commitDoubleInvokeEffectsInDEV (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19684:15)
+    at flushPassiveEffectsImpl (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19501:13)
+    at flushPassiveEffects (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19445:22) {method: GET, path: /alerts?status=active} @ http://127.0.0.1:4173/src/services/logger.js:36
+[    2484ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8080/api/v1/reports/production-output?:0
+[    2484ms] [ERROR] %c[eMAS ❌ 18:01:30.003] Network error reaching http://localhost:8080/api/v1/reports/production-output? color:#ef4444;font-weight:700 TypeError: Failed to fetch
+    at request (http://127.0.0.1:4173/src/services/api.js:60:17)
+    at get (http://127.0.0.1:4173/src/services/api.js:103:47)
+    at Object.productionOutput (http://127.0.0.1:4173/src/services/api.js:431:43)
+    at http://127.0.0.1:4173/src/pages/Dashboard.jsx:44:20
+    at commitHookEffectListMount (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:16913:34)
+    at invokePassiveEffectMountInDEV (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:18322:19)
+    at invokeEffectsInDev (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19699:19)
+    at commitDoubleInvokeEffectsInDEV (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19684:15)
+    at flushPassiveEffectsImpl (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19501:13)
+    at flushPassiveEffects (http://127.0.0.1:4173/node_modules/.vite/deps/chunk-XPR23Y44.js?v=4b4c5178:19445:22) {method: GET, path: /reports/production-output?} @ http://127.0.0.1:4173/src/services/logger.js:36
+[    2484ms] [WARNING] %c[eMAS ⚠️ 18:01:30.003] Dashboard KPIs unavailable; using demo values color:#f59e0b;font-weight:700 {reason: Cannot connect to eMAS server. Is the backend running? (Failed to fetch)} @ http://127.0.0.1:4173/src/services/logger.js:38
+[    2484ms] [WARNING] %c[eMAS ⚠️ 18:01:30.003] Alerts unavailable color:#f59e0b;font-weight:700 {reason: Cannot connect to eMAS server. Is the backend running? (Failed to fetch)} @ http://127.0.0.1:4173/src/services/logger.js:38
+[    2484ms] [WARNING] %c[eMAS ⚠️ 18:01:30.003] Production output chart unavailable color:#f59e0b;font-weight:700 {reason: Cannot connect to eMAS server. Is the backend running? (Failed to fetch)} @ http://127.0.0.1:4173/src/services/logger.js:38
+[   37281ms] [LOG] %c[eMAS 🔍 18:02:04.799] [factory-agent] -> POST /sessions color:#6b7280;font-weight:500 {user_id: frontend-operator} @ http://127.0.0.1:4173/src/services/logger.js:40
+[   39318ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8000/sessions:0
+[   71544ms] [LOG] %c[eMAS 🔍 18:02:39.062] [factory-agent] -> POST /sessions color:#6b7280;font-weight:500 {user_id: frontend-operator} @ http://127.0.0.1:4173/src/services/logger.js:40
+[   73566ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8000/sessions:0
+[  287195ms] [LOG] %c[eMAS 🔍 18:06:14.713] [factory-agent] -> POST /sessions color:#6b7280;font-weight:500 {user_id: frontend-operator} @ http://127.0.0.1:4173/src/services/logger.js:40
+[  289218ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8000/sessions:0
+[  312660ms] [LOG] %c[eMAS 🔍 18:06:40.178] → GET /jobs color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  312660ms] [LOG] %c[eMAS 🔍 18:06:40.179] → GET /machines color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  312661ms] [LOG] %c[eMAS 🔍 18:06:40.179] → GET /jobs color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  312661ms] [LOG] %c[eMAS 🔍 18:06:40.179] → GET /machines color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  312725ms] [LOG] %c[eMAS 🔍 18:06:40.243] ✅ GET /machines → 200 (64ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  312728ms] [LOG] %c[eMAS 🔍 18:06:40.246] ✅ GET /machines → 200 (67ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  312744ms] [LOG] %c[eMAS 🔍 18:06:40.263] ✅ GET /jobs → 200 (85ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  312746ms] [LOG] %c[eMAS ℹ️ 18:06:40.264] Jobs loaded color:#0ea5e9;font-weight:600 {count: 27} @ http://127.0.0.1:4173/src/services/logger.js:40
+[  312751ms] [LOG] %c[eMAS 🔍 18:06:40.270] ✅ GET /jobs → 200 (91ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  312761ms] [LOG] %c[eMAS ℹ️ 18:06:40.279] Jobs loaded color:#0ea5e9;font-weight:600 {count: 27} @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313320ms] [LOG] %c[eMAS 🔍 18:06:40.838] → GET /jobs?status=scheduled color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313320ms] [LOG] %c[eMAS 🔍 18:06:40.839] → GET /machines color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313321ms] [LOG] %c[eMAS 🔍 18:06:40.839] → GET /ai/scheduling/bottleneck-forecast?days_ahead=7 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313321ms] [LOG] %c[eMAS 🔍 18:06:40.840] → GET /jobs?status=scheduled color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313322ms] [LOG] %c[eMAS 🔍 18:06:40.840] → GET /machines color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313322ms] [LOG] %c[eMAS 🔍 18:06:40.840] → GET /ai/scheduling/bottleneck-forecast?days_ahead=7 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313328ms] [LOG] %c[eMAS 🔍 18:06:40.847] ✅ GET /jobs?status=scheduled → 200 (9ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313330ms] [LOG] %c[eMAS 🔍 18:06:40.848] → GET /jobs/JOB-be3412d2/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313330ms] [LOG] %c[eMAS 🔍 18:06:40.849] → GET /jobs/JOB-SEED-001/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313331ms] [LOG] %c[eMAS 🔍 18:06:40.849] → GET /jobs/JOB-SEED-002/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313331ms] [LOG] %c[eMAS 🔍 18:06:40.849] → GET /jobs/JOB-SEED-003/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313331ms] [LOG] %c[eMAS 🔍 18:06:40.849] → GET /jobs/JOB-SEED-004/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313331ms] [LOG] %c[eMAS 🔍 18:06:40.849] → GET /jobs/JOB-SEED-005/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313331ms] [LOG] %c[eMAS 🔍 18:06:40.850] → GET /jobs/JOB-SEED-006/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313331ms] [LOG] %c[eMAS 🔍 18:06:40.850] → GET /jobs/JOB-SEED-007/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313331ms] [LOG] %c[eMAS 🔍 18:06:40.850] → GET /jobs/JOB-SEED-008/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313331ms] [LOG] %c[eMAS 🔍 18:06:40.850] → GET /jobs/JOB-SEED-009/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313332ms] [LOG] %c[eMAS 🔍 18:06:40.850] → GET /jobs/JOB-SEED-010/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313332ms] [LOG] %c[eMAS 🔍 18:06:40.850] → GET /jobs/JOB-SEED-011/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313332ms] [LOG] %c[eMAS 🔍 18:06:40.851] → GET /jobs/JOB-SEED-012/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313332ms] [LOG] %c[eMAS 🔍 18:06:40.851] → GET /jobs/JOB-SEED-013/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313332ms] [LOG] %c[eMAS 🔍 18:06:40.851] → GET /jobs/JOB-SEED-014/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313333ms] [LOG] %c[eMAS 🔍 18:06:40.851] → GET /jobs/JOB-SEED-015/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313333ms] [LOG] %c[eMAS 🔍 18:06:40.851] → GET /jobs/JOB-SEED-016/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313333ms] [LOG] %c[eMAS 🔍 18:06:40.851] → GET /jobs/JOB-SEED-017/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313333ms] [LOG] %c[eMAS 🔍 18:06:40.851] → GET /jobs/JOB-SEED-018/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313333ms] [LOG] %c[eMAS 🔍 18:06:40.852] → GET /jobs/JOB-SEED-019/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313334ms] [LOG] %c[eMAS 🔍 18:06:40.852] → GET /jobs/JOB-SEED-020/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313334ms] [LOG] %c[eMAS 🔍 18:06:40.853] → GET /jobs/JOB-SEED-021/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313334ms] [LOG] %c[eMAS 🔍 18:06:40.853] → GET /jobs/JOB-SEED-022/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313335ms] [LOG] %c[eMAS 🔍 18:06:40.853] → GET /jobs/JOB-SEED-023/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313335ms] [LOG] %c[eMAS 🔍 18:06:40.854] → GET /jobs/JOB-SEED-024/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313335ms] [LOG] %c[eMAS 🔍 18:06:40.854] → GET /jobs/JOB-SEED-025/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313335ms] [LOG] %c[eMAS 🔍 18:06:40.854] → GET /jobs/JOB-SEED-026/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313344ms] [LOG] %c[eMAS 🔍 18:06:40.862] ✅ GET /machines → 200 (23ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313344ms] [LOG] %c[eMAS 🔍 18:06:40.863] ✅ GET /jobs?status=scheduled → 200 (23ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313346ms] [LOG] %c[eMAS 🔍 18:06:40.864] → GET /jobs/JOB-be3412d2/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313346ms] [LOG] %c[eMAS 🔍 18:06:40.865] → GET /jobs/JOB-SEED-001/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313347ms] [LOG] %c[eMAS 🔍 18:06:40.865] → GET /jobs/JOB-SEED-002/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313347ms] [LOG] %c[eMAS 🔍 18:06:40.865] → GET /jobs/JOB-SEED-003/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313347ms] [LOG] %c[eMAS 🔍 18:06:40.865] → GET /jobs/JOB-SEED-004/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313347ms] [LOG] %c[eMAS 🔍 18:06:40.866] → GET /jobs/JOB-SEED-005/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313347ms] [LOG] %c[eMAS 🔍 18:06:40.866] → GET /jobs/JOB-SEED-006/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313347ms] [LOG] %c[eMAS 🔍 18:06:40.866] → GET /jobs/JOB-SEED-007/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313347ms] [LOG] %c[eMAS 🔍 18:06:40.866] → GET /jobs/JOB-SEED-008/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313348ms] [LOG] %c[eMAS 🔍 18:06:40.866] → GET /jobs/JOB-SEED-009/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313348ms] [LOG] %c[eMAS 🔍 18:06:40.866] → GET /jobs/JOB-SEED-010/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313348ms] [LOG] %c[eMAS 🔍 18:06:40.866] → GET /jobs/JOB-SEED-011/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313348ms] [LOG] %c[eMAS 🔍 18:06:40.866] → GET /jobs/JOB-SEED-012/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313348ms] [LOG] %c[eMAS 🔍 18:06:40.867] → GET /jobs/JOB-SEED-013/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313348ms] [LOG] %c[eMAS 🔍 18:06:40.867] → GET /jobs/JOB-SEED-014/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313349ms] [LOG] %c[eMAS 🔍 18:06:40.867] → GET /jobs/JOB-SEED-015/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313349ms] [LOG] %c[eMAS 🔍 18:06:40.868] → GET /jobs/JOB-SEED-016/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313349ms] [LOG] %c[eMAS 🔍 18:06:40.868] → GET /jobs/JOB-SEED-017/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313350ms] [LOG] %c[eMAS 🔍 18:06:40.868] → GET /jobs/JOB-SEED-018/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313350ms] [LOG] %c[eMAS 🔍 18:06:40.868] → GET /jobs/JOB-SEED-019/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313350ms] [LOG] %c[eMAS 🔍 18:06:40.869] → GET /jobs/JOB-SEED-020/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313350ms] [LOG] %c[eMAS 🔍 18:06:40.869] → GET /jobs/JOB-SEED-021/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313350ms] [LOG] %c[eMAS 🔍 18:06:40.869] → GET /jobs/JOB-SEED-022/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313350ms] [LOG] %c[eMAS 🔍 18:06:40.869] → GET /jobs/JOB-SEED-023/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313351ms] [LOG] %c[eMAS 🔍 18:06:40.869] → GET /jobs/JOB-SEED-024/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313351ms] [LOG] %c[eMAS 🔍 18:06:40.869] → GET /jobs/JOB-SEED-025/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313351ms] [LOG] %c[eMAS 🔍 18:06:40.869] → GET /jobs/JOB-SEED-026/slots color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313351ms] [LOG] %c[eMAS 🔍 18:06:40.870] ✅ GET /jobs/JOB-SEED-001/slots → 200 (21ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313351ms] [LOG] %c[eMAS 🔍 18:06:40.870] ✅ GET /jobs/JOB-SEED-003/slots → 200 (21ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313354ms] [LOG] %c[eMAS 🔍 18:06:40.872] ✅ GET /machines → 200 (32ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313354ms] [LOG] %c[eMAS 🔍 18:06:40.872] ✅ GET /ai/scheduling/bottleneck-forecast?days_ahead=7 → 200 (33ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313354ms] [LOG] %c[eMAS 🔍 18:06:40.873] ✅ GET /jobs/JOB-SEED-002/slots → 200 (24ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313354ms] [LOG] %c[eMAS 🔍 18:06:40.873] ✅ GET /jobs/JOB-SEED-006/slots → 200 (23ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313354ms] [LOG] %c[eMAS 🔍 18:06:40.873] ✅ GET /jobs/JOB-be3412d2/slots → 200 (25ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313356ms] [LOG] %c[eMAS 🔍 18:06:40.874] ✅ GET /jobs/JOB-SEED-007/slots → 200 (24ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313356ms] [LOG] %c[eMAS 🔍 18:06:40.875] ✅ GET /jobs/JOB-SEED-004/slots → 200 (26ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313356ms] [LOG] %c[eMAS 🔍 18:06:40.875] ✅ GET /jobs/JOB-SEED-005/slots → 200 (26ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313357ms] [LOG] %c[eMAS 🔍 18:06:40.875] ✅ GET /jobs/JOB-SEED-008/slots → 200 (25ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313359ms] [LOG] %c[eMAS 🔍 18:06:40.878] ✅ GET /jobs/JOB-SEED-009/slots → 200 (28ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313360ms] [LOG] %c[eMAS 🔍 18:06:40.878] ✅ GET /jobs/JOB-SEED-012/slots → 200 (27ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313360ms] [LOG] %c[eMAS 🔍 18:06:40.878] ✅ GET /jobs/JOB-SEED-011/slots → 200 (28ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313365ms] [LOG] %c[eMAS 🔍 18:06:40.883] ✅ GET /jobs/JOB-SEED-013/slots → 200 (32ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313365ms] [LOG] %c[eMAS 🔍 18:06:40.883] ✅ GET /jobs/JOB-SEED-010/slots → 200 (33ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313365ms] [LOG] %c[eMAS 🔍 18:06:40.884] ✅ GET /jobs/JOB-SEED-014/slots → 200 (33ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313376ms] [LOG] %c[eMAS 🔍 18:06:40.895] ✅ GET /jobs/JOB-SEED-015/slots → 200 (43ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313376ms] [LOG] %c[eMAS 🔍 18:06:40.895] ✅ GET /jobs/JOB-SEED-016/slots → 200 (44ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313377ms] [LOG] %c[eMAS 🔍 18:06:40.896] ✅ GET /jobs/JOB-SEED-017/slots → 200 (45ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313380ms] [LOG] %c[eMAS 🔍 18:06:40.898] ✅ GET /jobs/JOB-SEED-021/slots → 200 (45ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313383ms] [LOG] %c[eMAS 🔍 18:06:40.902] ✅ GET /jobs/JOB-SEED-018/slots → 200 (51ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313383ms] [LOG] %c[eMAS 🔍 18:06:40.902] ✅ GET /jobs/JOB-SEED-019/slots → 200 (50ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313384ms] [LOG] %c[eMAS 🔍 18:06:40.902] ✅ GET /jobs/JOB-SEED-022/slots → 200 (49ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313384ms] [LOG] %c[eMAS 🔍 18:06:40.902] ✅ GET /jobs/JOB-SEED-020/slots → 200 (50ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313384ms] [LOG] %c[eMAS 🔍 18:06:40.902] ✅ GET /jobs/JOB-SEED-023/slots → 200 (49ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313384ms] [LOG] %c[eMAS 🔍 18:06:40.903] ✅ GET /jobs/JOB-SEED-024/slots → 200 (49ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313385ms] [LOG] %c[eMAS 🔍 18:06:40.903] ✅ GET /jobs/JOB-be3412d2/slots → 200 (39ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313388ms] [LOG] %c[eMAS 🔍 18:06:40.906] ✅ GET /ai/scheduling/bottleneck-forecast?days_ahead=7 → 200 (66ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313388ms] [LOG] %c[eMAS 🔍 18:06:40.907] ✅ GET /jobs/JOB-SEED-002/slots → 200 (42ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313388ms] [LOG] %c[eMAS 🔍 18:06:40.907] ✅ GET /jobs/JOB-SEED-026/slots → 200 (53ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313390ms] [LOG] %c[eMAS 🔍 18:06:40.909] ✅ GET /jobs/JOB-SEED-003/slots → 200 (44ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313390ms] [LOG] %c[eMAS 🔍 18:06:40.909] ✅ GET /jobs/JOB-SEED-001/slots → 200 (44ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313390ms] [LOG] %c[eMAS 🔍 18:06:40.909] ✅ GET /jobs/JOB-SEED-025/slots → 200 (55ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313435ms] [LOG] %c[eMAS 🔍 18:06:40.954] ✅ GET /jobs/JOB-SEED-005/slots → 200 (88ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313436ms] [LOG] %c[eMAS 🔍 18:06:40.954] ✅ GET /jobs/JOB-SEED-004/slots → 200 (89ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313436ms] [LOG] %c[eMAS 🔍 18:06:40.954] ✅ GET /jobs/JOB-SEED-006/slots → 200 (88ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313436ms] [LOG] %c[eMAS 🔍 18:06:40.954] ✅ GET /jobs/JOB-SEED-007/slots → 200 (88ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313436ms] [LOG] %c[eMAS 🔍 18:06:40.954] ✅ GET /jobs/JOB-SEED-009/slots → 200 (88ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313472ms] [LOG] %c[eMAS 🔍 18:06:40.991] ✅ GET /jobs/JOB-SEED-011/slots → 200 (125ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313473ms] [LOG] %c[eMAS 🔍 18:06:40.991] ✅ GET /jobs/JOB-SEED-008/slots → 200 (125ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313473ms] [LOG] %c[eMAS 🔍 18:06:40.991] ✅ GET /jobs/JOB-SEED-010/slots → 200 (125ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313473ms] [LOG] %c[eMAS 🔍 18:06:40.991] ✅ GET /jobs/JOB-SEED-013/slots → 200 (124ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313473ms] [LOG] %c[eMAS 🔍 18:06:40.992] ✅ GET /jobs/JOB-SEED-014/slots → 200 (125ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313473ms] [LOG] %c[eMAS 🔍 18:06:40.992] ✅ GET /jobs/JOB-SEED-012/slots → 200 (126ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313473ms] [LOG] %c[eMAS 🔍 18:06:40.992] ✅ GET /jobs/JOB-SEED-016/slots → 200 (124ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313473ms] [LOG] %c[eMAS 🔍 18:06:40.992] ✅ GET /jobs/JOB-SEED-015/slots → 200 (125ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313474ms] [LOG] %c[eMAS 🔍 18:06:40.992] ✅ GET /jobs/JOB-SEED-021/slots → 200 (123ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313474ms] [LOG] %c[eMAS 🔍 18:06:40.992] ✅ GET /jobs/JOB-SEED-017/slots → 200 (124ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313474ms] [LOG] %c[eMAS 🔍 18:06:40.992] ✅ GET /jobs/JOB-SEED-019/slots → 200 (124ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313474ms] [LOG] %c[eMAS 🔍 18:06:40.992] ✅ GET /jobs/JOB-SEED-022/slots → 200 (123ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313474ms] [LOG] %c[eMAS 🔍 18:06:40.992] ✅ GET /jobs/JOB-SEED-020/slots → 200 (123ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313474ms] [LOG] %c[eMAS 🔍 18:06:40.993] ✅ GET /jobs/JOB-SEED-018/slots → 200 (125ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313474ms] [LOG] %c[eMAS 🔍 18:06:40.993] ✅ GET /jobs/JOB-SEED-023/slots → 200 (124ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313474ms] [LOG] %c[eMAS 🔍 18:06:40.993] ✅ GET /jobs/JOB-SEED-024/slots → 200 (124ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313474ms] [LOG] %c[eMAS 🔍 18:06:40.993] ✅ GET /jobs/JOB-SEED-026/slots → 200 (124ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313474ms] [LOG] %c[eMAS 🔍 18:06:40.993] ✅ GET /jobs/JOB-SEED-025/slots → 200 (124ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313475ms] [LOG] %c[eMAS 🔍 18:06:40.994] → GET /scheduling/products/P-008/readiness?quantity=1 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313476ms] [LOG] %c[eMAS 🔍 18:06:40.994] → GET /scheduling/products/P-001/readiness?quantity=1 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313476ms] [LOG] %c[eMAS 🔍 18:06:40.994] → GET /scheduling/products/P-002/readiness?quantity=1 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313476ms] [LOG] %c[eMAS 🔍 18:06:40.994] → GET /scheduling/products/P-003/readiness?quantity=1 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313476ms] [LOG] %c[eMAS 🔍 18:06:40.995] → GET /scheduling/products/P-004/readiness?quantity=1 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313476ms] [LOG] %c[eMAS 🔍 18:06:40.995] → GET /scheduling/products/P-005/readiness?quantity=1 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313477ms] [LOG] %c[eMAS 🔍 18:06:40.995] → GET /scheduling/products/P-006/readiness?quantity=1 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313477ms] [LOG] %c[eMAS 🔍 18:06:40.995] → GET /scheduling/products/P-001/readiness?quantity=1 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313477ms] [LOG] %c[eMAS 🔍 18:06:40.995] → GET /scheduling/products/P-002/readiness?quantity=1 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313477ms] [LOG] %c[eMAS 🔍 18:06:40.996] → GET /scheduling/products/P-003/readiness?quantity=1 color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313514ms] [LOG] %c[eMAS 🔍 18:06:41.033] ✅ GET /scheduling/products/P-008/readiness?quantity=1 → 200 (39ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313515ms] [LOG] %c[eMAS 🔍 18:06:41.033] ✅ GET /scheduling/products/P-002/readiness?quantity=1 → 200 (39ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313515ms] [LOG] %c[eMAS 🔍 18:06:41.033] ✅ GET /scheduling/products/P-005/readiness?quantity=1 → 200 (38ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313515ms] [LOG] %c[eMAS 🔍 18:06:41.033] ✅ GET /scheduling/products/P-003/readiness?quantity=1 → 200 (39ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313515ms] [LOG] %c[eMAS 🔍 18:06:41.034] ✅ GET /scheduling/products/P-002/readiness?quantity=1 → 200 (39ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313515ms] [LOG] %c[eMAS 🔍 18:06:41.034] ✅ GET /scheduling/products/P-003/readiness?quantity=1 → 200 (38ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313516ms] [LOG] %c[eMAS 🔍 18:06:41.034] ✅ GET /scheduling/products/P-006/readiness?quantity=1 → 200 (39ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313540ms] [LOG] %c[eMAS 🔍 18:06:41.059] ✅ GET /scheduling/products/P-004/readiness?quantity=1 → 200 (64ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313541ms] [LOG] %c[eMAS 🔍 18:06:41.059] ✅ GET /scheduling/products/P-001/readiness?quantity=1 → 200 (65ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  313587ms] [LOG] %c[eMAS 🔍 18:06:41.105] ✅ GET /scheduling/products/P-001/readiness?quantity=1 → 200 (110ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314179ms] [LOG] %c[eMAS 🔍 18:06:41.698] → GET /dashboard/kpis color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314180ms] [LOG] %c[eMAS 🔍 18:06:41.699] → GET /alerts?status=active color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314180ms] [LOG] %c[eMAS 🔍 18:06:41.699] → GET /reports/production-output? color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314181ms] [LOG] %c[eMAS 🔍 18:06:41.699] → GET /dashboard/kpis color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314181ms] [LOG] %c[eMAS 🔍 18:06:41.699] → GET /alerts?status=active color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314181ms] [LOG] %c[eMAS 🔍 18:06:41.700] → GET /reports/production-output? color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314189ms] [LOG] %c[eMAS 🔍 18:06:41.707] ✅ GET /alerts?status=active → 200 (8ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314189ms] [LOG] %c[eMAS 🔍 18:06:41.707] ✅ GET /dashboard/kpis → 200 (9ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314189ms] [LOG] %c[eMAS 🔍 18:06:41.708] ✅ GET /dashboard/kpis → 200 (9ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314190ms] [LOG] %c[eMAS 🔍 18:06:41.708] ✅ GET /alerts?status=active → 200 (9ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314190ms] [LOG] %c[eMAS 🔍 18:06:41.709] ✅ GET /reports/production-output? → 200 (10ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314192ms] [LOG] %c[eMAS ℹ️ 18:06:41.710] Dashboard KPIs raw keys: color:#0ea5e9;font-weight:600 [oee_pct, oee_change, production_units, production_change, downtime_hrs, downtime_change, utilization_pct, utilization_change] @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314192ms] [LOG] %c[eMAS ℹ️ 18:06:41.710] Dashboard KPIs loaded color:#0ea5e9;font-weight:600 {oee_pct: 85.2, oee_change: 1.5, production_units: 10450, production_change: 5, downtime_hrs: 0.4166666666666667} @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314197ms] [WARNING] %c[eMAS ⚠️ 18:06:41.716] [DEBUG] Alerts: response has 0 items color:#f59e0b;font-weight:700 {success: true, data: Array(0)} @ http://127.0.0.1:4173/src/services/logger.js:38
+[  314198ms] [LOG] %c[eMAS 🔍 18:06:41.716] ✅ GET /reports/production-output? → 200 (16ms) color:#6b7280;font-weight:500 @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314199ms] [LOG] %c[eMAS ℹ️ 18:06:41.717] Dashboard KPIs raw keys: color:#0ea5e9;font-weight:600 [oee_pct, oee_change, production_units, production_change, downtime_hrs, downtime_change, utilization_pct, utilization_change] @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314199ms] [LOG] %c[eMAS ℹ️ 18:06:41.718] Dashboard KPIs loaded color:#0ea5e9;font-weight:600 {oee_pct: 85.2, oee_change: 1.5, production_units: 10450, production_change: 5, downtime_hrs: 0.4166666666666667} @ http://127.0.0.1:4173/src/services/logger.js:40
+[  314199ms] [WARNING] %c[eMAS ⚠️ 18:06:41.718] [DEBUG] Alerts: response has 0 items color:#f59e0b;font-weight:700 {success: true, data: Array(0)} @ http://127.0.0.1:4173/src/services/logger.js:38
+[  326711ms] [LOG] %c[eMAS 🔍 18:06:54.230] [factory-agent] -> POST /sessions color:#6b7280;font-weight:500 {user_id: frontend-operator} @ http://127.0.0.1:4173/src/services/logger.js:40
+[  328732ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:8000/sessions:0
+[  352954ms] [LOG] [vite] server connection lost. Polling for restart... @ http://127.0.0.1:4173/@vite/client:559
+[  354984ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  357998ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  361034ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  364074ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  367117ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  370137ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  373159ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  376189ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  379224ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  382234ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  385260ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  388306ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  391336ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  394357ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  397369ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  400405ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  403448ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  406470ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  409519ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  412548ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  415583ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  418611ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  421637ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  424657ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  427695ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  430748ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  433775ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  436794ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  439822ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  442859ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  445885ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  448907ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  451931ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  454970ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  458005ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  461048ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  464094ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  467122ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  470157ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  473203ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  476226ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  479250ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  482278ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  485338ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  488368ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  491414ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  494447ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  497478ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  500508ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  503540ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  506553ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  509585ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  512618ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  515643ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  518673ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  521686ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  524714ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  527765ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  530790ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  533808ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  536858ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  539906ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  542929ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  545962ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  548994ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  552031ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  555060ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  558103ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  561141ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  564196ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  567226ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  570253ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  573280ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  576294ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  579314ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  582344ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  585377ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  588413ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  591439ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  594470ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  597493ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  600532ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  603558ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  606587ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  609633ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  612663ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  615690ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  618715ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  621747ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  624806ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  627843ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  630874ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  633915ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  636960ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  640001ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  643014ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  646039ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  649068ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  652122ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  655172ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  658196ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  661224ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  664251ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  667273ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  670325ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  673358ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  676391ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  679408ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  682431ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  685447ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  688487ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  691530ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  694568ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  697588ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  700616ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  703634ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  706681ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  709711ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  712728ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  715746ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  718768ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  721808ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  724838ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  727855ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  730874ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  733911ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  736947ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  739981ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  743012ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  746046ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  749082ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  752141ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  755173ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  758209ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  761240ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  764267ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  767288ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  770322ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  773343ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  776364ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  779388ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  782451ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  785481ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  788505ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  791546ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  794586ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  797606ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0
+[  800630ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:4173/:0

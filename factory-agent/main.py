@@ -2,8 +2,10 @@ import asyncio
 import contextlib
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
+import os
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 
 import models  # noqa: F401 (ensure models are imported for SQLAlchemy metadata)
@@ -619,6 +621,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Allow browser preflight requests from local frontend dev servers.
+cors_origins_raw = os.getenv(
+    "CORS_ALLOW_ORIGINS",
+    "http://127.0.0.1:4173,http://localhost:4173,http://127.0.0.1:5173,http://localhost:5173",
+)
+cors_allow_origins = [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_allow_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import AiChatPanel from './AiChatPanel'
+import FactoryAgentChatPanel from './factory-agent/FactoryAgentChatPanel'
 
 const MIN_WIDTH = 400
 const MIN_HEIGHT = 300
@@ -124,7 +124,7 @@ const AIAssistantModal = ({ isOpen, onClose }) => {
           cursor: isDragging ? 'grabbing' : undefined,
         }}
       >
-        <AiChatPanel onClose={onClose} onHeaderMouseDown={handleMouseDown} />
+        <FactoryAgentChatPanel onClose={onClose} onHeaderMouseDown={handleMouseDown} />
         {/* Resize handles - 4 edges + 4 corners */}
         <div
           data-resize="n"
