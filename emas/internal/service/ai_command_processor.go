@@ -4,6 +4,7 @@ import (
 	"emas/internal/domain"
 	"emas/internal/handler/dto"
 	"fmt"
+	"emas/pkg/id"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +30,9 @@ func NewAICommandProcessor(orchestrator *AICommandOrchestrator, predictive *AIPr
 func (p *AICommandProcessor) ProcessCommand(query string, executeReadonly bool, debug bool) (*dto.AICommandResponse, error) {
 	raw := strings.TrimSpace(query)
 	plan := p.orchestrator.Parse(raw)
+	turnID := id.NewPrefixed("AITURN-")
 	res := &dto.AICommandResponse{
+		TurnID:         turnID,
 		Intent:         plan.Intent,
 		Action:         plan.Action,
 		Entities:       plan.Entities,
@@ -111,6 +114,46 @@ func (p *AICommandProcessor) ProcessCommand(query string, executeReadonly bool, 
 	// Build result cards
 	res.ResultCards = p.buildResultCards(res)
 	p.normalizeUserMessage(res)
+
+	// Unified UI helpers (optional; frontend can ignore)
+	res.HumanMessage = res.Message
+	res.MessageKind = "answer"
+	res.StatusLabel = res.ExecutionMode
+	if res.Ambiguous {
+		res.MessageKind = "clarification"
+		res.StatusLabel = "Needs clarification"
+	} else if res.ExecutionMode == "blocked_write_action" {
+		res.MessageKind = "approval_required"
+		res.StatusLabel = "Waiting for approval"
+	} else if res.ExecutionMode == "executed_readonly" {
+		res.StatusLabel = "Done"
+	} else if res.ExecutionMode == "readonly_execution_failed" {
+		res.MessageKind = "error"
+		res.StatusLabel = "Failed"
+	} else if res.ExecutionMode == "suggest_only" {
+		res.StatusLabel = "Suggested"
+	}
+	res.UIBlocks = []map[string]interface{}{
+		{
+			"type":  "thinking",
+			"title": "Thinking",
+			"payload": map[string]interface{}{
+				"intent":         res.Intent,
+				"confidence":     res.Confidence,
+				"ambiguous":      res.Ambiguous,
+				"clarifications": res.Clarifications,
+				"entities":       res.Entities,
+				"guidance":       res.Guidance,
+			},
+		},
+	}
+	res.DebugPayload = map[string]interface{}{
+		"execution_mode":  res.ExecutionMode,
+		"executed":        res.Executed,
+		"suggested_calls": res.SuggestedCalls,
+		"guidance":        res.Guidance,
+		"entities":        res.Entities,
+	}
 	return res, nil
 }
 

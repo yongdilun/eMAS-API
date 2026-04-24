@@ -74,11 +74,25 @@ class ToolInfo(BaseModel):
 
 class SessionCreateRequest(BaseModel):
     user_id: str
+    name: str | None = None
+
+
+class SessionUpdateRequest(BaseModel):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def _non_empty_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("must be non-empty")
+        return normalized
 
 
 class SessionResponse(BaseModel):
     session_id: str
     user_id: str
+    name: str | None = None
     status: SessionStatus
     current_intent: str | None = None
     plan_id: str | None = None
@@ -154,6 +168,7 @@ class PlanStepResponse(BaseModel):
 class ApprovalDecisionRequest(BaseModel):
     decided_by: str | None = None
     rejection_reason: str | None = None
+    args: dict[str, Any] | None = None
 
 
 class ApprovalResponse(BaseModel):
@@ -170,6 +185,41 @@ class ApprovalResponse(BaseModel):
     decided_at: datetime | None = None
     rejection_reason: str | None = None
     created_at: datetime
+
+
+class TimelineEventResponse(BaseModel):
+    event_id: str
+    event_type: Literal[
+        "user_message",
+        "plan_created",
+        "execution_started",
+        "tool_started",
+        "tool_result",
+        "approval_required",
+        "approval_decided",
+        "replan_requested",
+        "session_blocked",
+        "session_failed",
+        "session_completed",
+    ]
+    content: str
+    created_at: datetime
+    role: Literal["user", "assistant", "system"] = "assistant"
+    turn_id: str | None = None
+    step_context: dict[str, Any] | None = None
+    step_id: str | None = None
+    approval_id: str | None = None
+    tool_name: str | None = None
+    status: str | None = None
+    details: dict[str, Any] | None = None
+
+
+class SessionSnapshotResponse(BaseModel):
+    session: SessionResponse
+    plan: PlanResponse | None = None
+    steps: list[PlanStepResponse] = Field(default_factory=list)
+    pending_approval: ApprovalResponse | None = None
+    timeline: list[TimelineEventResponse] = Field(default_factory=list)
 
 
 class ValidationErrorResponse(BaseModel):

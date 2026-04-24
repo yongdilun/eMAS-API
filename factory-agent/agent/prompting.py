@@ -13,7 +13,10 @@ Return ONLY valid JSON that matches the provided JSON Schema.
 Requirements:
 - Keep plans <= 10 steps unless absolutely necessary.
 - Prefer read-only tools first (GET) before writes (POST/PATCH/DELETE).
-- For every step: choose a tool_name from the provided tool list and provide args matching the tool's input schema.
+- For every step: choose a tool_name from the provided tool list.
+  - For read-only steps (requires_approval=false): provide args that fully satisfy the tool's input schema.
+  - For approval-gated steps (requires_approval=true): you may provide partial args when the user has not provided all required fields.
+    The system will request missing fields from the user during approval before executing the tool.
 - Include explainability fields:
   - plan_explanation: plain-English description of what the plan will do and why.
   - risk_summary: highlight irreversible actions and failure modes.

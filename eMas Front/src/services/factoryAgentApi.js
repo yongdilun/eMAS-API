@@ -73,10 +73,26 @@ async function request(method, path, body, options = {}) {
 }
 
 export const factoryAgentApi = {
-  createSession: ({ user_id }, options) => request('POST', '/sessions', { user_id }, options),
+  createSession: ({ user_id, name }, options) => request('POST', '/sessions', { user_id, name }, options),
+  listSessions: (params = {}, options) => {
+    const q = new URLSearchParams()
+    if (params.user_id) q.set('user_id', params.user_id)
+    const suffix = q.toString() ? `?${q.toString()}` : ''
+    return request('GET', `/sessions${suffix}`, undefined, options)
+  },
   getSession: (sessionId, options) => request('GET', `/sessions/${sessionId}`, undefined, options),
+  updateSession: (sessionId, payload, options) => request('PATCH', `/sessions/${sessionId}`, payload, options),
+  getSnapshot: (sessionId, options) => request('GET', `/sessions/${sessionId}/snapshot`, undefined, options),
   getMessages: (sessionId, options) => request('GET', `/sessions/${sessionId}/messages`, undefined, options),
   getSteps: (sessionId, options) => request('GET', `/sessions/${sessionId}/steps`, undefined, options),
+
+  listTools: (params = {}, options) => {
+    const q = new URLSearchParams()
+    if (params.intent) q.set('intent', params.intent)
+    if (params.max_tools != null) q.set('max_tools', String(params.max_tools))
+    const suffix = q.toString() ? `?${q.toString()}` : ''
+    return request('GET', `/tools${suffix}`, undefined, options)
+  },
 
   addMessage: (sessionId, { content, role = 'user' }, options) =>
     request('POST', `/sessions/${sessionId}/messages`, { content, role }, options),
@@ -96,7 +112,12 @@ export const factoryAgentApi = {
 
   cancelSession: (sessionId, options) => request('POST', `/sessions/${sessionId}/cancel`, {}, options),
 
-  listPendingApprovals: (options) => request('GET', '/approvals/pending', undefined, options),
+  listPendingApprovals: (params = {}, options) => {
+    const q = new URLSearchParams()
+    if (params.session_id) q.set('session_id', params.session_id)
+    const suffix = q.toString() ? `?${q.toString()}` : ''
+    return request('GET', `/approvals/pending${suffix}`, undefined, options)
+  },
   getApproval: (approvalId, options) => request('GET', `/approvals/${approvalId}`, undefined, options),
 
   approve: (approvalId, payload = {}, options) =>

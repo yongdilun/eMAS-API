@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse
+from jsonschema import Draft202012Validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,7 +24,7 @@ from .config import Settings
 from .events import AgentEvent, EventBus
 from .execution import ExecutionEngine, compute_idempotency_key
 from .metrics import metrics
-from .planner import PlannerAdapter, PlannerBackendError
+from .planner import PlannerAdapter, PlannerBackendError, PlannerClarificationError
 from .plan_validator import validate_plan
 from .schemas import (
     ApprovalDecisionRequest,
@@ -38,21 +39,31 @@ from .schemas import (
     PlanCreateRequest,
     PlanResponse,
     SessionCreateRequest,
+    SessionSnapshotResponse,
     SessionResponse,
+    SessionUpdateRequest,
+    TimelineEventResponse,
     ToolInfo,
     ValidationErrorResponse,
 )
 from .session_manager import SessionManager, TransitionError, VersionConflictError
 from .security import JwtValidationError, validate_bearer_token
+from .summary_backend import SummaryAdapter, SummaryBackendError
 from .telemetry import log_event, log_step_status_changed
 from .tool_registry import ToolRegistry
 from .tool_scope import filter_tools_for_intent
+
+
+def _normalize_session_name(name: str | None) -> str | None:
+    normalized = (name or "").strip()
+    return normalized or None
 
 
 def _session_to_response(s: SessionRow) -> SessionResponse:
     return SessionResponse(
         session_id=s.session_id,
         user_id=s.user_id,
+        name=_normalize_session_name(getattr(s, "name", None)),
         status=s.status,
         current_intent=s.current_intent,
         plan_id=s.plan_id,
@@ -69,6 +80,21 @@ def _session_to_response(s: SessionRow) -> SessionResponse:
         updated_at=s.updated_at,
         completed_at=s.completed_at,
         error=s.error,
+    )
+
+
+def _plan_to_response(plan: PlanRow) -> PlanResponse:
+    return PlanResponse(
+        plan_id=plan.plan_id,
+        session_id=plan.session_id,
+        version=plan.version,
+        dependency_graph=plan.dependency_graph,
+        parallel_groups=plan.parallel_groups,
+        plan_hash=plan.plan_hash,
+        plan_explanation=plan.plan_explanation,
+        risk_summary=plan.risk_summary,
+        created_at=plan.created_at,
+        created_by=plan.created_by,
     )
 
 
@@ -124,6 +150,52 @@ def _step_to_response(s: PlanStepRow) -> PlanStepResponse:
     )
 
 
+def _timeline_event(
+    *,
+    event_id: str,
+    event_type: str,
+    content: str,
+    created_at: datetime,
+    role: str = "assistant",
+    turn_id: str | None = None,
+    step_context: dict[str, Any] | None = None,
+    step_id: str | None = None,
+    approval_id: str | None = None,
+    tool_name: str | None = None,
+    status: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> TimelineEventResponse:
+    return TimelineEventResponse(
+        event_id=event_id,
+        event_type=event_type,  # type: ignore[arg-type]
+        content=content,
+        created_at=created_at,
+        role=role,  # type: ignore[arg-type]
+        turn_id=turn_id,
+        step_context=step_context,
+        step_id=step_id,
+        approval_id=approval_id,
+        tool_name=tool_name,
+        status=status,
+        details=details,
+    )
+
+
+_TIMELINE_EVENT_PRIORITY = {
+    "user_message": 0,
+    "plan_created": 1,
+    "execution_started": 2,
+    "tool_started": 3,
+    "approval_required": 3,
+    "tool_result": 4,
+    "approval_decided": 5,
+    "replan_requested": 6,
+    "session_blocked": 7,
+    "session_failed": 8,
+    "session_completed": 9,
+}
+
+
 def build_router(
     *,
     settings: Settings,
@@ -136,6 +208,7 @@ def build_router(
     session_mgr = SessionManager(settings)
     executor = ExecutionEngine(settings, event_bus)
     planner = planner_adapter or PlannerAdapter(settings=settings, tool_registry=tool_registry)
+    summary_adapter = SummaryAdapter(settings)
 
     def _session_duration_s(sess: SessionRow) -> int:
         if not sess.session_started_at:
@@ -170,21 +243,409 @@ def build_router(
         except JwtValidationError as e:
             raise HTTPException(status_code=401, detail=str(e))
 
+    async def load_session_snapshot(*, db: AsyncSession, session_id: str) -> SessionSnapshotResponse | None:
+        sess = await session_mgr.get_session(db, session_id=session_id)
+        if not sess:
+            return None
+        tools_by_name = await tool_registry.get_tools_by_name(db)
+
+        current_plan = None
+        if sess.plan_id:
+            current_plan = (
+                await db.execute(select(PlanRow).where(PlanRow.plan_id == sess.plan_id))
+            ).scalars().first()
+
+        plan_rows = (
+            await db.execute(
+                select(PlanRow)
+                .where(PlanRow.session_id == session_id)
+                .order_by(PlanRow.created_at.asc())
+            )
+        ).scalars().all()
+        step_rows = (
+            await db.execute(
+                select(PlanStepRow)
+                .where(PlanStepRow.session_id == session_id)
+                .order_by(PlanStepRow.step_index.asc())
+            )
+        ).scalars().all()
+        message_rows = (
+            await db.execute(
+                select(MessageRow)
+                .where(MessageRow.session_id == session_id)
+                .order_by(MessageRow.created_at.asc())
+            )
+        ).scalars().all()
+        approval_rows = (
+            await db.execute(
+                select(ApprovalRow)
+                .where(ApprovalRow.session_id == session_id)
+                .order_by(ApprovalRow.created_at.asc())
+            )
+        ).scalars().all()
+
+        pending_approval = next((row for row in reversed(approval_rows) if row.status == "PENDING"), None)
+        tool_result_messages = [row for row in message_rows if row.role == "tool_result"]
+        user_messages = [row for row in message_rows if row.role == "user"]
+        assistant_messages = [row for row in message_rows if row.role == "assistant"]
+        plan_messages = [row for row in assistant_messages if row.tool_name == "__plan__"]
+
+        user_messages_sorted = sorted(user_messages, key=lambda m: m.created_at)
+
+        def _turn_id_for_time(ts: datetime | None) -> str | None:
+            if not user_messages_sorted:
+                return None
+            if ts is None:
+                return user_messages_sorted[-1].message_id
+            selected = None
+            for msg in user_messages_sorted:
+                if msg.created_at <= ts:
+                    selected = msg
+                else:
+                    break
+            return (selected or user_messages_sorted[-1]).message_id
+
+        def _session_ctx() -> dict[str, Any]:
+            return {
+                "session_id": sess.session_id,
+                "status": sess.status,
+                "plan_version": sess.plan_version or 0,
+                "current_step_index": sess.current_step_index or 0,
+            }
+
+        def _missing_required_fields(tool_name: str | None, args: dict[str, Any] | None) -> list[str]:
+            if not tool_name:
+                return []
+            tool = tools_by_name.get(tool_name)
+            schema = tool.input_schema if tool else {}
+            required = schema.get("required") if isinstance(schema, dict) else None
+            if not isinstance(required, list):
+                return []
+            payload = args if isinstance(args, dict) else {}
+            missing: list[str] = []
+            for key in required:
+                if not isinstance(key, str) or not key:
+                    continue
+                if key not in payload or payload.get(key) is None or payload.get(key) == "":
+                    missing.append(key)
+            return missing
+
+        events: list[TimelineEventResponse] = []
+        for msg in user_messages:
+            events.append(
+                _timeline_event(
+                    event_id=f"user:{msg.message_id}",
+                    event_type="user_message",
+                    content=msg.content,
+                    created_at=msg.created_at,
+                    role="user",
+                    turn_id=msg.message_id,
+                    step_context={**_session_ctx(), "message_id": msg.message_id},
+                )
+            )
+
+        for idx, plan_row in enumerate(plan_rows):
+            plan_message = plan_messages[idx] if idx < len(plan_messages) else None
+            content = (
+                plan_message.content
+                if plan_message and plan_message.content
+                else (plan_row.plan_explanation or "Execution plan created.")
+            )
+            events.append(
+                _timeline_event(
+                    event_id=f"plan:{plan_row.plan_id}",
+                    event_type="plan_created",
+                    content=content,
+                    created_at=plan_row.created_at,
+                    status="PLANNING",
+                    turn_id=_turn_id_for_time(plan_row.created_at),
+                    step_context={**_session_ctx(), "plan_id": plan_row.plan_id, "plan_version": plan_row.version},
+                    details={
+                        "plan_id": plan_row.plan_id,
+                        "version": plan_row.version,
+                        "plan_explanation": plan_row.plan_explanation,
+                        "risk_summary": plan_row.risk_summary,
+                    },
+                )
+            )
+            if plan_row.invalidated_at:
+                reason = plan_row.invalidated_reason or "replan requested"
+                events.append(
+                    _timeline_event(
+                        event_id=f"replan:{plan_row.plan_id}",
+                        event_type="replan_requested",
+                        content=f"Replan requested: {reason}.",
+                        created_at=plan_row.invalidated_at,
+                        status="PLANNING",
+                        turn_id=_turn_id_for_time(plan_row.invalidated_at),
+                        step_context={**_session_ctx(), "plan_id": plan_row.plan_id, "plan_version": plan_row.version},
+                        details={"plan_id": plan_row.plan_id, "reason": reason},
+                    )
+                )
+
+        execution_started_at = min((step.started_at for step in step_rows if step.started_at), default=None)
+        if execution_started_at:
+            events.append(
+                _timeline_event(
+                    event_id=f"exec:{session_id}",
+                    event_type="execution_started",
+                    content="Execution started.",
+                    created_at=execution_started_at,
+                    status="EXECUTING",
+                    turn_id=_turn_id_for_time(execution_started_at),
+                    step_context=_session_ctx(),
+                )
+            )
+
+        tool_messages_by_step = {msg.step_id: msg for msg in tool_result_messages if msg.step_id}
+        for step in step_rows:
+            if step.status == "IN_PROGRESS" and step.started_at:
+                events.append(
+                    _timeline_event(
+                        event_id=f"step-started:{step.step_id}",
+                        event_type="tool_started",
+                        content="Step started.",
+                        created_at=step.started_at,
+                        turn_id=_turn_id_for_time(step.started_at),
+                        step_context={
+                            **_session_ctx(),
+                            "step_id": step.step_id,
+                            "step_index": step.step_index,
+                            "tool_name": step.tool_name,
+                            "approval_id": step.approval_id,
+                        },
+                        step_id=step.step_id,
+                        tool_name=step.tool_name,
+                        status=step.status,
+                        details={"args": step.args},
+                    )
+                )
+                continue
+
+            if step.step_id in tool_messages_by_step:
+                msg = tool_messages_by_step[step.step_id]
+                created_at = msg.created_at
+                content = msg.content
+            elif step.status in ("DONE", "FAILED", "AMBIGUOUS") and (step.completed_at or step.started_at):
+                created_at = step.completed_at or step.started_at
+                content = (
+                    step.result_summary
+                    or (f"{step.tool_name} failed: {step.last_error}" if step.status == "FAILED" else f"{step.tool_name} completed.")
+                )
+            else:
+                continue
+
+            events.append(
+                _timeline_event(
+                    event_id=f"step:{step.step_id}",
+                    event_type="tool_result",
+                    content=content,
+                    created_at=created_at,
+                    turn_id=_turn_id_for_time(created_at),
+                    step_context={
+                        **_session_ctx(),
+                        "step_id": step.step_id,
+                        "step_index": step.step_index,
+                        "tool_name": step.tool_name,
+                        "approval_id": step.approval_id,
+                    },
+                    step_id=step.step_id,
+                    tool_name=step.tool_name,
+                    status=step.status,
+                    details={"args": step.args, "result": step.result, "last_error": step.last_error},
+                )
+            )
+
+        for approval in approval_rows:
+            tool = tools_by_name.get(approval.tool_name)
+            missing_required = _missing_required_fields(approval.tool_name, approval.args)
+            tool_schema = tool.input_schema if tool else None
+            events.append(
+                _timeline_event(
+                    event_id=f"approval-required:{approval.approval_id}",
+                    event_type="approval_required",
+                    content=(
+                        "Waiting for your approval."
+                        if not approval.risk_summary
+                        else f"Waiting for your approval: {approval.risk_summary}"
+                    ),
+                    created_at=approval.created_at,
+                    turn_id=_turn_id_for_time(approval.created_at),
+                    step_context={
+                        **_session_ctx(),
+                        "approval_id": approval.approval_id,
+                        "step_id": approval.step_id,
+                        "tool_name": approval.tool_name,
+                    },
+                    approval_id=approval.approval_id,
+                    step_id=approval.step_id,
+                    tool_name=approval.tool_name,
+                    status=approval.status,
+                    details={
+                        "args": approval.args,
+                        "side_effect_level": approval.side_effect_level,
+                        "expires_at": approval.expires_at.isoformat(),
+                        "tool": {
+                            "name": tool.name if tool else approval.tool_name,
+                            "description": tool.description if tool else None,
+                            "method": tool.method if tool else None,
+                            "endpoint": tool.endpoint if tool else None,
+                        },
+                        "input_schema": tool_schema,
+                        "missing_required": missing_required,
+                    },
+                )
+            )
+            if approval.decided_at:
+                decision_text = "approved" if approval.status == "APPROVED" else "rejected"
+                reason = approval.rejection_reason
+                content = (
+                    f"{approval.tool_name} {decision_text}."
+                    if not reason
+                    else f"{approval.tool_name} {decision_text}: {reason}"
+                )
+                events.append(
+                    _timeline_event(
+                        event_id=f"approval-decided:{approval.approval_id}",
+                        event_type="approval_decided",
+                        content=content,
+                        created_at=approval.decided_at,
+                        turn_id=_turn_id_for_time(approval.decided_at),
+                        step_context={
+                            **_session_ctx(),
+                            "approval_id": approval.approval_id,
+                            "step_id": approval.step_id,
+                            "tool_name": approval.tool_name,
+                        },
+                        approval_id=approval.approval_id,
+                        step_id=approval.step_id,
+                        tool_name=approval.tool_name,
+                        status=approval.status,
+                        details={"decided_by": approval.decided_by, "rejection_reason": approval.rejection_reason},
+                    )
+                )
+
+        ambiguous_step = next((step for step in step_rows if step.status == "AMBIGUOUS" and (step.completed_at or step.started_at)), None)
+        if sess.status == "BLOCKED":
+            blocked_at = (ambiguous_step.completed_at if ambiguous_step and ambiguous_step.completed_at else sess.updated_at)
+            events.append(
+                _timeline_event(
+                    event_id=f"blocked:{session_id}",
+                    event_type="session_blocked",
+                    content=sess.error or "Execution blocked.",
+                    created_at=blocked_at,
+                    status=sess.status,
+                    turn_id=_turn_id_for_time(blocked_at),
+                    step_context=_session_ctx(),
+                )
+            )
+        if sess.status == "FAILED":
+            events.append(
+                _timeline_event(
+                    event_id=f"failed:{session_id}",
+                    event_type="session_failed",
+                    content=sess.error or "Session failed.",
+                    created_at=sess.updated_at,
+                    status=sess.status,
+                    turn_id=_turn_id_for_time(sess.updated_at),
+                    step_context=_session_ctx(),
+                )
+            )
+        if sess.completed_at:
+            completion_message = next((msg for msg in reversed(assistant_messages) if "Execution completed successfully" in msg.content), None)
+            events.append(
+                _timeline_event(
+                    event_id=f"completed:{session_id}",
+                    event_type="session_completed",
+                    content=(
+                        completion_message.content
+                        if completion_message and completion_message.content
+                        else "Execution completed successfully."
+                    ),
+                    created_at=sess.completed_at,
+                    status="COMPLETED",
+                    turn_id=_turn_id_for_time(sess.completed_at),
+                    step_context=_session_ctx(),
+                )
+            )
+
+        events.sort(
+            key=lambda event: (
+                event.created_at,
+                _TIMELINE_EVENT_PRIORITY.get(event.event_type, 99),
+                event.event_id,
+            )
+        )
+        return SessionSnapshotResponse(
+            session=_session_to_response(sess),
+            plan=_plan_to_response(current_plan) if current_plan else None,
+            steps=[_step_to_response(step) for step in step_rows],
+            pending_approval=_approval_to_response(pending_approval) if pending_approval else None,
+            timeline=events,
+        )
+
     @router.post("/sessions", response_model=SessionResponse)
     async def create_session(
         req: SessionCreateRequest,
         _: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
-        sess = await session_mgr.create_session(db, user_id=req.user_id)
+        sess = await session_mgr.create_session(
+            db,
+            user_id=req.user_id,
+            name=_normalize_session_name(req.name) or "New chat",
+        )
         return _session_to_response(sess)
 
+    @router.get("/sessions", response_model=list[SessionResponse])
+    async def list_sessions(
+        user_id: str | None = Query(None),
+        _: dict[str, Any] = Depends(require_jwt),
+        db: AsyncSession = Depends(get_db),
+    ):
+        stmt = select(SessionRow).order_by(SessionRow.updated_at.desc())
+        if user_id:
+            stmt = stmt.where(SessionRow.user_id == user_id)
+        rows = (await db.execute(stmt)).scalars().all()
+        return [_session_to_response(row) for row in rows]
+
     @router.get("/sessions/{session_id}", response_model=SessionResponse)
-    async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
+    async def get_session(
+        session_id: str,
+        _: dict[str, Any] = Depends(require_jwt),
+        db: AsyncSession = Depends(get_db),
+    ):
         sess = await session_mgr.get_session(db, session_id=session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
         return _session_to_response(sess)
+
+    @router.patch("/sessions/{session_id}", response_model=SessionResponse)
+    async def update_session(
+        session_id: str,
+        req: SessionUpdateRequest,
+        _: dict[str, Any] = Depends(require_jwt),
+        db: AsyncSession = Depends(get_db),
+    ):
+        sess = await session_mgr.get_session(db, session_id=session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="session not found")
+        sess.name = _normalize_session_name(req.name)
+        sess.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(sess)
+        return _session_to_response(sess)
+
+    @router.get("/sessions/{session_id}/snapshot", response_model=SessionSnapshotResponse)
+    async def get_session_snapshot(
+        session_id: str,
+        _: dict[str, Any] = Depends(require_jwt),
+        db: AsyncSession = Depends(get_db),
+    ):
+        snapshot = await load_session_snapshot(db=db, session_id=session_id)
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="session not found")
+        return snapshot
 
     @router.get("/tools", response_model=list[ToolInfo])
     async def list_tools(
@@ -348,6 +809,8 @@ def build_router(
                     scoped_tools=scoped_tools,
                     context=sess.replan_context,
                 )
+            except PlannerClarificationError as e:
+                raise HTTPException(status_code=400, detail={"errors": [str(e)]}) from e
             except PlannerBackendError as e:
                 raise HTTPException(status_code=503, detail={"errors": [str(e)]}) from e
             draft = generated.draft
@@ -480,21 +943,31 @@ def build_router(
         sess.pending_user_message = None
         sess.error = None
         sess.version += 1
+        if not sess.name:
+            sess.name = "New chat"
         await db.commit()
         metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
 
-        return PlanResponse(
-            plan_id=plan_row.plan_id,
-            session_id=plan_row.session_id,
-            version=plan_row.version,
-            dependency_graph=plan_row.dependency_graph,
-            parallel_groups=plan_row.parallel_groups,
-            plan_hash=plan_row.plan_hash,
-            plan_explanation=plan_row.plan_explanation,
-            risk_summary=plan_row.risk_summary,
-            created_at=plan_row.created_at,
-            created_by=plan_row.created_by,
+        summary_text = draft.plan_explanation or "Execution plan created."
+        try:
+            summary = await summary_adapter.summarize_plan(intent=intent, draft=draft)
+            summary_text = summary.text
+            sess.llm_call_count += summary.llm_calls
+            sess.version += 1
+        except SummaryBackendError:
+            pass
+        db.add(
+            MessageRow(
+                message_id=generate_uuid(),
+                session_id=session_id,
+                role="assistant",
+                content=summary_text,
+                tool_name="__plan__",
+            )
         )
+        await db.commit()
+
+        return _plan_to_response(plan_row)
 
     @router.post("/sessions/{session_id}/execute", response_model=SessionResponse)
     async def execute(
@@ -513,6 +986,10 @@ def build_router(
             session_mgr.enforce_limits(sess)
         except TransitionError as e:
             raise HTTPException(status_code=429, detail=str(e))
+        # Background execution only works when the worker pool is enabled.
+        if background and settings.worker_count <= 0:
+            background = False
+
         if background and enqueue_session is not None:
             # Mark as executing and enqueue.
             try:
@@ -575,14 +1052,25 @@ def build_router(
         return _session_to_response(sess)
 
     @router.get("/approvals/pending", response_model=list[ApprovalResponse])
-    async def list_pending_approvals(db: AsyncSession = Depends(get_db)):
+    async def list_pending_approvals(
+        session_id: str | None = Query(None),
+        _: dict[str, Any] = Depends(require_jwt),
+        db: AsyncSession = Depends(get_db),
+    ):
+        stmt = select(ApprovalRow).where(ApprovalRow.status == "PENDING")
+        if session_id:
+            stmt = stmt.where(ApprovalRow.session_id == session_id)
         rows = (
-            await db.execute(select(ApprovalRow).where(ApprovalRow.status == "PENDING").order_by(ApprovalRow.created_at.asc()))
+            await db.execute(stmt.order_by(ApprovalRow.created_at.asc()))
         ).scalars().all()
         return [_approval_to_response(r) for r in rows]
 
     @router.get("/approvals/{approval_id}", response_model=ApprovalResponse)
-    async def get_approval(approval_id: str, db: AsyncSession = Depends(get_db)):
+    async def get_approval(
+        approval_id: str,
+        _: dict[str, Any] = Depends(require_jwt),
+        db: AsyncSession = Depends(get_db),
+    ):
         row = (await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == approval_id))).scalars().first()
         if not row:
             raise HTTPException(status_code=404, detail="approval not found")
@@ -598,6 +1086,32 @@ def build_router(
         row = (await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == approval_id))).scalars().first()
         if not row:
             raise HTTPException(status_code=404, detail="approval not found")
+
+        if req.args is not None:
+            if not isinstance(req.args, dict):
+                raise HTTPException(status_code=400, detail="args must be an object")
+            tools_by_name = await tool_registry.get_tools_by_name(db)
+            tool = tools_by_name.get(row.tool_name)
+            if not tool:
+                raise HTTPException(status_code=400, detail=f"unknown tool: {row.tool_name}")
+            try:
+                Draft202012Validator(tool.input_schema).validate(req.args)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"invalid args: {e}")
+
+            row.args = req.args
+            step = (await db.execute(select(PlanStepRow).where(PlanStepRow.step_id == row.step_id))).scalars().first()
+            if step:
+                step.args = req.args
+                sess = await session_mgr.get_session(db, session_id=row.session_id)
+                plan_version = (sess.plan_version or 0) if sess else 0
+                step.idempotency_key = compute_idempotency_key(
+                    session_id=row.session_id,
+                    step_index=step.step_index,
+                    plan_version=plan_version,
+                    args=req.args,
+                )
+
         row.status = "APPROVED"
         row.decided_by = req.decided_by
         row.decided_at = datetime.utcnow()

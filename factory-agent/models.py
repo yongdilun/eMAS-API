@@ -16,6 +16,7 @@ class Session(Base):
     )
     session_id = Column(String(36), primary_key=True, default=generate_uuid)
     user_id = Column(String(255), nullable=False)
+    name = Column(String(255), nullable=True)
     status = Column(String(50), nullable=False, default="IDLE")
     current_intent = Column(Text, nullable=True)
     plan_id = Column(String(36), nullable=True)

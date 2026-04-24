@@ -87,7 +87,7 @@ def _infer_input_schema(spec: dict[str, Any], operation: dict[str, Any], method:
         resolved = _resolve_schema(spec, schema)
         param_name = str(param.get("name", "param"))
         input_schema["properties"][param_name] = resolved
-        if bool(param.get("required")):
+        if bool(param.get("required")) or str(param.get("in", "")).lower() == "path":
             input_schema["required"].append(param_name)
 
     request_body = operation.get("requestBody")

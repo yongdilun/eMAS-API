@@ -2,6 +2,7 @@
  * @typedef {Object} SessionResponse
  * @property {string} session_id
  * @property {string} user_id
+ * @property {string|null} [name]
  * @property {'IDLE'|'PLANNING'|'WAITING_APPROVAL'|'EXECUTING'|'BLOCKED'|'FAILED'|'COMPLETED'} status
  * @property {string|null} [current_intent]
  * @property {string|null} [plan_id]
@@ -60,6 +61,29 @@
  * @property {Object|null} [result]
  * @property {string|null} [result_summary]
  * @property {string|null} [last_error]
+ */
+
+/**
+ * @typedef {Object} TimelineEventResponse
+ * @property {string} event_id
+ * @property {'user_message'|'plan_created'|'execution_started'|'tool_result'|'approval_required'|'approval_decided'|'replan_requested'|'session_blocked'|'session_failed'|'session_completed'} event_type
+ * @property {string} content
+ * @property {string} created_at
+ * @property {'user'|'assistant'|'system'} role
+ * @property {string|null} [step_id]
+ * @property {string|null} [approval_id]
+ * @property {string|null} [tool_name]
+ * @property {string|null} [status]
+ * @property {Object|null} [details]
+ */
+
+/**
+ * @typedef {Object} SessionSnapshotResponse
+ * @property {SessionResponse} session
+ * @property {PlanResponse|null} [plan]
+ * @property {PlanStepResponse[]} steps
+ * @property {ApprovalResponse|null} [pending_approval]
+ * @property {TimelineEventResponse[]} timeline
  */
 
 export {}

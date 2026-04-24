@@ -42,6 +42,12 @@ def _sign_test_jwt(payload: dict, secret: str) -> str:
     return f"{encoded_header}.{encoded_payload}.{encoded_sig}"
 
 
+def _auth_headers(secret: str, sub: str = "u1") -> dict[str, str]:
+    now = int(time.time())
+    token = _sign_test_jwt({"sub": sub, "exp": now + 300}, secret)
+    return {"Authorization": f"Bearer {token}"}
+
+
 async def _make_app(
     sessionmaker_override,
     enqueue_session=None,
@@ -50,12 +56,13 @@ async def _make_app(
     planner_adapter=None,
     planner_fallback_to_legacy=True,
 ):
+    worker_count = 1 if enqueue_session is not None else 0
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url=None,
         go_api_base_url="http://testserver",
         admin_api_key="test-admin-key",
-        worker_count=0,
+        worker_count=worker_count,
         session_queue_size=10,
         max_plan_steps=10,
         max_session_steps=50,
@@ -305,6 +312,364 @@ async def test_create_plan_without_draft_uses_planner_adapter(sessionmaker_overr
         created = await client.post(f"/sessions/{session_id}/plans", json={})
         assert created.status_code == 200
         assert created.json()["created_by"] == "legacy"
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_prefers_entity_machine_tool_when_id_present(sessionmaker_override, db_session):
+    from models import PlanStep
+
+    await _seed_tool(
+        db_session,
+        name="get__machines",
+        endpoint="/machines",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
+        capability_tags='["machine","status"]',
+        is_read_only=True,
+    )
+    await _seed_tool(
+        db_session,
+        name="get__machines_{id}",
+        endpoint="/machines/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
+        capability_tags='["machine","status"]',
+        is_read_only=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "Check machine 5 status"})
+
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+
+    step_row = (
+        await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))
+    ).scalars().first()
+    assert step_row is not None
+    assert step_row.tool_name == "get__machines_{id}"
+    assert step_row.args == {"id": "5"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_returns_clarification_when_required_args_missing(sessionmaker_override, db_session):
+    from models import Plan
+
+    await _seed_tool(
+        db_session,
+        name="get__machines_{id}",
+        endpoint="/machines/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+        capability_tags='["machine","status"]',
+        is_read_only=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "Check machine status"})
+
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 400
+        assert "Need id" in json.dumps(plan.json())
+
+    rows = (await db_session.execute(select(Plan).where(Plan.session_id == session_id))).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_allows_partial_args_for_write_tool_and_waits_approval(sessionmaker_override, db_session):
+    from models import Approval, PlanStep
+
+    await _seed_tool(
+        db_session,
+        name="post__inventory_update",
+        endpoint="/inventory",
+        method="POST",
+        input_schema={"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]},
+        capability_tags='["inventory", "update"]',
+        is_read_only=False,
+        requires_approval=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(
+            f"/sessions/{session_id}/messages",
+            json={"role": "user", "content": "Update inventory"},
+        )
+
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+
+        execute = await client.post(f"/sessions/{session_id}/execute")
+        assert execute.status_code == 200
+        assert execute.json()["status"] == "WAITING_APPROVAL"
+
+        snapshot = await client.get(f"/sessions/{session_id}/snapshot")
+        assert snapshot.status_code == 200
+        body = snapshot.json()
+        missing = [
+            event.get("details", {}).get("missing_required")
+            for event in body.get("timeline", [])
+            if event.get("event_type") == "approval_required"
+        ]
+        assert any(isinstance(v, list) and "id" in v for v in missing)
+
+    step = (
+        await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))
+    ).scalars().first()
+    assert step is not None
+    assert step.args == {}
+    assert step.requires_approval is True
+    approvals = (await db_session.execute(select(Approval).where(Approval.session_id == session_id))).scalars().all()
+    assert len(approvals) == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_extracts_seed_machine_id(sessionmaker_override, db_session):
+    from models import PlanStep
+
+    await _seed_tool(
+        db_session,
+        name="get__machines",
+        endpoint="/machines",
+        method="GET",
+        input_schema={"type": "object", "properties": {}},
+        capability_tags='["machine","status"]',
+        is_read_only=True,
+    )
+    await _seed_tool(
+        db_session,
+        name="get__machines_{id}",
+        endpoint="/machines/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
+        capability_tags='["machine","status"]',
+        is_read_only=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "Check machine M-LTH-02 status"})
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+
+    step_row = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert step_row is not None
+    assert step_row.tool_name == "get__machines_{id}"
+    assert step_row.args == {"id": "M-LTH-02"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_extracts_seed_job_id(sessionmaker_override, db_session):
+    from models import PlanStep
+
+    await _seed_tool(
+        db_session,
+        name="get__jobs",
+        endpoint="/jobs",
+        method="GET",
+        input_schema={"type": "object", "properties": {}},
+        capability_tags='["job","status"]',
+        is_read_only=True,
+    )
+    await _seed_tool(
+        db_session,
+        name="get__jobs_{id}",
+        endpoint="/jobs/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
+        capability_tags='["job","status"]',
+        is_read_only=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "Check job JOB-SEED-001 status"})
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+
+    step_row = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert step_row is not None
+    assert step_row.tool_name == "get__jobs_{id}"
+    assert step_row.args == {"id": "JOB-SEED-001"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_prefers_seed_job_slots_tool_for_slots_intent(sessionmaker_override, db_session):
+    from models import PlanStep
+
+    await _seed_tool(
+        db_session,
+        name="get__jobs_{id}",
+        endpoint="/jobs/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
+        capability_tags='["job","status"]',
+        is_read_only=True,
+    )
+    await _seed_tool(
+        db_session,
+        name="get__jobs_{id}_slots",
+        endpoint="/jobs/{id}/slots",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
+        capability_tags='["job","schedule","slot"]',
+        is_read_only=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "Show slots for job JOB-SEED-001"})
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+
+    step_row = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert step_row is not None
+    assert step_row.tool_name == "get__jobs_{id}_slots"
+    assert step_row.args == {"id": "JOB-SEED-001"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_splits_compound_intent_into_multiple_steps(sessionmaker_override, db_session):
+    from agent.planner import LegacyPlannerBackend
+    from models import PlanStep
+
+    await _seed_tool(
+        db_session,
+        name="get__machines_{id}",
+        endpoint="/machines/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+        capability_tags='["machine","status"]',
+        is_read_only=True,
+    )
+    await _seed_tool(
+        db_session,
+        name="get__jobs_{id}_slots",
+        endpoint="/jobs/{id}/slots",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+        capability_tags='["job","schedule","slot"]',
+        is_read_only=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override, planner_adapter=LegacyPlannerBackend())
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(
+            f"/sessions/{session_id}/messages",
+            json={"role": "user", "content": "Check machine M-LTH-02 status and then show slots for JOB-SEED-001"},
+        )
+
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+        body = plan.json()
+        assert body["created_by"] == "legacy"
+        assert "machine" in body["plan_explanation"].lower()
+        assert "slots" in body["plan_explanation"].lower()
+
+    step_rows = (
+        await db_session.execute(
+            select(PlanStep)
+            .where(PlanStep.session_id == session_id)
+            .order_by(PlanStep.step_index.asc())
+        )
+    ).scalars().all()
+    assert len(step_rows) == 2
+    assert step_rows[0].tool_name == "get__machines_{id}"
+    assert step_rows[0].args == {"id": "M-LTH-02"}
+    assert step_rows[1].tool_name == "get__jobs_{id}_slots"
+    assert step_rows[1].args == {"id": "JOB-SEED-001"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_extracts_seed_material_id(sessionmaker_override, db_session):
+    from models import PlanStep
+
+    await _seed_tool(
+        db_session,
+        name="get__inventory_materials",
+        endpoint="/inventory/materials",
+        method="GET",
+        input_schema={"type": "object", "properties": {}},
+        capability_tags='["inventory","material"]',
+        is_read_only=True,
+    )
+    await _seed_tool(
+        db_session,
+        name="get__inventory_materials_{id}",
+        endpoint="/inventory/materials/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
+        capability_tags='["inventory","material"]',
+        is_read_only=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "Check material MAT-010 stock"})
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+
+    step_row = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert step_row is not None
+    assert step_row.tool_name == "get__inventory_materials_{id}"
+    assert step_row.args == {"id": "MAT-010"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_extracts_seed_proposal_id(sessionmaker_override, db_session):
+    from models import PlanStep
+
+    await _seed_tool(
+        db_session,
+        name="get__ai_scheduling_proposals",
+        endpoint="/ai/scheduling/proposals",
+        method="GET",
+        input_schema={"type": "object", "properties": {}},
+        capability_tags='["proposal","scheduling"]',
+        is_read_only=True,
+    )
+    await _seed_tool(
+        db_session,
+        name="get__ai_scheduling_proposals_{id}",
+        endpoint="/ai/scheduling/proposals/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
+        capability_tags='["proposal","scheduling"]',
+        is_read_only=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "Open proposal AIPROP-SEED-001"})
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+
+    step_row = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert step_row is not None
+    assert step_row.tool_name == "get__ai_scheduling_proposals_{id}"
+    assert step_row.args == {"id": "AIPROP-SEED-001"}
 
 
 @pytest.mark.asyncio
@@ -705,6 +1070,171 @@ async def test_end_to_end_state_progression_with_approval_resume(sessionmaker_ov
 
 
 @pytest.mark.asyncio
+async def test_session_snapshot_returns_plan_steps_pending_approval_and_timeline(sessionmaker_override, db_session):
+    from models import Approval, Message, Plan, PlanStep, Session, generate_uuid
+    from agent.execution import compute_idempotency_key
+
+    session_id = "sess-snapshot"
+    plan_id = "plan-snapshot"
+    step_id = generate_uuid()
+    approval_id = generate_uuid()
+    created_at = datetime.utcnow()
+
+    db_session.add(
+        Session(
+            session_id=session_id,
+            user_id="u1",
+            name="Snapshot chat",
+            status="WAITING_APPROVAL",
+            current_intent="Update machine 5 to maintenance",
+            plan_id=plan_id,
+            plan_version=1,
+            plan_hash="hash-snapshot",
+            current_step_index=0,
+            session_started_at=created_at,
+        )
+    )
+    db_session.add(
+        Plan(
+            plan_id=plan_id,
+            session_id=session_id,
+            version=1,
+            dependency_graph={},
+            parallel_groups=[],
+            plan_hash="hash-snapshot",
+            plan_explanation="Update machine 5 to maintenance after confirmation.",
+            risk_summary="This changes machine state.",
+            created_by="legacy",
+            created_at=created_at,
+        )
+    )
+    db_session.add(
+        PlanStep(
+            step_id=step_id,
+            plan_id=plan_id,
+            session_id=session_id,
+            step_index=0,
+            tool_name="put__machines_{id}",
+            args={"id": "5", "status": "maintenance"},
+            status="NOT_STARTED",
+            idempotency_key=compute_idempotency_key(
+                session_id=session_id,
+                step_index=0,
+                plan_version=1,
+                args={"id": "5", "status": "maintenance"},
+            ),
+            requires_approval=True,
+            approval_id=approval_id,
+        )
+    )
+    db_session.add(
+        Approval(
+            approval_id=approval_id,
+            session_id=session_id,
+            step_id=step_id,
+            tool_name="put__machines_{id}",
+            args={"id": "5", "status": "maintenance"},
+            risk_summary="This will change machine state for id=5.",
+            side_effect_level="HIGH",
+            status="PENDING",
+            expires_at=created_at,
+            created_at=created_at,
+        )
+    )
+    db_session.add(
+        Message(
+            message_id=generate_uuid(),
+            session_id=session_id,
+            role="user",
+            content="Update machine 5 to maintenance",
+            created_at=created_at,
+        )
+    )
+    db_session.add(
+        Message(
+            message_id=generate_uuid(),
+            session_id=session_id,
+            role="assistant",
+            content="Intent: Update machine 5 to maintenance. Plan has 1 step(s). Risk summary: This changes machine state.",
+            tool_name="__plan__",
+            created_at=created_at,
+        )
+    )
+    await db_session.commit()
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        snapshot = await client.get(f"/sessions/{session_id}/snapshot")
+        assert snapshot.status_code == 200
+        body = snapshot.json()
+        assert body["session"]["name"] == "Snapshot chat"
+        assert body["plan"]["plan_hash"] == "hash-snapshot"
+        assert len(body["steps"]) == 1
+        assert body["pending_approval"]["approval_id"] == approval_id
+        event_types = [event["event_type"] for event in body["timeline"]]
+        assert event_types[:3] == ["user_message", "plan_created", "approval_required"]
+        assert "user_message" in event_types
+        assert "plan_created" in event_types
+        assert "approval_required" in event_types
+
+
+@pytest.mark.asyncio
+async def test_approve_endpoint_allows_overriding_args_before_execution(sessionmaker_override, db_session):
+    from models import Approval as ApprovalRow, PlanStep as PlanStep
+
+    schema = {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["id"]}
+    await _seed_tool(
+        db_session,
+        name="post__inventory_update",
+        endpoint="/inventory",
+        method="POST",
+        input_schema=schema,
+        capability_tags='["inventory"]',
+        is_read_only=False,
+        requires_approval=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override)
+    draft = PlanDraft(
+        plan_explanation="update inventory",
+        risk_summary="write op",
+        steps=[PlanStepDraft(step_index=0, tool_name="post__inventory_update", args={"id": 1})],
+    )
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        assert created.status_code == 200
+        session_id = created.json()["session_id"]
+
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "update inventory"})
+        plan_created = await client.post(f"/sessions/{session_id}/plans", json={"draft": draft.model_dump()})
+        assert plan_created.status_code == 200
+
+        executed = await client.post(f"/sessions/{session_id}/execute")
+        assert executed.status_code == 200
+        assert executed.json()["status"] == "WAITING_APPROVAL"
+
+        pending = await client.get("/approvals/pending", params={"session_id": session_id})
+        assert pending.status_code == 200
+        approval_id = pending.json()[0]["approval_id"]
+
+        approved = await client.post(
+            f"/approvals/{approval_id}/approve",
+            json={"decided_by": "u1", "args": {"id": 2}},
+        )
+        assert approved.status_code == 200
+        assert approved.json()["status"] == "APPROVED"
+        assert approved.json()["args"] == {"id": 2}
+
+    approval_row = await db_session.get(ApprovalRow, approval_id)
+    assert approval_row is not None
+    assert approval_row.args == {"id": 2}
+
+    step_row = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert step_row is not None
+    assert step_row.args == {"id": 2}
+
+
+@pytest.mark.asyncio
 async def test_dlq_dismiss_and_replay_endpoints(sessionmaker_override, db_session):
     from models import DeadLetter, generate_uuid
 
@@ -983,6 +1513,149 @@ async def test_tampered_jwt_rejected_with_401(sessionmaker_override):
             headers={"Authorization": f"Bearer {tampered_token}"},
         )
         assert bad.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_pending_approval_read_endpoints_require_jwt_and_support_session_filter(sessionmaker_override, db_session):
+    from models import Approval, generate_uuid
+
+    first = generate_uuid()
+    second = generate_uuid()
+    now = datetime.utcnow()
+    db_session.add_all(
+        [
+            Approval(
+                approval_id=first,
+                session_id="sess-1",
+                step_id=generate_uuid(),
+                tool_name="put__machines_{id}",
+                args={"id": "5"},
+                risk_summary="x",
+                side_effect_level="HIGH",
+                status="PENDING",
+                expires_at=now,
+                created_at=now,
+            ),
+            Approval(
+                approval_id=second,
+                session_id="sess-2",
+                step_id=generate_uuid(),
+                tool_name="put__machines_{id}",
+                args={"id": "6"},
+                risk_summary="y",
+                side_effect_level="HIGH",
+                status="PENDING",
+                expires_at=now,
+                created_at=now,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    secret = "phase4-secret"
+    app, _ = await _make_app(sessionmaker_override, jwt_required=True, jwt_secret=secret)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        unauthorized = await client.get("/approvals/pending")
+        assert unauthorized.status_code == 401
+
+        authorized = await client.get(
+            "/approvals/pending",
+            headers=_auth_headers(secret),
+            params={"session_id": "sess-2"},
+        )
+        assert authorized.status_code == 200
+        body = authorized.json()
+        assert len(body) == 1
+        assert body[0]["session_id"] == "sess-2"
+
+
+@pytest.mark.asyncio
+async def test_machine_tool_result_summary_is_operator_readable(sessionmaker_override, db_session, respx_mock):
+    from models import Message
+
+    await _seed_tool(
+        db_session,
+        name="get__machines_{id}",
+        endpoint="/machines/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+        capability_tags='["machine","status"]',
+        is_read_only=True,
+    )
+    respx_mock.get("http://testserver/machines/5").respond(200, json={"id": "5", "name": "Machine 5", "status": "Idle"})
+
+    app, _ = await _make_app(sessionmaker_override)
+    draft = PlanDraft(
+        plan_explanation="Read machine 5",
+        risk_summary="read-only",
+        steps=[PlanStepDraft(step_index=0, tool_name="get__machines_{id}", args={"id": "5"})],
+    )
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "Check machine 5 status"})
+        await client.post(f"/sessions/{session_id}/plans", json={"draft": draft.model_dump()})
+        executed = await client.post(f"/sessions/{session_id}/execute")
+        assert executed.status_code == 200
+        assert executed.json()["status"] == "COMPLETED"
+
+    tool_message = (
+        await db_session.execute(
+            select(Message)
+            .where(Message.session_id == session_id)
+            .where(Message.role == "tool_result")
+        )
+    ).scalars().first()
+    assert tool_message is not None
+    assert "Machine 5 is Idle." in tool_message.content
+
+
+@pytest.mark.asyncio
+async def test_read_only_machine_not_found_returns_operator_friendly_completion(sessionmaker_override, db_session, respx_mock):
+    from models import Message, Session
+
+    await _seed_tool(
+        db_session,
+        name="get__machines_{id}",
+        endpoint="/machines/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+        capability_tags='["machine","status"]',
+        is_read_only=True,
+    )
+    respx_mock.get("http://testserver/machines/5").respond(404, json={"detail": "machine not found"})
+
+    app, _ = await _make_app(sessionmaker_override)
+    draft = PlanDraft(
+        plan_explanation="Read machine 5",
+        risk_summary="read-only",
+        steps=[PlanStepDraft(step_index=0, tool_name="get__machines_{id}", args={"id": "5"})],
+    )
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "Check machine 5 status"})
+        await client.post(f"/sessions/{session_id}/plans", json={"draft": draft.model_dump()})
+        executed = await client.post(f"/sessions/{session_id}/execute")
+        assert executed.status_code == 200
+        assert executed.json()["status"] == "COMPLETED"
+
+    session_row = await db_session.get(Session, session_id)
+    assert session_row is not None
+    assert session_row.status == "COMPLETED"
+    assert session_row.replan_count == 0
+    assert session_row.error in (None, "")
+
+    tool_message = (
+        await db_session.execute(
+            select(Message)
+            .where(Message.session_id == session_id)
+            .where(Message.role == "tool_result")
+        )
+    ).scalars().first()
+    assert tool_message is not None
+    assert "I couldn't find machine 5 in the system." in tool_message.content
+    assert "How would you like to proceed" in tool_message.content
 
 
 @pytest.mark.asyncio

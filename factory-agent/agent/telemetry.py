@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 
@@ -18,6 +19,14 @@ def setup_logging() -> None:
     handler.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
+
+
+def _debug_log_path() -> str | None:
+    repo_root = Path(__file__).resolve().parents[2]
+    frontend_log = repo_root / "eMas Front" / ".cursor" / "debug.log"
+    default_path = frontend_log if frontend_log.parent.exists() else (repo_root / ".cursor" / "debug.log")
+    raw = os.getenv("FACTORY_AGENT_DEBUG_LOG", str(default_path)).strip()
+    return raw or None
 
 
 def _to_jsonable(value: Any) -> Any:
@@ -36,6 +45,87 @@ def log_event(event: str, *, level: str = "INFO", **fields: Any) -> None:
     for key, value in fields.items():
         payload[key] = _to_jsonable(value)
     logger.log(getattr(logging, level.upper(), logging.INFO), json.dumps(payload, default=_to_jsonable, ensure_ascii=True))
+
+
+def log_llm_prompt(
+    *,
+    component: str,
+    backend: str,
+    model: str | None,
+    prompt: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    path = _debug_log_path()
+    if not path:
+        return
+
+    payload: dict[str, Any] = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "event": "llm_prompt",
+        "component": component,
+        "backend": backend,
+        "model": model,
+        "prompt": prompt,
+    }
+    for key, value in (metadata or {}).items():
+        payload[key] = _to_jsonable(value)
+
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, default=_to_jsonable, ensure_ascii=False))
+            fh.write("\n")
+    except Exception as exc:
+        log_event(
+            "llm_prompt_log_failed",
+            level="WARNING",
+            component=component,
+            backend=backend,
+            model=model,
+            error=str(exc),
+            log_path=path,
+        )
+
+
+def log_llm_prompt_skipped(
+    *,
+    component: str,
+    backend: str,
+    reason: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    path = _debug_log_path()
+    if not path:
+        return
+
+    payload: dict[str, Any] = {
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "event": "llm_prompt_skipped",
+        "component": component,
+        "backend": backend,
+        "reason": reason,
+    }
+    for key, value in (metadata or {}).items():
+        payload[key] = _to_jsonable(value)
+
+    try:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(payload, default=_to_jsonable, ensure_ascii=False))
+            fh.write("\n")
+    except Exception as exc:
+        log_event(
+            "llm_prompt_log_failed",
+            level="WARNING",
+            component=component,
+            backend=backend,
+            error=str(exc),
+            log_path=path,
+        )
 
 
 def log_step_status_changed(

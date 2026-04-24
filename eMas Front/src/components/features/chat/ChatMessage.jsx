@@ -6,7 +6,9 @@ const ChatMessage = ({
   isUser = false,
   timestamp,
   renderBlocks,
+  messageAfterBlocks = false,
 }) => {
+  const hasMessage = message != null && String(message).trim() !== ''
   return (
     <div className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
       <div
@@ -43,8 +45,9 @@ const ChatMessage = ({
               : 'bg-white dark:bg-gray-800/90 text-gray-900 dark:text-gray-100 rounded-bl-sm border border-gray-200/80 dark:border-gray-700/80'
           }`}
         >
-          <div className="whitespace-pre-wrap break-words">{message}</div>
-          {renderBlocks?.()}
+          {messageAfterBlocks ? renderBlocks?.() : null}
+          {hasMessage ? <div className="whitespace-pre-wrap break-words">{message}</div> : null}
+          {!messageAfterBlocks ? renderBlocks?.() : null}
         </div>
       </div>
     </div>

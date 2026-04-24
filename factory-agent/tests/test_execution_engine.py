@@ -248,6 +248,68 @@ async def test_execution_snapshot_replay_skips_http(db_session, respx_mock):
 
 
 @pytest.mark.asyncio
+async def test_execution_missing_path_arg_replans_without_http(db_session, respx_mock):
+    from sqlalchemy import select
+    from models import PlanStep, Session
+
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        redis_url=None,
+        go_api_base_url="http://testserver",
+        worker_count=0,
+        session_queue_size=10,
+        max_plan_steps=10,
+        max_session_steps=50,
+        max_replans=5,
+        max_llm_calls=20,
+        max_session_duration_s=1800,
+        http_timeout_s=1.0,
+    )
+    event_bus = FakeEventBus()
+    engine = ExecutionEngine(settings, event_bus)
+
+    session_id = "sess-missing-path"
+    plan_id = "plan-missing-path"
+    plan_hash = "hash-missing-path"
+    plan_version = 1
+    sess, _ = await _seed_core(db_session, session_id=session_id, plan_id=plan_id, plan_hash=plan_hash, plan_version=plan_version)
+    await _seed_step(
+        db_session,
+        plan_id=plan_id,
+        session_id=session_id,
+        step_index=0,
+        tool_name="get__machines_{id}",
+        args={},
+        plan_version=plan_version,
+    )
+
+    tools = {
+        "get__machines_{id}": ToolInfo(
+            name="get__machines_{id}",
+            description="",
+            endpoint="/machines/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}},
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=True,
+            capability_tags=["machine"],
+        )
+    }
+
+    await engine.execute_until_blocked(db_session, session=sess, tools_by_name=tools)
+    assert len(respx_mock.calls) == 0
+
+    sess2 = await db_session.get(Session, session_id)
+    step = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert sess2.status == "PLANNING"
+    assert "Missing required path args: id" in (sess2.error or "")
+    assert step.status == "FAILED"
+
+
+@pytest.mark.asyncio
 async def test_execution_ambiguous_timeout_creates_dlq_and_blocks(db_session, respx_mock):
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
@@ -537,7 +599,7 @@ async def test_execution_http_401_fails_hard_without_retry_and_pushes_dlq(db_ses
 
 
 @pytest.mark.asyncio
-async def test_execution_http_404_triggers_replan_and_preserves_done_steps(db_session, respx_mock):
+async def test_execution_http_404_soft_not_found_completes_and_preserves_done_steps(db_session, respx_mock):
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url=None,
@@ -607,6 +669,7 @@ async def test_execution_http_404_triggers_replan_and_preserves_done_steps(db_se
 
     respx_mock.get("http://testserver/ok").respond(200, json={"ok": True})
     respx_mock.get("http://testserver/missing").respond(404, json={"error": "missing"})
+    respx_mock.get("http://testserver/unused").respond(200, json={"ok": True})
     await engine.execute_until_blocked(db_session, session=sess, tools_by_name=tools)
 
     from sqlalchemy import select
@@ -618,12 +681,12 @@ async def test_execution_http_404_triggers_replan_and_preserves_done_steps(db_se
             select(PlanStep).where(PlanStep.plan_id == plan_id).order_by(PlanStep.step_index.asc())
         )
     ).scalars().all()
-    assert sess2.status == "PLANNING"
+    assert sess2.status == "COMPLETED"
     assert steps[0].status == "DONE"
-    assert steps[1].status == "FAILED"
-    assert sess2.replan_context is not None
-    completed = sess2.replan_context.get("completed_steps", [])
-    assert any(item.get("step_index") == 0 for item in completed)
+    assert steps[1].status == "DONE"
+    assert isinstance(steps[1].result, dict) and steps[1].result.get("not_found") is True
+    assert steps[2].status == "DONE"
+    assert sess2.replan_context is None
 
 
 @pytest.mark.asyncio

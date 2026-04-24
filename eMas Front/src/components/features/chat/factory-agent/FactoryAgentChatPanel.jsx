@@ -1,22 +1,143 @@
-import { useEffect, useRef, useState } from 'react'
+/* eslint-disable react/prop-types */
+import { Fragment, useEffect, useRef, useState } from 'react'
 import ChatMessage from '../ChatMessage'
 import ApprovalCard from './ApprovalCard'
 import ExecutionTracker from './ExecutionTracker'
 import SessionStatusBanner from './SessionStatusBanner'
 import { useFactoryAgentChat } from './useFactoryAgentChat'
 import { FACTORY_AGENT_STATUS } from '../../../../services/factoryAgentApi'
+import { ApprovalBlocks, ThinkingBlock, ToolBlocks } from '../turns/TurnBlocks'
+
+const statusPillTone = {
+  plan_created: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
+  execution_started: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
+  tool_result: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+  approval_required: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  approval_decided: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  replan_requested: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+  session_blocked: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  session_failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  session_completed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+}
+
+function PlanSummaryCard({ plan }) {
+  if (!plan) return null
+  return (
+    <div className="mb-3 rounded-xl border border-indigo-200/70 dark:border-indigo-800/40 bg-white dark:bg-gray-800/60 p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">
+            Active Plan
+          </div>
+          <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+            Version {plan.version}
+          </div>
+        </div>
+        <div className="text-[11px] text-gray-500 dark:text-gray-400">
+          {plan.created_by || 'backend'}
+        </div>
+      </div>
+      <p className="mt-3 text-sm text-gray-800 dark:text-gray-100">
+        {plan.plan_explanation || 'No plan explanation available.'}
+      </p>
+      <div className="mt-2 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/20 px-3 py-2 text-xs text-indigo-800 dark:text-indigo-200">
+        Risk summary: {plan.risk_summary || 'No risk summary available.'}
+      </div>
+    </div>
+  )
+}
+
+function DebugDetails({ session, plan, steps, pendingApproval }) {
+  if (!session) return null
+  return (
+    <details className="mb-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50">
+      <summary className="cursor-pointer px-4 py-3 text-xs font-semibold text-gray-600 dark:text-gray-300">
+        Debug Details
+      </summary>
+      <div className="border-t border-gray-200 dark:border-gray-700 px-4 py-3">
+        <pre className="overflow-x-auto rounded-lg bg-gray-50 dark:bg-gray-950/60 p-3 text-[11px] text-gray-700 dark:text-gray-200">
+{JSON.stringify({ session, plan, steps, pendingApproval }, null, 2)}
+        </pre>
+      </div>
+    </details>
+  )
+}
+
+function EventBlock({
+  message,
+  pendingApproval,
+  approvalReason,
+  setApprovalReason,
+  decideApproval,
+  isDecidingApproval,
+}) {
+  if (message.eventType === 'approval_required' && pendingApproval?.approval_id === message.approvalId) {
+    return (
+      <ApprovalCard
+        approval={pendingApproval}
+        reason={approvalReason}
+        onReasonChange={setApprovalReason}
+        onApprove={(args) => decideApproval('approve', args)}
+        onReject={() => decideApproval('reject')}
+        deciding={isDecidingApproval}
+      />
+    )
+  }
+
+  if (!message.eventType || message.eventType === 'user_message') return null
+
+  return (
+    <div className="mt-2 rounded-xl border border-gray-200/70 dark:border-gray-700/70 bg-gray-50 dark:bg-gray-900/40 p-3 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusPillTone[message.eventType] || 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}>
+          {message.eventType.replaceAll('_', ' ')}
+        </span>
+        {(message.toolName || message.status) ? (
+          <span className="text-[10px] text-gray-500 dark:text-gray-400">
+            {[message.toolName, message.status].filter(Boolean).join(' · ')}
+          </span>
+        ) : null}
+      </div>
+
+      {message.eventType === 'tool_result' && message.details?.result ? (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-gray-600 dark:text-gray-300">Show raw result</summary>
+          <pre className="mt-2 overflow-x-auto rounded bg-white dark:bg-gray-950/60 p-2 text-[11px] text-gray-700 dark:text-gray-200">
+{JSON.stringify(message.details.result, null, 2)}
+          </pre>
+        </details>
+      ) : null}
+
+      {message.eventType === 'approval_decided' && message.details?.rejection_reason ? (
+        <div className="mt-2 rounded-lg bg-red-50 dark:bg-red-950/20 px-2.5 py-2 text-red-700 dark:text-red-300">
+          Reason: {message.details.rejection_reason}
+        </div>
+      ) : null}
+
+      {message.eventType === 'replan_requested' && message.details?.reason ? (
+        <div className="mt-2 rounded-lg bg-violet-50 dark:bg-violet-950/20 px-2.5 py-2 text-violet-700 dark:text-violet-300">
+          Trigger: {message.details.reason}
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
   const chatRef = useRef(null)
   const {
     session,
+    plan,
+    steps,
     messages,
+    turns,
     sessionList,
     activeSessionName,
     input,
     setInput,
     loading,
     isSending,
+    isCancelling,
     error,
     pendingApproval,
     approvalReason,
@@ -26,6 +147,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
     isPollingApprovals,
     lastSyncedAt,
     handleSend,
+    handleCancel,
     decideApproval,
     startNewSession,
     switchSession,
@@ -39,9 +161,15 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
   useEffect(() => {
     if (!chatRef.current) return
     chatRef.current.scrollTop = chatRef.current.scrollHeight
-  }, [messages, isSending, pendingApproval, session?.status])
+  }, [turns, messages, isSending, pendingApproval, session?.status])
 
   const inputDisabled = isSending || session?.status === FACTORY_AGENT_STATUS.PLANNING
+  const canCancel = Boolean(session?.session_id) && [FACTORY_AGENT_STATUS.PLANNING, FACTORY_AGENT_STATUS.EXECUTING, FACTORY_AGENT_STATUS.WAITING_APPROVAL, FACTORY_AGENT_STATUS.BLOCKED].includes(session?.status)
+
+  let placeholder = 'Ask factory agent...'
+  if (session?.status === FACTORY_AGENT_STATUS.PLANNING) placeholder = 'Planning in progress...'
+  if (session?.status === FACTORY_AGENT_STATUS.EXECUTING) placeholder = 'Send a follow-up message for the next replan point...'
+  if (session?.status === FACTORY_AGENT_STATUS.WAITING_APPROVAL) placeholder = 'Request a plan change while approval is pending...'
 
   return (
     <div className="flex h-full relative">
@@ -160,6 +288,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
           </div>
         ) : null}
       </aside>
+
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200/80 dark:border-gray-700/80 bg-white dark:bg-[#111618]">
           <div
@@ -177,6 +306,16 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
             </span>
           </div>
           <div className="flex items-center gap-1">
+            {canCancel && (
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={isCancelling}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-100 text-amber-700 hover:bg-amber-200 disabled:opacity-60 dark:bg-amber-900/30 dark:text-amber-300"
+              >
+                {isCancelling ? 'Cancelling...' : 'Cancel'}
+              </button>
+            )}
             {onClose && (
               <button
                 type="button"
@@ -204,23 +343,13 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
             isPollingSession={isPollingSession}
             isPollingApprovals={isPollingApprovals}
           />
+          <DebugDetails session={session} plan={plan} steps={steps} pendingApproval={pendingApproval} />
 
-          {pendingApproval ? (
-            <ApprovalCard
-              approval={pendingApproval}
-              reason={approvalReason}
-              onReasonChange={setApprovalReason}
-              onApprove={() => decideApproval('approve')}
-              onReject={() => decideApproval('reject')}
-              deciding={isDecidingApproval}
-            />
-          ) : null}
-
-          {loading && messages.length === 0 ? (
+          {loading && (turns?.length || 0) === 0 && messages.length === 0 ? (
             <div className="flex items-center justify-center h-32 text-gray-500 dark:text-gray-400 text-sm">
               Loading...
             </div>
-          ) : messages.length === 0 ? (
+          ) : (turns?.length || 0) === 0 && messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center min-h-[200px] text-center px-4">
               <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                 <span className="material-symbols-outlined text-3xl text-primary">smart_toy</span>
@@ -250,34 +379,67 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
               </div>
             </div>
           ) : (
-            messages.map((m) => (
-              <ChatMessage
-                key={m.id}
-                message={m.content}
-                isUser={m.role === 'user'}
-                timestamp={m.timestamp}
-                renderBlocks={() => (
-                  <>
-                    {m.role === 'tool_result' ? (
-                      <div className="mt-2 rounded-lg border border-gray-200/70 dark:border-gray-700/70 bg-gray-50 dark:bg-gray-900/40 p-2 text-xs">
-                        <div className="font-semibold text-gray-700 dark:text-gray-200">
-                          {m.tool_name || 'Tool result'}
-                          {m.step_status ? ` - ${m.step_status}` : ''}
-                        </div>
-                        {m.result ? (
-                          <details className="mt-1">
-                            <summary className="cursor-pointer text-gray-600 dark:text-gray-300">Show raw result</summary>
-                            <pre className="mt-1 overflow-x-auto rounded bg-white dark:bg-gray-950/60 p-2 text-[11px] text-gray-700 dark:text-gray-200">
-{JSON.stringify(m.result, null, 2)}
-                            </pre>
-                          </details>
-                        ) : null}
-                      </div>
+            <>
+              {(turns || []).map((turn) => {
+                const hasApprovalCard =
+                  pendingApproval &&
+                  Array.isArray(turn.approvals) &&
+                  turn.approvals.some((a) => a?.event_type === 'approval_required' && a?.approval_id === pendingApproval.approval_id)
+
+                const passiveApprovals = Array.isArray(turn.approvals)
+                  ? turn.approvals.filter((a) => !(a?.event_type === 'approval_required' && pendingApproval?.approval_id === a?.approval_id))
+                  : []
+
+                const userTs = turn.user?.created_at
+                  ? new Date(turn.user.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : null
+                const assistantTs = turn.created_at
+                  ? new Date(turn.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : null
+
+                return (
+                  <Fragment key={turn.id}>
+                    {turn.user?.content ? (
+                      <ChatMessage message={turn.user.content} isUser timestamp={userTs} />
                     ) : null}
-                  </>
-                )}
-              />
-            ))
+                    <ChatMessage
+                      message=""
+                      isUser={false}
+                      timestamp={assistantTs}
+                      messageAfterBlocks
+                      renderBlocks={() => (
+                        <>
+                          <ThinkingBlock items={turn.thinking} />
+                          <ToolBlocks tools={turn.tools} />
+                          <ApprovalBlocks approvals={passiveApprovals} />
+                          {hasApprovalCard ? (
+                            <ApprovalCard
+                              approval={pendingApproval}
+                              reason={approvalReason}
+                              onReasonChange={setApprovalReason}
+                              onApprove={(args) => decideApproval('approve', args)}
+                              onReject={() => decideApproval('reject')}
+                              deciding={isDecidingApproval}
+                            />
+                          ) : null}
+                          {turn.summary ? (
+                            <div className="mt-2 whitespace-pre-wrap break-words text-gray-900 dark:text-gray-100">
+                              {turn.summary}
+                            </div>
+                          ) : null}
+                        </>
+                      )}
+                    />
+                  </Fragment>
+                )
+              })}
+
+              {messages
+                .filter((m) => String(m.id || '').startsWith('optimistic-') && m.role === 'user')
+                .map((m) => (
+                  <ChatMessage key={m.id} message={m.content} isUser timestamp={m.timestamp} />
+                ))}
+            </>
           )}
 
           {isSending && (
@@ -303,7 +465,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
             rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={session?.status === FACTORY_AGENT_STATUS.PLANNING ? 'Planning in progress...' : 'Ask factory agent...'}
+            placeholder={placeholder}
             disabled={inputDisabled}
             className="flex-1 resize-none rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 px-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
           />
@@ -326,4 +488,3 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
 }
 
 export default FactoryAgentChatPanel
-

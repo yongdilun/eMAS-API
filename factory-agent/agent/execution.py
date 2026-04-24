@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy.exc import SQLAlchemyError
@@ -49,6 +51,10 @@ class ToolNetworkError(Exception):
         super().__init__(message)
 
 
+class ToolInputError(Exception):
+    pass
+
+
 def _stable_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
@@ -64,6 +70,9 @@ def compute_idempotency_key(*, session_id: str, step_index: int, plan_version: i
 
 def compute_payload_hash(*, args: dict[str, Any]) -> str:
     return _sha256_hex(_stable_json(args))
+
+
+_PATH_PARAM_RE = re.compile(r"\{([a-zA-Z0-9_]+)\}")
 
 
 @dataclass(frozen=True)
@@ -83,17 +92,178 @@ class ExecutionEngine:
             return 0
         return int((datetime.utcnow() - session.session_started_at).total_seconds())
 
+    def _entity_label(self, args: dict[str, Any]) -> str:
+        for key in ("id", "machine_id", "job_id", "inventory_id", "approval_id", "proposal_id", "line_id"):
+            value = args.get(key)
+            if value not in (None, ""):
+                return f"{key}={value}"
+        if args:
+            first_key = next(iter(args.keys()))
+            return f"{first_key}={args[first_key]}"
+        return "target"
+
+    def _tool_entity_name(self, tool_name: str) -> str:
+        lower_name = tool_name.lower()
+        if "machine" in lower_name:
+            return "machine"
+        if "material" in lower_name:
+            return "material"
+        if "inventory" in lower_name:
+            return "inventory record"
+        if "proposal" in lower_name:
+            return "proposal"
+        if "job" in lower_name or "schedule" in lower_name:
+            return "job"
+        return "record"
+
+    def _build_not_found_summary(self, *, tool_name: str, args: dict[str, Any], body: dict[str, Any] | None) -> str:
+        entity = self._tool_entity_name(tool_name)
+        target = (
+            args.get("id")
+            or args.get("machine_id")
+            or args.get("job_id")
+            or args.get("material_id")
+            or args.get("inventory_id")
+            or args.get("proposal_id")
+            or args.get("approval_id")
+        )
+        if target not in (None, ""):
+            target_str = str(target)
+            hint = ""
+            if entity == "machine" and target_str.upper().startswith("JOB-"):
+                hint = " That looks like a Job ID. If you meant a job, try: `Check job JOB-SEED-001 status`."
+            return f"I couldn't find {entity} {target_str} in the system. How would you like to proceed?{hint}"
+        detail = (body or {}).get("detail")
+        if isinstance(detail, str) and detail.strip():
+            return detail.strip()
+        return f"I couldn't find the requested {entity} in the system. How would you like to proceed?"
+
+    def _is_soft_not_found(self, *, tool: ToolInfo, http_status: int | None, body: dict[str, Any] | None) -> bool:
+        return bool(tool.is_read_only and tool.method == "GET" and http_status == 404 and isinstance(body, dict))
+
+    def _summarize_machine_payload(self, body: dict[str, Any]) -> str | None:
+        items = body.get("items")
+        if isinstance(items, list):
+            return f"Retrieved {len(items)} machine record(s)."
+
+        # Many endpoints return an envelope `{success, data, error}` where `data`
+        # holds the machine record. The Go API currently serializes machine
+        # fields as `MachineID/MachineName/Status` (no json tags), so we accept
+        # both styles.
+        machine = body.get("data") if isinstance(body.get("data"), dict) else body
+        if not isinstance(machine, dict):
+            return None
+
+        name = (
+            machine.get("name")
+            or machine.get("machine_name")
+            or machine.get("MachineName")
+            or machine.get("machineName")
+        )
+        status = (
+            machine.get("status")
+            or machine.get("machine_status")
+            or machine.get("MachineStatus")
+            or machine.get("Status")
+            or machine.get("state")
+        )
+        machine_id = (
+            machine.get("id")
+            or machine.get("machine_id")
+            or machine.get("MachineID")
+            or machine.get("machineId")
+        )
+        if status and (machine_id or name):
+            label = None
+            if machine_id and name:
+                mid = str(machine_id)
+                nm = str(name)
+                # Avoid "5 (Machine 5)" duplication when name already includes the ID.
+                if nm.strip().lower().endswith(mid.strip().lower()) or nm.strip().lower() == f"machine {mid.strip().lower()}":
+                    label = nm
+                else:
+                    label = f"{mid} ({nm})"
+            elif machine_id:
+                label = str(machine_id)
+            else:
+                label = str(name)
+
+            if label.strip().lower().startswith("machine "):
+                return f"{label} is {status}."
+            return f"Machine {label} is {status}."
+        return None
+
+    def _summarize_inventory_payload(self, body: dict[str, Any]) -> str | None:
+        items = body.get("items")
+        if isinstance(items, list):
+            return f"Retrieved {len(items)} inventory record(s)."
+
+        record = body.get("data") if isinstance(body.get("data"), dict) else body
+        sku = record.get("sku")
+        qty = (
+            record.get("quantity")
+            if record.get("quantity") is not None
+            else record.get("qty")
+        )
+        if sku and qty is not None:
+            return f"Inventory for {sku} is {qty}."
+        return None
+
+    def _summarize_job_payload(self, body: dict[str, Any]) -> str | None:
+        items = body.get("items")
+        if isinstance(items, list):
+            return f"Retrieved {len(items)} job record(s)."
+
+        record = body.get("data") if isinstance(body.get("data"), dict) else body
+        job_id = record.get("job_id") or record.get("id")
+        status = record.get("status")
+        if job_id and status:
+            return f"Job {job_id} is {status}."
+        return None
+
+    def _summarize_domain_payload(self, *, tool_name: str, body: dict[str, Any]) -> str | None:
+        lower_name = tool_name.lower()
+        if "machine" in lower_name:
+            return self._summarize_machine_payload(body)
+        if "inventory" in lower_name:
+            return self._summarize_inventory_payload(body)
+        if "job" in lower_name or "schedule" in lower_name:
+            return self._summarize_job_payload(body)
+        return None
+
     def _summarize_step_result(self, *, tool_name: str, body: dict[str, Any] | None) -> str:
         if body is None:
             return f"{tool_name} completed."
         if isinstance(body, dict):
+            if body.get("not_found"):
+                summary = body.get("_summary")
+                if isinstance(summary, str) and summary.strip():
+                    return summary.strip()
+            domain_summary = self._summarize_domain_payload(tool_name=tool_name, body=body)
+            if domain_summary:
+                return domain_summary
             for key in ("message", "detail", "status", "summary"):
                 val = body.get(key)
                 if isinstance(val, str) and val.strip():
                     return f"{tool_name}: {val.strip()}"
+            if isinstance(body.get("items"), list):
+                return f"{tool_name} completed. Retrieved {len(body['items'])} item(s)."
             keys = ", ".join(list(body.keys())[:4])
             return f"{tool_name} completed. Response keys: {keys or 'none'}."
         return f"{tool_name} completed."
+
+    def _build_approval_risk_summary(self, *, tool: ToolInfo, args: dict[str, Any]) -> str:
+        target = self._entity_label(args)
+        lower_name = tool.name.lower()
+        if "machine" in lower_name:
+            return f"This will change machine state for {target}."
+        if "inventory" in lower_name:
+            return f"This will update inventory for {target}."
+        if "job" in lower_name or "schedule" in lower_name:
+            return f"This will change production scheduling for {target}."
+        if "approval" in lower_name:
+            return f"This will submit an approval decision for {target}."
+        return f"This will perform a write operation against the backend for {target}."
 
     async def _append_tool_result_message(
         self,
@@ -197,7 +367,7 @@ class ExecutionEngine:
             step_id=step.step_id,
             tool_name=tool.name,
             args=step.args,
-            risk_summary="This operation performs a write via backend API.",
+            risk_summary=self._build_approval_risk_summary(tool=tool, args=step.args or {}),
             side_effect_level=tool.side_effect_level or "HIGH",
             status="PENDING",
             expires_at=datetime.utcnow() + timedelta(hours=24),
@@ -253,6 +423,26 @@ class ExecutionEngine:
         db.add(snapshot)
         await db.commit()
 
+    def _materialize_endpoint(self, *, endpoint: str, args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        used_keys: set[str] = set()
+        unresolved_keys: set[str] = set()
+
+        def replace(match: re.Match[str]) -> str:
+            key = match.group(1)
+            value = args.get(key)
+            if value is None:
+                unresolved_keys.add(key)
+                return match.group(0)
+            used_keys.add(key)
+            return quote(str(value), safe="")
+
+        rendered = _PATH_PARAM_RE.sub(replace, endpoint)
+        if unresolved_keys:
+            missing = ", ".join(sorted(unresolved_keys))
+            raise ToolInputError(f"Missing required path args: {missing}")
+        remaining_args = {key: value for key, value in args.items() if key not in used_keys}
+        return rendered, remaining_args
+
     async def _execute_tool_call(
         self,
         *,
@@ -265,7 +455,8 @@ class ExecutionEngine:
         step_id: str,
         db: AsyncSession,
     ) -> tuple[dict[str, Any] | None, int]:
-        url = f"{self._settings.go_api_base_url}{tool.endpoint}"
+        rendered_endpoint, request_args = self._materialize_endpoint(endpoint=tool.endpoint, args=args)
+        url = f"{self._settings.go_api_base_url}{rendered_endpoint}"
         headers = {
             "Idempotency-Key": idempotency_key,
             "X-Idempotency-Key": idempotency_key,
@@ -279,15 +470,15 @@ class ExecutionEngine:
         try:
             async with httpx.AsyncClient(timeout=self._settings.http_timeout_s) as client:
                 if tool.method == "GET":
-                    resp = await client.get(url, params=args, headers=headers)
+                    resp = await client.get(url, params=request_args, headers=headers)
                 elif tool.method == "POST":
-                    resp = await client.post(url, json=args, headers=headers)
+                    resp = await client.post(url, json=request_args, headers=headers)
                 elif tool.method == "PUT":
-                    resp = await client.put(url, json=args, headers=headers)
+                    resp = await client.put(url, json=request_args, headers=headers)
                 elif tool.method == "PATCH":
-                    resp = await client.patch(url, json=args, headers=headers)
+                    resp = await client.patch(url, json=request_args, headers=headers)
                 elif tool.method == "DELETE":
-                    resp = await client.request("DELETE", url, json=args, headers=headers)
+                    resp = await client.request("DELETE", url, json=request_args, headers=headers)
                 else:
                     raise ValueError(f"Unsupported method: {tool.method}")
         except httpx.TimeoutException as e:
@@ -348,11 +539,17 @@ class ExecutionEngine:
             step_id=step_id,
             tool=tool.name,
             method=tool.method,
-            endpoint=tool.endpoint,
+            endpoint=rendered_endpoint,
             status=resp.status_code,
             latency_ms=latency_ms,
             idempotency_key=idempotency_key,
         )
+
+        if self._is_soft_not_found(tool=tool, http_status=resp.status_code, body=body):
+            body = dict(body)
+            body["not_found"] = True
+            body["_summary"] = self._build_not_found_summary(tool_name=tool.name, args=args, body=body)
+            return body, latency_ms
 
         if resp.status_code >= 400:
             raise ToolHTTPError(resp.status_code, body)
@@ -377,6 +574,9 @@ class ExecutionEngine:
                     return "RETRY"
                 return "REPLAN"
             return "FAIL_HARD"
+
+        if isinstance(err, ToolInputError):
+            return "REPLAN"
 
         return "FAIL_HARD"
 
@@ -739,8 +939,20 @@ class ExecutionEngine:
                 )
             ).scalars().first()
             if existing_snapshot and existing_snapshot.http_status and step.status != "DONE":
-                step.status = "DONE" if existing_snapshot.http_status < 400 else "FAILED"
-                step.result = existing_snapshot.response_body
+                snapshot_body = existing_snapshot.response_body if isinstance(existing_snapshot.response_body, dict) else None
+                if self._is_soft_not_found(tool=tool, http_status=existing_snapshot.http_status, body=snapshot_body):
+                    step.status = "DONE"
+                    replay_body = dict(snapshot_body or {})
+                    replay_body["not_found"] = True
+                    replay_body["_summary"] = self._build_not_found_summary(
+                        tool_name=tool.name,
+                        args=step.args or {},
+                        body=snapshot_body,
+                    )
+                    step.result = replay_body
+                else:
+                    step.status = "DONE" if existing_snapshot.http_status < 400 else "FAILED"
+                    step.result = existing_snapshot.response_body
                 if step.status == "DONE":
                     step.result_summary = self._summarize_step_result(tool_name=tool.name, body=step.result)
                 step.completed_at = datetime.utcnow()
@@ -957,6 +1169,7 @@ class ExecutionEngine:
                 session_id=session.session_id,
                 role="assistant",
                 content=f"Execution completed successfully. {session.step_count} step(s) completed.",
+                tool_name="__session__",
             )
         )
         await db.commit()

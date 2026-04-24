@@ -44,10 +44,11 @@ class SessionManager:
     def __init__(self, settings: Settings):
         self._settings = settings
 
-    async def create_session(self, db: AsyncSession, *, user_id: str) -> SessionRow:
+    async def create_session(self, db: AsyncSession, *, user_id: str, name: str | None = None) -> SessionRow:
         sess = SessionRow(
             session_id=generate_uuid(),
             user_id=user_id,
+            name=(name or "").strip() or None,
             status="IDLE",
             session_started_at=datetime.utcnow(),
         )

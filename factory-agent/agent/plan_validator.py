@@ -22,6 +22,24 @@ class PlanValidationResult:
 def _stable_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
+def _strip_required(schema: Any) -> Any:
+    """Remove `required` constraints recursively.
+
+    We use this to allow approval-gated (write) steps to be planned with partial
+    args so the UI can present a form and collect missing fields before final
+    approval and execution.
+    """
+    if isinstance(schema, dict):
+        out: dict[str, Any] = {}
+        for key, val in schema.items():
+            if key == "required" and isinstance(val, list):
+                continue
+            out[key] = _strip_required(val)
+        return out
+    if isinstance(schema, list):
+        return [_strip_required(v) for v in schema]
+    return schema
+
 
 def compute_plan_hash(plan: PlanDraft) -> str:
     payload = _stable_json(plan.model_dump())
@@ -121,7 +139,10 @@ def validate_plan(
             errors.append(f"Unknown tool: {step.tool_name}")
             continue
         try:
-            Draft202012Validator(tool.input_schema).validate(step.args)
+            schema = tool.input_schema
+            if tool.requires_approval:
+                schema = _strip_required(schema)
+            Draft202012Validator(schema).validate(step.args)
         except Exception as e:  # jsonschema raises ValidationError, but keep robust
             errors.append(f"Invalid args for tool {step.tool_name}: {e}")
 
@@ -194,4 +215,3 @@ def validate_plan(
         normalized_parallel_groups=parallel_groups,
         plan_hash=plan_hash,
     )
-

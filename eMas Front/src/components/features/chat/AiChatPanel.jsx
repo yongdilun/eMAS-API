@@ -4,6 +4,8 @@ import { useAiChat } from './useAiChat'
 import { AiChatResultCard, AiChatAssistBlock, AiChatProposalBlock, AiChatActionCard } from './AiChatBlocks'
 import ChatSidebar from './ChatSidebar'
 import ChatMessage from './ChatMessage'
+import { mergeLegacyAssistantTurnContent } from './turns/turnAssembler'
+import { LegacyBlocks } from './turns/TurnBlocks'
 
 const AiChatPanel = ({ onClose, onHeaderMouseDown }) => {
   const chatRef = useRef(null)
@@ -11,6 +13,7 @@ const AiChatPanel = ({ onClose, onHeaderMouseDown }) => {
     conversations,
     activeChatId,
     messages,
+    turns,
     activeTitle,
     input,
     setInput,
@@ -29,7 +32,7 @@ const AiChatPanel = ({ onClose, onHeaderMouseDown }) => {
   useEffect(() => {
     if (!chatRef.current) return
     chatRef.current.scrollTop = chatRef.current.scrollHeight
-  }, [messages, isSending])
+  }, [turns, messages, isSending])
 
   return (
     <div className="flex h-full">
@@ -99,7 +102,7 @@ const AiChatPanel = ({ onClose, onHeaderMouseDown }) => {
             <div className="flex items-center justify-center h-32 text-gray-500 dark:text-gray-400 text-sm">
               Loading conversation…
             </div>
-          ) : messages.length === 0 ? (
+          ) : (turns?.length || 0) === 0 ? (
             <div className="flex flex-col items-center justify-center min-h-[200px] text-center px-4">
               <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mb-4">
                 <span className="material-symbols-outlined text-3xl text-primary">smart_toy</span>
@@ -124,57 +127,60 @@ const AiChatPanel = ({ onClose, onHeaderMouseDown }) => {
               </div>
             </div>
           ) : (
-            messages.map((m) => (
-              <ChatMessage
-                key={m.id}
-                message={m.content}
-                isUser={m.role === 'user'}
-                timestamp={m.timestamp}
-                renderBlocks={() => (
-                  <>
-                    {m.intent && (
-                      <div className="mt-1 text-[10px] text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                        <span className="uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700">
-                          intent: {m.intent}
-                        </span>
-                        {typeof m.confidence === 'number' && (
-                          <span>conf {Math.round(m.confidence * 100)}%</span>
+            (turns || []).map((turn) => {
+              const user = turn.user
+              const assistants = Array.isArray(turn.assistants) ? turn.assistants : []
+              const primary = assistants[0] || null
+              const merged = mergeLegacyAssistantTurnContent(turn)
+
+              const resultCards = assistants.flatMap((a) => (Array.isArray(a?.resultCards) ? a.resultCards : []))
+              const assistMsg = assistants.find((a) => a?.kind === 'assist') || null
+              const proposalMsg = assistants.find((a) => a?.kind === 'proposal') || null
+              const approvalCalls = (primary && Array.isArray(primary.approval_calls)) ? primary.approval_calls : []
+
+              return (
+                <div key={turn.id}>
+                  {user?.content ? (
+                    <ChatMessage message={user.content} isUser timestamp={user.timestamp} />
+                  ) : null}
+
+                  <ChatMessage
+                    message={merged.content}
+                    isUser={false}
+                    timestamp={primary?.timestamp}
+                    renderBlocks={() => (
+                      <>
+                        <LegacyBlocks blocks={merged.blocks} />
+
+                        {primary?.ambiguous && Array.isArray(primary?.clarifications) && primary.clarifications.length > 0 && (
+                          <div className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
+                            I need a bit more detail:
+                            <ul className="list-disc list-inside">
+                              {primary.clarifications.map((c, i) => (
+                                <li key={i}>{c}</li>
+                              ))}
+                            </ul>
+                          </div>
                         )}
-                      </div>
+
+                        {resultCards.map((c, i) => (
+                          <AiChatResultCard key={i} card={c} />
+                        ))}
+
+                        {assistMsg ? <AiChatAssistBlock msg={assistMsg} /> : null}
+                        {proposalMsg ? (
+                          <AiChatProposalBlock msg={proposalMsg} onApprove={handleApproveProposal} onApply={handleApplyProposal} />
+                        ) : null}
+
+                        {!primary?.ambiguous && approvalCalls.length > 0 ? (
+                          <AiChatActionCard calls={approvalCalls} onExecute={handleExecuteSuggestedCall} executingCallKey={executingCallKey} />
+                        ) : null}
+                      </>
                     )}
-                    {m.ambiguous && Array.isArray(m.clarifications) && m.clarifications.length > 0 && (
-                      <div className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
-                        I need a bit more detail:
-                        <ul className="list-disc list-inside">
-                          {m.clarifications.map((c, i) => (
-                            <li key={i}>{c}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {Array.isArray(m.resultCards) &&
-                      m.resultCards.map((c, i) => (
-                        <AiChatResultCard key={i} card={c} />
-                      ))}
-                    {m.kind === 'assist' && <AiChatAssistBlock msg={m} />}
-                    {m.kind === 'proposal' && (
-                      <AiChatProposalBlock
-                        msg={m}
-                        onApprove={handleApproveProposal}
-                        onApply={handleApplyProposal}
-                      />
-                    )}
-                    {!m.ambiguous && Array.isArray(m.approval_calls) && m.approval_calls.length > 0 && (
-                      <AiChatActionCard
-                        calls={m.approval_calls}
-                        onExecute={handleExecuteSuggestedCall}
-                        executingCallKey={executingCallKey}
-                      />
-                    )}
-                  </>
-                )}
-              />
-            ))
+                  />
+                </div>
+              )
+            })
           )}
           {isSending && (
             <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 py-3">

@@ -6,7 +6,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 
 import models  # noqa: F401 (ensure models are imported for SQLAlchemy metadata)
 from database import AsyncSessionLocal, Base, engine
@@ -24,6 +24,15 @@ from agent.execution import ExecutionEngine
 from agent.metrics import metrics
 from agent.telemetry import log_event, log_step_status_changed, setup_logging
 from agent.tool_registry import ToolRegistry
+
+
+def _ensure_schema_compatibility(sync_conn) -> None:
+    inspector = inspect(sync_conn)
+    if "sessions" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("sessions")}
+    if "name" not in columns:
+        sync_conn.exec_driver_sql("ALTER TABLE sessions ADD COLUMN name VARCHAR(255)")
 
 
 @asynccontextmanager
@@ -46,6 +55,7 @@ async def lifespan(app: FastAPI):
     # Create DB tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_ensure_schema_compatibility)
 
     # Connect Redis (best-effort)
     try:

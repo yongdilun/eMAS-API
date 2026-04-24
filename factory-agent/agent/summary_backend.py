@@ -6,6 +6,7 @@ from typing import Literal
 
 from .config import Settings
 from .schemas import PlanDraft
+from .telemetry import log_llm_prompt, log_llm_prompt_skipped
 
 
 SummaryBackendName = Literal["legacy", "langchain"]
@@ -44,6 +45,12 @@ class SummaryAdapter:
         return self._summarize_legacy(intent=intent, draft=draft)
 
     def _summarize_legacy(self, *, intent: str, draft: PlanDraft) -> SummaryResult:
+        log_llm_prompt_skipped(
+            component="summary",
+            backend="legacy",
+            reason="summary_backend=legacy",
+            metadata={"intent": intent, "step_count": len(draft.steps)},
+        )
         text = (
             f"Intent: {intent.strip() or 'n/a'}. "
             f"Plan has {len(draft.steps)} step(s). Risk summary: {draft.risk_summary.strip()}."
@@ -63,6 +70,16 @@ class SummaryAdapter:
             f"Intent:\n{intent}\n\n"
             f"Plan explanation:\n{draft.plan_explanation}\n\n"
             f"Risk summary:\n{draft.risk_summary}\n"
+        )
+        log_llm_prompt(
+            component="summary",
+            backend="langchain",
+            model=self._settings.summary_model,
+            prompt=prompt,
+            metadata={
+                "intent": intent,
+                "step_count": len(draft.steps),
+            },
         )
         resp = await model.ainvoke(prompt)
         content = (getattr(resp, "content", "") or "").strip()

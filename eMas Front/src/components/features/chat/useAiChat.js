@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { aiApi, toData, toList, executeSuggestedCall, apiErrorMessage } from '../../../services/api'
 import logger from '../../../services/logger'
+import { assembleLegacyTurns } from './turns/turnAssembler'
 
 export function extractJobId(aiResponse) {
   const entities = aiResponse?.entities || {}
@@ -46,6 +47,7 @@ function normalizeMessage(m) {
     approval_calls: m.approval_calls || [],
     execution_mode: m.execution_mode,
     bdi_result: m.bdi_result,
+    tool_blocks: m.tool_blocks || m.toolBlocks || [],
   }
 }
 
@@ -172,6 +174,11 @@ export function useAiChat() {
   const [chatsAvailable, setChatsAvailable] = useState(null)
   const [executingCallKey, setExecutingCallKey] = useState(null)
   const executedAutoCallKeysRef = useRef(new Set())
+
+  const updateMessage = useCallback((id, updater) => {
+    if (!id || typeof updater !== 'function') return
+    setMessages((prev) => prev.map((m) => (m.id === id ? updater(m) : m)))
+  }, [])
 
   const formatTime = () => {
     const d = new Date()
@@ -378,6 +385,7 @@ export function useAiChat() {
           approval_calls: approvalCalls,
           execution_mode: res?.execution_mode,
           bdi_result: res?.bdi_result,
+          tool_blocks: [],
         }
         const assistantMessageId = appendMessage({ role: 'assistant', ...assistantMsg })
 
@@ -393,18 +401,48 @@ export function useAiChat() {
             const callKey = `${assistantMessageId}:${call.method}:${call.path}:${i}`
             if (executedAutoCallKeysRef.current.has(callKey)) continue
             executedAutoCallKeysRef.current.add(callKey)
+
+            updateMessage(assistantMessageId, (m) => ({
+              ...m,
+              tool_blocks: [
+                ...(Array.isArray(m.tool_blocks) ? m.tool_blocks : []),
+                {
+                  kind: 'tool',
+                  status: 'RUNNING',
+                  call,
+                },
+              ],
+            }))
             try {
               const raw = await executeSuggestedCall(call)
               const resultCards = buildResultCardsFromCall(call, raw)
-              appendMessage({
-                role: 'assistant',
-                content: call.purpose || 'Read-only result loaded.',
-                resultCards,
+              updateMessage(assistantMessageId, (m) => {
+                const nextTools = (Array.isArray(m.tool_blocks) ? m.tool_blocks : []).map((b) => {
+                  if (b?.kind !== 'tool') return b
+                  if (b?.call?.method === call.method && b?.call?.path === call.path && b?.status === 'RUNNING') {
+                    return { ...b, status: 'DONE', result: toData(raw) ?? raw }
+                  }
+                  return b
+                })
+                return {
+                  ...m,
+                  tool_blocks: nextTools,
+                  resultCards: [...(Array.isArray(m.resultCards) ? m.resultCards : []), ...(Array.isArray(resultCards) ? resultCards : [])],
+                }
               })
             } catch (err) {
-              appendMessage({
-                role: 'assistant',
-                content: apiErrorMessage(err, `Failed to auto-run ${call.method} ${call.path}`),
+              updateMessage(assistantMessageId, (m) => {
+                const nextTools = (Array.isArray(m.tool_blocks) ? m.tool_blocks : []).map((b) => {
+                  if (b?.kind !== 'tool') return b
+                  if (b?.call?.method === call.method && b?.call?.path === call.path && b?.status === 'RUNNING') {
+                    return { ...b, status: 'FAILED', error: apiErrorMessage(err, 'Tool failed') }
+                  }
+                  return b
+                })
+                return {
+                  ...m,
+                  tool_blocks: nextTools,
+                }
               })
             }
           }
@@ -590,10 +628,13 @@ export function useAiChat() {
     [appendMessage]
   )
 
+  const turns = useMemo(() => assembleLegacyTurns(messages), [messages])
+
   return {
     conversations,
     activeChatId,
     messages,
+    turns,
     activeTitle,
     input,
     setInput,

@@ -148,6 +148,7 @@ func (s *ChatbotService) SendMessage(conversationID, query, requestID string) (*
 	var resp *dto.AICommandResponse
 	if plan.Ambiguous {
 		resp = &dto.AICommandResponse{
+			TurnID:         userMsg.ID,
 			Intent:         plan.Action,
 			Action:         plan.Action,
 			Entities:       map[string]interface{}{},
@@ -155,6 +156,9 @@ func (s *ChatbotService) SendMessage(conversationID, query, requestID string) (*
 			Ambiguous:      true,
 			Clarifications: plan.ClarificationPrompt,
 			Message:        "I need a little more specificity before I can use the approved read-only tools.",
+			HumanMessage:   "I need a little more specificity before I can use the approved read-only tools.",
+			MessageKind:    "clarification",
+			StatusLabel:    "Needs clarification",
 			ExecutionMode:  "suggest_only",
 			Executed:       false,
 			ResultCards: []dto.AIResultCard{{
@@ -247,6 +251,15 @@ func (s *ChatbotService) SendMessage(conversationID, query, requestID string) (*
 
 		resp = composeChatbotResponse(plan, executions)
 		resp.PendingApprovals = pendingApprovals
+		resp.TurnID = userMsg.ID
+		resp.HumanMessage = resp.Message
+		if len(pendingApprovals) > 0 {
+			resp.MessageKind = "approval_required"
+			resp.StatusLabel = "Waiting for approval"
+		} else {
+			resp.MessageKind = "answer"
+			resp.StatusLabel = "Done"
+		}
 
 		if s.turnRepo != nil {
 			audit.Status = "completed"

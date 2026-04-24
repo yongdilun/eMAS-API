@@ -69,3 +69,26 @@ def test_tools_from_openapi_resolves_body_schema_refs():
     assert "machine_id" in schema["properties"]
     assert "priority" in schema["properties"]
     assert "machine_id" in schema["required"]
+
+
+def test_tools_from_openapi_marks_path_params_required_even_if_flag_missing():
+    spec = {
+        "openapi": "3.0.0",
+        "paths": {
+            "/machines/{id}": {
+                "get": {
+                    "operationId": "get_machine",
+                    "summary": "Get machine",
+                    "parameters": [
+                        {"name": "id", "in": "path", "schema": {"type": "string"}}
+                    ],
+                }
+            }
+        },
+    }
+
+    tools = tools_from_openapi(spec)
+    assert len(tools) == 1
+    schema = tools[0].input_schema
+    assert schema["properties"]["id"]["type"] == "string"
+    assert "id" in schema["required"]

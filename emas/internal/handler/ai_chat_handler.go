@@ -213,6 +213,25 @@ func toConversationResponse(conv *domain.AIConversation, msgs []domain.AIChatMes
 				if cards, ok := meta["result_cards"]; ok {
 					msg["result_cards"] = cards
 				}
+				// Optional unified turn/UI metadata (best-effort passthrough)
+				for _, key := range []string{
+					"turn_id",
+					"human_message",
+					"message_kind",
+					"status_label",
+					"execution_mode",
+					"suggested_calls",
+					"guidance",
+					"clarifications",
+					"ambiguous",
+					"confidence",
+					"entities",
+					"ui_blocks",
+				} {
+					if v, ok := meta[key]; ok {
+						msg[key] = v
+					}
+				}
 			}
 		}
 		messageList = append(messageList, msg)
