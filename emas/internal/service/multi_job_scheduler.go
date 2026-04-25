@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 )
 
-
 // RescheduleAll cancels active slots and deletes proposals for planned/scheduled
 // jobs, then regenerates proposals via ScheduleJobSet. Returns same shape as batch-proposals.
 // When dryRun is true: no cancel, no delete, no persist; returns proposals as preview only.
@@ -134,7 +133,6 @@ func (s *AIPredictiveService) ScheduleJobSet(ctx context.Context, jobIDs []strin
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
 
-
 	summary := &BatchProposalSummary{Generated: 0, Blocked: 0, Skipped: len(jobs)}
 	readinessAt := computeReadinessForJobs(s.scheduling, jobs)
 	sortJobsByOrder(jobs, orderBy, readinessAt)
@@ -157,8 +155,8 @@ func (s *AIPredictiveService) ScheduleJobSet(ctx context.Context, jobIDs []strin
 	proposals := make([]*SchedulingProposal, 0, len(jobs))
 	completionTargets := computeCompletionTargets(s, jobs)
 	batchState := newSubproductBatchState(s)
-	
-	// Ensure that material availability calculations exclude existing reservations 
+
+	// Ensure that material availability calculations exclude existing reservations
 	// for jobs currently being re-planned in this batch. Failure to do so leads to
 	// double-counting their demand (once from the legacy DB row and once from the batch plan).
 	var excludedList []string
@@ -175,13 +173,13 @@ func (s *AIPredictiveService) ScheduleJobSet(ctx context.Context, jobIDs []strin
 		"job_count": len(jobs),
 	})
 	logger.L().Error("DIAGNOSTIC_PREPASS_CHECKPOINT_1", zap.String("msg", "About to start predictive BOM prepass"), zap.Int("job_count", len(jobs)))
-	
+
 	agentDebugNDJSON("DIAGNOSTIC", "multi_job_scheduler.ScheduleJobSet", "predictive_bom_prepass_starting", map[string]any{
 		"batch_job_count": len(jobs),
 	})
 	logger.L().Info("predictive_bom_prepass_starting",
 		zap.Int("batch_job_count", len(jobs)))
-	
+
 	// --- PREDICTIVE BOM PRE-PASS: Inject virtual stock ---
 	batchDemand := s.calculateGrossBatchDemand(jobs)
 	s.injectPredictiveShortages(batchDemand, batchState.ledger)
@@ -190,7 +188,7 @@ func (s *AIPredictiveService) ScheduleJobSet(ctx context.Context, jobIDs []strin
 		"virtual_arrivals": len(batchState.ledger.virtualArrivals),
 	})
 	logger.L().Error("DIAGNOSTIC_AFTER_injectPredictiveShortages", zap.String("msg", "Returned from injectPredictiveShortages"), zap.Int("virtual_arrivals", len(batchState.ledger.virtualArrivals)))
-	
+
 	agentDebugNDJSON("DIAGNOSTIC", "multi_job_scheduler.ScheduleJobSet", "predictive_bom_prepass_complete", map[string]any{
 		"virtual_arrivals_count": len(batchState.ledger.virtualArrivals),
 	})
@@ -198,7 +196,7 @@ func (s *AIPredictiveService) ScheduleJobSet(ctx context.Context, jobIDs []strin
 		zap.Int("virtual_arrivals_count", len(batchState.ledger.virtualArrivals)))
 	// -------------------------------------------------------
 
-	// Now the scheduler runs. Because the ledger is pre-seeded with the exact 
+	// Now the scheduler runs. Because the ledger is pre-seeded with the exact
 	// virtual stock needed for the whole deep BOM, it won't hit any shortage blocks!
 	for rootIndex, job := range jobs {
 		select {

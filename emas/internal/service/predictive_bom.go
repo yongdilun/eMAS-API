@@ -42,7 +42,7 @@ func (s *AIPredictiveService) calculateGrossBatchDemand(jobs []domain.Job) Batch
 		RawMaterials: make(map[string]float64),
 		SubProducts:  make(map[string]float64),
 	}
-	
+
 	// Tracks virtual stock of subproducts to prevent double counting shared dependencies
 	subProductLedger := make(map[string]float64)
 
@@ -101,7 +101,7 @@ func (s *AIPredictiveService) recursiveBOMExplosion(
 			subProdID := strings.TrimSpace(*prodID)
 			if subProdID != "" {
 				required := quantityNeeded * qtyPerUnit * (1.0 + scrap)
-				
+
 				// Deduct from virtual shared stock first
 				available := subProductLedger[subProdID]
 				netRequired := required - available
@@ -110,7 +110,7 @@ func (s *AIPredictiveService) recursiveBOMExplosion(
 					return // Fully satisfied by virtual stock, stop explosion
 				}
 				subProductLedger[subProdID] = 0 // Consumed all available
-				
+
 				// Round to shop-floor lot size
 				planned := s.roundPlannedSubproductQty(subProdID, netRequired)
 				plannedInt := int(math.Ceil(planned))
@@ -121,7 +121,7 @@ func (s *AIPredictiveService) recursiveBOMExplosion(
 
 				// Push the excess lot production back to the virtual ledger
 				subProductLedger[subProdID] += (plannedFloat - netRequired)
-				
+
 				// Record the true subproduct demand
 				demand.SubProducts[subProdID] += plannedFloat
 
@@ -159,9 +159,9 @@ func (s *AIPredictiveService) injectPredictiveShortages(
 		opening, events, err := s.buildMaterialTimeline(matID, time.Now().UTC(), ledger)
 		if err != nil {
 			agentDebugNDJSON("DIAGNOSTIC", "service.predictive_bom.go:injectPredictiveShortages", "predictive_shortages_timeline_failed", map[string]any{
-				"material_id": matID,
+				"material_id":  matID,
 				"total_needed": totalNeeded,
-				"error": err.Error(),
+				"error":        err.Error(),
 			})
 			logger.L().Warn("predictive_shortages_timeline_failed",
 				zap.String("material_id", matID),
@@ -182,11 +182,11 @@ func (s *AIPredictiveService) injectPredictiveShortages(
 		}
 
 		agentDebugNDJSON("DIAGNOSTIC", "service.predictive_bom.go:injectPredictiveShortages", "predictive_shortages_material_analysis", map[string]any{
-			"material_id":       matID,
+			"material_id":           matID,
 			"material_total_needed": totalNeeded,
-			"current_opening":   opening,
+			"current_opening":       opening,
 			"projected_min_balance": minBalance,
-			"future_events":     eventCount,
+			"future_events":         eventCount,
 		})
 
 		if totalNeeded > minBalance {
@@ -194,7 +194,7 @@ func (s *AIPredictiveService) injectPredictiveShortages(
 
 			// Inject far in the past so even past-due jobs see it as opening stock
 			safeArrivalDate := time.Now().UTC().AddDate(-10, 0, 0)
-			
+
 			// -------------------------------------------------------------
 			// FIX: Use the ledger's virtual arrival mechanism so the core planner
 			// correctly observes the injected stock during forward-scan timelines.
@@ -203,9 +203,9 @@ func (s *AIPredictiveService) injectPredictiveShortages(
 			injectedCount++
 
 			agentDebugNDJSON("DIAGNOSTIC", "service.predictive_bom.go:injectPredictiveShortages", "predictive_shortages_injected", map[string]any{
-				"material_id": matID,
-				"deficit":     deficit,
-				"min_balance": minBalance,
+				"material_id":  matID,
+				"deficit":      deficit,
+				"min_balance":  minBalance,
 				"total_needed": totalNeeded,
 				"arrive_at":    safeArrivalDate.Format(time.RFC3339),
 			})
@@ -218,8 +218,8 @@ func (s *AIPredictiveService) injectPredictiveShortages(
 				zap.String("arrive_at", safeArrivalDate.Format(time.RFC3339)))
 		} else {
 			agentDebugNDJSON("DIAGNOSTIC", "service.predictive_bom.go:injectPredictiveShortages", "predictive_shortages_sufficient_stock", map[string]any{
-				"material_id": matID,
-				"min_balance": minBalance,
+				"material_id":  matID,
+				"min_balance":  minBalance,
 				"total_needed": totalNeeded,
 			})
 			logger.L().Debug("predictive_shortages_sufficient_stock",

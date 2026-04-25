@@ -210,7 +210,7 @@ func (s *ChatbotService) SendMessage(conversationID, query, requestID string) (*
 		var pendingApprovals []dto.AIApprovalRef
 		for _, call := range writeCalls {
 			def, _ := s.registry.Get(call.Name)
-			
+
 			// Compute risk summary (could be enriched later)
 			riskSummary := fmt.Sprintf("Execute %s with side effects: %s", def.Name, def.SideEffectLevel)
 

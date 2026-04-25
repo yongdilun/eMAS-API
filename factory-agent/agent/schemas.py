@@ -15,6 +15,10 @@ SessionStatus = Literal[
     "FAILED",
     "COMPLETED",
 ]
+MessageMode = Literal["normal", "plan"]
+PlanKind = Literal["execution", "discovery"]
+PlanStatus = Literal["DRAFT", "PENDING_APPROVAL", "APPROVED", "REJECTED", "COMPLETED", "INVALIDATED"]
+ApprovalSubjectType = Literal["step", "plan"]
 
 StepStatus = Literal[
     "NOT_STARTED",
@@ -63,6 +67,12 @@ class ToolInfo(BaseModel):
     endpoint: str
     method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
     input_schema: dict[str, Any]
+    path_params: list[str] = Field(default_factory=list)
+    query_params: list[str] = Field(default_factory=list)
+    body_fields: list[str] = Field(default_factory=list)
+    required_body_fields: list[str] = Field(default_factory=list)
+    body_schema: dict[str, Any] | None = None
+    param_sources: dict[str, str] = Field(default_factory=dict)
 
     is_read_only: bool = False
     requires_approval: bool = False
@@ -115,6 +125,7 @@ class SessionResponse(BaseModel):
 class MessageCreateRequest(BaseModel):
     role: Literal["user", "assistant", "system", "tool_result"] = "user"
     content: str
+    mode: MessageMode = "normal"
 
 
 class MessageResponse(BaseModel):
@@ -122,6 +133,7 @@ class MessageResponse(BaseModel):
     session_id: str
     role: str
     content: str
+    mode: MessageMode = "normal"
     created_at: datetime
     step_id: str | None = None
     tool_name: str | None = None
@@ -136,9 +148,13 @@ class PlanResponse(BaseModel):
     plan_id: str
     session_id: str
     version: int
+    kind: PlanKind = "execution"
+    status: PlanStatus = "DRAFT"
     dependency_graph: dict[int, list[int]] | None = None
     parallel_groups: list[list[int]] | None = None
     plan_hash: str
+    approved_plan_hash: str | None = None
+    derived_from_plan_id: str | None = None
     plan_explanation: str | None = None
     risk_summary: str | None = None
     created_at: datetime
@@ -174,7 +190,9 @@ class ApprovalDecisionRequest(BaseModel):
 class ApprovalResponse(BaseModel):
     approval_id: str
     session_id: str
-    step_id: str
+    subject_type: ApprovalSubjectType = "step"
+    plan_id: str | None = None
+    step_id: str | None = None
     tool_name: str
     args: dict[str, Any]
     risk_summary: str
@@ -205,6 +223,7 @@ class TimelineEventResponse(BaseModel):
     content: str
     created_at: datetime
     role: Literal["user", "assistant", "system"] = "assistant"
+    mode: MessageMode | None = None
     turn_id: str | None = None
     step_context: dict[str, Any] | None = None
     step_id: str | None = None

@@ -830,7 +830,7 @@ func fallbackParse(raw string) (AICommandPlan, bool) {
 	}
 
 	// High risk jobs.
-	if (strings.Contains(q, "high risk") || strings.Contains(q, "at risk") || strings.Contains(q, "risky jobs")) {
+	if strings.Contains(q, "high risk") || strings.Contains(q, "at risk") || strings.Contains(q, "risky jobs") {
 		return mk("high_risk_jobs", "high_risk_jobs", "Parsed: high risk jobs."), true
 	}
 

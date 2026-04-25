@@ -1,10 +1,10 @@
 package handler
 
 import (
-	"errors"
 	"emas/internal/handler/dto"
 	"emas/internal/repository"
 	"emas/internal/service"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -75,6 +75,24 @@ func (h *JobHandler) ListSteps(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: steps})
 }
 
+// @Summary List jobs
+// @Description List jobs with filters
+// @Tags job
+// @Accept json
+// @Produce json
+// @Param product_id query string false "Filter by product"
+// @Param status query string false "Filter by status"
+// @Param priority query string false "Filter by priority (low|medium|high|urgent)"
+// @Param machine_id query string false "Filter by machine"
+// @Param start query string false "RFC3339 start"
+// @Param end query string false "RFC3339 end"
+// @Param sort_by query string false "created_at|deadline|priority|quantity_total|completion"
+// @Param sort_dir query string false "asc|desc"
+// @Param limit query int false "Page size"
+// @Param offset query int false "Offset"
+// @Success 200 {object} dto.Response{data=[]domain.Job}
+// @Failure 500 {object} dto.Response
+// @Router /jobs [get]
 func (h *JobHandler) List(c *gin.Context) {
 	var f repository.JobListFilter
 	f.ProductID = c.Query("product_id")
@@ -113,6 +131,17 @@ func (h *JobHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: jobs})
 }
 
+// @Summary Update a job
+// @Description Update mutable job fields
+// @Tags job
+// @Accept json
+// @Produce json
+// @Param id path string true "Job ID"
+// @Param request body dto.UpdateJobRequest true "Update Job Request"
+// @Success 200 {object} dto.Response{data=domain.Job}
+// @Failure 400 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /jobs/{id} [put]
 func (h *JobHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 	var req dto.UpdateJobRequest
@@ -128,6 +157,16 @@ func (h *JobHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: job})
 }
 
+// @Summary Delete a job
+// @Description Delete a job and clear all slot assignments tied to this job
+// @Tags job
+// @Accept json
+// @Produce json
+// @Param id path string true "Job ID"
+// @Success 200 {object} dto.Response
+// @Failure 404 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /jobs/{id} [delete]
 func (h *JobHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.jobService.Delete(id); err != nil {

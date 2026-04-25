@@ -188,8 +188,8 @@ type ShortageResolutionOption struct {
 	EarliestFeasibleStart *time.Time               `json:"earliest_feasible_start,omitempty"`
 	AffectedJobIDs        []string                 `json:"affected_job_ids,omitempty"`
 	// DependencyProductID links a material-level replenish option to a subproduct shortage (schedule_production row).
-	DependencyProductID string `json:"dependency_product_id,omitempty"`
-	IsActionable        bool   `json:"is_actionable"`
+	DependencyProductID string   `json:"dependency_product_id,omitempty"`
+	IsActionable        bool     `json:"is_actionable"`
 	QualityFlags        []string `json:"quality_flags,omitempty"`
 }
 
@@ -212,19 +212,19 @@ type DeferredPlanningNode struct {
 }
 
 type MaterialShortageInfo struct {
-	MaterialID               string                   `json:"material_id"`
-	MaterialName             string                   `json:"material_name"`
-	Unit                     string                   `json:"unit"`
-	JobStepID                string                   `json:"job_step_id"`
-	AllStepMaterialsFeasible bool                     `json:"all_step_materials_feasible"`
-	ShortageStartAt          time.Time                `json:"shortage_start_at"`
-	MaxDeficit               float64                  `json:"max_deficit"`
-	CurrentStock             float64                  `json:"current_stock"`
-	TotalReservedBefore      float64                  `json:"total_reserved_before"`
-	FeasibleQty              float64                  `json:"feasible_qty"`
-	AffectedJobIDs           []string                 `json:"affected_job_ids"`
-	AffectedStepIDs          []string                 `json:"affected_step_ids"`
-	Snapshot                 *InventorySnapshot       `json:"snapshot,omitempty"`
+	MaterialID               string                     `json:"material_id"`
+	MaterialName             string                     `json:"material_name"`
+	Unit                     string                     `json:"unit"`
+	JobStepID                string                     `json:"job_step_id"`
+	AllStepMaterialsFeasible bool                       `json:"all_step_materials_feasible"`
+	ShortageStartAt          time.Time                  `json:"shortage_start_at"`
+	MaxDeficit               float64                    `json:"max_deficit"`
+	CurrentStock             float64                    `json:"current_stock"`
+	TotalReservedBefore      float64                    `json:"total_reserved_before"`
+	FeasibleQty              float64                    `json:"feasible_qty"`
+	AffectedJobIDs           []string                   `json:"affected_job_ids"`
+	AffectedStepIDs          []string                   `json:"affected_step_ids"`
+	Snapshot                 *InventorySnapshot         `json:"snapshot,omitempty"`
 	PerMaterialResolutions   []ShortageResolutionOption `json:"per_material_resolutions"`
 }
 
@@ -268,28 +268,28 @@ type ReplanConvergenceWarning struct {
 }
 
 type DependentJobPlan struct {
-	PlanKey             string              `json:"plan_key"`
-	ParentJobID         string              `json:"parent_job_id"`
-	ConsumerJobStepID   string              `json:"consumer_job_step_id"`
-	ProductID           string              `json:"product_id"`
-	DependencyDepth     int                 `json:"dependency_depth"`
-	RequiredQty         float64             `json:"required_qty"`
-	PlannedQty          float64             `json:"planned_qty"`
-	ShortageQty         float64             `json:"shortage_qty"`
-	ExistingStock       float64             `json:"existing_stock"`
-	FutureStockQty      float64             `json:"future_stock_qty"`
-	FutureStockReadyAt  *time.Time          `json:"future_stock_ready_at,omitempty"`
-	EstimatedCompletion *time.Time          `json:"estimated_completion,omitempty"`
-	PlanningStatus      string              `json:"planning_status"`
-	ReasonCode          string              `json:"reason_code,omitempty"`
-	Reason              string              `json:"reason,omitempty"`
-	Explanation         ProposalExplanation `json:"explanation"`
-	ProposedSlots       []ProposedSlot      `json:"proposed_slots,omitempty"`
-	GeneratedJobID      string              `json:"generated_job_id,omitempty"`
-	GeneratedStepIDMap  map[string]string   `json:"generated_step_id_map,omitempty"`
-	ReplenishmentSuggestion *ReplenishmentSuggestion `json:"replenishment_suggestion,omitempty"`
+	PlanKey                 string                     `json:"plan_key"`
+	ParentJobID             string                     `json:"parent_job_id"`
+	ConsumerJobStepID       string                     `json:"consumer_job_step_id"`
+	ProductID               string                     `json:"product_id"`
+	DependencyDepth         int                        `json:"dependency_depth"`
+	RequiredQty             float64                    `json:"required_qty"`
+	PlannedQty              float64                    `json:"planned_qty"`
+	ShortageQty             float64                    `json:"shortage_qty"`
+	ExistingStock           float64                    `json:"existing_stock"`
+	FutureStockQty          float64                    `json:"future_stock_qty"`
+	FutureStockReadyAt      *time.Time                 `json:"future_stock_ready_at,omitempty"`
+	EstimatedCompletion     *time.Time                 `json:"estimated_completion,omitempty"`
+	PlanningStatus          string                     `json:"planning_status"`
+	ReasonCode              string                     `json:"reason_code,omitempty"`
+	Reason                  string                     `json:"reason,omitempty"`
+	Explanation             ProposalExplanation        `json:"explanation"`
+	ProposedSlots           []ProposedSlot             `json:"proposed_slots,omitempty"`
+	GeneratedJobID          string                     `json:"generated_job_id,omitempty"`
+	GeneratedStepIDMap      map[string]string          `json:"generated_step_id_map,omitempty"`
+	ReplenishmentSuggestion *ReplenishmentSuggestion   `json:"replenishment_suggestion,omitempty"`
 	ResolutionOptions       []ShortageResolutionOption `json:"resolution_options,omitempty"`
-	PartialFeasibility      *PartialFeasibilityPlan `json:"partial_feasibility,omitempty"`
+	PartialFeasibility      *PartialFeasibilityPlan    `json:"partial_feasibility,omitempty"`
 }
 
 type InventoryAction struct {
@@ -312,35 +312,35 @@ type CreatedDependencyLink struct {
 }
 
 type SchedulingProposal struct {
-	ProposalID           string             `json:"proposal_id,omitempty"`
-	JobID                string             `json:"job_id"`
-	ProductID            string             `json:"product_id"`
-	Version              int                `json:"version,omitempty"`
-	Status               string             `json:"status,omitempty"`
-	Engine               string             `json:"engine,omitempty"`
-	EngineVersion        string             `json:"engine_version,omitempty"`
-	ObjectiveScore       float64            `json:"objective_score,omitempty"`
-	FallbackReason       string             `json:"fallback_reason,omitempty"`
-	SnapshotHash         string             `json:"snapshot_hash,omitempty"`
-	RolloutState         string             `json:"rollout_state,omitempty"`
-	ShadowEngine         string             `json:"shadow_engine,omitempty"`
-	ShadowObjectiveScore float64            `json:"shadow_objective_score,omitempty"`
-	GeneratedAt          time.Time          `json:"generated_at"`
-	Feasible             bool               `json:"feasible"`
-	EarliestStart        time.Time          `json:"earliest_start"`
-	EstimatedCompletion  *time.Time         `json:"estimated_completion,omitempty"`
-	Summary              []string           `json:"summary"`
-	BlockedReasons       []string           `json:"blocked_reasons,omitempty"`
-	ProposedSlots        []ProposedSlot     `json:"proposed_slots"`
-	DependentJobs        []DependentJobPlan `json:"dependent_jobs,omitempty"`
-	InventoryActions     []InventoryAction  `json:"inventory_actions,omitempty"`
-	InventoryActionCount int                `json:"inventory_action_count,omitempty"`
-	MaterialShortages    []MaterialShortageInfo `json:"material_shortages,omitempty"`
+	ProposalID           string                     `json:"proposal_id,omitempty"`
+	JobID                string                     `json:"job_id"`
+	ProductID            string                     `json:"product_id"`
+	Version              int                        `json:"version,omitempty"`
+	Status               string                     `json:"status,omitempty"`
+	Engine               string                     `json:"engine,omitempty"`
+	EngineVersion        string                     `json:"engine_version,omitempty"`
+	ObjectiveScore       float64                    `json:"objective_score,omitempty"`
+	FallbackReason       string                     `json:"fallback_reason,omitempty"`
+	SnapshotHash         string                     `json:"snapshot_hash,omitempty"`
+	RolloutState         string                     `json:"rollout_state,omitempty"`
+	ShadowEngine         string                     `json:"shadow_engine,omitempty"`
+	ShadowObjectiveScore float64                    `json:"shadow_objective_score,omitempty"`
+	GeneratedAt          time.Time                  `json:"generated_at"`
+	Feasible             bool                       `json:"feasible"`
+	EarliestStart        time.Time                  `json:"earliest_start"`
+	EstimatedCompletion  *time.Time                 `json:"estimated_completion,omitempty"`
+	Summary              []string                   `json:"summary"`
+	BlockedReasons       []string                   `json:"blocked_reasons,omitempty"`
+	ProposedSlots        []ProposedSlot             `json:"proposed_slots"`
+	DependentJobs        []DependentJobPlan         `json:"dependent_jobs,omitempty"`
+	InventoryActions     []InventoryAction          `json:"inventory_actions,omitempty"`
+	InventoryActionCount int                        `json:"inventory_action_count,omitempty"`
+	MaterialShortages    []MaterialShortageInfo     `json:"material_shortages,omitempty"`
 	ShortageResolutions  []ShortageResolutionOption `json:"shortage_resolutions,omitempty"`
-	PartialFeasibility   *PartialFeasibilityPlan `json:"partial_feasibility,omitempty"`
-	DeferredNodes        []DeferredPlanningNode `json:"deferred_nodes,omitempty"`
+	PartialFeasibility   *PartialFeasibilityPlan    `json:"partial_feasibility,omitempty"`
+	DeferredNodes        []DeferredPlanningNode     `json:"deferred_nodes,omitempty"`
 	ConvergenceWarnings  []ReplanConvergenceWarning `json:"convergence_warnings,omitempty"`
-	GlobalScore          float64 `json:"global_score,omitempty"`
+	GlobalScore          float64                    `json:"global_score,omitempty"`
 
 	// Alternatives are additional distinct schedules for the same job generated via
 	// a heuristic portfolio; each alternative does not include nested alternatives.

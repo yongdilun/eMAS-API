@@ -36,10 +36,21 @@ class Settings:
 
     # Planner / summary backend selection
     planner_backend: str = "legacy"  # legacy|langchain
-    summary_backend: str = "legacy"  # legacy|langchain
+    summary_backend: str = "auto"  # auto|legacy|langchain
+    tool_result_summary_backend: str = "auto"  # auto|legacy|langchain
+    tool_selector_backend: str = "auto"  # auto|retrieval|langchain
     planner_model: str = "Qwen3.5-9B"
     summary_model: str = "Qwen3.5-9B"
+    tool_result_summary_model: str = "Qwen3.5-9B"
+    tool_selector_model: str = "Qwen3.5-9B"
     planner_fallback_to_legacy: bool = True
+    enforce_tool_registry_health: bool = True
+    auto_repair_tool_registry: bool = True
+    min_healthy_tool_count: int = 20
+    tool_selector_top_k: int = 8
+    tool_selector_candidate_pool: int = 24
+    tool_selector_max_score_gap: int = 8
+    tool_selector_min_confidence: float = 0.35
     openai_base_url: str | None = None
     openai_api_key: str | None = None
 
@@ -79,11 +90,24 @@ def get_settings() -> Settings:
         memory_compaction_step_interval=int(os.getenv("MEMORY_COMPACTION_STEP_INTERVAL", "5")),
         memory_keep_recent_messages=int(os.getenv("MEMORY_KEEP_RECENT_MESSAGES", "6")),
         planner_backend=os.getenv("PLANNER_BACKEND", "legacy").strip().lower(),
-        summary_backend=os.getenv("SUMMARY_BACKEND", "legacy").strip().lower(),
+        summary_backend=os.getenv("SUMMARY_BACKEND", "auto").strip().lower(),
+        tool_result_summary_backend=os.getenv("TOOL_RESULT_SUMMARY_BACKEND", "auto").strip().lower(),
+        tool_selector_backend=os.getenv("TOOL_SELECTOR_BACKEND", "auto").strip().lower(),
         planner_model=os.getenv("PLANNER_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B")).strip(),
         summary_model=os.getenv("SUMMARY_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B")).strip(),
+        tool_result_summary_model=os.getenv("TOOL_RESULT_SUMMARY_MODEL", os.getenv("SUMMARY_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B"))).strip(),
+        tool_selector_model=os.getenv("TOOL_SELECTOR_MODEL", os.getenv("SMALL_LLM_MODEL", os.getenv("PLANNER_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B")))).strip(),
         planner_fallback_to_legacy=os.getenv("PLANNER_FALLBACK_TO_LEGACY", "1").strip().lower()
         in {"1", "true", "yes"},
+        enforce_tool_registry_health=os.getenv("ENFORCE_TOOL_REGISTRY_HEALTH", "1").strip().lower()
+        in {"1", "true", "yes"},
+        auto_repair_tool_registry=os.getenv("AUTO_REPAIR_TOOL_REGISTRY", "1").strip().lower()
+        in {"1", "true", "yes"},
+        min_healthy_tool_count=int(os.getenv("MIN_HEALTHY_TOOL_COUNT", "20")),
+        tool_selector_top_k=int(os.getenv("TOOL_SELECTOR_TOP_K", "8")),
+        tool_selector_candidate_pool=int(os.getenv("TOOL_SELECTOR_CANDIDATE_POOL", "24")),
+        tool_selector_max_score_gap=int(os.getenv("TOOL_SELECTOR_MAX_SCORE_GAP", "8")),
+        tool_selector_min_confidence=float(os.getenv("TOOL_SELECTOR_MIN_CONFIDENCE", "0.35")),
         openai_base_url=(os.getenv("OPENAI_BASE_URL") or os.getenv("LLM_BASE_URL") or None),
         openai_api_key=(os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY") or None),
     )

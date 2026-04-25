@@ -108,10 +108,10 @@ func batchMaterialShortageMinStart(proposals []*SchedulingProposal, materialID s
 }
 
 type batchProdShortageFloorMeta struct {
-	totalSum          float64
-	minShortageStart  time.Time
-	haveMinStart      bool
-	jobs              map[string]struct{}
+	totalSum         float64
+	minShortageStart time.Time
+	haveMinStart     bool
+	jobs             map[string]struct{}
 }
 
 func batchProdShortageFloorFromProposals(proposals []*SchedulingProposal, productID string) batchProdShortageFloorMeta {
@@ -728,10 +728,10 @@ func (s *AIPredictiveService) buildBatchMaterialReplenishmentAggregate(proposals
 	if s == nil || len(proposals) == 0 {
 		return nil
 	}
-	
+
 	actionsByMat := make(map[string][]InventoryAction)
 	affectedRoots := make(map[string][]string)
-	
+
 	for _, p := range proposals {
 		if p == nil {
 			continue
@@ -744,34 +744,34 @@ func (s *AIPredictiveService) buildBatchMaterialReplenishmentAggregate(proposals
 			}
 		}
 	}
-	
+
 	now := time.Now().UTC()
 	out := make([]BatchMaterialReplenishmentLine, 0, len(actionsByMat))
-	
+
 	for materialID, actions := range actionsByMat {
 		opening, events, err := s.buildMaterialTimeline(materialID, now, ledger)
 		if err != nil {
 			continue
 		}
-		
+
 		for _, act := range actions {
 			events = append(events, shortageTimelineEvent{
 				At:    normalizeMaterialEventTime(act.EffectiveAt),
 				Delta: -act.Quantity,
 			})
 		}
-		
+
 		sort.Slice(events, func(i, j int) bool {
 			if events[i].At.Equal(events[j].At) {
 				return events[i].Delta > events[j].Delta
 			}
 			return events[i].At.Before(events[j].At)
 		})
-		
+
 		minBalance := opening
 		running := opening
 		var shortageAt *time.Time
-		
+
 		for _, event := range events {
 			running += event.Delta
 			if running < minBalance {
@@ -782,34 +782,34 @@ func (s *AIPredictiveService) buildBatchMaterialReplenishmentAggregate(proposals
 				shortageAt = &t
 			}
 		}
-		
+
 		maxDeficit := roundDisplayQty(math.Max(-minBalance, 0))
 		if maxDeficit <= 0 {
 			continue
 		}
-		
+
 		mat, err := s.scheduling.inventoryRepo.GetMaterialByID(materialID)
 		if err != nil {
 			continue
 		}
-		
+
 		startAt := normalizeMaterialEventTime(now)
 		if shortageAt != nil {
 			startAt = *shortageAt
 		}
-		
+
 		earliestPossible := normalizeMaterialEventTime(now.Add(time.Duration(mat.ReorderLevel) * time.Hour))
 		safeAt := normalizeMaterialEventTime(startAt.Add(-24 * time.Hour))
 		suggested := safeAt
 		if earliestPossible.After(suggested) {
 			suggested = earliestPossible
 		}
-		
+
 		primaryType := "replenish"
 		if earliestPossible.After(startAt) {
 			primaryType = "delay_jobs"
 		}
-		
+
 		out = append(out, BatchMaterialReplenishmentLine{
 			MaterialID:              materialID,
 			MaterialName:            mat.MaterialName,
@@ -831,10 +831,10 @@ func (s *AIPredictiveService) buildBatchScheduleProductionAggregate(proposals []
 	if s == nil || len(proposals) == 0 {
 		return nil
 	}
-	
+
 	actionsByProd := make(map[string][]InventoryAction)
 	affectedRoots := make(map[string][]string)
-	
+
 	for _, p := range proposals {
 		if p == nil {
 			continue
@@ -849,20 +849,20 @@ func (s *AIPredictiveService) buildBatchScheduleProductionAggregate(proposals []
 			}
 		}
 	}
-	
+
 	now := time.Now().UTC()
 	out := make([]BatchScheduleProductionLine, 0)
-	
+
 	for productID, actions := range actionsByProd {
 		records, _ := s.scheduling.inventoryRepo.ListProductInventoryByProductID(productID)
 		pendingRes, _ := s.scheduling.inventoryRepo.ListProductReservations(productID, domain.InventoryReservationStatusPending)
-		
+
 		type evt struct {
 			At    time.Time
 			Delta float64
 		}
 		events := make([]evt, 0)
-		
+
 		opening := 0.0
 		if ledger != nil {
 			opening += ledger.productBaseline[productID]
@@ -891,9 +891,15 @@ func (s *AIPredictiveService) buildBatchScheduleProductionAggregate(proposals []
 				}
 				when := normalizeMaterialEventTime(entry.EffectiveAt)
 				delta := 0.0
-				if entry.Action.ActionType == inventoryActionReserveProduct { delta = -entry.Action.Quantity }
-				if entry.Action.ActionType == inventoryActionProduceProduct { delta = entry.Action.Quantity }
-				if delta == 0 { continue }
+				if entry.Action.ActionType == inventoryActionReserveProduct {
+					delta = -entry.Action.Quantity
+				}
+				if entry.Action.ActionType == inventoryActionProduceProduct {
+					delta = entry.Action.Quantity
+				}
+				if delta == 0 {
+					continue
+				}
 				if !when.After(now) {
 					opening += delta
 				} else {
@@ -901,23 +907,29 @@ func (s *AIPredictiveService) buildBatchScheduleProductionAggregate(proposals []
 				}
 			}
 		}
-		
+
 		for _, act := range actions {
 			when := normalizeMaterialEventTime(act.EffectiveAt)
 			delta := 0.0
-			if act.ActionType == inventoryActionReserveProduct { delta = -act.Quantity }
-			if act.ActionType == inventoryActionProduceProduct { delta = act.Quantity }
-			if delta == 0 { continue }
+			if act.ActionType == inventoryActionReserveProduct {
+				delta = -act.Quantity
+			}
+			if act.ActionType == inventoryActionProduceProduct {
+				delta = act.Quantity
+			}
+			if delta == 0 {
+				continue
+			}
 			events = append(events, evt{At: when, Delta: delta})
 		}
-		
+
 		sort.Slice(events, func(i, j int) bool {
 			if events[i].At.Equal(events[j].At) {
 				return events[i].Delta > events[j].Delta
 			}
 			return events[i].At.Before(events[j].At)
 		})
-		
+
 		minBalance := opening
 		running := opening
 		var shortageAt *time.Time
@@ -931,22 +943,22 @@ func (s *AIPredictiveService) buildBatchScheduleProductionAggregate(proposals []
 				shortageAt = &t
 			}
 		}
-		
+
 		maxDeficit := roundDisplayQty(math.Max(-minBalance, 0))
 		if maxDeficit <= 0 {
 			continue
 		}
-		
+
 		name := productID
 		if pr, err := s.scheduling.productRepo.GetByID(productID); err == nil {
 			name = pr.ProductName
 		}
-		
+
 		startAt := normalizeMaterialEventTime(now)
 		if shortageAt != nil {
 			startAt = *shortageAt
 		}
-		
+
 		out = append(out, BatchScheduleProductionLine{
 			ProductID:               productID,
 			ProductName:             name,
@@ -1243,7 +1255,6 @@ func (s *AIPredictiveService) reEvaluateProposalsWithLedger(
 	return reEvaluated
 }
 
-
 // shallowCloneProposalKeepInventory makes a value copy of a SchedulingProposal,
 // keeping InventoryActions (needed by analyzeProposalMaterialShortages) and
 // ProposedSlots intact while resetting only the shortage/resolution fields.
@@ -1259,7 +1270,6 @@ func shallowCloneProposalKeepInventory(p *SchedulingProposal) *SchedulingProposa
 	cp.BlockedReasons = append([]string(nil), p.BlockedReasons...)
 	return &cp
 }
-
 
 // shallowCloneProposal makes a value copy of a SchedulingProposal while keeping
 // ProposedSlots pointing to the same underlying array (read-only in this context).
@@ -1396,7 +1406,6 @@ func mergeMatAggMax(prev, next []BatchMaterialReplenishmentLine) []BatchMaterial
 	sort.Slice(out, func(i, j int) bool { return out[i].MaterialID < out[j].MaterialID })
 	return out
 }
-
 
 // mergeProdAggMax returns a new schedule-production aggregate where each product's
 // RecommendedQty is max(prev, next).

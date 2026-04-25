@@ -7,8 +7,13 @@ import ChatMessage from './ChatMessage'
 import { mergeLegacyAssistantTurnContent } from './turns/turnAssembler'
 import { LegacyBlocks } from './turns/TurnBlocks'
 
+function nowTime() {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
 const AiChatPanel = ({ onClose, onHeaderMouseDown }) => {
   const chatRef = useRef(null)
+  const shouldAutoScrollRef = useRef(true)
   const {
     conversations,
     activeChatId,
@@ -31,8 +36,20 @@ const AiChatPanel = ({ onClose, onHeaderMouseDown }) => {
 
   useEffect(() => {
     if (!chatRef.current) return
+    if (!shouldAutoScrollRef.current) return
     chatRef.current.scrollTop = chatRef.current.scrollHeight
   }, [turns, messages, isSending])
+
+  const handleChatScroll = () => {
+    if (!chatRef.current) return
+    const el = chatRef.current
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    shouldAutoScrollRef.current = distanceToBottom < 120
+  }
+
+  useEffect(() => {
+    shouldAutoScrollRef.current = true
+  }, [activeChatId])
 
   return (
     <div className="flex h-full">
@@ -96,6 +113,7 @@ const AiChatPanel = ({ onClose, onHeaderMouseDown }) => {
         {/* Chat history */}
         <div
           ref={chatRef}
+          onScroll={handleChatScroll}
           className="flex-1 overflow-y-auto px-4 py-4 bg-gray-50 dark:bg-gray-900/60"
         >
           {loading && messages.length === 0 ? (
@@ -183,14 +201,21 @@ const AiChatPanel = ({ onClose, onHeaderMouseDown }) => {
             })
           )}
           {isSending && (
-            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 py-3">
-              <span className="flex gap-1">
-                <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
-              </span>
-              <span className="text-sm">Thinking…</span>
-            </div>
+            <ChatMessage
+              message=""
+              isUser={false}
+              timestamp={nowTime()}
+              renderBlocks={() => (
+                <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                  <span className="flex gap-1">
+                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </span>
+                  <span className="text-sm">Thinking...</span>
+                </div>
+              )}
+            />
           )}
         </div>
 

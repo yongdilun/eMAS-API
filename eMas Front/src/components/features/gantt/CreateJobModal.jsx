@@ -46,10 +46,6 @@ const CreateJobModal = ({ isOpen, onClose, onSave }) => {
     const e = {}
     if (!formData.productId)   e.productId   = 'Product ID is required'
     if (!formData.productName) e.productName = 'Product name is required'
-    if (!formData.machine)     e.machine     = 'Machine is required'
-    if (!formData.startDate)   e.startDate   = 'Start date is required'
-    if (!formData.startTime)   e.startTime   = 'Start time is required'
-    if (!formData.duration)    e.duration    = 'Duration is required'
     if (!formData.quantity)    e.quantity    = 'Quantity is required'
     setErrors(e)
     return Object.keys(e).length === 0
@@ -60,23 +56,25 @@ const CreateJobModal = ({ isOpen, onClose, onSave }) => {
     setLoading(true)
     setSubmitError('')
 
-    const startIso = new Date(`${formData.startDate}T${formData.startTime}`).toISOString()
-    const durationMins = Math.round(parseFloat(formData.duration) * 60)
-
     const payload = {
       product_id:     formData.productId,
       quantity_total: parseInt(formData.quantity, 10),
       priority:       formData.priority,
       deadline:       formData.deadline ? new Date(formData.deadline).toISOString() : undefined,
       notes:          formData.notes || undefined,
-      slots: [
+    }
+    const hasManualSlot = Boolean(formData.machine && formData.startDate && formData.startTime && formData.duration)
+    if (hasManualSlot) {
+      const startIso = new Date(`${formData.startDate}T${formData.startTime}`).toISOString()
+      const durationMins = Math.round(parseFloat(formData.duration) * 60)
+      payload.slots = [
         {
           machine_id:    formData.machine,
           start_time:    startIso,
           duration_mins: durationMins,
           quantity:      parseInt(formData.quantity, 10),
         },
-      ],
+      ]
     }
 
     try {
@@ -187,7 +185,7 @@ const CreateJobModal = ({ isOpen, onClose, onSave }) => {
           {/* Machine */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Assigned Machine *
+              Assigned Machine (Optional manual slot)
             </label>
             {machines.length > 0 ? (
               <select
@@ -216,7 +214,7 @@ const CreateJobModal = ({ isOpen, onClose, onSave }) => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Start Date *
+                Start Date (Optional)
               </label>
               <input
                 type="date" name="startDate" value={formData.startDate}
@@ -226,7 +224,7 @@ const CreateJobModal = ({ isOpen, onClose, onSave }) => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Start Time *
+                Start Time (Optional)
               </label>
               <input
                 type="time" name="startTime" value={formData.startTime}
@@ -240,7 +238,7 @@ const CreateJobModal = ({ isOpen, onClose, onSave }) => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Duration (hours) *
+                Duration (hours, Optional)
               </label>
               <input
                 type="number" name="duration" value={formData.duration}
@@ -275,6 +273,7 @@ const CreateJobModal = ({ isOpen, onClose, onSave }) => {
                 <option value="high">High</option>
                 <option value="medium">Medium</option>
                 <option value="low">Low</option>
+                <option value="urgent">Urgent</option>
               </select>
             </div>
             <div>

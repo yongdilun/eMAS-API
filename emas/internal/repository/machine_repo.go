@@ -34,6 +34,53 @@ func (r *MachineRepository) ListAll() ([]domain.Machine, error) {
 	return machines, err
 }
 
+type MachineListFilter struct {
+	BaseFilter
+	Status      string
+	MachineType string
+	Location    string
+}
+
+func (r *MachineRepository) ListFiltered(f MachineListFilter) ([]domain.Machine, error) {
+	db := r.db.Model(&domain.Machine{})
+
+	if f.Status != "" {
+		db = db.Where("status = ?", f.Status)
+	}
+	if f.MachineType != "" {
+		db = db.Where("machine_type = ?", f.MachineType)
+	}
+	if f.Location != "" {
+		db = db.Where("location = ?", f.Location)
+	}
+
+	allowedSort := map[string]string{
+		"machine_id":   "machine_id",
+		"machine_name": "machine_name",
+		"status":       "status",
+		"created_at":   "created_at",
+	}
+	db = f.ApplySorting(db, "machine_id ASC", allowedSort)
+
+	allowedFields := map[string]bool{
+		"machine_id":            true,
+		"machine_name":          true,
+		"machine_type":          true,
+		"location":              true,
+		"status":                true,
+		"capacity_per_hour":     true,
+		"last_maintenance_date": true,
+		"created_at":            true,
+		"updated_at":            true,
+	}
+	db = f.ApplyFields(db, allowedFields)
+	db = f.ApplyPagination(db)
+
+	var machines []domain.Machine
+	err := db.Find(&machines).Error
+	return machines, err
+}
+
 func (r *MachineRepository) Update(m *domain.Machine) error {
 	return r.db.Save(m).Error
 }

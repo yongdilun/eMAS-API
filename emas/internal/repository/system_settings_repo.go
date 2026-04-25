@@ -82,4 +82,3 @@ func (r *SystemSettingsRepository) GetFloat(key string, defaultValue float64) (f
 func (r *SystemSettingsRepository) PutFloat(key string, f float64) error {
 	return r.PutString(key, strconv.FormatFloat(f, 'f', -1, 64))
 }
-

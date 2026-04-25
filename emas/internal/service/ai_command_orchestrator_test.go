@@ -11,8 +11,8 @@ import (
 )
 
 type aiCommandFixture struct {
-	Input    string                 `json:"input"`
-	Expected fixtureExpected        `json:"expected"`
+	Input    string          `json:"input"`
+	Expected fixtureExpected `json:"expected"`
 }
 
 type fixtureExpected struct {
@@ -84,14 +84,14 @@ func TestAICommandOrchestrator_Fixtures_CISafe(t *testing.T) {
 		perActionTotal := make(map[string]int)
 		perActionCorrect := make(map[string]int)
 		type failRow struct {
-			Input   string
-			WantI   string
-			GotI    string
-			WantA   string
-			GotA    string
-			Reason  string
-			WantE   string
-			GotE    string
+			Input  string
+			WantI  string
+			GotI   string
+			WantA  string
+			GotA   string
+			Reason string
+			WantE  string
+			GotE   string
 		}
 		fails := make([]failRow, 0, 20)
 		for _, fx := range fixtures {
@@ -266,4 +266,3 @@ func matchRequiredEntities(expected, actual map[string]interface{}) bool {
 	}
 	return true
 }
-

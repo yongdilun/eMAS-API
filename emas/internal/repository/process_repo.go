@@ -48,6 +48,12 @@ func (r *ProcessRepository) GetProcessByID(processID string) (*domain.ProductPro
 	return &p, nil
 }
 
+func (r *ProcessRepository) ListAll() ([]domain.ProductProcess, error) {
+	var list []domain.ProductProcess
+	err := r.db.Order("process_id ASC").Find(&list).Error
+	return list, err
+}
+
 func (r *ProcessRepository) GetStepByID(stepID string) (*domain.ProcessSteps, error) {
 	var s domain.ProcessSteps
 	err := r.db.Where("step_id = ?", stepID).First(&s).Error
@@ -71,9 +77,44 @@ func (r *ProcessRepository) CreateStep(s *domain.ProcessSteps) error {
 	return r.db.Create(s).Error
 }
 
-func (r *ProcessRepository) ListAll() ([]domain.ProductProcess, error) {
+type ProcessListFilter struct {
+	BaseFilter
+	ProductID string
+}
+
+func (r *ProcessRepository) ListFiltered(f ProcessListFilter) ([]domain.ProductProcess, error) {
+	db := r.db.Model(&domain.ProductProcess{})
+
+	if f.ProductID != "" {
+		db = db.Where("product_id = ?", f.ProductID)
+	}
+
+	allowedSort := map[string]string{
+		"process_id": "process_id",
+		"product_id": "product_id",
+		"sequence":   "sequence",
+		"version":    "version",
+		"created_at": "created_at",
+	}
+	db = f.ApplySorting(db, "process_id ASC", allowedSort)
+
+	allowedFields := map[string]bool{
+		"process_id":     true,
+		"product_id":     true,
+		"process_name":   true,
+		"is_primary":     true,
+		"sequence":       true,
+		"version":        true,
+		"effective_from": true,
+		"effective_to":   true,
+		"created_at":     true,
+		"updated_at":     true,
+	}
+	db = f.ApplyFields(db, allowedFields)
+	db = f.ApplyPagination(db)
+
 	var list []domain.ProductProcess
-	err := r.db.Find(&list).Error
+	err := db.Find(&list).Error
 	return list, err
 }
 

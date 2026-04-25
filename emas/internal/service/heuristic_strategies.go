@@ -1047,12 +1047,12 @@ func generateWithCandidateSortPick(
 			p.BlockedReasons = append(p.BlockedReasons, fmt.Sprintf("reason_code=%s no feasible aligned window for step %s within horizon (expanded_steps=%d, horizon_end=%s).", searchHorizonExceededReasonCode, step.StepName, expanded, adaptiveEnd.UTC().Format(time.RFC3339)))
 			// #region agent log
 			agentDebugNDJSON("H4", "heuristic_strategies.go:Generate", "placement_no_candidates_horizon", map[string]any{
-				"job_id":       job.JobID,
-				"job_step_id":  step.JobStepID,
-				"step_name":    step.StepName,
-				"reason_code":  searchHorizonExceededReasonCode,
-				"horizon_utc":  adaptiveEnd.UTC().Format(time.RFC3339),
-				"expanded":     expanded,
+				"job_id":      job.JobID,
+				"job_step_id": step.JobStepID,
+				"step_name":   step.StepName,
+				"reason_code": searchHorizonExceededReasonCode,
+				"horizon_utc": adaptiveEnd.UTC().Format(time.RFC3339),
+				"expanded":    expanded,
 			})
 			// #endregion
 			continue

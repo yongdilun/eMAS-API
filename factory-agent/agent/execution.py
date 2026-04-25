@@ -28,8 +28,9 @@ from .config import Settings
 from .events import AgentEvent, EventBus
 from .memory_manager import MemoryManager
 from .metrics import metrics
+from .reasoning_pipeline import ReasoningPipeline
 from .schemas import ToolInfo
-from .telemetry import log_event, log_step_status_changed
+from .telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped, log_step_status_changed
 
 FailureDecision = Literal["RETRY", "REPLAN", "FAIL_HARD", "AMBIGUOUS"]
 
@@ -75,6 +76,29 @@ def compute_payload_hash(*, args: dict[str, Any]) -> str:
 _PATH_PARAM_RE = re.compile(r"\{([a-zA-Z0-9_]+)\}")
 
 
+def _normalize_tool_args(tool: ToolInfo, args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    payload = args or {}
+    if any(key in payload for key in ("path", "query", "body", "path_args", "query_args", "body_args")):
+        path_args = payload.get("path") if isinstance(payload.get("path"), dict) else payload.get("path_args") if isinstance(payload.get("path_args"), dict) else {}
+        query_args = payload.get("query") if isinstance(payload.get("query"), dict) else payload.get("query_args") if isinstance(payload.get("query_args"), dict) else {}
+        body_args = payload.get("body") if isinstance(payload.get("body"), dict) else payload.get("body_args") if isinstance(payload.get("body_args"), dict) else {}
+        return dict(path_args), dict(query_args), dict(body_args)
+
+    path_param_names = tool.path_params or [match.group(1) for match in _PATH_PARAM_RE.finditer(tool.endpoint or "")]
+    query_param_names = tool.query_params or [
+        key for key, source in (tool.param_sources or {}).items() if source == "query"
+    ]
+    path_args = {key: payload[key] for key in path_param_names if key in payload}
+    query_args = {
+        key: payload[key]
+        for key in query_param_names
+        if key in payload
+    }
+    consumed = set(path_args.keys()) | set(query_args.keys())
+    body_args = {key: value for key, value in payload.items() if key not in consumed}
+    return path_args, query_args, body_args
+
+
 @dataclass(frozen=True)
 class ExecuteResult:
     status: str
@@ -86,6 +110,7 @@ class ExecutionEngine:
         self._settings = settings
         self._event_bus = event_bus
         self._memory_manager = MemoryManager(settings)
+        self._reasoning = ReasoningPipeline(settings)
 
     def _session_duration_s(self, session: SessionRow) -> int:
         if not session.session_started_at:
@@ -102,136 +127,121 @@ class ExecutionEngine:
             return f"{first_key}={args[first_key]}"
         return "target"
 
-    def _tool_entity_name(self, tool_name: str) -> str:
-        lower_name = tool_name.lower()
-        if "machine" in lower_name:
-            return "machine"
-        if "material" in lower_name:
-            return "material"
-        if "inventory" in lower_name:
-            return "inventory record"
-        if "proposal" in lower_name:
-            return "proposal"
-        if "job" in lower_name or "schedule" in lower_name:
-            return "job"
-        return "record"
+    def _build_text_model(self):
+        from langchain_openai import ChatOpenAI
 
-    def _build_not_found_summary(self, *, tool_name: str, args: dict[str, Any], body: dict[str, Any] | None) -> str:
-        entity = self._tool_entity_name(tool_name)
-        target = (
-            args.get("id")
-            or args.get("machine_id")
-            or args.get("job_id")
-            or args.get("material_id")
-            or args.get("inventory_id")
-            or args.get("proposal_id")
-            or args.get("approval_id")
+        kwargs: dict[str, Any] = {
+            "model": self._settings.tool_result_summary_model,
+            "temperature": 0,
+        }
+        if self._settings.openai_base_url:
+            kwargs["base_url"] = self._settings.openai_base_url
+            kwargs["api_key"] = self._settings.openai_api_key or "local"
+        elif self._settings.openai_api_key:
+            kwargs["api_key"] = self._settings.openai_api_key
+        return ChatOpenAI(**kwargs)
+
+    async def _compose_text(
+        self,
+        *,
+        component: str,
+        prompt: str,
+        fallback: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        backend = self._tool_result_summary_backend()
+        if backend != "langchain":
+            log_llm_prompt_skipped(
+                component=component,
+                backend=backend,
+                reason="text_backend!=langchain",
+                metadata=metadata or {},
+            )
+            return fallback
+
+        try:
+            from langchain_openai import ChatOpenAI  # noqa: F401
+        except Exception:
+            log_llm_prompt_skipped(
+                component=component,
+                backend=backend,
+                reason="langchain_openai_unavailable",
+                metadata=metadata or {},
+            )
+            return fallback
+
+        log_llm_prompt(
+            component=component,
+            backend=backend,
+            model=self._settings.tool_result_summary_model,
+            prompt=prompt,
+            metadata=metadata or {},
         )
-        if target not in (None, ""):
-            target_str = str(target)
-            hint = ""
-            if entity == "machine" and target_str.upper().startswith("JOB-"):
-                hint = " That looks like a Job ID. If you meant a job, try: `Check job JOB-SEED-001 status`."
-            return f"I couldn't find {entity} {target_str} in the system. How would you like to proceed?{hint}"
+        try:
+            model = self._build_text_model()
+            resp = await model.ainvoke(prompt)
+            content = (getattr(resp, "content", "") or "").strip()
+            if not content:
+                return fallback
+            return content.replace("\n", " ").strip()
+        except Exception as exc:
+            log_event(
+                f"{component}_failed",
+                level="WARNING",
+                error=str(exc),
+                **(metadata or {}),
+            )
+            return fallback
+
+    async def _build_not_found_summary(self, *, tool_name: str, args: dict[str, Any], body: dict[str, Any] | None) -> str:
         detail = (body or {}).get("detail")
         if isinstance(detail, str) and detail.strip():
-            return detail.strip()
-        return f"I couldn't find the requested {entity} in the system. How would you like to proceed?"
+            fallback = detail.strip()
+        else:
+            target = (
+                args.get("id")
+                or args.get("machine_id")
+                or args.get("job_id")
+                or args.get("material_id")
+                or args.get("inventory_id")
+                or args.get("proposal_id")
+                or args.get("approval_id")
+            )
+            fallback = (
+                f"Requested resource {target} was not found."
+                if target not in (None, "")
+                else "Requested resource was not found."
+            )
+
+        prompt = (
+            "Write one short operator-facing sentence for a not-found tool call.\n"
+            "Rules:\n"
+            "- Use only the provided tool name, args, and response body.\n"
+            "- Do not invent entities or IDs.\n"
+            "- Keep <= 20 words.\n\n"
+            f"Tool: {tool_name}\n"
+            f"Args: {json.dumps(args or {}, ensure_ascii=False)}\n"
+            f"Response: {json.dumps(body or {}, ensure_ascii=False)}\n"
+        )
+        return await self._compose_text(
+            component="not_found_summary",
+            prompt=prompt,
+            fallback=fallback,
+            metadata={"tool_name": tool_name},
+        )
 
     def _is_soft_not_found(self, *, tool: ToolInfo, http_status: int | None, body: dict[str, Any] | None) -> bool:
         return bool(tool.is_read_only and tool.method == "GET" and http_status == 404 and isinstance(body, dict))
 
-    def _summarize_machine_payload(self, body: dict[str, Any]) -> str | None:
-        items = body.get("items")
-        if isinstance(items, list):
-            return f"Retrieved {len(items)} machine record(s)."
+    def _tool_result_summary_backend(self) -> str:
+        backend = (self._settings.tool_result_summary_backend or "auto").strip().lower()
+        if backend == "auto":
+            if self._settings.openai_base_url or self._settings.openai_api_key:
+                return "langchain"
+            return "legacy"
+        return backend
 
-        # Many endpoints return an envelope `{success, data, error}` where `data`
-        # holds the machine record. The Go API currently serializes machine
-        # fields as `MachineID/MachineName/Status` (no json tags), so we accept
-        # both styles.
-        machine = body.get("data") if isinstance(body.get("data"), dict) else body
-        if not isinstance(machine, dict):
-            return None
-
-        name = (
-            machine.get("name")
-            or machine.get("machine_name")
-            or machine.get("MachineName")
-            or machine.get("machineName")
-        )
-        status = (
-            machine.get("status")
-            or machine.get("machine_status")
-            or machine.get("MachineStatus")
-            or machine.get("Status")
-            or machine.get("state")
-        )
-        machine_id = (
-            machine.get("id")
-            or machine.get("machine_id")
-            or machine.get("MachineID")
-            or machine.get("machineId")
-        )
-        if status and (machine_id or name):
-            label = None
-            if machine_id and name:
-                mid = str(machine_id)
-                nm = str(name)
-                # Avoid "5 (Machine 5)" duplication when name already includes the ID.
-                if nm.strip().lower().endswith(mid.strip().lower()) or nm.strip().lower() == f"machine {mid.strip().lower()}":
-                    label = nm
-                else:
-                    label = f"{mid} ({nm})"
-            elif machine_id:
-                label = str(machine_id)
-            else:
-                label = str(name)
-
-            if label.strip().lower().startswith("machine "):
-                return f"{label} is {status}."
-            return f"Machine {label} is {status}."
-        return None
-
-    def _summarize_inventory_payload(self, body: dict[str, Any]) -> str | None:
-        items = body.get("items")
-        if isinstance(items, list):
-            return f"Retrieved {len(items)} inventory record(s)."
-
-        record = body.get("data") if isinstance(body.get("data"), dict) else body
-        sku = record.get("sku")
-        qty = (
-            record.get("quantity")
-            if record.get("quantity") is not None
-            else record.get("qty")
-        )
-        if sku and qty is not None:
-            return f"Inventory for {sku} is {qty}."
-        return None
-
-    def _summarize_job_payload(self, body: dict[str, Any]) -> str | None:
-        items = body.get("items")
-        if isinstance(items, list):
-            return f"Retrieved {len(items)} job record(s)."
-
-        record = body.get("data") if isinstance(body.get("data"), dict) else body
-        job_id = record.get("job_id") or record.get("id")
-        status = record.get("status")
-        if job_id and status:
-            return f"Job {job_id} is {status}."
-        return None
-
-    def _summarize_domain_payload(self, *, tool_name: str, body: dict[str, Any]) -> str | None:
-        lower_name = tool_name.lower()
-        if "machine" in lower_name:
-            return self._summarize_machine_payload(body)
-        if "inventory" in lower_name:
-            return self._summarize_inventory_payload(body)
-        if "job" in lower_name or "schedule" in lower_name:
-            return self._summarize_job_payload(body)
-        return None
-
-    def _summarize_step_result(self, *, tool_name: str, body: dict[str, Any] | None) -> str:
+    def _summarize_step_result_fallback(self, *, tool_name: str, body: dict[str, Any] | None) -> str:
         if body is None:
             return f"{tool_name} completed."
         if isinstance(body, dict):
@@ -239,31 +249,209 @@ class ExecutionEngine:
                 summary = body.get("_summary")
                 if isinstance(summary, str) and summary.strip():
                     return summary.strip()
-            domain_summary = self._summarize_domain_payload(tool_name=tool_name, body=body)
-            if domain_summary:
-                return domain_summary
             for key in ("message", "detail", "status", "summary"):
                 val = body.get(key)
                 if isinstance(val, str) and val.strip():
                     return f"{tool_name}: {val.strip()}"
+            if isinstance(body.get("data"), list):
+                return f"{tool_name} completed. Returned {len(body['data'])} record(s)."
             if isinstance(body.get("items"), list):
                 return f"{tool_name} completed. Retrieved {len(body['items'])} item(s)."
             keys = ", ".join(list(body.keys())[:4])
             return f"{tool_name} completed. Response keys: {keys or 'none'}."
         return f"{tool_name} completed."
 
-    def _build_approval_risk_summary(self, *, tool: ToolInfo, args: dict[str, Any]) -> str:
+    async def _summarize_step_result(self, *, tool_name: str, body: dict[str, Any] | None, args: dict[str, Any] | None = None) -> str:
+        fallback = self._summarize_step_result_fallback(tool_name=tool_name, body=body)
+        if not isinstance(body, dict):
+            return fallback
+
+        facts = await self._reasoning.extract_facts(
+            intent="tool_result_summary",
+            tool_name=tool_name,
+            args=args or {},
+            result=body,
+        )
+        if facts:
+            generated = await self._reasoning.generate_response(intent="tool_result_summary", facts=facts)
+            if generated:
+                grounded = await self._reasoning.verify_grounding(response_text=generated, facts=facts)
+                if grounded:
+                    return generated
+                return self._reasoning.fallback_response_from_facts(facts=facts)
+            return self._reasoning.fallback_response_from_facts(facts=facts)
+
+        prompt_payload = body
+        try:
+            raw = json.dumps(body, ensure_ascii=False, sort_keys=True)
+            if len(raw) > 3500:
+                raw = raw[:3500] + "..."
+                prompt_payload = {"truncated": True, "preview": raw}
+        except Exception:
+            prompt_payload = {"unserializable": True}
+
+        prompt = (
+            "You are writing a short operator-facing status message for a factory tool result.\n"
+            "Rules:\n"
+            "- Use only facts present in the result JSON.\n"
+            "- Never invent IDs or statuses.\n"
+            "- Keep it short (1 sentence, <= 25 words).\n"
+            "- Use simple language.\n\n"
+            f"Tool: {tool_name}\n"
+            f"Tool Args: {json.dumps(args or {}, ensure_ascii=False)}\n"
+            f"Result JSON: {json.dumps(prompt_payload, ensure_ascii=False)}\n"
+        )
+        return await self._compose_text(
+            component="tool_result_summary",
+            prompt=prompt,
+            fallback=fallback,
+            metadata={"tool_name": tool_name},
+        )
+
+    async def _build_approval_risk_summary(
+        self,
+        *,
+        tool: ToolInfo,
+        args: dict[str, Any],
+        target_preview: str | None = None,
+    ) -> str:
         target = self._entity_label(args)
-        lower_name = tool.name.lower()
-        if "machine" in lower_name:
-            return f"This will change machine state for {target}."
-        if "inventory" in lower_name:
-            return f"This will update inventory for {target}."
-        if "job" in lower_name or "schedule" in lower_name:
-            return f"This will change production scheduling for {target}."
-        if "approval" in lower_name:
-            return f"This will submit an approval decision for {target}."
-        return f"This will perform a write operation against the backend for {target}."
+        fallback = f"This request will perform a write operation for {target}."
+        if target_preview:
+            fallback = f"{fallback} Target check: {target_preview}"
+        prompt = (
+            "Write one short approval risk summary for operators.\n"
+            "Rules:\n"
+            "- Mention this is a write-side effect.\n"
+            "- Use only facts provided below.\n"
+            "- One sentence, <= 25 words.\n\n"
+            f"Tool: {tool.name}\n"
+            f"Method: {tool.method}\n"
+            f"Endpoint: {tool.endpoint}\n"
+            f"Args: {json.dumps(args or {}, ensure_ascii=False)}\n"
+            f"Target preview: {target_preview or ''}\n"
+        )
+        return await self._compose_text(
+            component="approval_risk_summary",
+            prompt=prompt,
+            fallback=fallback,
+            metadata={"tool_name": tool.name},
+        )
+
+    async def _build_completion_text(self, *, plan_kind: str, step_count: int) -> str:
+        fallback = (
+            "Safe discovery completed. Preparing execution proposal."
+            if (plan_kind or "execution") == "discovery"
+            else f"Execution completed successfully. {step_count} step(s) completed."
+        )
+        prompt = (
+            "Write one short completion message for a workflow engine.\n"
+            "Rules:\n"
+            "- One sentence.\n"
+            "- Mention completion outcome.\n"
+            "- Use only the context below.\n\n"
+            f"Plan kind: {plan_kind}\n"
+            f"Completed steps: {step_count}\n"
+        )
+        return await self._compose_text(
+            component="session_completion_text",
+            prompt=prompt,
+            fallback=fallback,
+            metadata={"plan_kind": plan_kind, "step_count": step_count},
+        )
+
+    def _approval_target_identifier(self, args: dict[str, Any]) -> Any | None:
+        return (
+            args.get("id")
+            or args.get("machine_id")
+            or args.get("job_id")
+            or args.get("inventory_id")
+            or args.get("material_id")
+            or args.get("proposal_id")
+            or args.get("approval_id")
+        )
+
+    def _is_preapproval_probe_candidate(self, *, tool: ToolInfo, args: dict[str, Any]) -> bool:
+        if tool.method not in {"PUT", "PATCH", "DELETE"}:
+            return False
+        if "{id}" not in (tool.endpoint or ""):
+            return False
+        return self._approval_target_identifier(args) not in (None, "")
+
+    async def _probe_entity_for_approval(
+        self,
+        *,
+        endpoint: str,
+        args: dict[str, Any],
+        summary_tool_name: str,
+    ) -> tuple[bool | None, str | None]:
+        path_args = {"id": self._approval_target_identifier(args)}
+        rendered_endpoint, leftover_path_args = self._materialize_endpoint(endpoint=endpoint, args=path_args)
+        if leftover_path_args:
+            path_args.update(leftover_path_args)
+        url = f"{self._settings.go_api_base_url}{rendered_endpoint}"
+        try:
+            async with httpx.AsyncClient(timeout=self._settings.http_timeout_s) as client:
+                resp = await client.get(url)
+        except (httpx.TimeoutException, httpx.NetworkError):
+            return None, None
+
+        payload: dict[str, Any] | None = None
+        try:
+            if resp.content:
+                parsed = resp.json()
+                if isinstance(parsed, dict):
+                    payload = parsed
+        except Exception:
+            payload = None
+
+        if resp.status_code == 404:
+            summary = await self._build_not_found_summary(tool_name=summary_tool_name, args=args, body=payload)
+            return False, summary
+        if resp.status_code >= 400:
+            return None, None
+        if isinstance(payload, dict):
+            return True, await self._summarize_step_result(tool_name=summary_tool_name, body=payload, args=args)
+        return True, None
+
+    async def _preflight_approval_guard(
+        self,
+        *,
+        session: SessionRow,
+        plan: PlanRow,
+        step: PlanStepRow,
+        tool: ToolInfo,
+        db: AsyncSession,
+    ) -> tuple[bool, str | None]:
+        args = step.args or {}
+        if not self._is_preapproval_probe_candidate(tool=tool, args=args):
+            return False, None
+
+        exists, preview = await self._probe_entity_for_approval(
+            endpoint=tool.endpoint or "",
+            args=args,
+            summary_tool_name=tool.name,
+        )
+        if exists is False:
+            generated = await self._build_not_found_summary(tool_name=tool.name, args=args, body=None)
+            summary = (preview or generated).strip()
+            summary = f"{summary} No changes were made."
+            step.status = "DONE"
+            step.result = {"not_found": True, "_summary": summary, "preflight": True}
+            step.result_summary = summary
+            step.completed_at = datetime.utcnow()
+            self._log_step_status_change(session=session, plan=plan, step=step, tool=tool, status=step.status)
+            await self._append_tool_result_message(db, session_id=session.session_id, step=step)
+            session.current_step_index += 1
+            session.step_count += 1
+            session.version += 1
+            await db.commit()
+            return True, None
+
+        risk_summary_override = None
+        if preview:
+            risk_summary_override = await self._build_approval_risk_summary(tool=tool, args=args, target_preview=preview)
+        return False, risk_summary_override
 
     async def _append_tool_result_message(
         self,
@@ -272,7 +460,7 @@ class ExecutionEngine:
         session_id: str,
         step: PlanStepRow,
     ) -> None:
-        text = step.result_summary or self._summarize_step_result(tool_name=step.tool_name, body=step.result)
+        text = step.result_summary or await self._summarize_step_result(tool_name=step.tool_name, body=step.result, args=step.args)
         msg = MessageRow(
             message_id=generate_uuid(),
             session_id=session_id,
@@ -360,14 +548,21 @@ class ExecutionEngine:
         session_id: str,
         step: PlanStepRow,
         tool: ToolInfo,
+        risk_summary_override: str | None = None,
     ) -> ApprovalRow:
+        risk_summary = risk_summary_override
+        if not risk_summary:
+            risk_summary = await self._build_approval_risk_summary(tool=tool, args=step.args or {})
+
         approval = ApprovalRow(
             approval_id=generate_uuid(),
             session_id=session_id,
+            subject_type="step",
+            plan_id=None,
             step_id=step.step_id,
             tool_name=tool.name,
             args=step.args,
-            risk_summary=self._build_approval_risk_summary(tool=tool, args=step.args or {}),
+            risk_summary=risk_summary,
             side_effect_level=tool.side_effect_level or "HIGH",
             status="PENDING",
             expires_at=datetime.utcnow() + timedelta(hours=24),
@@ -455,7 +650,10 @@ class ExecutionEngine:
         step_id: str,
         db: AsyncSession,
     ) -> tuple[dict[str, Any] | None, int]:
-        rendered_endpoint, request_args = self._materialize_endpoint(endpoint=tool.endpoint, args=args)
+        path_args, query_args, body_args = _normalize_tool_args(tool, args)
+        rendered_endpoint, leftover_path_args = self._materialize_endpoint(endpoint=tool.endpoint, args=path_args)
+        if leftover_path_args:
+            path_args.update(leftover_path_args)
         url = f"{self._settings.go_api_base_url}{rendered_endpoint}"
         headers = {
             "Idempotency-Key": idempotency_key,
@@ -470,15 +668,16 @@ class ExecutionEngine:
         try:
             async with httpx.AsyncClient(timeout=self._settings.http_timeout_s) as client:
                 if tool.method == "GET":
-                    resp = await client.get(url, params=request_args, headers=headers)
+                    params = query_args or body_args
+                    resp = await client.get(url, params=params, headers=headers)
                 elif tool.method == "POST":
-                    resp = await client.post(url, json=request_args, headers=headers)
+                    resp = await client.post(url, params=query_args or None, json=body_args, headers=headers)
                 elif tool.method == "PUT":
-                    resp = await client.put(url, json=request_args, headers=headers)
+                    resp = await client.put(url, params=query_args or None, json=body_args, headers=headers)
                 elif tool.method == "PATCH":
-                    resp = await client.patch(url, json=request_args, headers=headers)
+                    resp = await client.patch(url, params=query_args or None, json=body_args, headers=headers)
                 elif tool.method == "DELETE":
-                    resp = await client.request("DELETE", url, json=request_args, headers=headers)
+                    resp = await client.request("DELETE", url, params=query_args or None, json=body_args or None, headers=headers)
                 else:
                     raise ValueError(f"Unsupported method: {tool.method}")
         except httpx.TimeoutException as e:
@@ -548,7 +747,7 @@ class ExecutionEngine:
         if self._is_soft_not_found(tool=tool, http_status=resp.status_code, body=body):
             body = dict(body)
             body["not_found"] = True
-            body["_summary"] = self._build_not_found_summary(tool_name=tool.name, args=args, body=body)
+            body["_summary"] = await self._build_not_found_summary(tool_name=tool.name, args=args, body=body)
             return body, latency_ms
 
         if resp.status_code >= 400:
@@ -870,7 +1069,22 @@ class ExecutionEngine:
 
             if tool.requires_approval:
                 if not step.approval_id:
-                    await self._create_approval(db, session_id=session.session_id, step=step, tool=tool)
+                    skipped, risk_override = await self._preflight_approval_guard(
+                        session=session,
+                        plan=plan,
+                        step=step,
+                        tool=tool,
+                        db=db,
+                    )
+                    if skipped:
+                        continue
+                    await self._create_approval(
+                        db,
+                        session_id=session.session_id,
+                        step=step,
+                        tool=tool,
+                        risk_summary_override=risk_override,
+                    )
                 approval = (
                     await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == step.approval_id))
                 ).scalars().first()
@@ -944,7 +1158,7 @@ class ExecutionEngine:
                     step.status = "DONE"
                     replay_body = dict(snapshot_body or {})
                     replay_body["not_found"] = True
-                    replay_body["_summary"] = self._build_not_found_summary(
+                    replay_body["_summary"] = await self._build_not_found_summary(
                         tool_name=tool.name,
                         args=step.args or {},
                         body=snapshot_body,
@@ -954,7 +1168,7 @@ class ExecutionEngine:
                     step.status = "DONE" if existing_snapshot.http_status < 400 else "FAILED"
                     step.result = existing_snapshot.response_body
                 if step.status == "DONE":
-                    step.result_summary = self._summarize_step_result(tool_name=tool.name, body=step.result)
+                    step.result_summary = await self._summarize_step_result(tool_name=tool.name, body=step.result, args=step.args)
                 step.completed_at = datetime.utcnow()
                 self._log_step_status_change(
                     session=session,
@@ -998,7 +1212,7 @@ class ExecutionEngine:
                         )
                         step.status = "DONE"
                         step.result = body
-                        step.result_summary = self._summarize_step_result(tool_name=tool.name, body=body)
+                        step.result_summary = await self._summarize_step_result(tool_name=tool.name, body=body, args=step.args)
                         step.completed_at = datetime.utcnow()
                         self._log_step_status_change(
                             session=session,
@@ -1160,15 +1374,20 @@ class ExecutionEngine:
                     user_message=session.pending_user_message,
                 )
 
+        plan.status = "COMPLETED"
         session.status = "COMPLETED"
         session.completed_at = datetime.utcnow()
         session.version += 1
+        completion_text = await self._build_completion_text(
+            plan_kind=(getattr(plan, "kind", None) or "execution"),
+            step_count=session.step_count,
+        )
         db.add(
             MessageRow(
                 message_id=generate_uuid(),
                 session_id=session.session_id,
                 role="assistant",
-                content=f"Execution completed successfully. {session.step_count} step(s) completed.",
+                content=completion_text,
                 tool_name="__session__",
             )
         )

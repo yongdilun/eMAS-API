@@ -53,7 +53,7 @@ func TestProductionLogHandler_LogProduction(t *testing.T) {
 
 	now := time.Now()
 	w = testutil.Request(r, "POST", "/api/v1/production-logs", map[string]interface{}{
-		"slot_id": slotID, "start_time": now.Add(-1*time.Hour), "end_time": now,
+		"slot_id": slotID, "start_time": now.Add(-1 * time.Hour), "end_time": now,
 		"quantity_produced": 20, "quantity_scrap": 2, "operator_notes": "ok",
 	})
 	if w.Code != http.StatusCreated {

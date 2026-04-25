@@ -6,6 +6,7 @@ import { assembleFactoryAgentTurns, computeFactoryAgentTurnSummary } from '../tu
 const DEFAULT_USER_ID = import.meta.env?.VITE_FACTORY_AGENT_USER_ID || 'frontend-operator'
 const ACTIVE_SESSION_KEY = 'factory_agent_active_session_id'
 const SESSION_COUNTER_KEY = 'factory_agent_session_counter'
+const MESSAGE_MODE_KEY = 'factory_agent_message_mode'
 
 const hasStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
 
@@ -50,6 +51,7 @@ function toTimelineMessage(event) {
     role: event.role === 'user' ? 'user' : 'assistant',
     eventType: event.event_type,
     content: event.content,
+    mode: event.mode || null,
     timestamp: formatTs(event.created_at),
     createdAt: event.created_at || null,
     stepId: event.step_id || null,
@@ -92,6 +94,10 @@ export function useFactoryAgentChat() {
   const [isPollingApprovals, setIsPollingApprovals] = useState(false)
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
   const [optimisticMessages, setOptimisticMessages] = useState([])
+  const [messageMode, setMessageMode] = useState(() => {
+    if (!hasStorage()) return 'normal'
+    return localStorage.getItem(MESSAGE_MODE_KEY) || 'normal'
+  })
 
   const sessionPollTimerRef = useRef(null)
 
@@ -138,6 +144,10 @@ export function useFactoryAgentChat() {
     mergeSessionSummary(nextSession)
     return nextSession
   }, [mergeSessionSummary])
+
+  useEffect(() => {
+    if (hasStorage()) localStorage.setItem(MESSAGE_MODE_KEY, messageMode)
+  }, [messageMode])
 
   const clearSnapshotState = useCallback(() => {
     setSession(null)
@@ -278,15 +288,16 @@ export function useFactoryAgentChat() {
     }
   }, [mergeSessionSummary, session?.session_id])
 
-  const executeWithRetry = useCallback(async (sessionId) => {
+  const executeWithRetry = useCallback(async (sessionId, options = {}) => {
+    const preferBackground = options.background ?? true
     try {
       // Prefer background execution so the UI can stream progress via polling
       // (tool_started/tool_result events) instead of waiting for one long HTTP request.
-      return await factoryAgentApi.execute(sessionId, { background: true })
+      return await factoryAgentApi.execute(sessionId, { background: preferBackground })
     } catch (err) {
       if (err?.status === 409) {
         await safelyRefreshSnapshot(sessionId)
-        return factoryAgentApi.execute(sessionId, { background: true })
+        return factoryAgentApi.execute(sessionId, { background: preferBackground })
       }
       // Queue may be disabled or full; fall back to foreground execute.
       if (err?.status === 429 || String(err?.message || '').toLowerCase().includes('queue')) {
@@ -296,10 +307,12 @@ export function useFactoryAgentChat() {
     }
   }, [safelyRefreshSnapshot])
 
-  const runIntent = useCallback(async (sessionId, text) => {
-    await factoryAgentApi.addMessage(sessionId, { role: 'user', content: text })
-    await factoryAgentApi.createPlan(sessionId)
-    await executeWithRetry(sessionId)
+  const runIntent = useCallback(async (sessionId, text, mode = 'normal') => {
+    await factoryAgentApi.addMessage(sessionId, { role: 'user', content: text, mode })
+    const planResp = await factoryAgentApi.createPlan(sessionId)
+    if (!(planResp?.status === 'COMPLETED')) {
+      await executeWithRetry(sessionId, { background: mode !== 'plan' })
+    }
     return safelyRefreshSnapshot(sessionId)
   }, [executeWithRetry, safelyRefreshSnapshot])
 
@@ -314,20 +327,21 @@ export function useFactoryAgentChat() {
 
     try {
       let current = session
-      if (!current || [FACTORY_AGENT_STATUS.FAILED, FACTORY_AGENT_STATUS.COMPLETED].includes(current.status)) {
-        current = await startNewSession()
-      }
+      // Keep one session as the chat "thread" until the user explicitly starts a new one.
+      if (!current) current = await startNewSession()
       if (!current) return
 
       if ([FACTORY_AGENT_STATUS.IDLE, FACTORY_AGENT_STATUS.BLOCKED, FACTORY_AGENT_STATUS.FAILED, FACTORY_AGENT_STATUS.COMPLETED].includes(current.status)) {
-        await runIntent(current.session_id, text)
+        await runIntent(current.session_id, text, messageMode)
       } else if (current.status === FACTORY_AGENT_STATUS.WAITING_APPROVAL) {
-        await factoryAgentApi.addMessage(current.session_id, { role: 'user', content: text })
-        await factoryAgentApi.createPlan(current.session_id)
-        await executeWithRetry(current.session_id)
+        await factoryAgentApi.addMessage(current.session_id, { role: 'user', content: text, mode: messageMode })
+        const planResp = await factoryAgentApi.createPlan(current.session_id)
+        if (!(planResp?.status === 'COMPLETED')) {
+          await executeWithRetry(current.session_id, { background: messageMode !== 'plan' })
+        }
         await safelyRefreshSnapshot(current.session_id)
       } else if (current.status === FACTORY_AGENT_STATUS.EXECUTING) {
-        await factoryAgentApi.addMessage(current.session_id, { role: 'user', content: text })
+        await factoryAgentApi.addMessage(current.session_id, { role: 'user', content: text, mode: messageMode })
         await safelyRefreshSnapshot(current.session_id)
       } else {
         await safelyRefreshSnapshot(current.session_id)
@@ -346,11 +360,30 @@ export function useFactoryAgentChat() {
     isSending,
     refreshSessionList,
     removeOptimisticMessage,
+    messageMode,
     runIntent,
     safelyRefreshSnapshot,
     session,
+    setMessageMode,
     startNewSession,
   ])
+
+  const deleteSession = useCallback(async (sessionId) => {
+    if (!sessionId) return
+    setError(null)
+    try {
+      await factoryAgentApi.deleteSession(sessionId)
+      if (session?.session_id === sessionId) {
+        if (hasStorage()) localStorage.removeItem(ACTIVE_SESSION_KEY)
+        clearSnapshotState()
+      }
+      await refreshSessionList()
+      return true
+    } catch (err) {
+      setError(normalizeFactoryAgentError(err, 'Failed to delete session'))
+      return false
+    }
+  }, [clearSnapshotState, refreshSessionList, session?.session_id])
 
   const handleCancel = useCallback(async () => {
     if (!session?.session_id) return
@@ -456,7 +489,9 @@ export function useFactoryAgentChat() {
     error,
     pendingApproval,
     approvalReason,
+    messageMode,
     setApprovalReason,
+    setMessageMode,
     isDecidingApproval,
     isPollingSession,
     isPollingApprovals,
@@ -467,6 +502,7 @@ export function useFactoryAgentChat() {
     startNewSession,
     switchSession,
     renameSession,
+    deleteSession,
     refreshSession: safelyRefreshSnapshot,
     retryFromCurrent,
   }

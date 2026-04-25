@@ -65,4 +65,3 @@ func Test_machineWorkWindows_IntersectsWithGlobalHoliday(t *testing.T) {
 		t.Fatalf("expected zero windows due to global holiday intersection, got %d", len(windows))
 	}
 }
-

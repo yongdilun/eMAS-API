@@ -202,10 +202,10 @@ func (h *ReportsHandler) QualityTrends(c *gin.Context) {
 	}
 
 	var results []struct {
-		Date       string `json:"date"`
-		PassCount  int    `json:"pass_count"`
-		FailCount  int    `json:"fail_count"`
-		DefectSum  int    `json:"defect_sum"`
+		Date      string `json:"date"`
+		PassCount int    `json:"pass_count"`
+		FailCount int    `json:"fail_count"`
+		DefectSum int    `json:"defect_sum"`
 	}
 	if err := h.db.Table("quality_inspection_records").
 		Select("DATE(inspection_time) as date, SUM(CASE WHEN result = 'pass' THEN 1 ELSE 0 END) as pass_count, SUM(CASE WHEN result = 'fail' THEN 1 ELSE 0 END) as fail_count, COALESCE(SUM(defect_count), 0) as defect_sum").
@@ -236,13 +236,13 @@ func (h *ReportsHandler) OEETrends(c *gin.Context) {
 	shiftName := c.Query("shift")
 
 	var results []struct {
-		MachineID       string  `json:"machine_id"`
-		ShiftName       string  `json:"shift_name"`
-		Date            string  `json:"date"`
-		Availability    float64 `json:"availability"`
-		Performance     float64 `json:"performance"`
-		Quality         float64 `json:"quality"`
-		OEE             float64 `json:"oee"`
+		MachineID    string  `json:"machine_id"`
+		ShiftName    string  `json:"shift_name"`
+		Date         string  `json:"date"`
+		Availability float64 `json:"availability"`
+		Performance  float64 `json:"performance"`
+		Quality      float64 `json:"quality"`
+		OEE          float64 `json:"oee"`
 	}
 	q := h.db.Table("job_step_schedule_slots").
 		Select("job_step_schedule_slots.machine_id, COALESCE(machine_calendar.shift_name, '') as shift_name, DATE(job_step_schedule_slots.scheduled_start) as date, 100.0 as availability, 80.0 as performance, 95.0 as quality, 76.0 as oee").

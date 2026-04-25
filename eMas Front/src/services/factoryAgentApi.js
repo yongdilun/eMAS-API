@@ -85,6 +85,7 @@ export const factoryAgentApi = {
   getSnapshot: (sessionId, options) => request('GET', `/sessions/${sessionId}/snapshot`, undefined, options),
   getMessages: (sessionId, options) => request('GET', `/sessions/${sessionId}/messages`, undefined, options),
   getSteps: (sessionId, options) => request('GET', `/sessions/${sessionId}/steps`, undefined, options),
+  deleteSession: (sessionId, options) => request('DELETE', `/sessions/${sessionId}`, undefined, options),
 
   listTools: (params = {}, options) => {
     const q = new URLSearchParams()
@@ -94,8 +95,8 @@ export const factoryAgentApi = {
     return request('GET', `/tools${suffix}`, undefined, options)
   },
 
-  addMessage: (sessionId, { content, role = 'user' }, options) =>
-    request('POST', `/sessions/${sessionId}/messages`, { content, role }, options),
+  addMessage: (sessionId, { content, role = 'user', mode = 'normal' }, options) =>
+    request('POST', `/sessions/${sessionId}/messages`, { content, role, mode }, options),
 
   createPlan: (sessionId, draft, options) => {
     const body = draft ? { draft } : {}

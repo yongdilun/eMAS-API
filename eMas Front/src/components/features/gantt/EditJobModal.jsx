@@ -61,6 +61,7 @@ const EditJobModal = ({ isOpen, onClose, job, onSave }) => {
               <option value="high">High</option>
               <option value="medium">Medium</option>
               <option value="low">Low</option>
+              <option value="urgent">Urgent</option>
             </select>
           </div>
           <div>

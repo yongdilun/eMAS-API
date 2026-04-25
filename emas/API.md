@@ -28,7 +28,7 @@ Create a new job.
 |-------|------|----------|-------------|
 | `product_id` | `string` | Yes | Product identifier |
 | `quantity_total` | `integer` | Yes | Target quantity (> 0) |
-| `priority` | `string` | No | Priority level |
+| `priority` | `string` | No | Priority level (`low` \| `medium` \| `high` \| `urgent`) |
 | `deadline` | `string` | No | ISO 8601 / RFC3339 datetime |
 | `notes` | `string` | No | Notes |
 | `slots` | `array` | No | Initial slots (see `CreateSlotRequest`) |
@@ -59,7 +59,7 @@ Create a new job.
 | `product_id` | `string` |
 | `quantity_total` | `integer` |
 | `quantity_completed` | `integer` |
-| `priority` | `string` |
+| `priority` | `string` (`low` \| `medium` \| `high` \| `urgent`) |
 | `deadline` | `string` (RFC3339) |
 | `status` | `string` |
 | `created_at` | `string` (RFC3339) |
@@ -187,7 +187,8 @@ Update a job.
 
 ### DELETE /jobs/:id
 
-Cancel/delete a job.
+Delete a job.
+Also removes related job steps and clears all slot assignments for that job.
 
 **Path Parameters**
 
@@ -677,7 +678,19 @@ Create a product.
 
 ### GET /products
 
-List all products.
+List products with optional filters, sorting, pagination, and field selection.
+
+**Query Parameters** (all optional)
+
+| Name | Type | Notes |
+|------|------|-------|
+| `status` | `string` | Filter by product status |
+| `product_type` | `string` | Filter by product type |
+| `sort_by` | `string` | `product_id` \| `product_name` \| `created_at` |
+| `sort_dir` | `string` | `asc` \| `desc` |
+| `limit` | `integer` | Page size |
+| `offset` | `integer` | Offset |
+| `fields` | `string` | Use `product_id` for ID-only result view |
 
 **Response (200)** `data`: product array
 

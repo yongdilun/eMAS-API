@@ -48,6 +48,16 @@ type InventoryListFilter struct {
 	Offset   int
 }
 
+type ProductInventoryListFilter struct {
+	ProductID string
+	Status    string
+	SortBy    string // product_id, available_from, last_updated, quantity_on_hand
+	SortDir   string // asc, desc
+	Limit     int
+	Offset    int
+	Fields    string
+}
+
 func (r *InventoryRepository) ListMaterialsFiltered(f InventoryListFilter) ([]domain.InventoryMaterials, error) {
 	q := r.db.Model(&domain.InventoryMaterials{})
 
@@ -134,6 +144,52 @@ func (r *InventoryRepository) ListProductInventory() ([]domain.ProductInventory,
 	var list []domain.ProductInventory
 	err := r.db.Order("product_id").Find(&list).Error
 	return list, err
+}
+
+func (r *InventoryRepository) ListProductInventoryFiltered(f ProductInventoryListFilter) ([]domain.ProductInventory, error) {
+	q := r.db.Model(&domain.ProductInventory{})
+
+	if f.ProductID != "" {
+		q = q.Where("product_id = ?", f.ProductID)
+	}
+	if f.Status != "" {
+		q = q.Where("status = ?", f.Status)
+	}
+
+	base := BaseFilter{
+		SortBy:  f.SortBy,
+		SortDir: f.SortDir,
+		Limit:   f.Limit,
+		Offset:  f.Offset,
+		Fields:  f.Fields,
+	}
+	allowedSort := map[string]string{
+		"product_id":        "product_id",
+		"available_from":    "available_from",
+		"last_updated":      "last_updated",
+		"quantity_on_hand":  "quantity_on_hand",
+		"quantity_reserved": "quantity_reserved",
+		"status":            "status",
+	}
+	allowedFields := map[string]bool{
+		"inventory_id":      true,
+		"product_id":        true,
+		"quantity_on_hand":  true,
+		"quantity_reserved": true,
+		"status":            true,
+		"storage_location":  true,
+		"available_from":    true,
+		"last_updated":      true,
+	}
+	q = base.ApplySorting(q, "product_id ASC", allowedSort)
+	q = base.ApplyFields(q, allowedFields)
+	q = base.ApplyPagination(q)
+
+	var list []domain.ProductInventory
+	if err := q.Find(&list).Error; err != nil {
+		return nil, err
+	}
+	return list, nil
 }
 
 func (r *InventoryRepository) ListProductInventoryByProductID(productID string) ([]domain.ProductInventory, error) {

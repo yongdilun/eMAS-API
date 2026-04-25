@@ -70,6 +70,10 @@ func (s *ProductService) ListAll() ([]domain.Product, error) {
 	return s.productRepo.ListAll()
 }
 
+func (s *ProductService) ListFiltered(f repository.ProductListFilter) ([]domain.Product, error) {
+	return s.productRepo.ListFiltered(f)
+}
+
 func (s *ProductService) GetSchedulingDefinition(productID string) (*ProductSchedulingDefinition, error) {
 	product, err := s.productRepo.GetByID(productID)
 	if err != nil {

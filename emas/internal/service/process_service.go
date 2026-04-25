@@ -41,6 +41,10 @@ func (s *ProcessService) ListAll() ([]domain.ProductProcess, error) {
 	return s.processRepo.ListAll()
 }
 
+func (s *ProcessService) ListFiltered(f repository.ProcessListFilter) ([]domain.ProductProcess, error) {
+	return s.processRepo.ListFiltered(f)
+}
+
 func (s *ProcessService) ListSteps(processID string) ([]domain.ProcessSteps, error) {
 	return s.processRepo.ListStepsByProcessID(processID)
 }

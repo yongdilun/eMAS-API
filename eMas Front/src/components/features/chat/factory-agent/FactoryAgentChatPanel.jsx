@@ -33,8 +33,11 @@ function PlanSummaryCard({ plan }) {
             Version {plan.version}
           </div>
         </div>
-        <div className="text-[11px] text-gray-500 dark:text-gray-400">
-          {plan.created_by || 'backend'}
+        <div className="text-right text-[11px] text-gray-500 dark:text-gray-400">
+          <div>{plan.created_by || 'backend'}</div>
+          <div className="mt-1 uppercase tracking-wide">
+            {(plan.kind || 'execution')} · {(plan.status || 'draft')}
+          </div>
         </div>
       </div>
       <p className="mt-3 text-sm text-gray-800 dark:text-gray-100">
@@ -125,6 +128,7 @@ function EventBlock({
 
 const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
   const chatRef = useRef(null)
+  const shouldAutoScrollRef = useRef(true)
   const {
     session,
     plan,
@@ -141,27 +145,44 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
     error,
     pendingApproval,
     approvalReason,
+    messageMode,
     setApprovalReason,
+    setMessageMode,
     isDecidingApproval,
     isPollingSession,
     isPollingApprovals,
     lastSyncedAt,
     handleSend,
     handleCancel,
-    decideApproval,
-    startNewSession,
-    switchSession,
-    renameSession,
+	    decideApproval,
+	    startNewSession,
+	    switchSession,
+	    renameSession,
+	    deleteSession,
     retryFromCurrent,
   } = useFactoryAgentChat()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [editingSessionId, setEditingSessionId] = useState(null)
   const [editingName, setEditingName] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [isDeletingSession, setIsDeletingSession] = useState(false)
 
   useEffect(() => {
     if (!chatRef.current) return
+    if (!shouldAutoScrollRef.current) return
     chatRef.current.scrollTop = chatRef.current.scrollHeight
   }, [turns, messages, isSending, pendingApproval, session?.status])
+
+  const handleChatScroll = () => {
+    if (!chatRef.current) return
+    const el = chatRef.current
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    shouldAutoScrollRef.current = distanceToBottom < 120
+  }
+
+  useEffect(() => {
+    shouldAutoScrollRef.current = true
+  }, [session?.session_id])
 
   const inputDisabled = isSending || session?.status === FACTORY_AGENT_STATUS.PLANNING
   const canCancel = Boolean(session?.session_id) && [FACTORY_AGENT_STATUS.PLANNING, FACTORY_AGENT_STATUS.EXECUTING, FACTORY_AGENT_STATUS.WAITING_APPROVAL, FACTORY_AGENT_STATUS.BLOCKED].includes(session?.status)
@@ -173,6 +194,77 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
 
   return (
     <div className="flex h-full relative">
+      {deleteTarget ? (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Delete session confirmation"
+          onMouseDown={(e) => {
+            // click outside to close
+            if (e.target === e.currentTarget && !isDeletingSession) setDeleteTarget(null)
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl border border-gray-200/80 dark:border-gray-700/80 bg-white dark:bg-[#111618] shadow-2xl p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  Delete session?
+                </div>
+                <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                  This will permanently remove the chat history, plan steps, approvals, and debug timeline for:
+                </div>
+              </div>
+              <button
+                type="button"
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+                onClick={() => {
+                  if (!isDeletingSession) setDeleteTarget(null)
+                }}
+                aria-label="Close"
+              >
+                <span className="material-symbols-outlined text-lg">close</span>
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-xl bg-amber-50/80 dark:bg-amber-900/15 border border-amber-200/70 dark:border-amber-800/40 px-3 py-2">
+              <div className="text-xs font-semibold text-amber-900 dark:text-amber-200 truncate">
+                {deleteTarget.name || deleteTarget.session_id}
+              </div>
+              <div className="mt-0.5 text-[11px] text-amber-800/80 dark:text-amber-200/80">
+                Session ID: {deleteTarget.session_id}
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-60"
+                onClick={() => setDeleteTarget(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingSession}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+                onClick={async () => {
+                  setIsDeletingSession(true)
+                  try {
+                    const ok = await deleteSession(deleteTarget.session_id)
+                    if (ok) setDeleteTarget(null)
+                  } finally {
+                    setIsDeletingSession(false)
+                  }
+                }}
+              >
+                {isDeletingSession ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <aside
         className={`${sidebarCollapsed ? 'w-14' : 'w-72'} border-r border-gray-200/80 dark:border-gray-700/80 bg-white dark:bg-[#111618] transition-all duration-200 flex flex-col`}
       >
@@ -257,29 +349,50 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
                               {item.status || FACTORY_AGENT_STATUS.IDLE}
                             </div>
                           </div>
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              setEditingSessionId(item.session_id)
-                              setEditingName(item.name || '')
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                setEditingSessionId(item.session_id)
-                                setEditingName(item.name || '')
-                              }
-                            }}
-                            className="material-symbols-outlined text-base text-gray-500 dark:text-gray-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                          >
-                            edit
-                          </span>
-                        </div>
-                      )}
+	                          <span
+	                            role="button"
+	                            tabIndex={0}
+	                            onClick={(e) => {
+	                              e.preventDefault()
+	                              e.stopPropagation()
+	                              setEditingSessionId(item.session_id)
+	                              setEditingName(item.name || '')
+	                            }}
+	                            onKeyDown={(e) => {
+	                              if (e.key === 'Enter' || e.key === ' ') {
+	                                e.preventDefault()
+	                                e.stopPropagation()
+	                                setEditingSessionId(item.session_id)
+	                                setEditingName(item.name || '')
+	                              }
+	                            }}
+	                            className="material-symbols-outlined text-base text-gray-500 dark:text-gray-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+	                          >
+	                            edit
+	                          </span>
+	                          <span
+	                            role="button"
+	                            tabIndex={0}
+	                            onClick={(e) => {
+	                              e.preventDefault()
+	                              e.stopPropagation()
+	                              setDeleteTarget(item)
+	                            }}
+	                            onKeyDown={(e) => {
+	                              if (e.key === 'Enter' || e.key === ' ') {
+	                                e.preventDefault()
+	                                e.stopPropagation()
+	                                setDeleteTarget(item)
+	                              }
+	                            }}
+	                            className="material-symbols-outlined text-base text-gray-500 dark:text-gray-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+	                            aria-label="Delete session"
+	                            title="Delete session"
+	                          >
+	                            delete
+	                          </span>
+	                        </div>
+	                      )}
                     </button>
                   </div>
                 )
@@ -335,7 +448,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
           </div>
         )}
 
-        <div ref={chatRef} className="flex-1 overflow-y-auto px-4 py-4 bg-gray-50 dark:bg-gray-900/60">
+        <div ref={chatRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto px-4 py-4 bg-gray-50 dark:bg-gray-900/60">
           <SessionStatusBanner session={session} onRetry={retryFromCurrent} />
           <ExecutionTracker
             session={session}
@@ -343,6 +456,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
             isPollingSession={isPollingSession}
             isPollingApprovals={isPollingApprovals}
           />
+          <PlanSummaryCard plan={plan} />
           <DebugDetails session={session} plan={plan} steps={steps} pendingApproval={pendingApproval} />
 
           {loading && (turns?.length || 0) === 0 && messages.length === 0 ? (
@@ -387,7 +501,11 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
                   turn.approvals.some((a) => a?.event_type === 'approval_required' && a?.approval_id === pendingApproval.approval_id)
 
                 const passiveApprovals = Array.isArray(turn.approvals)
-                  ? turn.approvals.filter((a) => !(a?.event_type === 'approval_required' && pendingApproval?.approval_id === a?.approval_id))
+                  ? turn.approvals.filter((a) => {
+                    if (a?.event_type === 'approval_required' && pendingApproval?.approval_id === a?.approval_id) return false
+                    if (a?.event_type === 'approval_decided' && String(a?.status || '').toUpperCase() === 'APPROVED') return false
+                    return true
+                  })
                   : []
 
                 const userTs = turn.user?.created_at
@@ -443,14 +561,21 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
           )}
 
           {isSending && (
-            <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 py-3">
-              <span className="flex gap-1">
-                <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
-                <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
-                <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
-              </span>
-              <span className="text-sm">Working...</span>
-            </div>
+            <ChatMessage
+              message=""
+              isUser={false}
+              timestamp={new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              renderBlocks={() => (
+                <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+                  <span className="flex gap-1">
+                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </span>
+                  <span className="text-sm">Working...</span>
+                </div>
+              )}
+            />
           )}
         </div>
 
@@ -461,6 +586,16 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
             handleSend()
           }}
         >
+          <select
+            value={messageMode}
+            onChange={(e) => setMessageMode(e.target.value)}
+            disabled={inputDisabled}
+            className="h-11 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50 px-3 text-xs text-gray-900 dark:text-white"
+            aria-label="Message mode"
+          >
+            <option value="normal">Normal</option>
+            <option value="plan">Plan</option>
+          </select>
           <textarea
             rows={1}
             value={input}

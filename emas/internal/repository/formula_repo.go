@@ -29,7 +29,41 @@ func (r *FormulaRepository) GetByID(id string) (*domain.Formula, error) {
 
 func (r *FormulaRepository) ListAll() ([]domain.Formula, error) {
 	var list []domain.Formula
-	err := r.db.Find(&list).Error
+	err := r.db.Order("formula_id ASC").Find(&list).Error
+	return list, err
+}
+
+type FormulaListFilter struct {
+	BaseFilter
+	NameLike string
+}
+
+func (r *FormulaRepository) ListFiltered(f FormulaListFilter) ([]domain.Formula, error) {
+	db := r.db.Model(&domain.Formula{})
+
+	if f.NameLike != "" {
+		db = db.Where("formula_name LIKE ?", "%"+f.NameLike+"%")
+	}
+
+	allowedSort := map[string]string{
+		"formula_id":   "formula_id",
+		"formula_name": "formula_name",
+		"created_at":   "created_at",
+	}
+	db = f.ApplySorting(db, "formula_id ASC", allowedSort)
+
+	allowedFields := map[string]bool{
+		"formula_id":   true,
+		"formula_name": true,
+		"description":  true,
+		"created_at":   true,
+		"updated_at":   true,
+	}
+	db = f.ApplyFields(db, allowedFields)
+	db = f.ApplyPagination(db)
+
+	var list []domain.Formula
+	err := db.Find(&list).Error
 	return list, err
 }
 
@@ -72,16 +106,16 @@ func (r *FormulaRepository) ListIngredientsByFormulaID(formulaID string) ([]doma
 
 // IngredientWithNames - ingredient with resolved material/product names for API response
 type IngredientWithNames struct {
-	IngredientID    string   `json:"ingredient_id"`
-	FormulaID       string   `json:"formula_id"`
-	ComponentType   string   `json:"component_type"`
-	MaterialID      *string  `json:"material_id"`
-	MaterialName    *string  `json:"material_name"`
-	ProductID       *string  `json:"product_id"`
-	ProductName     *string  `json:"product_name"`
-	QuantityPerUnit float64  `json:"quantity_per_unit"`
-	Unit            string   `json:"unit"`
-	ScrapRate       float64  `json:"scrap_rate"`
+	IngredientID    string  `json:"ingredient_id"`
+	FormulaID       string  `json:"formula_id"`
+	ComponentType   string  `json:"component_type"`
+	MaterialID      *string `json:"material_id"`
+	MaterialName    *string `json:"material_name"`
+	ProductID       *string `json:"product_id"`
+	ProductName     *string `json:"product_name"`
+	QuantityPerUnit float64 `json:"quantity_per_unit"`
+	Unit            string  `json:"unit"`
+	ScrapRate       float64 `json:"scrap_rate"`
 }
 
 func (r *FormulaRepository) ListIngredientsWithNames(formulaID string) ([]IngredientWithNames, error) {

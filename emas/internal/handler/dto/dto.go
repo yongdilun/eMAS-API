@@ -13,7 +13,7 @@ type Response struct {
 type CreateJobRequest struct {
 	ProductID     string              `json:"product_id" binding:"required"`
 	QuantityTotal int                 `json:"quantity_total" binding:"required,gt=0"`
-	Priority      string              `json:"priority"`
+	Priority      string              `json:"priority" binding:"omitempty,oneof=low medium high urgent" enums:"low,medium,high,urgent"`
 	Deadline      string              `json:"deadline"` // RFC3339
 	Notes         string              `json:"notes"`
 	Slots         []CreateSlotRequest `json:"slots"` // optional split slots
@@ -38,7 +38,7 @@ type CreateSlotRequest struct {
 
 type UpdateJobRequest struct {
 	QuantityTotal *int       `json:"quantity_total"`
-	Priority      *string    `json:"priority"`
+	Priority      *string    `json:"priority" binding:"omitempty,oneof=low medium high urgent" enums:"low,medium,high,urgent"`
 	Deadline      *time.Time `json:"deadline"`
 	Status        *string    `json:"status"`
 	Notes         *string    `json:"notes"`
@@ -189,6 +189,10 @@ type CreateProductRequest struct {
 	ProductType   string `json:"product_type"`
 	FormulaID     string `json:"formula_id"`
 	ProcessID     string `json:"process_id"`
+}
+
+type ProductIDOnly struct {
+	ProductID string `json:"product_id"`
 }
 
 type LinkProductRequest struct {

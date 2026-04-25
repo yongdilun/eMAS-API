@@ -14,97 +14,97 @@ import (
 )
 
 func (s *AIPredictiveService) allocateProposalReservations(tx *gorm.DB, actions []InventoryAction, childBackedPlanKeys map[string]struct{}) error {
-    if len(actions) == 0 {
-        return nil
-    }
+	if len(actions) == 0 {
+		return nil
+	}
 
-    // 1. Create transactional versions of the repos/services
-    txInventory := repository.NewInventoryRepository(tx)
-    
-    // This is the key: Create a transactional wrapper so it sees uncommitted batch writes
-    txScheduling := s.scheduling.WithTransaction(tx) 
+	// 1. Create transactional versions of the repos/services
+	txInventory := repository.NewInventoryRepository(tx)
 
-    // Create an empty ledger solely to satisfy the signature of materialAvailabilityForPlanning.
-    emptyLedger := newTentativeInventoryLedger()
+	// This is the key: Create a transactional wrapper so it sees uncommitted batch writes
+	txScheduling := s.scheduling.WithTransaction(tx)
 
-    actions = append([]InventoryAction(nil), actions...)
-    sort.Slice(actions, func(i, j int) bool {
-        if actions[i].Sequence == actions[j].Sequence {
-            return actions[i].ActionType < actions[j].ActionType
-        }
-        return actions[i].Sequence < actions[j].Sequence
-    })
+	// Create an empty ledger solely to satisfy the signature of materialAvailabilityForPlanning.
+	emptyLedger := newTentativeInventoryLedger()
 
-    for _, action := range actions {
-        switch action.ActionType {
-        case inventoryActionProduceProduct:
-            // Write to TX repo (uncommitted row)
-            if err := txInventory.CreateProductInventory(&domain.ProductInventory{
-                InventoryID:      id.NewPrefixed("PINV-SCHED-"),
-                ProductID:        action.ResourceID,
-                QuantityOnHand:   action.Quantity,
-                QuantityReserved: 0,
-                Status:           domain.ProductInventoryStatusPlanned,
-                StorageLocation:  "scheduled:" + action.JobStepID,
-                AvailableFrom:    alignSuccessorStart(action.EffectiveAt.UTC()),
-                LastUpdated:      time.Now().UTC(),
-            }); err != nil {
-                return err
-            }
+	actions = append([]InventoryAction(nil), actions...)
+	sort.Slice(actions, func(i, j int) bool {
+		if actions[i].Sequence == actions[j].Sequence {
+			return actions[i].ActionType < actions[j].ActionType
+		}
+		return actions[i].Sequence < actions[j].Sequence
+	})
 
-        case inventoryActionReserveMaterial:
-            // Use txInventory so we see reservations made by earlier jobs in this ApplyAll batch!
-            availability, err := s.materialAvailabilityForPlanning(txInventory, action.ResourceID, action.Quantity, action.EffectiveAt, emptyLedger)
-            if err != nil {
-                return err
-            }
-            
-            if !availability.EnoughNow {
-                return newSchedulingActionError(422, "reason_code=material_shortage material reservation cannot be allocated for "+action.ResourceID+" (short_qty="+fmt.Sprintf("%.2f", availability.ShortageQty)+")")
-            }
-            
-            if err := txInventory.CreateReservation(&domain.InventoryReservation{
-                ReservationID: id.NewPrefixed("IRES-"),
-                MaterialID:    action.ResourceID,
-                JobID:         action.JobID,
-                JobStepID:     action.JobStepID,
-                ReservedQty:   action.Quantity,
-                NeededAt:      alignSuccessorStart(action.EffectiveAt.UTC()),
-                Status:        domain.InventoryReservationStatusPending,
-                CreatedAt:     time.Now().UTC(),
-                UpdatedAt:     time.Now().UTC(),
-            }); err != nil {
-                return err
-            }
+	for _, action := range actions {
+		switch action.ActionType {
+		case inventoryActionProduceProduct:
+			// Write to TX repo (uncommitted row)
+			if err := txInventory.CreateProductInventory(&domain.ProductInventory{
+				InventoryID:      id.NewPrefixed("PINV-SCHED-"),
+				ProductID:        action.ResourceID,
+				QuantityOnHand:   action.Quantity,
+				QuantityReserved: 0,
+				Status:           domain.ProductInventoryStatusPlanned,
+				StorageLocation:  "scheduled:" + action.JobStepID,
+				AvailableFrom:    alignSuccessorStart(action.EffectiveAt.UTC()),
+				LastUpdated:      time.Now().UTC(),
+			}); err != nil {
+				return err
+			}
 
-        case inventoryActionReserveProduct:
-            // 2. FIX: Bypass the isolated local ledger and call productInventoryAvailability
-            // on the transactional service so it can read the PINV-SCHED- production above.
-            snapshot, err := txScheduling.productInventoryAvailability(action.ResourceID, action.Quantity, action.EffectiveAt, 0)
-            if err != nil {
-                return err
-            }
+		case inventoryActionReserveMaterial:
+			// Use txInventory so we see reservations made by earlier jobs in this ApplyAll batch!
+			availability, err := s.materialAvailabilityForPlanning(txInventory, action.ResourceID, action.Quantity, action.EffectiveAt, emptyLedger)
+			if err != nil {
+				return err
+			}
 
-            if snapshot.AvailableNow < action.Quantity && snapshot.ReadyAt == nil && !reservationBackedByDependentChild(action, childBackedPlanKeys) {
-                return newSchedulingActionError(422, "reason_code="+reasonCodeSubproductShortage+" product reservation cannot be allocated for "+action.ResourceID)
-            }
+			if !availability.EnoughNow {
+				return newSchedulingActionError(422, "reason_code=material_shortage material reservation cannot be allocated for "+action.ResourceID+" (short_qty="+fmt.Sprintf("%.2f", availability.ShortageQty)+")")
+			}
 
-            if err := txInventory.CreateProductReservation(&domain.ProductInventoryReservation{
-                ReservationID: id.NewPrefixed("PRES-"),
-                ProductID:     action.ResourceID,
-                JobID:         action.JobID,
-                JobStepID:     action.JobStepID,
-                ReservedQty:   action.Quantity,
-                NeededAt:      alignSuccessorStart(action.EffectiveAt.UTC()),
-                Status:        domain.InventoryReservationStatusPending,
-                CreatedAt:     time.Now().UTC(),
-                UpdatedAt:     time.Now().UTC(),
-            }); err != nil {
-                return err
-            }
-        }
-    }
-    return nil
+			if err := txInventory.CreateReservation(&domain.InventoryReservation{
+				ReservationID: id.NewPrefixed("IRES-"),
+				MaterialID:    action.ResourceID,
+				JobID:         action.JobID,
+				JobStepID:     action.JobStepID,
+				ReservedQty:   action.Quantity,
+				NeededAt:      alignSuccessorStart(action.EffectiveAt.UTC()),
+				Status:        domain.InventoryReservationStatusPending,
+				CreatedAt:     time.Now().UTC(),
+				UpdatedAt:     time.Now().UTC(),
+			}); err != nil {
+				return err
+			}
+
+		case inventoryActionReserveProduct:
+			// 2. FIX: Bypass the isolated local ledger and call productInventoryAvailability
+			// on the transactional service so it can read the PINV-SCHED- production above.
+			snapshot, err := txScheduling.productInventoryAvailability(action.ResourceID, action.Quantity, action.EffectiveAt, 0)
+			if err != nil {
+				return err
+			}
+
+			if snapshot.AvailableNow < action.Quantity && snapshot.ReadyAt == nil && !reservationBackedByDependentChild(action, childBackedPlanKeys) {
+				return newSchedulingActionError(422, "reason_code="+reasonCodeSubproductShortage+" product reservation cannot be allocated for "+action.ResourceID)
+			}
+
+			if err := txInventory.CreateProductReservation(&domain.ProductInventoryReservation{
+				ReservationID: id.NewPrefixed("PRES-"),
+				ProductID:     action.ResourceID,
+				JobID:         action.JobID,
+				JobStepID:     action.JobStepID,
+				ReservedQty:   action.Quantity,
+				NeededAt:      alignSuccessorStart(action.EffectiveAt.UTC()),
+				Status:        domain.InventoryReservationStatusPending,
+				CreatedAt:     time.Now().UTC(),
+				UpdatedAt:     time.Now().UTC(),
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func reservationBackedByDependentChild(action InventoryAction, childBackedPlanKeys map[string]struct{}) bool {
@@ -287,12 +287,12 @@ func (s *AIPredictiveService) applyDependentSlots(slotService *JobSlotService, c
 			if !validation.Valid && len(validation.Reasons) > 0 {
 				reasonLower := strings.ToLower(validation.Reasons[0])
 				if strings.Contains(reasonLower, "overlapping") || strings.Contains(reasonLower, "outside") || strings.Contains(reasonLower, "calendar") || strings.Contains(reasonLower, "previous process step completes") {
-				// Scan at most 14 days (672 half-hour slots) to find a valid window.
-				// The original 4096-step cap caused 26-second timeouts when no slot
-				// existed within the full horizon.
-				scanStart := alignSuccessorStart(start.Add(30 * time.Minute))
-				scanCap := alignSuccessorStart(time.Now().UTC().Add(14 * 24 * time.Hour))
-				for scanSteps := 0; scanSteps < 672 && !scanStart.After(scanCap); scanSteps++ {
+					// Scan at most 14 days (672 half-hour slots) to find a valid window.
+					// The original 4096-step cap caused 26-second timeouts when no slot
+					// existed within the full horizon.
+					scanStart := alignSuccessorStart(start.Add(30 * time.Minute))
+					scanCap := alignSuccessorStart(time.Now().UTC().Add(14 * 24 * time.Hour))
+					for scanSteps := 0; scanSteps < 672 && !scanStart.After(scanCap); scanSteps++ {
 						scanEnd := scanStart.Add(time.Duration(rs.DurationMins) * time.Minute)
 						scanCheck, scanErr := slotService.scheduling.ValidateSlotWithOptions(jobStepID, rs.MachineID, scanStart, scanEnd, rs.Quantity, "", SlotValidationOptions{IgnoreMinSplitQty: ignoreMinSplitQty})
 						if scanErr == nil && scanCheck.Valid {
@@ -302,14 +302,14 @@ func (s *AIPredictiveService) applyDependentSlots(slotService *JobSlotService, c
 							validation = scanCheck
 							break
 						}
-					scanStart = alignSuccessorStart(scanStart.Add(30 * time.Minute))
+						scanStart = alignSuccessorStart(scanStart.Add(30 * time.Minute))
+					}
 				}
 			}
-		}
-		if !validation.Valid {
-		// Wrap as SchedulingActionError(422) so the HTTP handler maps it to 422, not 500.
-		return newSchedulingActionError(422, "reason_code=resource_calendar_blocked slot unavailable for dependent job "+dep.ProductID+": "+strings.Join(validation.Reasons, "; "))
-		}
+			if !validation.Valid {
+				// Wrap as SchedulingActionError(422) so the HTTP handler maps it to 422, not 500.
+				return newSchedulingActionError(422, "reason_code=resource_calendar_blocked slot unavailable for dependent job "+dep.ProductID+": "+strings.Join(validation.Reasons, "; "))
+			}
 			prev := end
 			previousEnd = &prev
 		}

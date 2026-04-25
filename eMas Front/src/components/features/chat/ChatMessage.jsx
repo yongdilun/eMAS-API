@@ -7,8 +7,10 @@ const ChatMessage = ({
   timestamp,
   renderBlocks,
   messageAfterBlocks = false,
+  animateIn = true,
 }) => {
   const hasMessage = message != null && String(message).trim() !== ''
+  const bubbleAnim = (!isUser && animateIn) ? 'emas-chat-enter' : ''
   return (
     <div className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
       <div
@@ -39,7 +41,7 @@ const ChatMessage = ({
           )}
         </div>
         <div
-          className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${
+          className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm ${bubbleAnim} ${
             isUser
               ? 'bg-primary text-white rounded-br-sm'
               : 'bg-white dark:bg-gray-800/90 text-gray-900 dark:text-gray-100 rounded-bl-sm border border-gray-200/80 dark:border-gray-700/80'

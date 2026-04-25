@@ -158,6 +158,10 @@ func (s *InventoryService) ListProductInventory() ([]domain.ProductInventory, er
 	return s.invRepo.ListProductInventory()
 }
 
+func (s *InventoryService) ListProductInventoryFiltered(f repository.ProductInventoryListFilter) ([]domain.ProductInventory, error) {
+	return s.invRepo.ListProductInventoryFiltered(f)
+}
+
 func (s *InventoryService) CreateReservation(req dto.CreateInventoryReservationRequest) (*domain.InventoryReservation, error) {
 	if _, err := s.invRepo.GetMaterialByID(req.MaterialID); err != nil {
 		return nil, err

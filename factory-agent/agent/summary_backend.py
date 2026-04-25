@@ -39,7 +39,9 @@ class SummaryAdapter:
         return ChatOpenAI(**kwargs)
 
     async def summarize_plan(self, *, intent: str, draft: PlanDraft) -> SummaryResult:
-        backend = (self._settings.summary_backend or "legacy").strip().lower()
+        backend = (self._settings.summary_backend or "auto").strip().lower()
+        if backend == "auto":
+            backend = "langchain" if (self._settings.openai_base_url or self._settings.openai_api_key) else "legacy"
         if backend == "langchain":
             return await self._summarize_langchain(intent=intent, draft=draft)
         return self._summarize_legacy(intent=intent, draft=draft)
@@ -81,7 +83,10 @@ class SummaryAdapter:
                 "step_count": len(draft.steps),
             },
         )
-        resp = await model.ainvoke(prompt)
+        try:
+            resp = await model.ainvoke(prompt)
+        except Exception as e:
+            raise SummaryBackendError(f"Summary backend call failed: {e}") from e
         content = (getattr(resp, "content", "") or "").strip()
         if not content:
             raise SummaryBackendError("Summary backend returned empty content.")

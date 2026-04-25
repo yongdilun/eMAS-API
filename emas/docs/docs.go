@@ -1565,6 +1565,50 @@ const docTemplate = `{
                     "dashboard"
                 ],
                 "summary": "Get alerts",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by status (active)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by alert type (maintenance, inventory, downtime)",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Field to sort by (time, type, title)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort direction (asc, desc)",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated fields to return (type,title,time,machine_id)",
+                        "name": "fields",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -1651,7 +1695,7 @@ const docTemplate = `{
         },
         "/formula": {
             "get": {
-                "description": "List all formulas",
+                "description": "List formulas with optional filters, sorting, and pagination",
                 "consumes": [
                     "application/json"
                 ],
@@ -1662,6 +1706,44 @@ const docTemplate = `{
                     "formula"
                 ],
                 "summary": "List all formulas",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search by formula name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Field to sort by (formula_id, formula_name, created_at)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort direction (asc, desc)",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated fields to return",
+                        "name": "fields",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2328,6 +2410,50 @@ const docTemplate = `{
                     "inventory"
                 ],
                 "summary": "List product inventory",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by product ID",
+                        "name": "product_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Field to sort by (product_id, available_from, last_updated, quantity_on_hand, quantity_reserved, status)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort direction (asc, desc)",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated fields to return",
+                        "name": "fields",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2720,6 +2846,110 @@ const docTemplate = `{
             }
         },
         "/jobs": {
+            "get": {
+                "description": "List jobs with filters",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "job"
+                ],
+                "summary": "List jobs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by product",
+                        "name": "product_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by priority (low|medium|high|urgent)",
+                        "name": "priority",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by machine",
+                        "name": "machine_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 start",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 end",
+                        "name": "end",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "created_at|deadline|priority|quantity_total|completion",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asc|desc",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dto.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/domain.Job"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    }
+                }
+            },
             "post": {
                 "description": "Create a job",
                 "consumes": [
@@ -2831,6 +3061,111 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "put": {
+                "description": "Update mutable job fields",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "job"
+                ],
+                "summary": "Update a job",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update Job Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.UpdateJobRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dto.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/domain.Job"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete a job and clear all slot assignments tied to this job",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "job"
+                ],
+                "summary": "Delete a job",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Job ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    }
+                }
             }
         },
         "/jobs/{id}/slots": {
@@ -2894,7 +3229,7 @@ const docTemplate = `{
         },
         "/machines": {
             "get": {
-                "description": "Retrieve a list of all machines",
+                "description": "Retrieve a list of machines with optional filters, sorting, and pagination",
                 "consumes": [
                     "application/json"
                 ],
@@ -2905,6 +3240,56 @@ const docTemplate = `{
                     "machines"
                 ],
                 "summary": "List all machines",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by machine type",
+                        "name": "machine_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by location",
+                        "name": "location",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Field to sort by (machine_id, machine_name, status, created_at)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort direction (asc, desc)",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated fields to return",
+                        "name": "fields",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -3814,7 +4199,7 @@ const docTemplate = `{
         },
         "/processes": {
             "get": {
-                "description": "List processes",
+                "description": "List processes with optional filters, sorting, and pagination",
                 "consumes": [
                     "application/json"
                 ],
@@ -3825,6 +4210,44 @@ const docTemplate = `{
                     "process"
                 ],
                 "summary": "List processes",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by product ID",
+                        "name": "product_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Field to sort by (process_id, product_id, sequence, version, created_at)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort direction (asc, desc)",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated fields to return",
+                        "name": "fields",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -4252,6 +4675,315 @@ const docTemplate = `{
                 }
             }
         },
+        "/products": {
+            "get": {
+                "description": "List products with optional filters, sorting, and field selection",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "products"
+                ],
+                "summary": "List all products",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by product type",
+                        "name": "product_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "product_id|product_name|created_at",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "asc|desc",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated fields; use product_id for ID-only view",
+                        "name": "fields",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dto.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/domain.Product"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Create a new product with the provided details",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "products"
+                ],
+                "summary": "Create a new product",
+                "parameters": [
+                    {
+                        "description": "Product data",
+                        "name": "product",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.CreateProductRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dto.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/domain.Product"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/products/{id}": {
+            "get": {
+                "description": "Get a product by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "products"
+                ],
+                "summary": "Get a product by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dto.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/domain.Product"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/products/{id}/bom": {
+            "put": {
+                "description": "Link a BOM to a product",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "products"
+                ],
+                "summary": "Link a BOM to a product",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Link Product Request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.LinkProductRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/products/{id}/scheduling-definition": {
+            "get": {
+                "description": "Get a scheduling definition by product ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "products"
+                ],
+                "summary": "Get a scheduling definition by product ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Product ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/dto.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/service.ProductSchedulingDefinition"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/dto.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/quality/inspections": {
             "post": {
                 "description": "Record an inspection",
@@ -4323,6 +5055,44 @@ const docTemplate = `{
                     "reference"
                 ],
                 "summary": "List locations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search by zone or bay",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field (id, zone, bay)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort direction (asc, desc)",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated fields to return",
+                        "name": "fields",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -4473,6 +5243,44 @@ const docTemplate = `{
                     "reference"
                 ],
                 "summary": "List machine types",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search by name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field (id, name)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort direction (asc, desc)",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated fields to return",
+                        "name": "fields",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -4686,6 +5494,44 @@ const docTemplate = `{
                     "reference"
                 ],
                 "summary": "List product types",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search by name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field (id, name)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort direction (asc, desc)",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated fields to return",
+                        "name": "fields",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -4938,6 +5784,50 @@ const docTemplate = `{
                     "reference"
                 ],
                 "summary": "List storage locations",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search by name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by type",
+                        "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort field (id, name, type)",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort direction (asc, desc)",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comma-separated fields to return",
+                        "name": "fields",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -6807,6 +7697,73 @@ const docTemplate = `{
                 }
             }
         },
+        "domain.Product": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "formulaID": {
+                    "description": "linked formula for BOM/recipe",
+                    "type": "string"
+                },
+                "processID": {
+                    "description": "active routing for scheduling",
+                    "type": "string"
+                },
+                "productID": {
+                    "type": "string"
+                },
+                "productName": {
+                    "type": "string"
+                },
+                "productType": {
+                    "type": "string"
+                },
+                "status": {
+                    "description": "active, obsolete",
+                    "type": "string"
+                },
+                "unitOfMeasure": {
+                    "description": "pcs / kg / liter",
+                    "type": "string"
+                }
+            }
+        },
+        "domain.ProductBOM": {
+            "type": "object",
+            "properties": {
+                "bomid": {
+                    "type": "string"
+                },
+                "componentType": {
+                    "type": "string"
+                },
+                "materialID": {
+                    "type": "string"
+                },
+                "productComponentID": {
+                    "description": "sub-product",
+                    "type": "string"
+                },
+                "productID": {
+                    "type": "string"
+                },
+                "quantityRequired": {
+                    "description": "qty per 1 unit of parent",
+                    "type": "number"
+                },
+                "scrapRate": {
+                    "type": "number"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
         "domain.ProductInventory": {
             "type": "object",
             "properties": {
@@ -7031,6 +7988,10 @@ const docTemplate = `{
                 "ambiguous": {
                     "type": "boolean"
                 },
+                "approval_request": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
                 "bdi_result": {
                     "$ref": "#/definitions/dto.BDIResult"
                 },
@@ -7042,6 +8003,10 @@ const docTemplate = `{
                 },
                 "confidence": {
                     "type": "number"
+                },
+                "debug_payload": {
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "entities": {
                     "type": "object",
@@ -7062,17 +8027,27 @@ const docTemplate = `{
                 "execution_mode": {
                     "type": "string"
                 },
+                "form_request": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
                 "guidance": {
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
+                "human_message": {
+                    "type": "string"
+                },
                 "insights": {},
                 "intent": {
                     "type": "string"
                 },
                 "message": {
+                    "type": "string"
+                },
+                "message_kind": {
                     "type": "string"
                 },
                 "pending_approvals": {
@@ -7093,10 +8068,23 @@ const docTemplate = `{
                         "$ref": "#/definitions/dto.AISourceRef"
                     }
                 },
+                "status_label": {
+                    "type": "string"
+                },
                 "suggested_calls": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/dto.AISuggestedCall"
+                    }
+                },
+                "turn_id": {
+                    "type": "string"
+                },
+                "ui_blocks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": true
                     }
                 }
             }
@@ -7362,6 +8350,33 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.BOMItem": {
+            "type": "object",
+            "properties": {
+                "material_id": {
+                    "description": "required if product_id not set",
+                    "type": "string"
+                },
+                "product_id": {
+                    "description": "sub-product, required if material_id not set",
+                    "type": "string"
+                },
+                "quantity_per_unit": {
+                    "description": "required; qty per 1 unit of parent",
+                    "type": "number"
+                },
+                "quantity_required": {
+                    "description": "backward compat",
+                    "type": "number"
+                },
+                "scrap_rate": {
+                    "type": "number"
+                },
+                "unit": {
+                    "type": "string"
+                }
+            }
+        },
         "dto.BatchProposalsRequest": {
             "type": "object",
             "properties": {
@@ -7469,7 +8484,13 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "priority": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "low",
+                        "medium",
+                        "high",
+                        "urgent"
+                    ]
                 },
                 "product_id": {
                     "type": "string"
@@ -7698,6 +8719,36 @@ const docTemplate = `{
                 }
             }
         },
+        "dto.CreateProductRequest": {
+            "type": "object",
+            "required": [
+                "product_id",
+                "product_name"
+            ],
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "formula_id": {
+                    "type": "string"
+                },
+                "process_id": {
+                    "type": "string"
+                },
+                "product_id": {
+                    "type": "string"
+                },
+                "product_name": {
+                    "type": "string"
+                },
+                "product_type": {
+                    "type": "string"
+                },
+                "unit_of_measure": {
+                    "type": "string"
+                }
+            }
+        },
         "dto.CreateProductTypeRequest": {
             "type": "object",
             "required": [
@@ -7806,6 +8857,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "version": {
+                    "type": "string"
+                }
+            }
+        },
+        "dto.LinkProductRequest": {
+            "type": "object",
+            "properties": {
+                "bom_items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.BOMItem"
+                    }
+                },
+                "formula_id": {
+                    "type": "string"
+                },
+                "process_id": {
                     "type": "string"
                 }
             }
@@ -8034,6 +9102,32 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/dto.CreateSlotRequest"
                     }
+                }
+            }
+        },
+        "dto.UpdateJobRequest": {
+            "type": "object",
+            "properties": {
+                "deadline": {
+                    "type": "string"
+                },
+                "notes": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": [
+                        "low",
+                        "medium",
+                        "high",
+                        "urgent"
+                    ]
+                },
+                "quantity_total": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
                 }
             }
         },
@@ -8443,6 +9537,41 @@ const docTemplate = `{
                 },
                 "risk_score": {
                     "type": "number"
+                }
+            }
+        },
+        "service.ProductSchedulingDefinition": {
+            "type": "object",
+            "properties": {
+                "bom_items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/domain.ProductBOM"
+                    }
+                },
+                "composition_source": {
+                    "type": "string"
+                },
+                "formula": {
+                    "$ref": "#/definitions/domain.Formula"
+                },
+                "ingredients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/repository.IngredientWithNames"
+                    }
+                },
+                "process": {
+                    "$ref": "#/definitions/domain.ProductProcess"
+                },
+                "product": {
+                    "$ref": "#/definitions/domain.Product"
+                },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/domain.ProcessSteps"
+                    }
                 }
             }
         }

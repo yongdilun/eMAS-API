@@ -17,4 +17,21 @@ body {
   font-family: 'Inter', 'Roboto', sans-serif;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .emas-chat-enter {
+    animation: emasChatEnter 180ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  }
+
+  @keyframes emasChatEnter {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.995);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+}
+
 

@@ -3,6 +3,7 @@ package handler
 import (
 	"emas/internal/domain"
 	"emas/internal/handler/dto"
+	"emas/internal/repository"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,18 +21,80 @@ func NewReferenceHandler(db *gorm.DB) *ReferenceHandler {
 	return &ReferenceHandler{db: db}
 }
 
+type referenceListQuery struct {
+	Q       string
+	SortBy  string
+	SortDir string
+	Limit   int
+	Offset  int
+	Fields  string
+}
+
+func parseReferenceListQuery(c *gin.Context, defaultSort string) referenceListQuery {
+	q := referenceListQuery{
+		Q:       strings.TrimSpace(c.Query("q")),
+		SortBy:  strings.TrimSpace(c.DefaultQuery("sort_by", defaultSort)),
+		SortDir: strings.TrimSpace(c.DefaultQuery("sort_dir", "asc")),
+		Fields:  strings.TrimSpace(c.Query("fields")),
+	}
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			q.Limit = n
+		}
+	}
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			q.Offset = n
+		}
+	}
+	return q
+}
+
+func applyReferenceListQuery(db *gorm.DB, q referenceListQuery, defaultSort string, allowedSort map[string]string, allowedFields map[string]bool) *gorm.DB {
+	base := repository.BaseFilter{
+		SortBy:  q.SortBy,
+		SortDir: q.SortDir,
+		Limit:   q.Limit,
+		Offset:  q.Offset,
+		Fields:  q.Fields,
+	}
+	db = base.ApplySorting(db, defaultSort, allowedSort)
+	db = base.ApplyFields(db, allowedFields)
+	db = base.ApplyPagination(db)
+	return db
+}
+
 // @Summary List machine types
 // @Description List machine types
 // @Tags reference
 // @Accept json
 // @Produce json
+// @Param q query string false "Search by name"
+// @Param sort_by query string false "Sort field (id, name)"
+// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param limit query int false "Limit number of results"
+// @Param offset query int false "Offset for pagination"
+// @Param fields query string false "Comma-separated fields to return"
 // @Success 200 {object} dto.Response{data=[]domain.ReferenceMachineType}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /reference/machine-types [get]
 func (h *ReferenceHandler) ListMachineTypes(c *gin.Context) {
+	q := parseReferenceListQuery(c, "name")
 	var items []domain.ReferenceMachineType
-	if err := h.db.Order("name ASC").Find(&items).Error; err != nil {
+	db := h.db.Model(&domain.ReferenceMachineType{})
+	if q.Q != "" {
+		db = db.Where("LOWER(name) LIKE ?", "%"+strings.ToLower(q.Q)+"%")
+	}
+	db = applyReferenceListQuery(db, q, "name ASC", map[string]string{
+		"id":   "id",
+		"name": "name",
+	}, map[string]bool{
+		"id":          true,
+		"name":        true,
+		"description": true,
+	})
+	if err := db.Find(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
 		return
 	}
@@ -172,13 +235,31 @@ func (h *ReferenceHandler) DeleteMachineType(c *gin.Context) {
 // @Tags reference
 // @Accept json
 // @Produce json
+// @Param q query string false "Search by name"
+// @Param sort_by query string false "Sort field (id, name)"
+// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param limit query int false "Limit number of results"
+// @Param offset query int false "Offset for pagination"
+// @Param fields query string false "Comma-separated fields to return"
 // @Success 200 {object} dto.Response{data=[]domain.ReferenceProductType}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /reference/product-types [get]
 func (h *ReferenceHandler) ListProductTypes(c *gin.Context) {
+	q := parseReferenceListQuery(c, "name")
 	var items []domain.ReferenceProductType
-	if err := h.db.Order("name ASC").Find(&items).Error; err != nil {
+	db := h.db.Model(&domain.ReferenceProductType{})
+	if q.Q != "" {
+		db = db.Where("LOWER(name) LIKE ?", "%"+strings.ToLower(q.Q)+"%")
+	}
+	db = applyReferenceListQuery(db, q, "name ASC", map[string]string{
+		"id":   "id",
+		"name": "name",
+	}, map[string]bool{
+		"id":   true,
+		"name": true,
+	})
+	if err := db.Find(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
 		return
 	}
@@ -266,21 +347,42 @@ func displayForLocation(zone string, bay *string) string {
 // @Tags reference
 // @Accept json
 // @Produce json
+// @Param q query string false "Search by zone or bay"
+// @Param sort_by query string false "Sort field (id, zone, bay)"
+// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param limit query int false "Limit number of results"
+// @Param offset query int false "Offset for pagination"
+// @Param fields query string false "Comma-separated fields to return"
 // @Success 200 {object} dto.Response{data=[]domain.ReferenceLocation}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /reference/locations [get]
 func (h *ReferenceHandler) ListLocations(c *gin.Context) {
+	q := parseReferenceListQuery(c, "zone")
 	var items []domain.ReferenceLocation
-	if err := h.db.Order("zone ASC, bay ASC").Find(&items).Error; err != nil {
+	db := h.db.Model(&domain.ReferenceLocation{})
+	if q.Q != "" {
+		term := "%" + strings.ToLower(q.Q) + "%"
+		db = db.Where("LOWER(zone) LIKE ? OR LOWER(COALESCE(bay, '')) LIKE ?", term, term)
+	}
+	db = applyReferenceListQuery(db, q, "zone ASC, bay ASC", map[string]string{
+		"id":   "id",
+		"zone": "zone",
+		"bay":  "bay",
+	}, map[string]bool{
+		"id":   true,
+		"zone": true,
+		"bay":  true,
+	})
+	if err := db.Find(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
 		return
 	}
 	type out struct {
-		ID      int    `json:"id"`
-		Zone    string `json:"zone"`
+		ID      int     `json:"id"`
+		Zone    string  `json:"zone"`
 		Bay     *string `json:"bay"`
-		Display string `json:"display"`
+		Display string  `json:"display"`
 	}
 	result := make([]out, len(items))
 	for i, loc := range items {
@@ -360,13 +462,38 @@ func (h *ReferenceHandler) DeleteLocation(c *gin.Context) {
 // @Tags reference
 // @Accept json
 // @Produce json
+// @Param q query string false "Search by name"
+// @Param type query string false "Filter by type"
+// @Param sort_by query string false "Sort field (id, name, type)"
+// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param limit query int false "Limit number of results"
+// @Param offset query int false "Offset for pagination"
+// @Param fields query string false "Comma-separated fields to return"
 // @Success 200 {object} dto.Response{data=[]domain.ReferenceStorageLocation}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /reference/storage-locations [get]
 func (h *ReferenceHandler) ListStorageLocations(c *gin.Context) {
+	q := parseReferenceListQuery(c, "name")
+	typeFilter := strings.TrimSpace(c.Query("type"))
 	var items []domain.ReferenceStorageLocation
-	if err := h.db.Order("name ASC").Find(&items).Error; err != nil {
+	db := h.db.Model(&domain.ReferenceStorageLocation{})
+	if q.Q != "" {
+		db = db.Where("LOWER(name) LIKE ?", "%"+strings.ToLower(q.Q)+"%")
+	}
+	if typeFilter != "" {
+		db = db.Where("type = ?", typeFilter)
+	}
+	db = applyReferenceListQuery(db, q, "name ASC", map[string]string{
+		"id":   "id",
+		"name": "name",
+		"type": "type",
+	}, map[string]bool{
+		"id":   true,
+		"name": true,
+		"type": true,
+	})
+	if err := db.Find(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
 		return
 	}
@@ -450,14 +577,34 @@ func (h *ReferenceHandler) DeleteStorageLocation(c *gin.Context) {
 // @Tags reference
 // @Accept json
 // @Produce json
+// @Param q query string false "Search by name"
+// @Param sort_by query string false "Sort field (id, name, default_machine_type)"
+// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param limit query int false "Limit number of results"
+// @Param offset query int false "Offset for pagination"
+// @Param fields query string false "Comma-separated fields to return"
 // @Success 200 {object} dto.Response{data=[]domain.ReferenceStepType}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /reference/step-types [get]
 
 func (h *ReferenceHandler) ListStepTypes(c *gin.Context) {
+	q := parseReferenceListQuery(c, "name")
 	var items []domain.ReferenceStepType
-	if err := h.db.Order("name ASC").Find(&items).Error; err != nil {
+	db := h.db.Model(&domain.ReferenceStepType{})
+	if q.Q != "" {
+		db = db.Where("LOWER(name) LIKE ?", "%"+strings.ToLower(q.Q)+"%")
+	}
+	db = applyReferenceListQuery(db, q, "name ASC", map[string]string{
+		"id":                   "id",
+		"name":                 "name",
+		"default_machine_type": "default_machine_type",
+	}, map[string]bool{
+		"id":                   true,
+		"name":                 true,
+		"default_machine_type": true,
+	})
+	if err := db.Find(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
 		return
 	}

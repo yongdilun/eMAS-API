@@ -49,6 +49,10 @@ func (s *FormulaService) ListAll() ([]domain.Formula, error) {
 	return s.formulaRepo.ListAll()
 }
 
+func (s *FormulaService) ListFiltered(f repository.FormulaListFilter) ([]domain.Formula, error) {
+	return s.formulaRepo.ListFiltered(f)
+}
+
 func (s *FormulaService) AddIngredient(formulaID string, req dto.AddFormulaIngredientRequest) (*domain.FormulaIngredients, error) {
 	hasMat := req.MaterialID != ""
 	hasProd := req.ProductID != ""

@@ -1,10 +1,10 @@
 package handler
 
 import (
-	"encoding/json"
 	"emas/internal/handler/dto"
 	"emas/internal/repository"
 	"emas/internal/service"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
@@ -15,29 +15,29 @@ import (
 )
 
 const (
-	SettingLockInWindowMinutes     = "scheduling.lock_in_window_minutes"
-	SettingDeviationPenaltyWeight  = "scheduling.deviation_penalty_weight"
-	SettingSplitStrategy           = "scheduling.split_strategy"
-	SettingObjective               = "scheduling.objective"
-	SettingAutoRescheduleOnEvent   = "scheduling.auto_reschedule_on_event"
-	SettingWorkStartTime           = "scheduling.work_start_time"
-	SettingWorkEndTime             = "scheduling.work_end_time"
-	SettingWorkDays                = "scheduling.work_days"
-	SettingPublicHolidays          = "scheduling.public_holidays"
-	SettingLatenessWeight          = "scheduling.score.lateness_weight"
-	SettingSetupWeight             = "scheduling.score.setup_weight"
-	SettingSlackWeight             = "scheduling.score.slack_weight"
-	defaultLockInWindowMinutes     = 240
-	defaultDeviationPenaltyWeight  = 0.25
-	defaultSplitStrategy           = "equal"
-	defaultObjective               = "minimize_tardiness"
-	defaultAutoRescheduleOnEvent   = false
-	defaultWorkStartTime           = "08:00"
-	defaultWorkEndTime             = "17:00"
-	defaultWorkDays                = "1,2,3,4,5"
-	defaultLatenessWeight          = 1.0
-	defaultSetupWeight             = 0.6
-	defaultSlackWeight             = 0.3
+	SettingLockInWindowMinutes    = "scheduling.lock_in_window_minutes"
+	SettingDeviationPenaltyWeight = "scheduling.deviation_penalty_weight"
+	SettingSplitStrategy          = "scheduling.split_strategy"
+	SettingObjective              = "scheduling.objective"
+	SettingAutoRescheduleOnEvent  = "scheduling.auto_reschedule_on_event"
+	SettingWorkStartTime          = "scheduling.work_start_time"
+	SettingWorkEndTime            = "scheduling.work_end_time"
+	SettingWorkDays               = "scheduling.work_days"
+	SettingPublicHolidays         = "scheduling.public_holidays"
+	SettingLatenessWeight         = "scheduling.score.lateness_weight"
+	SettingSetupWeight            = "scheduling.score.setup_weight"
+	SettingSlackWeight            = "scheduling.score.slack_weight"
+	defaultLockInWindowMinutes    = 240
+	defaultDeviationPenaltyWeight = 0.25
+	defaultSplitStrategy          = "equal"
+	defaultObjective              = "minimize_tardiness"
+	defaultAutoRescheduleOnEvent  = false
+	defaultWorkStartTime          = "08:00"
+	defaultWorkEndTime            = "17:00"
+	defaultWorkDays               = "1,2,3,4,5"
+	defaultLatenessWeight         = 1.0
+	defaultSetupWeight            = 0.6
+	defaultSlackWeight            = 0.3
 )
 
 var hhmmRegex = regexp.MustCompile(`^([01]?\d|2[0-3]):([0-5]\d)$`)
@@ -52,19 +52,19 @@ func NewSchedulingSettingsHandler(settingsRepo *repository.SystemSettingsReposit
 }
 
 type SchedulingSettingsResponse struct {
-	LockInWindowMinutes     int      `json:"lock_in_window_minutes"`
-	DeviationPenaltyWeight  float64  `json:"deviation_penalty_weight"`
-	SplitStrategy           string   `json:"split_strategy"`
-	Objective               string   `json:"objective"`
-	AutoRescheduleOnEvent   bool     `json:"auto_reschedule_on_event"`
-	WorkStartTime           string   `json:"work_start_time"`
-	WorkEndTime             string   `json:"work_end_time"`
-	WorkDays                string   `json:"work_days"`
-	PublicHolidays          []string `json:"public_holidays"`
-	LatenessWeight          float64  `json:"lateness_weight"`
-	SetupWeight             float64  `json:"setup_weight"`
-	SlackWeight             float64  `json:"slack_weight"`
-	UpdatedAt               string   `json:"updated_at,omitempty"`
+	LockInWindowMinutes    int      `json:"lock_in_window_minutes"`
+	DeviationPenaltyWeight float64  `json:"deviation_penalty_weight"`
+	SplitStrategy          string   `json:"split_strategy"`
+	Objective              string   `json:"objective"`
+	AutoRescheduleOnEvent  bool     `json:"auto_reschedule_on_event"`
+	WorkStartTime          string   `json:"work_start_time"`
+	WorkEndTime            string   `json:"work_end_time"`
+	WorkDays               string   `json:"work_days"`
+	PublicHolidays         []string `json:"public_holidays"`
+	LatenessWeight         float64  `json:"lateness_weight"`
+	SetupWeight            float64  `json:"setup_weight"`
+	SlackWeight            float64  `json:"slack_weight"`
+	UpdatedAt              string   `json:"updated_at,omitempty"`
 }
 
 func (h *SchedulingSettingsHandler) Get(c *gin.Context) {

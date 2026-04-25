@@ -12,7 +12,7 @@ import { useToast } from '../context/ToastContext'
 const FILTER_FIELDS = [
   { key: 'machine_id', label: 'Machine', type: 'select', options: [] },
   { key: 'status', label: 'Status', type: 'select', options: ['scheduled', 'in-progress', 'completed', 'delayed'] },
-  { key: 'priority', label: 'Priority', type: 'select', options: ['high', 'medium', 'low'] },
+  { key: 'priority', label: 'Priority', type: 'select', options: ['urgent', 'high', 'medium', 'low'] },
   { key: 'start', label: 'Start Date (from)', type: 'date' },
   { key: 'end', label: 'Start Date (to)', type: 'date' },
   { key: 'product_id', label: 'Product ID', type: 'text', placeholder: 'e.g. P-001' },

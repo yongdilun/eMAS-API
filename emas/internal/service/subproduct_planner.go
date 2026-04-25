@@ -221,8 +221,8 @@ func (l *tentativeInventoryLedger) compact(cursor time.Time) {
 func (s *AIPredictiveService) subproductLimits() schedulerSubproductLimits {
 	limits := schedulerSubproductLimits{
 		MaxDependencyDepth:    4,
-		MaxGeneratedPerRoot:   200,   // FIX: Increased from 12 to prevent truncation
-		MaxGeneratedPerBatch:  2000,  // FIX: Increased from 64 to prevent truncation
+		MaxGeneratedPerRoot:   200,  // FIX: Increased from 12 to prevent truncation
+		MaxGeneratedPerBatch:  2000, // FIX: Increased from 64 to prevent truncation
 		MaxParentReflowPasses: 3,
 	}
 	if s.settingsRepo == nil {
@@ -302,7 +302,7 @@ func (s *AIPredictiveService) decorateProposalWithInventoryPlan(job *domain.Job,
 			inputs      []domain.ProcessStepMaterial
 			stepBlocked bool
 		)
-		
+
 		previousActions := append([]InventoryAction(nil), proposal.InventoryActions...)
 		previousDeps := append([]DependentJobPlan(nil), proposal.DependentJobs...)
 
@@ -378,14 +378,14 @@ func (s *AIPredictiveService) decorateProposalWithInventoryPlan(job *domain.Job,
 				needFromShared = 0
 			}
 			dependencyPlanKey := ""
-			
+
 			availability, err := s.productAvailabilityForPlanning(productID, needFromShared, bounds.Start, state.ledger, job.JobID)
 			if err != nil {
 				return err
 			}
 
-			// FIX: Prevent WIP time-travel. 
-			// If stock exists but is only ready in the future, we MUST reflow the parent 
+			// FIX: Prevent WIP time-travel.
+			// If stock exists but is only ready in the future, we MUST reflow the parent
 			// job to wait for it before allowing standard reservations to proceed.
 			if availability.ReadyAt != nil && availability.ReadyAt.After(bounds.Start) {
 				delta := alignSuccessorStart(*availability.ReadyAt).Sub(bounds.Start)
@@ -398,7 +398,7 @@ func (s *AIPredictiveService) decorateProposalWithInventoryPlan(job *domain.Job,
 				}
 				stepBounds = boundsByJobStep(proposal.ProposedSlots)
 				bounds = stepBounds[step.JobStepID]
-				
+
 				availability, err = s.productAvailabilityForPlanning(productID, needFromShared, bounds.Start, state.ledger, job.JobID)
 				if err != nil {
 					return err
@@ -1391,7 +1391,7 @@ func generatedJobIDMap(jobSteps []domain.JobSteps) map[string]string {
 
 type stepMaterialCheckResult struct {
 	AnyShort     bool
-	ShortDemands []*DemandMaterial 
+	ShortDemands []*DemandMaterial
 	Partial      *PartialFeasibilityPlan
 	DeferredNode *DeferredPlanningNode
 }
@@ -1414,7 +1414,7 @@ func (s *AIPredictiveService) checkAllStepMaterials(step SolverPreviewStep, cons
 			return nil, err
 		}
 		available := opening
-		shortage := math.Max(required - available, 0)
+		shortage := math.Max(required-available, 0)
 		enoughNow := available >= required
 		var readyAt *time.Time
 		if !enoughNow {
@@ -1429,7 +1429,7 @@ func (s *AIPredictiveService) checkAllStepMaterials(step SolverPreviewStep, cons
 				}
 			}
 			if shortage > 0 {
-				shortage = math.Max(required - current, 0)
+				shortage = math.Max(required-current, 0)
 			}
 		}
 		mat := &DemandMaterial{
@@ -1443,7 +1443,7 @@ func (s *AIPredictiveService) checkAllStepMaterials(step SolverPreviewStep, cons
 			ShortageQty:  shortage,
 			ReadyAt:      readyAt,
 		}
-		
+
 		if !enoughNow {
 			result.AnyShort = true
 			blocking = append(blocking, *input.MaterialID)

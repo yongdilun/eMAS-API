@@ -2,7 +2,7 @@ from agent.schemas import ToolInfo
 from agent.tool_scope import filter_tools_for_intent
 
 
-def test_tool_scope_forces_approval_tools():
+def test_tool_scope_prefers_approval_tools_for_approval_intent():
     tools = {
         "get__chatbot_approval_pending": ToolInfo(
             name="get__chatbot_approval_pending",
@@ -12,7 +12,7 @@ def test_tool_scope_forces_approval_tools():
             input_schema={"type": "object", "properties": {}},
             is_read_only=True,
             requires_approval=False,
-            capability_tags=[],
+            capability_tags=["approval", "pending", "list"],
         ),
         "get__machines": ToolInfo(
             name="get__machines",
@@ -26,9 +26,56 @@ def test_tool_scope_forces_approval_tools():
         ),
     }
 
-    scoped = filter_tools_for_intent(intent="show me machine list", tools_by_name=tools, max_tools=5)
+    scoped = filter_tools_for_intent(intent="show pending approvals", tools_by_name=tools, max_tools=5)
     assert "get__chatbot_approval_pending" in scoped.tool_names
-    assert "get__machines" in scoped.tool_names
+
+
+def test_tool_scope_prefers_create_tool_for_create_intent():
+    tools = {
+        "get__machines": ToolInfo(
+            name="get__machines",
+            description="List machines",
+            endpoint="/machines",
+            method="GET",
+            input_schema={"type": "object", "properties": {}},
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["machine", "list"],
+        ),
+        "post__machines": ToolInfo(
+            name="post__machines",
+            description="Create a machine",
+            endpoint="/machines",
+            method="POST",
+            input_schema={"type": "object", "properties": {"machine_name": {"type": "string"}}, "required": ["machine_name"]},
+            body_fields=["machine_name"],
+            required_body_fields=["machine_name"],
+            is_read_only=False,
+            requires_approval=True,
+            capability_tags=["machine", "create"],
+        ),
+    }
+
+    scoped = filter_tools_for_intent(intent="create new machine", tools_by_name=tools, max_tools=5)
+    assert scoped.tool_names[0] == "post__machines"
+
+
+def test_tool_scope_returns_empty_for_low_signal_operation_text():
+    tools = {
+        "get__machines": ToolInfo(
+            name="get__machines",
+            description="List machines",
+            endpoint="/machines",
+            method="GET",
+            input_schema={"type": "object", "properties": {}},
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["machine", "list"],
+        )
+    }
+
+    scoped = filter_tools_for_intent(intent="something", tools_by_name=tools, max_tools=5)
+    assert scoped.tool_names == []
 
 
 def test_tool_scope_respects_max_tools():

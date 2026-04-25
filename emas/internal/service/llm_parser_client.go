@@ -31,10 +31,10 @@ type cacheEntry struct {
 }
 
 type ollamaRequest struct {
-	Model  string        `json:"model"`
-	Prompt string        `json:"prompt"`
-	Stream bool          `json:"stream"`
-	Options interface{}  `json:"options,omitempty"`
+	Model   string      `json:"model"`
+	Prompt  string      `json:"prompt"`
+	Stream  bool        `json:"stream"`
+	Options interface{} `json:"options,omitempty"`
 }
 
 type ollamaResponse struct {
@@ -364,4 +364,3 @@ func sanitizeLLMJSON(resp string) ([]byte, error) {
 
 	return []byte(s), nil
 }
-

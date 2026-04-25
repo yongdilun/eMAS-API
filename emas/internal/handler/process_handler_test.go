@@ -35,6 +35,12 @@ func TestProcessHandler_CRUD(t *testing.T) {
 		t.Fatalf("get by product: got %d", w.Code)
 	}
 
+	// List with filtering/sorting/pagination/fields
+	w = testutil.Request(r, "GET", "/api/v1/processes?product_id=P-PRC&sort_by=process_id&sort_dir=asc&limit=10&offset=0&fields=process_id,product_id", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list filtered: got %d", w.Code)
+	}
+
 	// Add step
 	w = testutil.Request(r, "POST", "/api/v1/processes/PRC-TEST/steps", map[string]interface{}{
 		"step_name": "Cutting", "machine_type_required": "CNC",

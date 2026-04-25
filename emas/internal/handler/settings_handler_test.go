@@ -58,9 +58,9 @@ func TestSettingsHandler_Update_NotificationsAsObject(t *testing.T) {
 
 	// Frontend may send notifications as object { enabled: true } instead of bool
 	w := testutil.Request(r, "PUT", "/api/v1/settings", map[string]interface{}{
-		"theme":          "dark",
-		"notifications":  map[string]interface{}{"enabled": true},
-		"ai_enabled":     map[string]interface{}{"enabled": false},
+		"theme":         "dark",
+		"notifications": map[string]interface{}{"enabled": true},
+		"ai_enabled":    map[string]interface{}{"enabled": false},
 	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("update with object form: got %d: %s", w.Code, w.Body.String())

@@ -79,10 +79,10 @@ func Setup(db *gorm.DB) *gin.Engine {
 	chatTurnRepo := repository.NewChatbotTurnAuditRepository(db)
 	chatSnapRepo := repository.NewChatbotToolExecutionSnapshotRepository(db)
 	chatExecutor := service.NewRegistryBackedReadOnlyExecutor(chatRegistry, chatSnapRepo)
-	
+
 	chatApprovalRepo := repository.NewChatbotApprovalRepository(db)
 	chatApprovalExec := service.NewApprovalExecutor(chatApprovalRepo, chatSnapRepo, chatRegistry)
-	
+
 	chatbotSvc := service.NewChatbotService(convRepo, msgRepo, chatTurnRepo, chatApprovalRepo, chatPlanner, chatExecutor, chatRegistry)
 
 	// Handlers

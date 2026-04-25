@@ -2,8 +2,11 @@ package handler
 
 import (
 	"emas/internal/handler/dto"
+	"emas/internal/repository"
 	"emas/internal/service"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,7 +29,6 @@ func NewProductHandler(productService *service.ProductService) *ProductHandler {
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /products [post]
-
 func (h *ProductHandler) Create(c *gin.Context) {
 	var req dto.CreateProductRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -41,7 +43,6 @@ func (h *ProductHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, dto.Response{Success: true, Data: product})
 }
 
-
 // @Summary Get a product by ID
 // @Description Get a product by ID
 // @Tags products
@@ -52,7 +53,6 @@ func (h *ProductHandler) Create(c *gin.Context) {
 // @Failure 404 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /products/{id} [get]
-
 func (h *ProductHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
 	product, err := h.productService.GetByID(id)
@@ -64,20 +64,62 @@ func (h *ProductHandler) GetByID(c *gin.Context) {
 }
 
 // @Summary List all products
-// @Description List all products
+// @Description List products with optional filters, sorting, and field selection
 // @Tags products
 // @Accept json
 // @Produce json
+// @Param status query string false "Filter by status"
+// @Param product_type query string false "Filter by product type"
+// @Param sort_by query string false "product_id|product_name|created_at"
+// @Param sort_dir query string false "asc|desc"
+// @Param limit query int false "Page size"
+// @Param offset query int false "Offset"
+// @Param fields query string false "Comma-separated fields; use product_id for ID-only view"
 // @Success 200 {object} dto.Response{data=[]domain.Product}
 // @Failure 500 {object} dto.Response
 // @Router /products [get]
-
 func (h *ProductHandler) List(c *gin.Context) {
-	products, err := h.productService.ListAll()
+	var f repository.ProductListFilter
+	f.Status = strings.TrimSpace(c.Query("status"))
+	f.ProductType = strings.TrimSpace(c.Query("product_type"))
+	f.SortBy = strings.TrimSpace(c.DefaultQuery("sort_by", "product_id"))
+	f.SortDir = strings.TrimSpace(c.DefaultQuery("sort_dir", "asc"))
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			f.Limit = n
+		}
+	}
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			f.Offset = n
+		}
+	}
+
+	products, err := h.productService.ListFiltered(f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
 		return
 	}
+
+	fields := strings.TrimSpace(strings.ToLower(c.Query("fields")))
+	if fields != "" {
+		selected := make(map[string]bool)
+		for _, token := range strings.Split(fields, ",") {
+			normalized := strings.TrimSpace(token)
+			if normalized != "" {
+				selected[normalized] = true
+			}
+		}
+		if len(selected) == 1 && selected["product_id"] {
+			ids := make([]dto.ProductIDOnly, 0, len(products))
+			for _, p := range products {
+				ids = append(ids, dto.ProductIDOnly{ProductID: p.ProductID})
+			}
+			c.JSON(http.StatusOK, dto.Response{Success: true, Data: ids})
+			return
+		}
+	}
+
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: products})
 }
 
@@ -87,11 +129,10 @@ func (h *ProductHandler) List(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param id path string true "Product ID"
-// @Success 200 {object} dto.Response{data=domain.SchedulingDefinition}
+// @Success 200 {object} dto.Response{data=service.ProductSchedulingDefinition}
 // @Failure 404 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /products/{id}/scheduling-definition [get]
-
 func (h *ProductHandler) GetSchedulingDefinition(c *gin.Context) {
 	id := c.Param("id")
 	def, err := h.productService.GetSchedulingDefinition(id)
@@ -109,11 +150,10 @@ func (h *ProductHandler) GetSchedulingDefinition(c *gin.Context) {
 // @Produce json
 // @Param id path string true "Product ID"
 // @Param request body dto.LinkProductRequest true "Link Product Request"
-// @Success 200 {object} dto.Response{success=true}
+// @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /products/{id}/bom [put]
-
 func (h *ProductHandler) LinkBOM(c *gin.Context) {
 	productID := c.Param("id")
 	var req dto.LinkProductRequest

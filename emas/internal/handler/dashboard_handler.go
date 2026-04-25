@@ -4,6 +4,9 @@ import (
 	"emas/internal/handler/dto"
 	"emas/internal/repository"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,13 +24,13 @@ func NewDashboardHandler(db *gorm.DB, machineRepo *repository.MachineRepository,
 }
 
 type KPIsResponse struct {
-	OEEPct           float64 `json:"oee_pct"`
-	OEEChange        float64 `json:"oee_change"`
-	ProductionUnits  int     `json:"production_units"`
-	ProductionChange float64 `json:"production_change"`
-	DowntimeHrs      float64 `json:"downtime_hrs"`
-	DowntimeChange   float64 `json:"downtime_change"`
-	UtilizationPct   float64 `json:"utilization_pct"`
+	OEEPct            float64 `json:"oee_pct"`
+	OEEChange         float64 `json:"oee_change"`
+	ProductionUnits   int     `json:"production_units"`
+	ProductionChange  float64 `json:"production_change"`
+	DowntimeHrs       float64 `json:"downtime_hrs"`
+	DowntimeChange    float64 `json:"downtime_change"`
+	UtilizationPct    float64 `json:"utilization_pct"`
 	UtilizationChange float64 `json:"utilization_change"`
 }
 
@@ -42,13 +45,13 @@ type KPIsResponse struct {
 // @Router /dashboard/kpis [get]
 func (h *DashboardHandler) GetKPIs(c *gin.Context) {
 	resp := KPIsResponse{
-		OEEPct:           85.2,
-		OEEChange:        1.5,
-		ProductionUnits:  10450,
-		ProductionChange: 5.0,
-		DowntimeHrs:      2.1,
-		DowntimeChange:   0.2,
-		UtilizationPct:   78.0,
+		OEEPct:            85.2,
+		OEEChange:         1.5,
+		ProductionUnits:   10450,
+		ProductionChange:  5.0,
+		DowntimeHrs:       2.1,
+		DowntimeChange:    0.2,
+		UtilizationPct:    78.0,
 		UtilizationChange: 2.5,
 	}
 	// Try to aggregate from DB when possible
@@ -75,12 +78,35 @@ type AlertItem struct {
 // @Tags dashboard
 // @Accept json
 // @Produce json
+// @Param status query string false "Filter by status (active)"
+// @Param type query string false "Filter by alert type (maintenance, inventory, downtime)"
+// @Param sort_by query string false "Field to sort by (time, type, title)"
+// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param limit query int false "Limit number of results"
+// @Param offset query int false "Offset for pagination"
+// @Param fields query string false "Comma-separated fields to return (type,title,time,machine_id)"
 // @Success 200 {object} dto.Response{data=[]AlertItem}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /dashboard/alerts [get]
 func (h *DashboardHandler) GetAlerts(c *gin.Context) {
 	status := c.Query("status")
+	typeFilter := strings.TrimSpace(strings.ToLower(c.Query("type")))
+	sortBy := strings.TrimSpace(strings.ToLower(c.DefaultQuery("sort_by", "time")))
+	sortDir := strings.TrimSpace(strings.ToLower(c.DefaultQuery("sort_dir", "desc")))
+	fieldsRaw := strings.TrimSpace(strings.ToLower(c.Query("fields")))
+	limit := 0
+	offset := 0
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			offset = n
+		}
+	}
 	var alerts []AlertItem
 	now := time.Now().Format(time.RFC3339)
 
@@ -126,8 +152,102 @@ func (h *DashboardHandler) GetAlerts(c *gin.Context) {
 		}
 	}
 
+	if typeFilter != "" {
+		filtered := make([]AlertItem, 0, len(alerts))
+		for _, a := range alerts {
+			if strings.EqualFold(a.Type, typeFilter) {
+				filtered = append(filtered, a)
+			}
+		}
+		alerts = filtered
+	}
+
+	if sortDir != "asc" {
+		sortDir = "desc"
+	}
+	sort.SliceStable(alerts, func(i, j int) bool {
+		ai, aj := alerts[i], alerts[j]
+		var cmp int
+		switch sortBy {
+		case "type":
+			if ai.Type < aj.Type {
+				cmp = -1
+			} else if ai.Type > aj.Type {
+				cmp = 1
+			}
+		case "title":
+			if ai.Title < aj.Title {
+				cmp = -1
+			} else if ai.Title > aj.Title {
+				cmp = 1
+			}
+		default:
+			if ai.Time < aj.Time {
+				cmp = -1
+			} else if ai.Time > aj.Time {
+				cmp = 1
+			}
+		}
+		if sortDir == "desc" {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+
+	if offset > 0 {
+		if offset >= len(alerts) {
+			alerts = []AlertItem{}
+		} else {
+			alerts = alerts[offset:]
+		}
+	}
+	if limit > 0 && limit < len(alerts) {
+		alerts = alerts[:limit]
+	}
+
 	if status == "active" && len(alerts) == 0 {
 		alerts = []AlertItem{}
 	}
-	c.JSON(http.StatusOK, dto.Response{Success: true, Data: alerts})
+
+	if fieldsRaw == "" {
+		c.JSON(http.StatusOK, dto.Response{Success: true, Data: alerts})
+		return
+	}
+	allowed := map[string]bool{
+		"type":       true,
+		"title":      true,
+		"time":       true,
+		"machine_id": true,
+	}
+	selected := make([]string, 0, 4)
+	seen := map[string]bool{}
+	for _, part := range strings.Split(fieldsRaw, ",") {
+		field := strings.TrimSpace(strings.ToLower(part))
+		if field != "" && allowed[field] && !seen[field] {
+			selected = append(selected, field)
+			seen[field] = true
+		}
+	}
+	if len(selected) == 0 {
+		c.JSON(http.StatusOK, dto.Response{Success: true, Data: alerts})
+		return
+	}
+	projected := make([]map[string]interface{}, 0, len(alerts))
+	for _, a := range alerts {
+		item := map[string]interface{}{}
+		for _, field := range selected {
+			switch field {
+			case "type":
+				item["type"] = a.Type
+			case "title":
+				item["title"] = a.Title
+			case "time":
+				item["time"] = a.Time
+			case "machine_id":
+				item["machine_id"] = a.MachineID
+			}
+		}
+		projected = append(projected, item)
+	}
+	c.JSON(http.StatusOK, dto.Response{Success: true, Data: projected})
 }

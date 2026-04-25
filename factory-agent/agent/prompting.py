@@ -13,6 +13,7 @@ Return ONLY valid JSON that matches the provided JSON Schema.
 Requirements:
 - Keep plans <= 10 steps unless absolutely necessary.
 - Prefer read-only tools first (GET) before writes (POST/PATCH/DELETE).
+- When the user asks for IDs-only or a narrow subset, prefer tools/args that return minimal fields (for example query params like `fields`, `select`, `limit`).
 - For every step: choose a tool_name from the provided tool list.
   - For read-only steps (requires_approval=false): provide args that fully satisfy the tool's input schema.
   - For approval-gated steps (requires_approval=true): you may provide partial args when the user has not provided all required fields.

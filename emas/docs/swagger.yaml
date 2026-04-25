@@ -390,6 +390,52 @@ definitions:
         description: transport time to next step
         type: integer
     type: object
+  domain.Product:
+    properties:
+      createdAt:
+        type: string
+      description:
+        type: string
+      formulaID:
+        description: linked formula for BOM/recipe
+        type: string
+      processID:
+        description: active routing for scheduling
+        type: string
+      productID:
+        type: string
+      productName:
+        type: string
+      productType:
+        type: string
+      status:
+        description: active, obsolete
+        type: string
+      unitOfMeasure:
+        description: pcs / kg / liter
+        type: string
+    type: object
+  domain.ProductBOM:
+    properties:
+      bomid:
+        type: string
+      componentType:
+        type: string
+      materialID:
+        type: string
+      productComponentID:
+        description: sub-product
+        type: string
+      productID:
+        type: string
+      quantityRequired:
+        description: qty per 1 unit of parent
+        type: number
+      scrapRate:
+        type: number
+      unit:
+        type: string
+    type: object
   domain.ProductInventory:
     properties:
       availableFrom:
@@ -538,6 +584,9 @@ definitions:
         type: string
       ambiguous:
         type: boolean
+      approval_request:
+        additionalProperties: true
+        type: object
       bdi_result:
         $ref: '#/definitions/dto.BDIResult'
       clarifications:
@@ -546,6 +595,9 @@ definitions:
         type: array
       confidence:
         type: number
+      debug_payload:
+        additionalProperties: true
+        type: object
       entities:
         additionalProperties: true
         type: object
@@ -559,14 +611,21 @@ definitions:
         type: array
       execution_mode:
         type: string
+      form_request:
+        additionalProperties: true
+        type: object
       guidance:
         items:
           type: string
         type: array
+      human_message:
+        type: string
       insights: {}
       intent:
         type: string
       message:
+        type: string
+      message_kind:
         type: string
       pending_approvals:
         items:
@@ -580,9 +639,18 @@ definitions:
         items:
           $ref: '#/definitions/dto.AISourceRef'
         type: array
+      status_label:
+        type: string
       suggested_calls:
         items:
           $ref: '#/definitions/dto.AISuggestedCall'
+        type: array
+      turn_id:
+        type: string
+      ui_blocks:
+        items:
+          additionalProperties: true
+          type: object
         type: array
     type: object
   dto.AIResultCard:
@@ -759,6 +827,25 @@ definitions:
       intention:
         $ref: '#/definitions/dto.BDIIntention'
     type: object
+  dto.BOMItem:
+    properties:
+      material_id:
+        description: required if product_id not set
+        type: string
+      product_id:
+        description: sub-product, required if material_id not set
+        type: string
+      quantity_per_unit:
+        description: required; qty per 1 unit of parent
+        type: number
+      quantity_required:
+        description: backward compat
+        type: number
+      scrap_rate:
+        type: number
+      unit:
+        type: string
+    type: object
   dto.BatchProposalsRequest:
     properties:
       include_inventory_actions:
@@ -830,6 +917,11 @@ definitions:
       notes:
         type: string
       priority:
+        enum:
+        - low
+        - medium
+        - high
+        - urgent
         type: string
       product_id:
         type: string
@@ -985,6 +1077,26 @@ definitions:
     - product_id
     - quantity_on_hand
     type: object
+  dto.CreateProductRequest:
+    properties:
+      description:
+        type: string
+      formula_id:
+        type: string
+      process_id:
+        type: string
+      product_id:
+        type: string
+      product_name:
+        type: string
+      product_type:
+        type: string
+      unit_of_measure:
+        type: string
+    required:
+    - product_id
+    - product_name
+    type: object
   dto.CreateProductTypeRequest:
     properties:
       name:
@@ -1059,6 +1171,17 @@ definitions:
     required:
     - material_id
     - version
+    type: object
+  dto.LinkProductRequest:
+    properties:
+      bom_items:
+        items:
+          $ref: '#/definitions/dto.BOMItem'
+        type: array
+      formula_id:
+        type: string
+      process_id:
+        type: string
     type: object
   dto.LogProductionRequest:
     properties:
@@ -1214,6 +1337,24 @@ definitions:
     required:
     - job_step_id
     - splits
+    type: object
+  dto.UpdateJobRequest:
+    properties:
+      deadline:
+        type: string
+      notes:
+        type: string
+      priority:
+        enum:
+        - low
+        - medium
+        - high
+        - urgent
+        type: string
+      quantity_total:
+        type: integer
+      status:
+        type: string
     type: object
   dto.UpdateMachineRequest:
     properties:
@@ -1485,6 +1626,29 @@ definitions:
         type: string
       risk_score:
         type: number
+    type: object
+  service.ProductSchedulingDefinition:
+    properties:
+      bom_items:
+        items:
+          $ref: '#/definitions/domain.ProductBOM'
+        type: array
+      composition_source:
+        type: string
+      formula:
+        $ref: '#/definitions/domain.Formula'
+      ingredients:
+        items:
+          $ref: '#/definitions/repository.IngredientWithNames'
+        type: array
+      process:
+        $ref: '#/definitions/domain.ProductProcess'
+      product:
+        $ref: '#/definitions/domain.Product'
+      steps:
+        items:
+          $ref: '#/definitions/domain.ProcessSteps'
+        type: array
     type: object
 host: localhost:8080
 info:
@@ -2439,6 +2603,35 @@ paths:
       consumes:
       - application/json
       description: Get alerts
+      parameters:
+      - description: Filter by status (active)
+        in: query
+        name: status
+        type: string
+      - description: Filter by alert type (maintenance, inventory, downtime)
+        in: query
+        name: type
+        type: string
+      - description: Field to sort by (time, type, title)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction (asc, desc)
+        in: query
+        name: sort_dir
+        type: string
+      - description: Limit number of results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - description: Comma-separated fields to return (type,title,time,machine_id)
+        in: query
+        name: fields
+        type: string
       produces:
       - application/json
       responses:
@@ -2496,7 +2689,32 @@ paths:
     get:
       consumes:
       - application/json
-      description: List all formulas
+      description: List formulas with optional filters, sorting, and pagination
+      parameters:
+      - description: Search by formula name
+        in: query
+        name: q
+        type: string
+      - description: Field to sort by (formula_id, formula_name, created_at)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction (asc, desc)
+        in: query
+        name: sort_dir
+        type: string
+      - description: Limit number of results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - description: Comma-separated fields to return
+        in: query
+        name: fields
+        type: string
       produces:
       - application/json
       responses:
@@ -2902,6 +3120,36 @@ paths:
       consumes:
       - application/json
       description: List product inventory
+      parameters:
+      - description: Filter by product ID
+        in: query
+        name: product_id
+        type: string
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Field to sort by (product_id, available_from, last_updated, quantity_on_hand,
+          quantity_reserved, status)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction (asc, desc)
+        in: query
+        name: sort_dir
+        type: string
+      - description: Limit number of results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - description: Comma-separated fields to return
+        in: query
+        name: fields
+        type: string
       produces:
       - application/json
       responses:
@@ -3143,6 +3391,72 @@ paths:
       tags:
       - job slot
   /jobs:
+    get:
+      consumes:
+      - application/json
+      description: List jobs with filters
+      parameters:
+      - description: Filter by product
+        in: query
+        name: product_id
+        type: string
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by priority (low|medium|high|urgent)
+        in: query
+        name: priority
+        type: string
+      - description: Filter by machine
+        in: query
+        name: machine_id
+        type: string
+      - description: RFC3339 start
+        in: query
+        name: start
+        type: string
+      - description: RFC3339 end
+        in: query
+        name: end
+        type: string
+      - description: created_at|deadline|priority|quantity_total|completion
+        in: query
+        name: sort_by
+        type: string
+      - description: asc|desc
+        in: query
+        name: sort_dir
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/domain.Job'
+                  type: array
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: List jobs
+      tags:
+      - job
     post:
       consumes:
       - application/json
@@ -3178,6 +3492,34 @@ paths:
       tags:
       - job
   /jobs/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a job and clear all slot assignments tied to this job
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: Delete a job
+      tags:
+      - job
     get:
       consumes:
       - application/json
@@ -3209,6 +3551,45 @@ paths:
           schema:
             $ref: '#/definitions/dto.Response'
       summary: Get a job by ID
+      tags:
+      - job
+    put:
+      consumes:
+      - application/json
+      description: Update mutable job fields
+      parameters:
+      - description: Job ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update Job Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateJobRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/domain.Job'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: Update a job
       tags:
       - job
   /jobs/{id}/slots:
@@ -3251,7 +3632,41 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieve a list of all machines
+      description: Retrieve a list of machines with optional filters, sorting, and
+        pagination
+      parameters:
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by machine type
+        in: query
+        name: machine_type
+        type: string
+      - description: Filter by location
+        in: query
+        name: location
+        type: string
+      - description: Field to sort by (machine_id, machine_name, status, created_at)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction (asc, desc)
+        in: query
+        name: sort_dir
+        type: string
+      - description: Limit number of results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - description: Comma-separated fields to return
+        in: query
+        name: fields
+        type: string
       produces:
       - application/json
       responses:
@@ -3812,7 +4227,33 @@ paths:
     get:
       consumes:
       - application/json
-      description: List processes
+      description: List processes with optional filters, sorting, and pagination
+      parameters:
+      - description: Filter by product ID
+        in: query
+        name: product_id
+        type: string
+      - description: Field to sort by (process_id, product_id, sequence, version,
+          created_at)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction (asc, desc)
+        in: query
+        name: sort_dir
+        type: string
+      - description: Limit number of results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - description: Comma-separated fields to return
+        in: query
+        name: fields
+        type: string
       produces:
       - application/json
       responses:
@@ -4078,6 +4519,198 @@ paths:
       summary: Log production
       tags:
       - production-log
+  /products:
+    get:
+      consumes:
+      - application/json
+      description: List products with optional filters, sorting, and field selection
+      parameters:
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Filter by product type
+        in: query
+        name: product_type
+        type: string
+      - description: product_id|product_name|created_at
+        in: query
+        name: sort_by
+        type: string
+      - description: asc|desc
+        in: query
+        name: sort_dir
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Offset
+        in: query
+        name: offset
+        type: integer
+      - description: Comma-separated fields; use product_id for ID-only view
+        in: query
+        name: fields
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/domain.Product'
+                  type: array
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: List all products
+      tags:
+      - products
+    post:
+      consumes:
+      - application/json
+      description: Create a new product with the provided details
+      parameters:
+      - description: Product data
+        in: body
+        name: product
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateProductRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/domain.Product'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: Create a new product
+      tags:
+      - products
+  /products/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Get a product by ID
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/domain.Product'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: Get a product by ID
+      tags:
+      - products
+  /products/{id}/bom:
+    put:
+      consumes:
+      - application/json
+      description: Link a BOM to a product
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Link Product Request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/dto.LinkProductRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: Link a BOM to a product
+      tags:
+      - products
+  /products/{id}/scheduling-definition:
+    get:
+      consumes:
+      - application/json
+      description: Get a scheduling definition by product ID
+      parameters:
+      - description: Product ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/dto.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/service.ProductSchedulingDefinition'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.Response'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/dto.Response'
+      summary: Get a scheduling definition by product ID
+      tags:
+      - products
   /quality/inspections:
     post:
       consumes:
@@ -4118,6 +4751,31 @@ paths:
       consumes:
       - application/json
       description: List locations
+      parameters:
+      - description: Search by zone or bay
+        in: query
+        name: q
+        type: string
+      - description: Sort field (id, zone, bay)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction (asc, desc)
+        in: query
+        name: sort_dir
+        type: string
+      - description: Limit number of results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - description: Comma-separated fields to return
+        in: query
+        name: fields
+        type: string
       produces:
       - application/json
       responses:
@@ -4211,6 +4869,31 @@ paths:
       consumes:
       - application/json
       description: List machine types
+      parameters:
+      - description: Search by name
+        in: query
+        name: q
+        type: string
+      - description: Sort field (id, name)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction (asc, desc)
+        in: query
+        name: sort_dir
+        type: string
+      - description: Limit number of results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - description: Comma-separated fields to return
+        in: query
+        name: fields
+        type: string
       produces:
       - application/json
       responses:
@@ -4343,6 +5026,31 @@ paths:
       consumes:
       - application/json
       description: List product types
+      parameters:
+      - description: Search by name
+        in: query
+        name: q
+        type: string
+      - description: Sort field (id, name)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction (asc, desc)
+        in: query
+        name: sort_dir
+        type: string
+      - description: Limit number of results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - description: Comma-separated fields to return
+        in: query
+        name: fields
+        type: string
       produces:
       - application/json
       responses:
@@ -4500,6 +5208,35 @@ paths:
       consumes:
       - application/json
       description: List storage locations
+      parameters:
+      - description: Search by name
+        in: query
+        name: q
+        type: string
+      - description: Filter by type
+        in: query
+        name: type
+        type: string
+      - description: Sort field (id, name, type)
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction (asc, desc)
+        in: query
+        name: sort_dir
+        type: string
+      - description: Limit number of results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
+      - description: Comma-separated fields to return
+        in: query
+        name: fields
+        type: string
       produces:
       - application/json
       responses:

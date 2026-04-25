@@ -76,7 +76,7 @@ func (e *approvalExecutor) Approve(ctx context.Context, approvalID string, userI
 	approval.DecidedAt = &now
 
 	result, execErr := toolDef.Execute(ctx, args)
-	
+
 	// Create snapshot
 	snapshotID := "SNAP-" + approvalID // Basic ID for now
 	snapshot := &domain.ChatbotToolExecutionSnapshot{

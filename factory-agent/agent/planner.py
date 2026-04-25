@@ -6,8 +6,10 @@ import re
 from typing import Any, Literal
 
 from .config import Settings
+from .intent import assess_intent
 from .plan_validator import validate_plan
 from .prompting import build_planner_prompt
+from .reasoning_pipeline import ReasoningPipeline
 from .schemas import PlanDraft, PlanStepDraft, ToolInfo
 from .telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped
 from .tool_registry import ToolRegistry
@@ -39,6 +41,14 @@ _KEYWORD_TOKEN_ID_RE = re.compile(
 )
 _TOKEN_ID_RE = re.compile(r"\b([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\b")
 _SKU_RE = re.compile(r"\bsku\s*[:#-]?\s*([a-zA-Z0-9_-]+)\b", re.IGNORECASE)
+_QUANTITY_RE = re.compile(r"\b(\d+)\s*(?:units?|pcs?|pieces?)\b", re.IGNORECASE)
+_QUANTITY_FOR_RE = re.compile(r"\b(?:for|of)\s+(\d+)\s*(?:units?|pcs?|pieces?)\b", re.IGNORECASE)
+_QUANTITY_FIELD_RE = re.compile(r"\b(?:quantity(?:_total)?|qty)\s*(?:is|=|:)?\s*(\d+)\b", re.IGNORECASE)
+_DEADLINE_RE = re.compile(
+    r"\b(?:deadline|due(?:\s+date)?|by)\s*[:=]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}(?:[ T][0-9]{1,2}:[0-9]{2})?)\b",
+    re.IGNORECASE,
+)
+_NOTES_RE = re.compile(r"\bnotes?\s*[:=]\s*(.+)$", re.IGNORECASE)
 _PATH_PARAM_RE = re.compile(r"\{([a-zA-Z0-9_]+)\}")
 _SEED_ID_PREFIXES: list[tuple[str, str]] = [
     ("AIPROP-", "proposal"),
@@ -64,6 +74,7 @@ _INTENT_MATCH_KEYWORDS = (
     "approval",
     "machine",
     "job",
+    "product",
 )
 
 _COMPOUND_SEPARATOR_RE = re.compile(
@@ -75,11 +86,25 @@ _ACTION_VERB_RE = re.compile(
     r"\b(?:check|show|list|get|find|view|inspect|update|set|create|delete|approve|reject|replan|assign|schedule|replenish|move|run)\b",
     re.IGNORECASE,
 )
+_AUXILIARY_CAPABILITY_TAGS = {"list", "lookup", "status", "pending", "create", "update", "delete", "approve", "reject"}
+_INTENT_TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
+_ID_ONLY_PHRASE_RE = re.compile(r"\b(?:ids?\s+only|only\s+ids?|only\s+id|id\s+only)\b", re.IGNORECASE)
+_LIST_VERB_RE = re.compile(r"\b(?:get|show|list|find|view|fetch|give|provide)\b", re.IGNORECASE)
+_PLURAL_ENTITY_RE = re.compile(r"\b(?:products?|machines?|jobs?|materials?|inventories|inventory|proposals?|approvals?)\b", re.IGNORECASE)
 
 
 def _tool_prefers_entity_lookup(tool: ToolInfo) -> bool:
     token = f"{tool.name} {tool.endpoint}".lower()
     return "{id}" in token or "_{id}" in token
+
+
+def _tool_required_arg_count(tool: ToolInfo) -> int:
+    return len((tool.input_schema or {}).get("required", []))
+
+
+def _tool_missing_required_args(tool: ToolInfo, args: dict[str, Any]) -> int:
+    required = list((tool.input_schema or {}).get("required", []))
+    return sum(1 for field in required if field not in args or args.get(field) in (None, ""))
 
 
 def _path_param_names(endpoint: str) -> list[str]:
@@ -103,6 +128,22 @@ def _infer_primary_entity(tool: ToolInfo) -> str | None:
     name = tool.name.lower()
     endpoint = (tool.endpoint or "").lower()
     token = f"{name} {endpoint} {' '.join(tool.capability_tags or [])}".lower()
+
+    if endpoint.startswith("/machines") or "/machines/" in endpoint or "machines_" in name:
+        return "machine"
+    if endpoint.startswith("/jobs") or "/job-steps/" in endpoint or "/jobs/" in endpoint or "jobs_" in name:
+        return "job"
+    if endpoint.startswith("/inventory") or "/materials/" in endpoint or "materials_" in name:
+        return "inventory"
+    if endpoint.startswith("/chatbot/approval") or endpoint.startswith("/approvals") or "approval" in endpoint:
+        return "approval"
+    if endpoint.startswith("/proposals") or "/proposals/" in endpoint:
+        return "proposal"
+
+    for tag in tool.capability_tags or []:
+        normalized = str(tag).strip().lower()
+        if normalized and normalized not in _AUXILIARY_CAPABILITY_TAGS:
+            return normalized
 
     if "/jobs/{id}/slots" in endpoint or "jobs_{id}_slots" in name:
         return "job"
@@ -132,13 +173,76 @@ def _tool_matches_entity(tool: ToolInfo, entity: str | None) -> bool:
 
 
 def _tool_intent_match_score(intent: str, tool: ToolInfo) -> int:
+    assessment = assess_intent(intent)
     intent_lower = intent.lower()
     token = f"{tool.name} {tool.description} {tool.endpoint} {' '.join(tool.capability_tags or [])}".lower()
     score = 0
     for keyword in _INTENT_MATCH_KEYWORDS:
         if keyword in intent_lower and keyword in token:
             score += 1
+    if assessment.entity and assessment.entity in token:
+        score += 3
+    for field in tool.body_fields:
+        if field.lower() in intent_lower:
+            score += 2
+    if assessment.action == "create" and tool.method == "POST":
+        score += 4
+    elif assessment.action == "update" and tool.method in {"PUT", "PATCH"}:
+        score += 4
+    elif assessment.action == "approval" and "approval" in token:
+        score += 5
+    elif assessment.action == "delete" and tool.method == "DELETE":
+        score += 4
+    elif assessment.action == "read" and tool.method == "GET":
+        score += 4
+    if (
+        assessment.action == "create"
+        and tool.method == "POST"
+        and assessment.entity
+        and (tool.endpoint or "").strip("/").lower() in {assessment.entity, f"{assessment.entity}s"}
+    ):
+        score += 3
+    score -= _tool_specialization_penalty(intent=intent, tool=tool, assessment=assessment)
     return score
+
+
+def _intent_tokens(text: str) -> set[str]:
+    tokens = {m.group(0).lower() for m in _INTENT_TOKEN_RE.finditer(text or "")}
+    normalized: set[str] = set(tokens)
+    for token in list(tokens):
+        if token.endswith("ies") and len(token) > 3:
+            normalized.add(token[:-3] + "y")
+        elif token.endswith("s") and len(token) > 3:
+            normalized.add(token[:-1])
+    return normalized
+
+
+def _tag_matches_intent(*, tag: str, tokens: set[str]) -> bool:
+    normalized = tag.strip().lower()
+    if not normalized:
+        return False
+    if normalized in tokens:
+        return True
+    if normalized.endswith("y") and (normalized[:-1] + "ies") in tokens:
+        return True
+    if (normalized + "s") in tokens:
+        return True
+    return False
+
+
+def _tool_specialization_penalty(*, intent: str, tool: ToolInfo, assessment) -> int:
+    tokens = _intent_tokens(intent)
+    penalty = 0
+    for tag in tool.capability_tags or []:
+        normalized = str(tag).strip().lower()
+        if not normalized or normalized in _AUXILIARY_CAPABILITY_TAGS:
+            continue
+        if assessment.entity and normalized == assessment.entity:
+            continue
+        if _tag_matches_intent(tag=normalized, tokens=tokens):
+            continue
+        penalty += 3
+    return penalty
 
 
 def _extract_intent_entities(intent: str) -> dict[str, Any]:
@@ -168,6 +272,117 @@ def _extract_intent_entities(intent: str) -> dict[str, Any]:
         "explicit_ids": list(dict.fromkeys(explicit_ids)),
         "sku": sku_value,
     }
+
+
+def _coerce_field_value(*, value: Any, field_type: str | None) -> Any:
+    if field_type == "string":
+        return str(value)
+    if field_type == "integer":
+        return int(value)
+    if field_type == "number":
+        return float(value)
+    return value
+
+
+def _extract_quantity_from_intent(intent: str) -> int | None:
+    for regex in (_QUANTITY_FIELD_RE, _QUANTITY_FOR_RE, _QUANTITY_RE):
+        match = regex.search(intent or "")
+        if match:
+            try:
+                return int(match.group(1))
+            except Exception:
+                continue
+    return None
+
+
+def _extract_deadline_from_intent(intent: str) -> str | None:
+    match = _DEADLINE_RE.search(intent or "")
+    if not match:
+        return None
+    raw = match.group(1).strip()
+    # Keep RFC3339-compatible shape when time is present.
+    if " " in raw:
+        raw = raw.replace(" ", "T", 1)
+    return raw
+
+
+def _extract_notes_from_intent(intent: str) -> str | None:
+    match = _NOTES_RE.search(intent or "")
+    if not match:
+        return None
+    value = match.group(1).strip().strip("\"'")
+    return value if value else None
+
+
+def _extract_field_value_from_intent(
+    *,
+    intent: str,
+    field_name: str,
+    field_schema: dict[str, Any],
+) -> Any | None:
+    field_type = field_schema.get("type")
+    if isinstance(field_type, list):
+        field_type = next((t for t in field_type if t != "null"), "string")
+    field = field_name.lower()
+    intent_lower = (intent or "").lower()
+
+    if field in {"quantity_total", "quantity", "qty", "units"} and field_type in {"integer", "number"}:
+        qty = _extract_quantity_from_intent(intent)
+        if qty is not None:
+            return qty
+
+    if field in {"deadline", "due_date", "due_at"} and field_type == "string":
+        deadline = _extract_deadline_from_intent(intent)
+        if deadline:
+            return deadline
+
+    if field in {"notes", "note", "comment", "description"} and field_type == "string":
+        notes = _extract_notes_from_intent(intent)
+        if notes:
+            return notes
+
+    if field in {"ids_only", "id_only"} and field_type == "boolean":
+        if _intent_requests_id_only_fields(intent):
+            return True
+
+    if field in {"fields", "select"} and field_type == "string":
+        if _intent_requests_id_only_fields(intent):
+            return "product_id"
+
+    enum_values = field_schema.get("enum")
+    if isinstance(enum_values, list) and field_type == "string":
+        for enum_value in enum_values:
+            token = str(enum_value).strip()
+            if not token:
+                continue
+            if re.search(rf"\b{re.escape(token.lower())}\b", intent_lower):
+                return token
+
+    field_hint = re.escape(field).replace(r"\_", "[ _-]?")
+    generic_match = re.search(rf"\b{field_hint}\s*[:=]\s*([^\n,;]+)", intent or "", flags=re.IGNORECASE)
+    if generic_match:
+        return generic_match.group(1).strip().strip("\"'")
+
+    return None
+
+
+def _intent_requests_id_only_fields(intent: str) -> bool:
+    normalized = (intent or "").strip()
+    if not normalized:
+        return False
+    lowered = normalized.lower()
+    if _ID_ONLY_PHRASE_RE.search(lowered):
+        return True
+    if not _LIST_VERB_RE.search(lowered):
+        return False
+    if not _PLURAL_ENTITY_RE.search(lowered):
+        return False
+    # Handles phrasing like "get all product id" / "list machine ids".
+    if re.search(r"\b(?:all\s+)?[a-z_]+\s+ids?\b", lowered):
+        return True
+    if re.search(r"\bids?\s+for\s+(?:all\s+)?[a-z_]+\b", lowered):
+        return True
+    return False
 
 
 def _extract_required_args(intent: str, tool: ToolInfo) -> tuple[dict[str, Any], list[str]]:
@@ -217,35 +432,63 @@ def _extract_required_args(intent: str, tool: ToolInfo) -> tuple[dict[str, Any],
         if value is None and field_type in ("integer", "number") and len(entities["numbers"]) == 1:
             value = entities["numbers"][0]
 
+        if value is None and field_name in ("name", "machine_name") and "machine" in (primary_entity or ""):
+            name_match = re.search(r"\b(?:named|name)\s+([A-Za-z0-9 _-]+)$", intent or "", flags=re.IGNORECASE)
+            if name_match:
+                value = name_match.group(1).strip()
+
+        if value is None:
+            value = _extract_field_value_from_intent(intent=intent, field_name=field, field_schema=raw)
+
         if value is None:
             missing.append(field)
             continue
 
-        if field_type == "string":
-            args[field] = str(value)
-        elif field_type == "integer":
-            args[field] = int(value)
-        elif field_type == "number":
-            args[field] = float(value)
-        else:
-            args[field] = value
+        try:
+            args[field] = _coerce_field_value(value=value, field_type=field_type)
+        except Exception:
+            missing.append(field)
+
+    # Opportunistically prefill optional fields so approval forms are useful out-of-the-box.
+    for field, raw in properties.items():
+        if field in args:
+            continue
+        value = _extract_field_value_from_intent(intent=intent, field_name=field, field_schema=raw if isinstance(raw, dict) else {})
+        if value is None:
+            continue
+        field_type = raw.get("type") if isinstance(raw, dict) else None
+        if isinstance(field_type, list):
+            field_type = next((t for t in field_type if t != "null"), "string")
+        try:
+            args[field] = _coerce_field_value(value=value, field_type=field_type)
+        except Exception:
+            continue
 
     return args, missing
 
 
 def _select_legacy_tool(intent: str, scoped_tools: list[ToolInfo]) -> ToolInfo:
+    assessment = assess_intent(intent)
     entities = _extract_intent_entities(intent)
-    preferred_entity = next(iter(entities["ids_by_keyword"]), None)
+    preferred_entity = assessment.entity or next(iter(entities["ids_by_keyword"]), None)
     has_explicit_id = bool(entities["ids_by_keyword"]) or len(entities["numbers"]) == 1 or len(entities["explicit_ids"]) == 1
 
     ranked = sorted(
         scoped_tools,
         key=lambda t: (
-            not t.is_read_only,
             not _tool_matches_entity(t, preferred_entity),
+            not (
+                (assessment.action == "create" and t.method == "POST")
+                or (assessment.action == "update" and t.method in {"PUT", "PATCH"})
+                or (assessment.action == "approval" and "approval" in " ".join(t.capability_tags).lower())
+                or (assessment.action == "delete" and t.method == "DELETE")
+                or (assessment.action == "read" and t.method == "GET")
+                or assessment.action is None
+            ),
             not (has_explicit_id and _tool_prefers_entity_lookup(t)),
+            _tool_missing_required_args(t, _extract_required_args(intent, t)[0]),
             -_tool_intent_match_score(intent, t),
-            len((t.input_schema or {}).get("required", [])),
+            not t.is_read_only,
             t.name,
         ),
     )
@@ -272,31 +515,6 @@ def _split_compound_intent(intent: str) -> list[str]:
     return [normalized]
 
 
-def _build_legacy_plan_explanation(intent: str, steps: list[PlanStepDraft]) -> str:
-    stripped_intent = intent.strip() or "user request"
-    if len(steps) == 1:
-        return f"Use `{steps[0].tool_name}` to address intent: {stripped_intent}."
-
-    parts = [f"First use `{steps[0].tool_name}`."]
-    for step in steps[1:]:
-        parts.append(f"Then use `{step.tool_name}`.")
-    return f"{' '.join(parts)} Intent: {stripped_intent}."
-
-
-def _build_legacy_risk_summary(scoped_tools: list[ToolInfo], steps: list[PlanStepDraft]) -> str:
-    tools_by_name = {tool.name: tool for tool in scoped_tools}
-    write_steps = [
-        step
-        for step in steps
-        if (tool := tools_by_name.get(step.tool_name)) and not tool.is_read_only
-    ]
-    if not steps:
-        return "No executable steps were generated."
-    if write_steps:
-        return "This plan includes write operations, so any configured approval gates must be respected before execution."
-    return "This plan is read-only and should only retrieve information."
-
-
 def build_planner_visible_tools(scoped_tools: list[ToolInfo]) -> list[dict[str, Any]]:
     wrappers: list[dict[str, Any]] = []
     for tool in scoped_tools:
@@ -314,6 +532,121 @@ def build_planner_visible_tools(scoped_tools: list[ToolInfo]) -> list[dict[str, 
 
 
 class LegacyPlannerBackend:
+    def __init__(self, settings: Settings):
+        self._settings = settings
+        self._reasoning = ReasoningPipeline(settings)
+
+    def _explainability_backend(self) -> str:
+        backend = (self._settings.summary_backend or "legacy").strip().lower()
+        if backend == "auto":
+            if self._settings.openai_base_url or self._settings.openai_api_key:
+                return "langchain"
+            return "legacy"
+        return backend
+
+    def _build_chat_model(self):
+        from langchain_openai import ChatOpenAI
+
+        kwargs: dict[str, Any] = {
+            "model": self._settings.summary_model,
+            "temperature": 0,
+        }
+        if self._settings.openai_base_url:
+            kwargs["base_url"] = self._settings.openai_base_url
+            kwargs["api_key"] = self._settings.openai_api_key or "local"
+        elif self._settings.openai_api_key:
+            kwargs["api_key"] = self._settings.openai_api_key
+        return ChatOpenAI(**kwargs)
+
+    async def _build_explainability(
+        self,
+        *,
+        intent: str,
+        scoped_tools: list[ToolInfo],
+        steps: list[PlanStepDraft],
+    ) -> tuple[str, str, int]:
+        tools_by_name = {tool.name: tool for tool in scoped_tools}
+        write_steps = [
+            step for step in steps if (tool := tools_by_name.get(step.tool_name)) and not tool.is_read_only
+        ]
+        fallback_explanation = f"Plan prepared for intent: {intent.strip() or 'user request'}."
+        fallback_risk = (
+            "This plan includes write operations and requires approval before execution."
+            if write_steps
+            else "This plan is read-only and only retrieves information."
+        )
+
+        backend = self._explainability_backend()
+        if backend != "langchain":
+            log_llm_prompt_skipped(
+                component="planner_explainability",
+                backend=backend,
+                reason="summary_backend!=langchain",
+                metadata={"step_count": len(steps)},
+            )
+            return fallback_explanation, fallback_risk, 0
+
+        try:
+            from langchain_openai import ChatOpenAI  # noqa: F401
+        except Exception:
+            log_llm_prompt_skipped(
+                component="planner_explainability",
+                backend=backend,
+                reason="langchain_openai_unavailable",
+                metadata={"step_count": len(steps)},
+            )
+            return fallback_explanation, fallback_risk, 0
+
+        plan_payload = [
+            {
+                "step_index": step.step_index,
+                "tool_name": step.tool_name,
+                "args": step.args,
+            }
+            for step in steps
+        ]
+        tool_payload = [
+            {
+                "name": tool.name,
+                "method": tool.method,
+                "is_read_only": tool.is_read_only,
+                "requires_approval": tool.requires_approval,
+            }
+            for tool in scoped_tools
+        ]
+        prompt = (
+            "Generate plan explainability as strict JSON with keys `plan_explanation` and `risk_summary`.\n"
+            "Rules:\n"
+            "- Ground only on provided intent/tools/steps.\n"
+            "- Keep each field concise and operator-friendly.\n"
+            "- Mention approval risk if any step writes.\n"
+            "- Return JSON only.\n\n"
+            f"Intent: {intent}\n"
+            f"Steps: {json.dumps(plan_payload, ensure_ascii=False)}\n"
+            f"Tools: {json.dumps(tool_payload, ensure_ascii=False)}\n"
+        )
+        log_llm_prompt(
+            component="planner_explainability",
+            backend=backend,
+            model=self._settings.summary_model,
+            prompt=prompt,
+            metadata={"step_count": len(steps)},
+        )
+        try:
+            model = self._build_chat_model()
+            resp = await model.ainvoke(prompt)
+            content = (getattr(resp, "content", "") or "").strip()
+            parsed = json.loads(content) if content else {}
+            if isinstance(parsed, dict):
+                plan_explanation = str(parsed.get("plan_explanation") or "").strip()
+                risk_summary = str(parsed.get("risk_summary") or "").strip()
+                if plan_explanation and risk_summary:
+                    return plan_explanation, risk_summary, 1
+        except Exception:
+            pass
+
+        return fallback_explanation, fallback_risk, 0
+
     async def generate_plan(
         self,
         *,
@@ -332,11 +665,57 @@ class LegacyPlannerBackend:
         if not scoped_tools:
             raise PlannerBackendError("No scoped tools available to generate a plan.")
 
+        assessment = assess_intent(intent)
+        if assessment.kind != "operations":
+            raise PlannerClarificationError(
+                assessment.reply
+                or "I need a factory operations request before I can generate a tool plan."
+            )
+
         clauses = _split_compound_intent(intent)
         step_drafts: list[PlanStepDraft] = []
+        tools_by_name = {tool.name: tool for tool in scoped_tools}
         for idx, clause in enumerate(clauses):
             selected = _select_legacy_tool(clause, scoped_tools)
             args, missing = _extract_required_args(clause, selected)
+
+            # LLM-first tool selection with deterministic guardrails.
+            ranked_candidates = sorted(
+                scoped_tools,
+                key=lambda t: (
+                    _tool_missing_required_args(t, _extract_required_args(clause, t)[0]),
+                    -_tool_intent_match_score(clause, t),
+                    t.name,
+                ),
+            )[:8]
+            prefilled_by_tool: dict[str, dict[str, Any]] = {}
+            missing_by_tool: dict[str, list[str]] = {}
+            for candidate in ranked_candidates:
+                cand_args, cand_missing = _extract_required_args(clause, candidate)
+                prefilled_by_tool[candidate.name] = cand_args
+                missing_by_tool[candidate.name] = cand_missing
+            llm_candidates = self._reasoning.build_selection_candidates(
+                tools=ranked_candidates,
+                prefilled_by_tool=prefilled_by_tool,
+                missing_by_tool=missing_by_tool,
+            )
+            decision = None
+            try:
+                decision = await self._reasoning.select_tool(
+                    intent=intent,
+                    clause=clause,
+                    candidates=llm_candidates,
+                )
+            except Exception:
+                decision = None
+            if decision and decision.tool_name in tools_by_name:
+                candidate = tools_by_name[decision.tool_name]
+                candidate_required_missing = _tool_missing_required_args(candidate, decision.args or {})
+                if candidate_required_missing == 0 or candidate.requires_approval:
+                    selected = candidate
+                    args = decision.args or {}
+                    missing = decision.missing_args or []
+
             if missing:
                 # If the clause lost an identifier during splitting, retry with
                 # the full intent before asking the user for clarification.
@@ -364,18 +743,23 @@ class LegacyPlannerBackend:
                 )
             )
 
-        draft = PlanDraft(
-            plan_explanation=_build_legacy_plan_explanation(intent, step_drafts),
-            risk_summary=_build_legacy_risk_summary(scoped_tools, step_drafts),
+        plan_explanation, risk_summary, llm_calls = await self._build_explainability(
+            intent=intent,
+            scoped_tools=scoped_tools,
             steps=step_drafts,
         )
-        return PlannerResult(draft=draft, backend_used="legacy", llm_calls=0)
+        draft = PlanDraft(
+            plan_explanation=plan_explanation,
+            risk_summary=risk_summary,
+            steps=step_drafts,
+        )
+        return PlannerResult(draft=draft, backend_used="legacy", llm_calls=llm_calls)
 
 
 class LangChainPlannerBackend:
     def __init__(self, settings: Settings):
         self._settings = settings
-        self._legacy = LegacyPlannerBackend()
+        self._legacy = LegacyPlannerBackend(settings)
 
     def _build_chat_model(self):
         from langchain_openai import ChatOpenAI
@@ -517,7 +901,7 @@ class PlannerAdapter:
     def __init__(self, *, settings: Settings, tool_registry: ToolRegistry):
         self._settings = settings
         self._tool_registry = tool_registry
-        self._legacy = LegacyPlannerBackend()
+        self._legacy = LegacyPlannerBackend(settings)
         self._langchain = LangChainPlannerBackend(settings)
 
     async def generate_plan(

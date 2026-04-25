@@ -28,11 +28,25 @@ from agent.tool_registry import ToolRegistry
 
 def _ensure_schema_compatibility(sync_conn) -> None:
     inspector = inspect(sync_conn)
-    if "sessions" not in inspector.get_table_names():
+    tables = set(inspector.get_table_names())
+    if "sessions" not in tables:
         return
-    columns = {column["name"] for column in inspector.get_columns("sessions")}
-    if "name" not in columns:
-        sync_conn.exec_driver_sql("ALTER TABLE sessions ADD COLUMN name VARCHAR(255)")
+
+    def ensure_column(table: str, column_name: str, ddl: str) -> None:
+        if table not in tables:
+            return
+        columns = {column["name"] for column in inspector.get_columns(table)}
+        if column_name not in columns:
+            sync_conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column_name} {ddl}")
+
+    ensure_column("sessions", "name", "VARCHAR(255)")
+    ensure_column("messages", "mode", "VARCHAR(20) NOT NULL DEFAULT 'normal'")
+    ensure_column("plans", "kind", "VARCHAR(20) NOT NULL DEFAULT 'execution'")
+    ensure_column("plans", "status", "VARCHAR(30) NOT NULL DEFAULT 'DRAFT'")
+    ensure_column("plans", "approved_plan_hash", "VARCHAR(255)")
+    ensure_column("plans", "derived_from_plan_id", "VARCHAR(36)")
+    ensure_column("approvals", "subject_type", "VARCHAR(20) NOT NULL DEFAULT 'step'")
+    ensure_column("approvals", "plan_id", "VARCHAR(36)")
 
 
 @asynccontextmanager
@@ -62,6 +76,9 @@ async def lifespan(app: FastAPI):
         await event_bus.connect()
     except Exception:
         pass
+
+    async with AsyncSessionLocal() as db:
+        await tool_registry.load_from_db(db)
 
     async def refresh_operational_gauges(db) -> None:
         active_count = (

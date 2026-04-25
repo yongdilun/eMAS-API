@@ -1,10 +1,11 @@
 package handler
 
 import (
-	"encoding/json"
 	"emas/internal/handler/dto"
+	"emas/internal/repository"
 	"emas/internal/service"
 	"emas/pkg/featureflags"
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -76,15 +77,42 @@ func (h *MachineHandler) GetByID(c *gin.Context) {
 
 // List godoc
 // @Summary List all machines
-// @Description Retrieve a list of all machines
+// @Description Retrieve a list of machines with optional filters, sorting, and pagination
 // @Tags machines
 // @Accept json
 // @Produce json
+// @Param status query string false "Filter by status"
+// @Param machine_type query string false "Filter by machine type"
+// @Param location query string false "Filter by location"
+// @Param sort_by query string false "Field to sort by (machine_id, machine_name, status, created_at)"
+// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param limit query int false "Limit number of results"
+// @Param offset query int false "Offset for pagination"
+// @Param fields query string false "Comma-separated fields to return"
 // @Success 200 {object} dto.Response{data=[]domain.Machine}
 // @Failure 500 {object} dto.Response
 // @Router /machines [get]
 func (h *MachineHandler) List(c *gin.Context) {
-	machines, err := h.machineService.ListAll()
+	var f repository.MachineListFilter
+	f.Status = c.Query("status")
+	f.MachineType = c.Query("machine_type")
+	f.Location = c.Query("location")
+	f.SortBy = c.Query("sort_by")
+	f.SortDir = c.Query("sort_dir")
+	f.Fields = c.Query("fields")
+
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			f.Limit = n
+		}
+	}
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			f.Offset = n
+		}
+	}
+
+	machines, err := h.machineService.ListFiltered(f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
 		return
@@ -220,9 +248,9 @@ func (h *MachineHandler) Utilization(c *gin.Context) {
 		return
 	}
 	type item struct {
-		MachineID       string  `json:"machine_id"`
-		MachineName     string  `json:"machine_name"`
-		UtilizationPct  float64 `json:"utilization_pct"`
+		MachineID      string  `json:"machine_id"`
+		MachineName    string  `json:"machine_name"`
+		UtilizationPct float64 `json:"utilization_pct"`
 	}
 	data := make([]item, len(machines))
 	var sum float64

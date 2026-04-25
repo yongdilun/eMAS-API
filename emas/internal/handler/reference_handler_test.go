@@ -49,6 +49,12 @@ func TestReferenceHandler_MachineTypes(t *testing.T) {
 	if name, ok := m["name"].(string); !ok || name != "Test CNC" {
 		t.Errorf("POST machine-types: name=%v", m["name"])
 	}
+
+	// List with query options
+	w = testutil.Request(r, "GET", "/api/v1/reference/machine-types?q=cnc&sort_by=name&sort_dir=asc&limit=10&offset=0&fields=id,name", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET machine-types with query options: got %d, body: %s", w.Code, w.Body.String())
+	}
 }
 
 func TestReferenceHandler_ProductTypes(t *testing.T) {

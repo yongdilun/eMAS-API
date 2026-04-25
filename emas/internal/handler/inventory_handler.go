@@ -229,12 +229,36 @@ func (h *InventoryHandler) CreateProductInventory(c *gin.Context) {
 // @Tags inventory
 // @Accept json
 // @Produce json
+// @Param product_id query string false "Filter by product ID"
+// @Param status query string false "Filter by status"
+// @Param sort_by query string false "Field to sort by (product_id, available_from, last_updated, quantity_on_hand, quantity_reserved, status)"
+// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param limit query int false "Limit number of results"
+// @Param offset query int false "Offset for pagination"
+// @Param fields query string false "Comma-separated fields to return"
 // @Success 200 {object} dto.Response{data=[]domain.ProductInventory}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /inventory/product-stock [get]
 func (h *InventoryHandler) ListProductInventory(c *gin.Context) {
-	list, err := h.inventoryService.ListProductInventory()
+	var f repository.ProductInventoryListFilter
+	f.ProductID = c.Query("product_id")
+	f.Status = c.Query("status")
+	f.SortBy = c.DefaultQuery("sort_by", "product_id")
+	f.SortDir = c.DefaultQuery("sort_dir", "asc")
+	f.Fields = c.Query("fields")
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			f.Limit = n
+		}
+	}
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			f.Offset = n
+		}
+	}
+
+	list, err := h.inventoryService.ListProductInventoryFiltered(f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
 		return

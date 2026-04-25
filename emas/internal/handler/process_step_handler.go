@@ -14,8 +14,8 @@ import (
 
 // ProcessStepHandler handles process-step-specific endpoints (e.g. materials per step).
 type ProcessStepHandler struct {
-	psmRepo   *repository.ProcessStepMaterialRepository
-	invRepo   *repository.InventoryRepository
+	psmRepo     *repository.ProcessStepMaterialRepository
+	invRepo     *repository.InventoryRepository
 	processRepo *repository.ProcessRepository
 }
 
@@ -30,13 +30,13 @@ func NewProcessStepHandler(psmRepo *repository.ProcessStepMaterialRepository, in
 // @Produce json
 // @Success 200 {object} dto.Response{data=ProcessStepMaterialResponse}
 type ProcessStepMaterialResponse struct {
-	ID             string  `json:"id"`
-	MaterialID     string  `json:"material_id"`
-	ProductID      string  `json:"product_id,omitempty"`
-	Role           string  `json:"role"`
+	ID              string  `json:"id"`
+	MaterialID      string  `json:"material_id"`
+	ProductID       string  `json:"product_id,omitempty"`
+	Role            string  `json:"role"`
 	QuantityPerUnit float64 `json:"quantity_per_unit"`
-	Unit           string  `json:"unit"`
-	MaterialName   string  `json:"material_name,omitempty"`
+	Unit            string  `json:"unit"`
+	MaterialName    string  `json:"material_name,omitempty"`
 }
 
 // @Summary List materials for a step

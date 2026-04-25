@@ -2,8 +2,10 @@ package handler
 
 import (
 	"emas/internal/handler/dto"
+	"emas/internal/repository"
 	"emas/internal/service"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -81,16 +83,38 @@ func (h *ProcessHandler) GetByProduct(c *gin.Context) {
 }
 
 // @Summary List processes
-// @Description List processes
+// @Description List processes with optional filters, sorting, and pagination
 // @Tags process
 // @Accept json
 // @Produce json
+// @Param product_id query string false "Filter by product ID"
+// @Param sort_by query string false "Field to sort by (process_id, product_id, sequence, version, created_at)"
+// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param limit query int false "Limit number of results"
+// @Param offset query int false "Offset for pagination"
+// @Param fields query string false "Comma-separated fields to return"
 // @Success 200 {object} dto.Response{data=[]domain.ProductProcess}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /processes [get]
 func (h *ProcessHandler) List(c *gin.Context) {
-	list, err := h.processService.ListAll()
+	var f repository.ProcessListFilter
+	f.ProductID = c.Query("product_id")
+	f.SortBy = c.Query("sort_by")
+	f.SortDir = c.Query("sort_dir")
+	f.Fields = c.Query("fields")
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			f.Limit = n
+		}
+	}
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			f.Offset = n
+		}
+	}
+
+	list, err := h.processService.ListFiltered(f)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
 		return

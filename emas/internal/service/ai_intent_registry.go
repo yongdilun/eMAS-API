@@ -206,4 +206,3 @@ func ResolveAction(intent string, entities map[string]interface{}) []ExecutableC
 	}
 	return calls
 }
-

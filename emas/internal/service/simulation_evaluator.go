@@ -36,20 +36,20 @@ type Weights struct {
 }
 
 type Evaluator struct {
-	Now         time.Time
-	Weights     Weights
-	UtilWindow  time.Duration
+	Now          time.Time
+	Weights      Weights
+	UtilWindow   time.Duration
 	MaxScenarios int
-	Budget      time.Duration
+	Budget       time.Duration
 }
 
 func DefaultEvaluator(now time.Time) *Evaluator {
 	return &Evaluator{
-		Now:         now,
-		Weights:     Weights{Tardiness: 0.40, DelayRisk: 0.40, Utilization: 0.20, Deviation: 0.25},
-		UtilWindow:  24 * time.Hour,
+		Now:          now,
+		Weights:      Weights{Tardiness: 0.40, DelayRisk: 0.40, Utilization: 0.20, Deviation: 0.25},
+		UtilWindow:   24 * time.Hour,
 		MaxScenarios: 9,
-		Budget:      150 * time.Millisecond,
+		Budget:       150 * time.Millisecond,
 	}
 }
 
@@ -330,4 +330,3 @@ func deviationFromPlanNorm(p *SchedulingProposal, appliedByStep map[string]domai
 	}
 	return float64(totalDeltaMins) / 240.0
 }
-

@@ -164,13 +164,26 @@ export function assembleFactoryAgentTurns(timeline = []) {
 
 export function computeFactoryAgentTurnSummary(turn) {
   if (!turn) return 'Working...'
-  const lastApproval = Array.isArray(turn.approvals) ? turn.approvals[turn.approvals.length - 1] : null
-  if (lastApproval?.event_type === 'approval_required') {
-    return lastApproval.content || 'Waiting for approval.'
+
+  const toTs = (value) => {
+    const ts = Date.parse(value || '')
+    return Number.isFinite(ts) ? ts : -Infinity
   }
 
+  const lastApproval = Array.isArray(turn.approvals) ? turn.approvals[turn.approvals.length - 1] : null
   const lastTool = Array.isArray(turn.tools) ? turn.tools[turn.tools.length - 1] : null
   const terminal = turn.terminal || null
+  const approvalTs = toTs(lastApproval?.created_at)
+  const latestProgressTs = Math.max(toTs(lastTool?.created_at), toTs(terminal?.created_at))
+  const waitingOnApproval = latestProgressTs <= approvalTs
+
+  if (lastApproval?.event_type === 'approval_required' && waitingOnApproval) {
+    return lastApproval.content || 'Waiting for approval.'
+  }
+  if (lastApproval?.event_type === 'approval_decided' && waitingOnApproval) {
+    return lastApproval.content || (String(lastApproval.status || '').toUpperCase() === 'REJECTED' ? 'Approval rejected.' : 'Approval decided.')
+  }
+
   if (terminal?.event_type === 'session_blocked' || terminal?.event_type === 'session_failed') {
     return terminal.content || 'Execution stopped.'
   }
@@ -191,6 +204,7 @@ export function computeFactoryAgentTurnSummary(turn) {
   if (lastTool?.content) return lastTool.content
 
   const lastPlan = Array.isArray(turn.thinking) ? turn.thinking[turn.thinking.length - 1] : null
+  if (lastPlan?.details?.status === 'COMPLETED' && lastPlan?.content) return lastPlan.content
   if (lastPlan?.content) return 'Working...'
 
   return 'Working...'

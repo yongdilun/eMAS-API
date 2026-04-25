@@ -67,6 +67,7 @@ class SessionManager:
         session_id: str,
         role: str,
         content: str,
+        mode: str = "normal",
         step_id: str | None = None,
         tool_name: str | None = None,
     ) -> MessageRow:
@@ -75,6 +76,7 @@ class SessionManager:
             session_id=session_id,
             role=role,
             content=content,
+            mode=mode,
             step_id=step_id,
             tool_name=tool_name,
         )

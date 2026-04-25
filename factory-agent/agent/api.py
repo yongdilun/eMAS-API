@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import contextlib
-from datetime import datetime
+from datetime import datetime, timedelta
+import os
 import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from jsonschema import Draft202012Validator
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import Approval as ApprovalRow
 from models import DeadLetter as DeadLetterRow
+from models import ExecutionSnapshot as ExecutionSnapshotRow
 from models import Message as MessageRow
 from models import Plan as PlanRow
 from models import PlanStep as PlanStepRow
@@ -23,6 +25,7 @@ from models import generate_uuid
 from .config import Settings
 from .events import AgentEvent, EventBus
 from .execution import ExecutionEngine, compute_idempotency_key
+from .intent import assess_intent
 from .metrics import metrics
 from .planner import PlannerAdapter, PlannerBackendError, PlannerClarificationError
 from .plan_validator import validate_plan
@@ -51,7 +54,7 @@ from .security import JwtValidationError, validate_bearer_token
 from .summary_backend import SummaryAdapter, SummaryBackendError
 from .telemetry import log_event, log_step_status_changed
 from .tool_registry import ToolRegistry
-from .tool_scope import filter_tools_for_intent
+from .tool_selector import ToolSelector
 
 
 def _normalize_session_name(name: str | None) -> str | None:
@@ -88,9 +91,13 @@ def _plan_to_response(plan: PlanRow) -> PlanResponse:
         plan_id=plan.plan_id,
         session_id=plan.session_id,
         version=plan.version,
+        kind=plan.kind or "execution",
+        status=plan.status or "DRAFT",
         dependency_graph=plan.dependency_graph,
         parallel_groups=plan.parallel_groups,
         plan_hash=plan.plan_hash,
+        approved_plan_hash=plan.approved_plan_hash,
+        derived_from_plan_id=plan.derived_from_plan_id,
         plan_explanation=plan.plan_explanation,
         risk_summary=plan.risk_summary,
         created_at=plan.created_at,
@@ -104,6 +111,7 @@ def _message_to_response(m: MessageRow) -> MessageResponse:
         session_id=m.session_id,
         role=m.role,
         content=m.content,
+        mode=(getattr(m, "mode", None) or "normal"),
         created_at=m.created_at,
         step_id=m.step_id,
         tool_name=m.tool_name,
@@ -114,7 +122,9 @@ def _approval_to_response(a: ApprovalRow) -> ApprovalResponse:
     return ApprovalResponse(
         approval_id=a.approval_id,
         session_id=a.session_id,
-        step_id=a.step_id,
+        subject_type=(getattr(a, "subject_type", None) or "step"),
+        plan_id=getattr(a, "plan_id", None),
+        step_id=(a.step_id or None),
         tool_name=a.tool_name,
         args=a.args,
         risk_summary=a.risk_summary,
@@ -157,6 +167,7 @@ def _timeline_event(
     content: str,
     created_at: datetime,
     role: str = "assistant",
+    mode: str | None = None,
     turn_id: str | None = None,
     step_context: dict[str, Any] | None = None,
     step_id: str | None = None,
@@ -171,6 +182,7 @@ def _timeline_event(
         content=content,
         created_at=created_at,
         role=role,  # type: ignore[arg-type]
+        mode=mode,  # type: ignore[arg-type]
         turn_id=turn_id,
         step_context=step_context,
         step_id=step_id,
@@ -195,6 +207,8 @@ _TIMELINE_EVENT_PRIORITY = {
     "session_completed": 9,
 }
 
+_APPROVAL_AUX_TAGS = {"list", "lookup", "status", "pending", "create", "update", "delete", "approve", "reject"}
+
 
 def build_router(
     *,
@@ -208,7 +222,248 @@ def build_router(
     session_mgr = SessionManager(settings)
     executor = ExecutionEngine(settings, event_bus)
     planner = planner_adapter or PlannerAdapter(settings=settings, tool_registry=tool_registry)
+    tool_selector = ToolSelector(settings)
     summary_adapter = SummaryAdapter(settings)
+
+    def _should_enforce_registry_health() -> bool:
+        if not settings.enforce_tool_registry_health:
+            return False
+        return not settings.database_url.startswith("sqlite+aiosqlite:///:memory:")
+
+    async def _latest_user_message(*, db: AsyncSession, session_id: str) -> MessageRow | None:
+        return (
+            await db.execute(
+                select(MessageRow)
+                .where(MessageRow.session_id == session_id)
+                .where(MessageRow.role == "user")
+                .order_by(MessageRow.created_at.desc())
+            )
+        ).scalars().first()
+
+    async def _load_current_plan(*, db: AsyncSession, session_id: str) -> PlanRow | None:
+        sess = await session_mgr.get_session(db, session_id=session_id)
+        if not sess or not sess.plan_id:
+            return None
+        return (await db.execute(select(PlanRow).where(PlanRow.plan_id == sess.plan_id))).scalars().first()
+
+    async def _ensure_registry_health(*, db: AsyncSession) -> dict[str, ToolInfo]:
+        tools_by_name = await tool_registry.get_tools_by_name(db)
+        if _should_enforce_registry_health():
+            health = tool_registry.assess_health(tools_by_name, min_tool_count=settings.min_healthy_tool_count)
+            if not health.ok:
+                repair_error: str | None = None
+                if settings.auto_repair_tool_registry:
+                    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+                    local_swagger = os.path.join(repo_root, "emas", "docs", "swagger.json")
+                    openapi_url = os.environ.get("OPENAPI_URL", "http://localhost:8080/swagger/doc.json")
+                    try:
+                        await tool_registry.regenerate_from_openapi(
+                            db,
+                            openapi_url=openapi_url,
+                            local_swagger_json_path=local_swagger,
+                            force_local=os.path.exists(local_swagger),
+                            replace_db=True,
+                        )
+                        tools_by_name = await tool_registry.get_tools_by_name(db)
+                        health = tool_registry.assess_health(
+                            tools_by_name,
+                            min_tool_count=settings.min_healthy_tool_count,
+                        )
+                        if health.ok:
+                            log_event(
+                                "tool_registry_auto_repaired",
+                                tool_count=len(tools_by_name),
+                                source="local_swagger" if os.path.exists(local_swagger) else "openapi_url",
+                            )
+                    except Exception as exc:
+                        repair_error = str(exc)
+                if not health.ok:
+                    errors = [health.message or "Tool registry is unhealthy."]
+                    if repair_error:
+                        errors.append(f"Auto-repair failed: {repair_error}")
+                    raise HTTPException(status_code=503, detail={"errors": errors})
+        return tools_by_name
+
+    async def _persist_plan(
+        *,
+        db: AsyncSession,
+        sess: SessionRow,
+        draft,
+        tools_by_name: dict[str, ToolInfo],
+        backend_used: str,
+        kind: str,
+        status: str,
+        intent: str,
+        derived_from_plan_id: str | None = None,
+    ) -> PlanResponse:
+        validation = validate_plan(draft, tools_by_name, max_steps=settings.max_plan_steps)
+        if not validation.ok:
+            raise HTTPException(status_code=400, detail={"errors": validation.errors})
+
+        if sess.plan_id:
+            existing = (await db.execute(select(PlanRow).where(PlanRow.plan_id == sess.plan_id))).scalars().first()
+            if existing and not existing.invalidated_at:
+                existing.invalidated_at = datetime.utcnow()
+                existing.invalidated_reason = "Replanned"
+                existing.status = "INVALIDATED"
+
+        plan_version = (sess.plan_version or 0) + 1
+        plan_row = PlanRow(
+            plan_id=generate_uuid(),
+            session_id=sess.session_id,
+            version=plan_version,
+            kind=kind,
+            status=status,
+            dependency_graph=validation.normalized_dependency_graph,
+            parallel_groups=validation.normalized_parallel_groups,
+            plan_hash=validation.plan_hash,
+            plan_explanation=draft.plan_explanation,
+            risk_summary=draft.risk_summary,
+            derived_from_plan_id=derived_from_plan_id,
+            created_at=datetime.utcnow(),
+            created_by=backend_used,
+        )
+        db.add(plan_row)
+        await db.commit()
+        await db.refresh(plan_row)
+
+        for step in draft.steps:
+            tool = tools_by_name.get(step.tool_name)
+            step_row = PlanStepRow(
+                step_id=generate_uuid(),
+                plan_id=plan_row.plan_id,
+                session_id=sess.session_id,
+                step_index=step.step_index,
+                tool_name=step.tool_name,
+                args=step.args,
+                status="NOT_STARTED",
+                idempotency_key=compute_idempotency_key(
+                    session_id=sess.session_id,
+                    step_index=step.step_index,
+                    plan_version=plan_version,
+                    args=step.args,
+                ),
+                requires_approval=bool(tool.requires_approval) if tool else False,
+                retry_count=0,
+                max_retries=3,
+            )
+            db.add(step_row)
+        await db.commit()
+
+        sess.plan_id = plan_row.plan_id
+        sess.plan_version = plan_version
+        sess.plan_hash = plan_row.plan_hash
+        sess.current_step_index = 0
+        sess.pending_user_message = None
+        sess.replan_context = None
+        sess.error = None
+        sess.version += 1
+        sess.status = "PLANNING" if draft.steps else "IDLE"
+        if not sess.name:
+            sess.name = "New chat"
+        await db.commit()
+
+        summary_text = draft.plan_explanation or "Execution plan created."
+        try:
+            summary = await summary_adapter.summarize_plan(intent=intent, draft=draft)
+            summary_text = summary.text
+            sess.llm_call_count += summary.llm_calls
+            sess.version += 1
+        except SummaryBackendError:
+            pass
+        latest_user = await _latest_user_message(db=db, session_id=sess.session_id)
+        db.add(
+            MessageRow(
+                message_id=generate_uuid(),
+                session_id=sess.session_id,
+                role="assistant",
+                content=summary_text,
+                mode=(latest_user.mode if latest_user else "normal"),
+                tool_name="__plan__",
+            )
+        )
+        await db.commit()
+        return _plan_to_response(plan_row)
+
+    async def _create_plan_approval(
+        *,
+        db: AsyncSession,
+        sess: SessionRow,
+        plan_row: PlanRow,
+        tools_by_name: dict[str, ToolInfo],
+    ) -> ApprovalRow:
+        side_effect_level = "HIGH"
+        for step in (
+            await db.execute(
+                select(PlanStepRow).where(PlanStepRow.plan_id == plan_row.plan_id).order_by(PlanStepRow.step_index.asc())
+            )
+        ).scalars().all():
+            tool = tools_by_name.get(step.tool_name)
+            if tool and tool.side_effect_level == "CRITICAL":
+                side_effect_level = "CRITICAL"
+                break
+        approval = ApprovalRow(
+            approval_id=generate_uuid(),
+            session_id=sess.session_id,
+            subject_type="plan",
+            plan_id=plan_row.plan_id,
+            step_id="",
+            tool_name="__plan__",
+            args={"plan_id": plan_row.plan_id, "plan_hash": plan_row.plan_hash},
+            risk_summary=plan_row.risk_summary or "Approve this plan before execution.",
+            side_effect_level=side_effect_level,
+            status="PENDING",
+            expires_at=datetime.utcnow() + timedelta(hours=24),
+        )
+        db.add(approval)
+        plan_row.status = "PENDING_APPROVAL"
+        sess.status = "WAITING_APPROVAL"
+        sess.error = None
+        sess.version += 1
+        await db.commit()
+        return approval
+
+    async def _promote_discovery_to_execution(
+        *,
+        db: AsyncSession,
+        sess: SessionRow,
+        discovery_plan: PlanRow,
+        tools_by_name: dict[str, ToolInfo],
+    ) -> PlanRow | None:
+        intent = sess.current_intent or ""
+        selection = await tool_selector.select_tools(intent=intent, tools_by_name=tools_by_name, mode="normal")
+        scoped_tools = [tools_by_name[name] for name in selection.tool_names if name in tools_by_name]
+        try:
+            generated = await planner.generate_plan(
+                intent=intent,
+                scoped_tools=scoped_tools,
+                context=sess.replan_context,
+            )
+        except (PlannerClarificationError, PlannerBackendError):
+            return None
+
+        sess.llm_call_count += selection.llm_calls
+        sess.llm_call_count += generated.llm_calls
+        response = await _persist_plan(
+            db=db,
+            sess=sess,
+            draft=generated.draft,
+            tools_by_name=tools_by_name,
+            backend_used=generated.backend_used,
+            kind="execution",
+            status="PENDING_APPROVAL",
+            intent=intent,
+            derived_from_plan_id=discovery_plan.plan_id,
+        )
+        plan_row = (await db.execute(select(PlanRow).where(PlanRow.plan_id == response.plan_id))).scalars().first()
+        if not plan_row:
+            return None
+        await _create_plan_approval(db=db, sess=sess, plan_row=plan_row, tools_by_name=tools_by_name)
+        discovery_plan.status = "COMPLETED"
+        sess.completed_at = None
+        sess.error = None
+        await db.commit()
+        return plan_row
 
     def _session_duration_s(sess: SessionRow) -> int:
         if not sess.session_started_at:
@@ -289,6 +544,10 @@ def build_router(
         user_messages = [row for row in message_rows if row.role == "user"]
         assistant_messages = [row for row in message_rows if row.role == "assistant"]
         plan_messages = [row for row in assistant_messages if row.tool_name == "__plan__"]
+        conversation_messages = [row for row in assistant_messages if row.tool_name == "__conversation__"]
+        step_ids_by_plan: dict[str, list[str]] = {}
+        for step in step_rows:
+            step_ids_by_plan.setdefault(step.plan_id, []).append(step.step_id)
 
         user_messages_sorted = sorted(user_messages, key=lambda m: m.created_at)
 
@@ -330,6 +589,78 @@ def build_router(
                     missing.append(key)
             return missing
 
+        def _approval_entity_label(tool: ToolInfo | None, tool_name: str, args: dict[str, Any] | None) -> str:
+            payload = args if isinstance(args, dict) else {}
+            if tool:
+                for tag in tool.capability_tags or []:
+                    normalized = str(tag).strip().lower()
+                    if normalized and normalized not in _APPROVAL_AUX_TAGS:
+                        entity = normalized
+                        break
+                else:
+                    entity = ""
+                if not entity:
+                    endpoint = (tool.endpoint or "").strip("/").split("/", 1)[0]
+                    entity = endpoint[:-1] if endpoint.endswith("s") else endpoint
+            else:
+                entity = ""
+
+            if not entity:
+                lower_name = (tool_name or "").lower()
+                if "machine" in lower_name:
+                    entity = "machine"
+                elif "inventory" in lower_name or "material" in lower_name:
+                    entity = "inventory item"
+                elif "job" in lower_name:
+                    entity = "job"
+                elif "proposal" in lower_name:
+                    entity = "proposal"
+                else:
+                    entity = "record"
+
+            target = (
+                payload.get("machine_id")
+                or payload.get("job_id")
+                or payload.get("inventory_id")
+                or payload.get("material_id")
+                or payload.get("proposal_id")
+                or payload.get("approval_id")
+                or payload.get("id")
+            )
+            if target not in (None, ""):
+                return f"{entity} {target}"
+            return entity
+
+        def _approval_action_phrase(approval: ApprovalRow, tool: ToolInfo | None) -> str:
+            if (getattr(approval, "subject_type", "step") or "step") == "plan":
+                return "execution plan"
+            method = (tool.method if tool else "").upper()
+            entity_label = _approval_entity_label(tool, approval.tool_name, approval.args)
+            if method == "POST":
+                return f"create {entity_label}"
+            if method in {"PUT", "PATCH"}:
+                return f"update {entity_label}"
+            if method == "DELETE":
+                return f"delete {entity_label}"
+            return f"change {entity_label}"
+
+        def _approval_decision_text(approval: ApprovalRow, tool: ToolInfo | None) -> str:
+            decision = "approved" if approval.status == "APPROVED" else "rejected"
+            phrase = _approval_action_phrase(approval, tool)
+            content = f"{decision.capitalize()} request to {phrase}."
+            if approval.rejection_reason:
+                content = f"{content[:-1]}: {approval.rejection_reason}"
+            return content
+
+        def _is_noop_plan(plan_row: PlanRow | None) -> bool:
+            if not plan_row:
+                return False
+            if (plan_row.created_by or "") != "system":
+                return False
+            if (plan_row.status or "") != "COMPLETED":
+                return False
+            return len(step_ids_by_plan.get(plan_row.plan_id, [])) == 0
+
         events: list[TimelineEventResponse] = []
         for msg in user_messages:
             events.append(
@@ -339,12 +670,30 @@ def build_router(
                     content=msg.content,
                     created_at=msg.created_at,
                     role="user",
+                    mode=(getattr(msg, "mode", None) or "normal"),
                     turn_id=msg.message_id,
                     step_context={**_session_ctx(), "message_id": msg.message_id},
                 )
             )
 
+        for msg in conversation_messages:
+            events.append(
+                _timeline_event(
+                    event_id=f"conversation:{msg.message_id}",
+                    event_type="session_completed",
+                    content=msg.content,
+                    created_at=msg.created_at,
+                    status="COMPLETED",
+                    role="assistant",
+                    mode=(getattr(msg, "mode", None) or "normal"),
+                    turn_id=_turn_id_for_time(msg.created_at),
+                    step_context={**_session_ctx(), "message_id": msg.message_id},
+                )
+            )
+
         for idx, plan_row in enumerate(plan_rows):
+            if _is_noop_plan(plan_row):
+                continue
             plan_message = plan_messages[idx] if idx < len(plan_messages) else None
             content = (
                 plan_message.content
@@ -358,11 +707,14 @@ def build_router(
                     content=content,
                     created_at=plan_row.created_at,
                     status="PLANNING",
+                    mode=(plan_message.mode if plan_message and getattr(plan_message, "mode", None) else None),
                     turn_id=_turn_id_for_time(plan_row.created_at),
                     step_context={**_session_ctx(), "plan_id": plan_row.plan_id, "plan_version": plan_row.version},
                     details={
                         "plan_id": plan_row.plan_id,
                         "version": plan_row.version,
+                        "kind": plan_row.kind,
+                        "status": plan_row.status,
                         "plan_explanation": plan_row.plan_explanation,
                         "risk_summary": plan_row.risk_summary,
                     },
@@ -460,50 +812,47 @@ def build_router(
             tool = tools_by_name.get(approval.tool_name)
             missing_required = _missing_required_fields(approval.tool_name, approval.args)
             tool_schema = tool.input_schema if tool else None
-            events.append(
-                _timeline_event(
-                    event_id=f"approval-required:{approval.approval_id}",
-                    event_type="approval_required",
-                    content=(
-                        "Waiting for your approval."
-                        if not approval.risk_summary
-                        else f"Waiting for your approval: {approval.risk_summary}"
-                    ),
-                    created_at=approval.created_at,
-                    turn_id=_turn_id_for_time(approval.created_at),
-                    step_context={
-                        **_session_ctx(),
-                        "approval_id": approval.approval_id,
-                        "step_id": approval.step_id,
-                        "tool_name": approval.tool_name,
-                    },
-                    approval_id=approval.approval_id,
-                    step_id=approval.step_id,
-                    tool_name=approval.tool_name,
-                    status=approval.status,
-                    details={
-                        "args": approval.args,
-                        "side_effect_level": approval.side_effect_level,
-                        "expires_at": approval.expires_at.isoformat(),
-                        "tool": {
-                            "name": tool.name if tool else approval.tool_name,
-                            "description": tool.description if tool else None,
-                            "method": tool.method if tool else None,
-                            "endpoint": tool.endpoint if tool else None,
+            if approval.status == "PENDING":
+                events.append(
+                    _timeline_event(
+                        event_id=f"approval-required:{approval.approval_id}",
+                        event_type="approval_required",
+                        content=(
+                            "Waiting for your approval."
+                            if not approval.risk_summary
+                            else f"Waiting for your approval: {approval.risk_summary}"
+                        ),
+                        created_at=approval.created_at,
+                        turn_id=_turn_id_for_time(approval.created_at),
+                        step_context={
+                            **_session_ctx(),
+                            "approval_id": approval.approval_id,
+                            "step_id": approval.step_id,
+                            "tool_name": approval.tool_name,
                         },
-                        "input_schema": tool_schema,
-                        "missing_required": missing_required,
-                    },
+                        approval_id=approval.approval_id,
+                        step_id=approval.step_id,
+                        tool_name=approval.tool_name,
+                        status=approval.status,
+                        details={
+                            "subject_type": getattr(approval, "subject_type", "step"),
+                            "plan_id": getattr(approval, "plan_id", None),
+                            "args": approval.args,
+                            "side_effect_level": approval.side_effect_level,
+                            "expires_at": approval.expires_at.isoformat(),
+                            "tool": {
+                                "name": tool.name if tool else approval.tool_name,
+                                "description": tool.description if tool else None,
+                                "method": tool.method if tool else None,
+                                "endpoint": tool.endpoint if tool else None,
+                            },
+                            "input_schema": tool_schema,
+                            "missing_required": missing_required,
+                        },
+                    )
                 )
-            )
             if approval.decided_at:
-                decision_text = "approved" if approval.status == "APPROVED" else "rejected"
-                reason = approval.rejection_reason
-                content = (
-                    f"{approval.tool_name} {decision_text}."
-                    if not reason
-                    else f"{approval.tool_name} {decision_text}: {reason}"
-                )
+                content = _approval_decision_text(approval, tool)
                 events.append(
                     _timeline_event(
                         event_id=f"approval-decided:{approval.approval_id}",
@@ -521,7 +870,12 @@ def build_router(
                         step_id=approval.step_id,
                         tool_name=approval.tool_name,
                         status=approval.status,
-                        details={"decided_by": approval.decided_by, "rejection_reason": approval.rejection_reason},
+                        details={
+                            "subject_type": getattr(approval, "subject_type", "step"),
+                            "plan_id": getattr(approval, "plan_id", None),
+                            "decided_by": approval.decided_by,
+                            "rejection_reason": approval.rejection_reason,
+                        },
                     )
                 )
 
@@ -578,7 +932,7 @@ def build_router(
         )
         return SessionSnapshotResponse(
             session=_session_to_response(sess),
-            plan=_plan_to_response(current_plan) if current_plan else None,
+            plan=_plan_to_response(current_plan) if current_plan and not _is_noop_plan(current_plan) else None,
             steps=[_step_to_response(step) for step in step_rows],
             pending_approval=_approval_to_response(pending_approval) if pending_approval else None,
             timeline=events,
@@ -620,6 +974,29 @@ def build_router(
             raise HTTPException(status_code=404, detail="session not found")
         return _session_to_response(sess)
 
+    @router.delete("/sessions/{session_id}")
+    async def delete_session(
+        session_id: str,
+        _: dict[str, Any] = Depends(require_jwt),
+        db: AsyncSession = Depends(get_db),
+    ):
+        sess = await session_mgr.get_session(db, session_id=session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="session not found")
+
+        # Manual cleanup (no ORM cascades configured).
+        await db.execute(delete(MessageRow).where(MessageRow.session_id == session_id))
+        await db.execute(delete(ApprovalRow).where(ApprovalRow.session_id == session_id))
+        await db.execute(delete(DeadLetterRow).where(DeadLetterRow.session_id == session_id))
+        await db.execute(delete(PlanStepRow).where(PlanStepRow.session_id == session_id))
+        await db.execute(delete(PlanRow).where(PlanRow.session_id == session_id))
+        await db.execute(delete(ExecutionSnapshotRow).where(ExecutionSnapshotRow.session_id == session_id))
+
+        await db.execute(delete(SessionRow).where(SessionRow.session_id == session_id))
+        await db.commit()
+
+        return {"ok": True, "session_id": session_id}
+
     @router.patch("/sessions/{session_id}", response_model=SessionResponse)
     async def update_session(
         session_id: str,
@@ -655,8 +1032,8 @@ def build_router(
     ):
         tools_by_name = await tool_registry.get_tools_by_name(db)
         if intent:
-            scoped = filter_tools_for_intent(intent=intent, tools_by_name=tools_by_name, max_tools=max_tools)
-            return [tools_by_name[name] for name in scoped.tool_names if name in tools_by_name]
+            selection = await tool_selector.select_tools(intent=intent, tools_by_name=tools_by_name, max_tools=max_tools)
+            return [tools_by_name[name] for name in selection.tool_names if name in tools_by_name]
         names = sorted(tools_by_name.keys())[:max_tools]
         return [tools_by_name[name] for name in names]
 
@@ -670,7 +1047,7 @@ def build_router(
         sess = await session_mgr.get_session(db, session_id=session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
-        msg = await session_mgr.add_message(db, session_id=session_id, role=req.role, content=req.content)
+        msg = await session_mgr.add_message(db, session_id=session_id, role=req.role, content=req.content, mode=req.mode)
         if req.role == "user":
             sess.current_intent = req.content[:5000]
             lowered = req.content.strip().lower()
@@ -793,53 +1170,104 @@ def build_router(
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
 
-        tools_by_name = await tool_registry.get_tools_by_name(db)
         intent = sess.current_intent or ""
-        scoped = filter_tools_for_intent(intent=intent, tools_by_name=tools_by_name)
+        latest_user = await _latest_user_message(db=db, session_id=session_id)
+        mode = latest_user.mode if latest_user else "normal"
+        assessment = assess_intent(intent)
+        tools_by_name = await tool_registry.get_tools_by_name(db)
         backend_used = "legacy" if req.draft is None else "client"
         draft = req.draft
+
+        if assessment.kind != "operations":
+            reply = assessment.reply or "I need a factory operations request before I can create a plan."
+            from .schemas import PlanDraft
+
+            db.add(
+                MessageRow(
+                    message_id=generate_uuid(),
+                    session_id=session_id,
+                    role="assistant",
+                    content=reply,
+                    mode=mode,
+                    tool_name="__conversation__",
+                )
+            )
+            await db.commit()
+            empty_draft = PlanDraft(
+                plan_explanation=reply,
+                risk_summary="No tool execution required.",
+                steps=[],
+            )
+            plan_resp = await _persist_plan(
+                db=db,
+                sess=sess,
+                draft=empty_draft,
+                tools_by_name=tools_by_name,
+                backend_used="system",
+                kind="execution",
+                status="COMPLETED",
+                intent=intent,
+            )
+            metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
+            return plan_resp
+
+        tools_by_name = await _ensure_registry_health(db=db)
+
+        selection = await tool_selector.select_tools(intent=intent, tools_by_name=tools_by_name, mode=mode)
+        scoped_names = set(selection.tool_names)
 
         if draft is None:
             if not intent.strip():
                 raise HTTPException(status_code=400, detail={"errors": ["Cannot auto-generate plan without a current intent."]})
-            scoped_tools = [tools_by_name[name] for name in scoped.tool_names if name in tools_by_name]
+            scoped_tools = [tools_by_name[name] for name in selection.tool_names if name in tools_by_name]
+            if mode == "plan":
+                scoped_tools = [tool for tool in scoped_tools if tool.is_read_only]
             try:
-                generated = await planner.generate_plan(
-                    intent=intent,
-                    scoped_tools=scoped_tools,
-                    context=sess.replan_context,
-                )
+                if scoped_tools:
+                    generated = await planner.generate_plan(
+                        intent=intent,
+                        scoped_tools=scoped_tools,
+                        context=sess.replan_context,
+                    )
+                    draft = generated.draft
+                    backend_used = generated.backend_used
+                    sess.llm_call_count += selection.llm_calls
+                    sess.llm_call_count += generated.llm_calls
+                else:
+                    from .schemas import PlanDraft
+
+                    draft = PlanDraft(
+                        plan_explanation="No safe discovery steps are required before preparing an execution proposal.",
+                        risk_summary="This stage is read-only and performs no writes.",
+                        steps=[],
+                    )
+                    backend_used = "system"
             except PlannerClarificationError as e:
                 raise HTTPException(status_code=400, detail={"errors": [str(e)]}) from e
             except PlannerBackendError as e:
                 raise HTTPException(status_code=503, detail={"errors": [str(e)]}) from e
-            draft = generated.draft
-            backend_used = generated.backend_used
-            sess.llm_call_count += generated.llm_calls
+            except Exception as e:
+                log_event(
+                    "planner_unexpected_exception",
+                    level="ERROR",
+                    session_id=session_id,
+                    error=str(e),
+                )
+                raise HTTPException(status_code=503, detail={"errors": ["Planner failed unexpectedly. Please retry."]}) from e
             sess.version += 1
             await db.commit()
             metrics.inc("plan_backend_used_total", labels={"backend_used": backend_used})
-            log_event(
-                "planner_generation_succeeded",
-                session_id=session_id,
-                backend_used=backend_used,
-                llm_calls=generated.llm_calls,
-                scoped_tool_count=len(scoped_tools),
-            )
 
-        # Validate plan against full registry (schema correctness), but ensure steps use only scoped tools.
-        invalid_scoped = [s.tool_name for s in draft.steps if s.tool_name not in scoped.tool_names]
+        invalid_scoped = [s.tool_name for s in draft.steps if s.tool_name not in scoped_names]
         if invalid_scoped:
             raise HTTPException(status_code=400, detail={"errors": [f"Tool not allowed by scope: {t}" for t in invalid_scoped]})
 
         validation = validate_plan(draft, tools_by_name, max_steps=settings.max_plan_steps)
         if not validation.ok:
-            if (
-                req.draft is None
-                and backend_used == "langchain"
-                and settings.planner_fallback_to_legacy
-            ):
-                scoped_tools = [tools_by_name[name] for name in scoped.tool_names if name in tools_by_name]
+            if req.draft is None and backend_used == "langchain" and settings.planner_fallback_to_legacy:
+                scoped_tools = [tools_by_name[name] for name in selection.tool_names if name in tools_by_name]
+                if mode == "plan":
+                    scoped_tools = [tool for tool in scoped_tools if tool.is_read_only]
                 fallback = await planner.generate_plan(
                     intent=intent,
                     scoped_tools=scoped_tools,
@@ -851,9 +1279,7 @@ def build_router(
                 validation = validate_plan(draft, tools_by_name, max_steps=settings.max_plan_steps)
                 metrics.inc("plan_backend_used_total", labels={"backend_used": "legacy_fallback"})
                 log_event("planner_fallback_used", session_id=session_id, fallback_backend="legacy")
-            if validation.ok:
-                pass
-            else:
+            if not validation.ok:
                 metrics.inc("plan_validation_failure_total")
                 metrics.inc("plan_validation_failure_rate")
                 if sess.status == "PLANNING":
@@ -866,108 +1292,34 @@ def build_router(
                     sess.version += 1
                     if failures >= 3:
                         sess.status = "BLOCKED"
-                        dlq = DeadLetterRow(
-                            dlq_id=generate_uuid(),
-                            session_id=session_id,
-                            step_id=None,
-                            failure_type="replan_limit_reached",
-                            reason="Plan validation failed 3 consecutive times",
-                            payload={"errors": validation.errors, "validation_failure_count": failures},
-                            status="PENDING",
+                        db.add(
+                            DeadLetterRow(
+                                dlq_id=generate_uuid(),
+                                session_id=session_id,
+                                step_id=None,
+                                failure_type="replan_limit_reached",
+                                reason="Plan validation failed 3 consecutive times",
+                                payload={"errors": validation.errors, "validation_failure_count": failures},
+                                status="PENDING",
+                            )
                         )
-                        db.add(dlq)
                     await db.commit()
                 raise HTTPException(status_code=400, detail={"errors": validation.errors})
 
-        # Invalidate existing plan if any
-        if sess.plan_id:
-            existing = (
-                await db.execute(select(PlanRow).where(PlanRow.plan_id == sess.plan_id))
-            ).scalars().first()
-            if existing and not existing.invalidated_at:
-                existing.invalidated_at = datetime.utcnow()
-                existing.invalidated_reason = "Replanned"
-                sess.replan_count += 1
-
-        if sess.replan_context:
-            plan_version = max(1, sess.plan_version or 1)
-        else:
-            plan_version = (sess.plan_version or 0) + 1
-        plan_row = PlanRow(
-            plan_id=generate_uuid(),
-            session_id=session_id,
-            version=plan_version,
-            dependency_graph=validation.normalized_dependency_graph,
-            parallel_groups=validation.normalized_parallel_groups,
-            plan_hash=validation.plan_hash,
-            plan_explanation=draft.plan_explanation,
-            risk_summary=draft.risk_summary,
-            created_at=datetime.utcnow(),
-            created_by=backend_used,
+        plan_kind = "discovery" if mode == "plan" else "execution"
+        plan_status = "DRAFT"
+        response = await _persist_plan(
+            db=db,
+            sess=sess,
+            draft=draft,
+            tools_by_name=tools_by_name,
+            backend_used=backend_used,
+            kind=plan_kind,
+            status=plan_status,
+            intent=intent,
         )
-        db.add(plan_row)
-        await db.commit()
-        await db.refresh(plan_row)
-
-        # Store steps
-        for step in draft.steps:
-            tool = tools_by_name.get(step.tool_name)
-            step_row = PlanStepRow(
-                step_id=generate_uuid(),
-                plan_id=plan_row.plan_id,
-                session_id=session_id,
-                step_index=step.step_index,
-                tool_name=step.tool_name,
-                args=step.args,
-                status="NOT_STARTED",
-                idempotency_key=compute_idempotency_key(
-                    session_id=session_id,
-                    step_index=step.step_index,
-                    plan_version=plan_version,
-                    args=step.args,
-                ),
-                requires_approval=bool(tool.requires_approval) if tool else False,
-                retry_count=0,
-                max_retries=3,
-            )
-            db.add(step_row)
-        await db.commit()
-
-        # Attach plan to session
-        sess.plan_id = plan_row.plan_id
-        sess.plan_version = plan_version
-        sess.plan_hash = plan_row.plan_hash
-        sess.current_step_index = 0
-        sess.status = "PLANNING"
-        sess.replan_context = None
-        sess.pending_user_message = None
-        sess.error = None
-        sess.version += 1
-        if not sess.name:
-            sess.name = "New chat"
-        await db.commit()
         metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
-
-        summary_text = draft.plan_explanation or "Execution plan created."
-        try:
-            summary = await summary_adapter.summarize_plan(intent=intent, draft=draft)
-            summary_text = summary.text
-            sess.llm_call_count += summary.llm_calls
-            sess.version += 1
-        except SummaryBackendError:
-            pass
-        db.add(
-            MessageRow(
-                message_id=generate_uuid(),
-                session_id=session_id,
-                role="assistant",
-                content=summary_text,
-                tool_name="__plan__",
-            )
-        )
-        await db.commit()
-
-        return _plan_to_response(plan_row)
+        return response
 
     @router.post("/sessions/{session_id}/execute", response_model=SessionResponse)
     async def execute(
@@ -982,12 +1334,29 @@ def build_router(
             raise HTTPException(status_code=404, detail="session not found")
         if expected_version is not None and sess.version != expected_version:
             raise HTTPException(status_code=409, detail=f"version_conflict expected={expected_version} actual={sess.version}")
+        current_plan = await _load_current_plan(db=db, session_id=session_id)
+        if current_plan and current_plan.status == "COMPLETED":
+            return _session_to_response(sess)
+        if current_plan and current_plan.status == "PENDING_APPROVAL":
+            pending_plan_approval = (
+                await db.execute(
+                    select(ApprovalRow)
+                    .where(ApprovalRow.session_id == session_id)
+                    .where(ApprovalRow.plan_id == current_plan.plan_id)
+                    .where(ApprovalRow.subject_type == "plan")
+                    .where(ApprovalRow.status == "PENDING")
+                )
+            ).scalars().first()
+            if pending_plan_approval:
+                return _session_to_response(sess)
         try:
             session_mgr.enforce_limits(sess)
         except TransitionError as e:
             raise HTTPException(status_code=429, detail=str(e))
         # Background execution only works when the worker pool is enabled.
         if background and settings.worker_count <= 0:
+            background = False
+        if current_plan and current_plan.kind == "discovery":
             background = False
 
         if background and enqueue_session is not None:
@@ -1007,9 +1376,19 @@ def build_router(
                 raise HTTPException(status_code=429, detail=f"queue full or enqueue failed: {e}")
             return _session_to_response(sess)
 
-        tools_by_name = await tool_registry.get_tools_by_name(db)
+        tools_by_name = await _ensure_registry_health(db=db)
         await executor.execute_until_blocked(db, session=sess, tools_by_name=tools_by_name)
         sess = await session_mgr.get_session(db, session_id=session_id)
+        current_plan = await _load_current_plan(db=db, session_id=session_id)
+        if current_plan and current_plan.kind == "discovery" and sess and sess.status == "COMPLETED":
+            promoted = await _promote_discovery_to_execution(
+                db=db,
+                sess=sess,
+                discovery_plan=current_plan,
+                tools_by_name=tools_by_name,
+            )
+            if promoted:
+                sess = await session_mgr.get_session(db, session_id=session_id)
         return _session_to_response(sess)
 
     @router.post("/sessions/{session_id}/cancel", response_model=SessionResponse)
@@ -1087,6 +1466,32 @@ def build_router(
         if not row:
             raise HTTPException(status_code=404, detail="approval not found")
 
+        if (getattr(row, "subject_type", "step") or "step") == "plan":
+            plan_row = None
+            if getattr(row, "plan_id", None):
+                plan_row = (await db.execute(select(PlanRow).where(PlanRow.plan_id == row.plan_id))).scalars().first()
+            row.status = "APPROVED"
+            row.decided_by = req.decided_by
+            row.decided_at = datetime.utcnow()
+            if plan_row:
+                plan_row.status = "APPROVED"
+                plan_row.approved_plan_hash = plan_row.plan_hash
+            sess = await session_mgr.get_session(db, session_id=row.session_id)
+            if sess:
+                sess.status = "IDLE"
+                sess.error = None
+                sess.version += 1
+            await db.commit()
+            await event_bus.publish(
+                AgentEvent(
+                    event_type="approval_decided",
+                    session_id=row.session_id,
+                    payload={"approval_id": row.approval_id, "status": "APPROVED"},
+                    published_at=datetime.utcnow(),
+                )
+            )
+            return _approval_to_response(row)
+
         if req.args is not None:
             if not isinstance(req.args, dict):
                 raise HTTPException(status_code=400, detail="args must be an object")
@@ -1136,6 +1541,31 @@ def build_router(
         row = (await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == approval_id))).scalars().first()
         if not row:
             raise HTTPException(status_code=404, detail="approval not found")
+        if (getattr(row, "subject_type", "step") or "step") == "plan":
+            sess = await session_mgr.get_session(db, session_id=row.session_id)
+            row.status = "REJECTED"
+            row.decided_by = req.decided_by
+            row.decided_at = datetime.utcnow()
+            row.rejection_reason = req.rejection_reason
+            if getattr(row, "plan_id", None):
+                plan_row = (await db.execute(select(PlanRow).where(PlanRow.plan_id == row.plan_id))).scalars().first()
+                if plan_row:
+                    plan_row.status = "REJECTED"
+            if sess:
+                sess.status = "IDLE"
+                sess.error = req.rejection_reason or f"Approval {row.approval_id} rejected"
+                sess.updated_at = datetime.utcnow()
+                sess.version += 1
+            await db.commit()
+            await event_bus.publish(
+                AgentEvent(
+                    event_type="approval_decided",
+                    session_id=row.session_id,
+                    payload={"approval_id": row.approval_id, "status": "REJECTED"},
+                    published_at=datetime.utcnow(),
+                )
+            )
+            return _approval_to_response(row)
         sess = await session_mgr.get_session(db, session_id=row.session_id)
         row.status = "REJECTED"
         row.decided_by = req.decided_by
@@ -1309,19 +1739,18 @@ def build_router(
         _: None = Depends(require_admin),
         db: AsyncSession = Depends(get_db),
     ):
-        # Best-effort regeneration: fetch spec (HTTP then local fallback) and store tools.md hash in DB.
-        from agent.toolgen import fetch_openapi_spec, tools_from_openapi, write_tools_md_and_meta
-        import os
-
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
         local_swagger = os.path.join(repo_root, "emas", "docs", "swagger.json")
-        tools_md_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "tools.md"))
         openapi_url = os.environ.get("OPENAPI_URL", "http://localhost:8080/swagger/doc.json")
-        force_local = os.environ.get("OPENAPI_LOCAL", "").strip() == "1"
+        force_local = os.environ.get("OPENAPI_LOCAL", "").strip() == "1" or os.path.exists(local_swagger)
 
-        spec = fetch_openapi_spec(openapi_url=openapi_url, local_swagger_json_path=local_swagger, force_local=force_local)
-        tools = tools_from_openapi(spec)
-        result = await write_tools_md_and_meta(db, tools=tools, tools_md_path=tools_md_path, replace_db=True)
+        result = await tool_registry.regenerate_from_openapi(
+            db,
+            openapi_url=openapi_url,
+            local_swagger_json_path=local_swagger,
+            force_local=force_local,
+            replace_db=True,
+        )
         await event_bus.publish(
             AgentEvent(
                 event_type="tool_registry_updated",

@@ -2,32 +2,32 @@ package dto
 
 // AICommandResponse is the response shape for POST /ai/command and POST /ai/chats/:id/messages.
 type AICommandResponse struct {
-	TurnID         string                 `json:"turn_id,omitempty"`
-	Intent         string                 `json:"intent"`
-	Action         string                 `json:"action"`
-	Entities       map[string]interface{} `json:"entities"`
-	Confidence     float64                `json:"confidence,omitempty"`
-	Ambiguous      bool                   `json:"ambiguous,omitempty"`
-	Clarifications []string               `json:"clarifications,omitempty"`
-	Message        string                 `json:"message"`
-	HumanMessage   string                 `json:"human_message,omitempty"`
-	MessageKind    string                 `json:"message_kind,omitempty"`
-	StatusLabel    string                 `json:"status_label,omitempty"`
-	ExecutionMode  string                 `json:"execution_mode,omitempty"`
-	Executed       bool                   `json:"executed"`
-	ExecutedCall   *AISuggestedCall       `json:"executed_call,omitempty"`
-	ExecutedCalls  []AISuggestedCall      `json:"executed_calls,omitempty"`
-	SuggestedCalls []AISuggestedCall      `json:"suggested_calls,omitempty"`
-	Insights       interface{}            `json:"insights,omitempty"`
-	Guidance       []string               `json:"guidance,omitempty"`
-	ResultCards      []AIResultCard         `json:"result_cards,omitempty"`
-	BDIResult        *BDIResult             `json:"bdi_result,omitempty"`
-	PendingApprovals []AIApprovalRef        `json:"pending_approvals,omitempty"`
-	Sources          []AISourceRef          `json:"sources,omitempty"`
-	UIBlocks        []map[string]interface{} `json:"ui_blocks,omitempty"`
-	FormRequest     map[string]interface{}   `json:"form_request,omitempty"`
-	ApprovalRequest map[string]interface{}   `json:"approval_request,omitempty"`
-	DebugPayload    map[string]interface{}   `json:"debug_payload,omitempty"`
+	TurnID           string                   `json:"turn_id,omitempty"`
+	Intent           string                   `json:"intent"`
+	Action           string                   `json:"action"`
+	Entities         map[string]interface{}   `json:"entities"`
+	Confidence       float64                  `json:"confidence,omitempty"`
+	Ambiguous        bool                     `json:"ambiguous,omitempty"`
+	Clarifications   []string                 `json:"clarifications,omitempty"`
+	Message          string                   `json:"message"`
+	HumanMessage     string                   `json:"human_message,omitempty"`
+	MessageKind      string                   `json:"message_kind,omitempty"`
+	StatusLabel      string                   `json:"status_label,omitempty"`
+	ExecutionMode    string                   `json:"execution_mode,omitempty"`
+	Executed         bool                     `json:"executed"`
+	ExecutedCall     *AISuggestedCall         `json:"executed_call,omitempty"`
+	ExecutedCalls    []AISuggestedCall        `json:"executed_calls,omitempty"`
+	SuggestedCalls   []AISuggestedCall        `json:"suggested_calls,omitempty"`
+	Insights         interface{}              `json:"insights,omitempty"`
+	Guidance         []string                 `json:"guidance,omitempty"`
+	ResultCards      []AIResultCard           `json:"result_cards,omitempty"`
+	BDIResult        *BDIResult               `json:"bdi_result,omitempty"`
+	PendingApprovals []AIApprovalRef          `json:"pending_approvals,omitempty"`
+	Sources          []AISourceRef            `json:"sources,omitempty"`
+	UIBlocks         []map[string]interface{} `json:"ui_blocks,omitempty"`
+	FormRequest      map[string]interface{}   `json:"form_request,omitempty"`
+	ApprovalRequest  map[string]interface{}   `json:"approval_request,omitempty"`
+	DebugPayload     map[string]interface{}   `json:"debug_payload,omitempty"`
 }
 
 // AIApprovalRef provides details of a pending approval.

@@ -123,15 +123,15 @@ type LastSlotOnMachineRow struct {
 // Excludes cancelled slots. Returns nil if no such slot exists.
 func (r *JobSlotRepository) GetLastSlotOnMachineBefore(machineID string, before time.Time) (*LastSlotOnMachineRow, error) {
 	type row struct {
-		SlotID         string    `gorm:"column:slot_id"`
-		JobStepID      string    `gorm:"column:job_step_id"`
-		ProposalID     string    `gorm:"column:proposal_id"`
-		MachineID      string    `gorm:"column:machine_id"`
-		ScheduledStart time.Time `gorm:"column:scheduled_start"`
-		ScheduledEnd   time.Time `gorm:"column:scheduled_end"`
-		QuantityPlanned int      `gorm:"column:quantity_planned"`
-		Status         string    `gorm:"column:status"`
-		ProductID      string    `gorm:"column:product_id"`
+		SlotID          string    `gorm:"column:slot_id"`
+		JobStepID       string    `gorm:"column:job_step_id"`
+		ProposalID      string    `gorm:"column:proposal_id"`
+		MachineID       string    `gorm:"column:machine_id"`
+		ScheduledStart  time.Time `gorm:"column:scheduled_start"`
+		ScheduledEnd    time.Time `gorm:"column:scheduled_end"`
+		QuantityPlanned int       `gorm:"column:quantity_planned"`
+		Status          string    `gorm:"column:status"`
+		ProductID       string    `gorm:"column:product_id"`
 	}
 	var out row
 	err := r.db.Table("job_step_schedule_slots").

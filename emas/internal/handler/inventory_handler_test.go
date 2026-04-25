@@ -58,3 +58,24 @@ func TestInventoryHandler_ConsumeReceive(t *testing.T) {
 		t.Fatalf("consume: got %d", w.Code)
 	}
 }
+
+func TestInventoryHandler_ProductStockListOptions(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	r := testutil.NewTestRouter(db, router.Setup)
+
+	w := testutil.Request(r, "POST", "/api/v1/inventory/product-stock", map[string]interface{}{
+		"product_id":        "P-STOCK-1",
+		"quantity_on_hand":  25,
+		"quantity_reserved": 5,
+		"status":            "available",
+		"storage_location":  "Rack A",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create product stock: got %d, body: %s", w.Code, w.Body.String())
+	}
+
+	w = testutil.Request(r, "GET", "/api/v1/inventory/product-stock?product_id=P-STOCK-1&status=available&sort_by=product_id&sort_dir=asc&limit=10&offset=0&fields=inventory_id,product_id,status", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list product stock with query options: got %d, body: %s", w.Code, w.Body.String())
+	}
+}

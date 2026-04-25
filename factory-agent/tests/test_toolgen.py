@@ -1,6 +1,47 @@
 from agent.toolgen import tools_from_openapi
 
 
+def test_tools_from_openapi_flattens_swagger2_body_parameter_schema():
+    spec = {
+        "swagger": "2.0",
+        "definitions": {
+            "CreateMachineRequest": {
+                "type": "object",
+                "properties": {
+                    "machine_name": {"type": "string"},
+                    "status": {"type": "string"},
+                },
+                "required": ["machine_name"],
+            }
+        },
+        "paths": {
+            "/machines": {
+                "post": {
+                    "operationId": "post__machines",
+                    "summary": "Create a machine",
+                    "parameters": [
+                        {
+                            "name": "request",
+                            "in": "body",
+                            "required": True,
+                            "schema": {"$ref": "#/definitions/CreateMachineRequest"},
+                        }
+                    ],
+                }
+            }
+        },
+    }
+
+    tools = tools_from_openapi(spec)
+    assert len(tools) == 1
+    schema = tools[0].input_schema
+    assert set(schema["properties"].keys()) == {"machine_name", "status"}
+    assert schema["required"] == ["machine_name"]
+    assert schema["x-body-fields"] == ["machine_name", "status"]
+    assert schema["x-body-required"] == ["machine_name"]
+    assert schema["x-param-sources"]["machine_name"] == "body"
+
+
 def test_tools_from_openapi_infers_request_body_schema():
     spec = {
         "openapi": "3.0.0",
@@ -35,6 +76,10 @@ def test_tools_from_openapi_infers_request_body_schema():
     assert schema["type"] == "object"
     assert set(schema["properties"].keys()) == {"id", "status", "reason"}
     assert set(schema["required"]) == {"id", "status"}
+    assert schema["x-path-params"] == ["id"]
+    assert schema["x-body-fields"] == ["reason", "status"]
+    assert schema["x-body-required"] == ["status"]
+    assert schema["x-param-sources"]["status"] == "body"
 
 
 def test_tools_from_openapi_resolves_body_schema_refs():
@@ -92,3 +137,58 @@ def test_tools_from_openapi_marks_path_params_required_even_if_flag_missing():
     schema = tools[0].input_schema
     assert schema["properties"]["id"]["type"] == "string"
     assert "id" in schema["required"]
+
+
+def test_tools_from_openapi_generates_rich_capability_tags():
+    spec = {
+        "openapi": "3.0.0",
+        "paths": {
+            "/chatbot/approval/pending": {
+                "get": {
+                    "operationId": "get_chatbot_approval_pending",
+                    "summary": "List pending approvals",
+                }
+            }
+        },
+    }
+
+    tools = tools_from_openapi(spec)
+    assert len(tools) == 1
+    tags = set(__import__("json").loads(tools[0].capability_tags))
+    assert {"approval", "pending", "list"} <= tags
+
+
+def test_tools_from_openapi_merges_path_level_parameters():
+    spec = {
+        "openapi": "3.0.0",
+        "paths": {
+            "/machines/{id}/capabilities": {
+                "parameters": [
+                    {"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}
+                ],
+                "post": {
+                    "operationId": "assign_capability",
+                    "summary": "Assign a capability",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {"capability": {"type": "string"}},
+                                    "required": ["capability"],
+                                }
+                            }
+                        },
+                    },
+                },
+            }
+        },
+    }
+
+    tools = tools_from_openapi(spec)
+    assert len(tools) == 1
+    schema = tools[0].input_schema
+    assert set(schema["properties"].keys()) == {"id", "capability"}
+    assert set(schema["required"]) == {"id", "capability"}
+    assert schema["x-path-params"] == ["id"]

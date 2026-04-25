@@ -23,6 +23,7 @@
  * @property {string} session_id
  * @property {'user'|'assistant'|'system'|'tool_result'} role
  * @property {string} content
+ * @property {'normal'|'plan'} [mode]
  * @property {string} created_at
  */
 
@@ -31,7 +32,11 @@
  * @property {string} plan_id
  * @property {string} session_id
  * @property {number} version
+ * @property {'execution'|'discovery'} [kind]
+ * @property {'DRAFT'|'PENDING_APPROVAL'|'APPROVED'|'REJECTED'|'COMPLETED'|'INVALIDATED'} [status]
  * @property {string} plan_hash
+ * @property {string|null} [approved_plan_hash]
+ * @property {string|null} [derived_from_plan_id]
  * @property {string|null} [plan_explanation]
  * @property {string|null} [risk_summary]
  */
@@ -40,7 +45,9 @@
  * @typedef {Object} ApprovalResponse
  * @property {string} approval_id
  * @property {string} session_id
- * @property {string} step_id
+ * @property {'step'|'plan'} [subject_type]
+ * @property {string|null} [plan_id]
+ * @property {string|null} [step_id]
  * @property {string} tool_name
  * @property {Object} args
  * @property {string} risk_summary
@@ -70,6 +77,7 @@
  * @property {string} content
  * @property {string} created_at
  * @property {'user'|'assistant'|'system'} role
+ * @property {'normal'|'plan'|null} [mode]
  * @property {string|null} [step_id]
  * @property {string|null} [approval_id]
  * @property {string|null} [tool_name]

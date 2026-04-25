@@ -55,6 +55,10 @@ func (s *MachineService) ListAll() ([]domain.Machine, error) {
 	return s.machineRepo.ListAll()
 }
 
+func (s *MachineService) ListFiltered(f repository.MachineListFilter) ([]domain.Machine, error) {
+	return s.machineRepo.ListFiltered(f)
+}
+
 func (s *MachineService) Update(id string, req dto.UpdateMachineRequest) (*domain.Machine, error) {
 	m, err := s.machineRepo.GetByID(id)
 	if err != nil {

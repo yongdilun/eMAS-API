@@ -73,4 +73,10 @@ func TestDashboardHandler_GetAlerts(t *testing.T) {
 	if resp.Data == nil {
 		t.Error("GetAlerts: data should be array (possibly empty)")
 	}
+
+	// With list options
+	w = testutil.Request(r, "GET", "/api/v1/alerts?type=inventory&sort_by=title&sort_dir=asc&limit=5&offset=0&fields=type,title", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GetAlerts with list options: got %d", w.Code)
+	}
 }
