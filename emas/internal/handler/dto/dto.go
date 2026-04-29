@@ -2,6 +2,82 @@ package dto
 
 import "time"
 
+type MachineStatus string
+type JobPriority string
+type JobStatus string
+type SlotStatus string
+type InventoryStatus string
+type ExpectedArrivalStatus string
+type ProductInventoryStatus string
+type InventoryReservationStatus string
+type ProductStatus string
+type SortDirection string
+
+type MachineListQuery struct {
+	Status      MachineStatus `form:"status" binding:"omitempty,oneof=idle running maintenance offline" enums:"idle,running,maintenance,offline"`
+	MachineType string        `form:"machine_type"`
+	Location    string        `form:"location"`
+	SortBy      string        `form:"sort_by" binding:"omitempty,oneof=machine_id machine_name status created_at"`
+	SortDir     SortDirection `form:"sort_dir" binding:"omitempty,oneof=asc desc" enums:"asc,desc"`
+	Limit       int           `form:"limit" binding:"omitempty,gte=0"`
+	Offset      int           `form:"offset" binding:"omitempty,gte=0"`
+	Fields      string        `form:"fields"`
+}
+
+type JobListQuery struct {
+	ProductID string        `form:"product_id"`
+	Status    JobStatus     `form:"status" binding:"omitempty,oneof=planned scheduled running blocked paused completed cancelled" enums:"planned,scheduled,running,blocked,paused,completed,cancelled"`
+	Priority  JobPriority   `form:"priority" binding:"omitempty,oneof=low medium high urgent" enums:"low,medium,high,urgent"`
+	MachineID string        `form:"machine_id"`
+	Start     string        `form:"start"`
+	End       string        `form:"end"`
+	SortBy    string        `form:"sort_by" binding:"omitempty,oneof=created_at deadline priority quantity_total completion"`
+	SortDir   SortDirection `form:"sort_dir" binding:"omitempty,oneof=asc desc" enums:"asc,desc"`
+	Limit     int           `form:"limit" binding:"omitempty,gte=0"`
+	Offset    int           `form:"offset" binding:"omitempty,gte=0"`
+}
+
+type ProductListQuery struct {
+	Status      ProductStatus `form:"status" binding:"omitempty,oneof=active obsolete" enums:"active,obsolete"`
+	ProductType string        `form:"product_type"`
+	SortBy      string        `form:"sort_by" binding:"omitempty,oneof=product_id product_name created_at"`
+	SortDir     SortDirection `form:"sort_dir" binding:"omitempty,oneof=asc desc" enums:"asc,desc"`
+	Limit       int           `form:"limit" binding:"omitempty,gte=0"`
+	Offset      int           `form:"offset" binding:"omitempty,gte=0"`
+	Fields      string        `form:"fields"`
+}
+
+type InventoryMaterialsListQuery struct {
+	Status  InventoryStatus `form:"status" binding:"omitempty,oneof=in_stock low_stock out_of_stock" enums:"in_stock,low_stock,out_of_stock"`
+	Q       string          `form:"q"`
+	SortBy  string          `form:"sort_by" binding:"omitempty,oneof=material_name current_stock last_updated"`
+	SortDir SortDirection   `form:"sort_dir" binding:"omitempty,oneof=asc desc" enums:"asc,desc"`
+	Limit   int             `form:"limit" binding:"omitempty,gte=0"`
+	Offset  int             `form:"offset" binding:"omitempty,gte=0"`
+}
+
+type ExpectedArrivalListQuery struct {
+	MaterialID string                `form:"material_id"`
+	Status     ExpectedArrivalStatus `form:"status" binding:"omitempty,oneof=pending received cancelled" enums:"pending,received,cancelled"`
+	From       string                `form:"from"`
+	To         string                `form:"to"`
+}
+
+type ProductInventoryListQuery struct {
+	ProductID string                 `form:"product_id"`
+	Status    ProductInventoryStatus `form:"status" binding:"omitempty,oneof=available reserved blocked planned" enums:"available,reserved,blocked,planned"`
+	SortBy    string                 `form:"sort_by" binding:"omitempty,oneof=product_id available_from last_updated quantity_on_hand quantity_reserved status"`
+	SortDir   SortDirection          `form:"sort_dir" binding:"omitempty,oneof=asc desc" enums:"asc,desc"`
+	Limit     int                    `form:"limit" binding:"omitempty,gte=0"`
+	Offset    int                    `form:"offset" binding:"omitempty,gte=0"`
+	Fields    string                 `form:"fields"`
+}
+
+type InventoryReservationListQuery struct {
+	MaterialID string                     `form:"material_id"`
+	Status     InventoryReservationStatus `form:"status" binding:"omitempty,oneof=pending consumed released" enums:"pending,consumed,released"`
+}
+
 // API response wrapper
 type Response struct {
 	Success bool        `json:"success"`
@@ -13,7 +89,7 @@ type Response struct {
 type CreateJobRequest struct {
 	ProductID     string              `json:"product_id" binding:"required"`
 	QuantityTotal int                 `json:"quantity_total" binding:"required,gt=0"`
-	Priority      string              `json:"priority" binding:"omitempty,oneof=low medium high urgent" enums:"low,medium,high,urgent"`
+	Priority      JobPriority         `json:"priority" binding:"omitempty,oneof=low medium high urgent" enums:"low,medium,high,urgent"`
 	Deadline      string              `json:"deadline"` // RFC3339
 	Notes         string              `json:"notes"`
 	Slots         []CreateSlotRequest `json:"slots"` // optional split slots
@@ -37,11 +113,11 @@ type CreateSlotRequest struct {
 }
 
 type UpdateJobRequest struct {
-	QuantityTotal *int       `json:"quantity_total"`
-	Priority      *string    `json:"priority" binding:"omitempty,oneof=low medium high urgent" enums:"low,medium,high,urgent"`
-	Deadline      *time.Time `json:"deadline"`
-	Status        *string    `json:"status"`
-	Notes         *string    `json:"notes"`
+	QuantityTotal *int         `json:"quantity_total"`
+	Priority      *JobPriority `json:"priority" binding:"omitempty,oneof=low medium high urgent" enums:"low,medium,high,urgent"`
+	Deadline      *time.Time   `json:"deadline"`
+	Status        *JobStatus   `json:"status" binding:"omitempty,oneof=planned scheduled running blocked paused completed cancelled" enums:"planned,scheduled,running,blocked,paused,completed,cancelled"`
+	Notes         *string      `json:"notes"`
 }
 
 type UpdateSlotRequest struct {
@@ -53,9 +129,9 @@ type UpdateSlotRequest struct {
 	IsParallel        *bool      `json:"is_parallel"`
 	BatchSequence     *int       `json:"batch_sequence"`
 	// Production / execution (Gap 2 - Start, Pause, Resume, Complete)
-	ActualStart *time.Time `json:"actual_start"`
-	ActualEnd   *time.Time `json:"actual_end"`
-	Status      *string    `json:"status"`
+	ActualStart *time.Time  `json:"actual_start"`
+	ActualEnd   *time.Time  `json:"actual_end"`
+	Status      *SlotStatus `json:"status" binding:"omitempty,oneof=planned running paused completed cancelled" enums:"planned,running,paused,completed,cancelled"`
 }
 
 type JobResponse struct {
@@ -156,15 +232,15 @@ type CreateStepTypeRequest struct {
 }
 
 type UpdateMachineRequest struct {
-	MachineName             *string `json:"machine_name"`
-	MachineType             *string `json:"machine_type"`
-	Location                *string `json:"location"`
-	Status                  *string `json:"status"`
-	CapacityPerHour         *int    `json:"capacity_per_hour"`
-	DefaultSetupTime        *int    `json:"default_setup_time"`
-	DefaultCleaningTime     *int    `json:"default_cleaning_time"`
-	DefaultChangeoverTime   *int    `json:"default_changeover_time"`
-	MaintenanceIntervalDays *int    `json:"maintenance_interval_days"`
+	MachineName             *string        `json:"machine_name"`
+	MachineType             *string        `json:"machine_type"`
+	Location                *string        `json:"location"`
+	Status                  *MachineStatus `json:"status" binding:"omitempty,oneof=idle running maintenance offline" enums:"idle,running,maintenance,offline"`
+	CapacityPerHour         *int           `json:"capacity_per_hour"`
+	DefaultSetupTime        *int           `json:"default_setup_time"`
+	DefaultCleaningTime     *int           `json:"default_cleaning_time"`
+	DefaultChangeoverTime   *int           `json:"default_changeover_time"`
+	MaintenanceIntervalDays *int           `json:"maintenance_interval_days"`
 }
 
 type AssignCapabilityRequest struct {
@@ -241,12 +317,12 @@ type ScheduleExpectedArrivalRequest struct {
 }
 
 type CreateProductInventoryRequest struct {
-	ProductID        string    `json:"product_id" binding:"required"`
-	QuantityOnHand   float64   `json:"quantity_on_hand" binding:"required,gte=0"`
-	QuantityReserved float64   `json:"quantity_reserved"`
-	Status           string    `json:"status"`
-	StorageLocation  string    `json:"storage_location"`
-	AvailableFrom    time.Time `json:"available_from"`
+	ProductID        string                 `json:"product_id" binding:"required"`
+	QuantityOnHand   float64                `json:"quantity_on_hand" binding:"required,gte=0"`
+	QuantityReserved float64                `json:"quantity_reserved"`
+	Status           ProductInventoryStatus `json:"status" binding:"omitempty,oneof=available reserved blocked planned" enums:"available,reserved,blocked,planned"`
+	StorageLocation  string                 `json:"storage_location"`
+	AvailableFrom    time.Time              `json:"available_from"`
 }
 
 type CreateInventoryReservationRequest struct {

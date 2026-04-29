@@ -28,9 +28,11 @@ from .config import Settings
 from .events import AgentEvent, EventBus
 from .memory_manager import MemoryManager
 from .metrics import metrics
+from .presentation import extract_table_from_result
 from .reasoning_pipeline import ReasoningPipeline
 from .schemas import ToolInfo
 from .telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped, log_step_status_changed
+from .intent_verifier import normalize_predicate_value
 
 FailureDecision = Literal["RETRY", "REPLAN", "FAIL_HARD", "AMBIGUOUS"]
 
@@ -54,6 +56,12 @@ class ToolNetworkError(Exception):
 
 class ToolInputError(Exception):
     pass
+
+
+class PredicateVerificationError(Exception):
+    def __init__(self, message: str, *, coverage: dict[str, Any]):
+        self.coverage = coverage
+        super().__init__(message)
 
 
 def _stable_json(obj: Any) -> str:
@@ -99,6 +107,18 @@ def _normalize_tool_args(tool: ToolInfo, args: dict[str, Any]) -> tuple[dict[str
     return path_args, query_args, body_args
 
 
+def _result_items(body: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+    if not isinstance(body, dict):
+        return None
+    for key in ("data", "items"):
+        value = body.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, dict):
+            return [value]
+    return None
+
+
 @dataclass(frozen=True)
 class ExecuteResult:
     status: str
@@ -133,6 +153,9 @@ class ExecutionEngine:
         kwargs: dict[str, Any] = {
             "model": self._settings.tool_result_summary_model,
             "temperature": 0,
+            "timeout": self._settings.llm_json_timeout_s,
+            "max_retries": 0,
+            "max_tokens": self._settings.llm_json_max_tokens,
         }
         if self._settings.openai_base_url:
             kwargs["base_url"] = self._settings.openai_base_url
@@ -265,6 +288,7 @@ class ExecutionEngine:
         fallback = self._summarize_step_result_fallback(tool_name=tool_name, body=body)
         if not isinstance(body, dict):
             return fallback
+        render_context = extract_table_from_result(tool_name=tool_name, result=body)
 
         facts = await self._reasoning.extract_facts(
             intent="tool_result_summary",
@@ -273,7 +297,13 @@ class ExecutionEngine:
             result=body,
         )
         if facts:
-            generated = await self._reasoning.generate_response(intent="tool_result_summary", facts=facts)
+            if not self._reasoning.should_generate_response(facts=facts):
+                return self._reasoning.fallback_response_from_facts(facts=facts)
+            generated = await self._reasoning.generate_response(
+                intent="tool_result_summary",
+                facts=facts,
+                render_context=render_context,
+            )
             if generated:
                 grounded = await self._reasoning.verify_grounding(response_text=generated, facts=facts)
                 if grounded:
@@ -755,6 +785,8 @@ class ExecutionEngine:
         return body, latency_ms
 
     def _classify_error(self, *, err: Exception, tool: ToolInfo, step: PlanStepRow) -> FailureDecision:
+        if isinstance(err, PredicateVerificationError):
+            return "REPLAN"
         if isinstance(err, ToolNetworkError):
             if tool.is_strongly_idempotent and step.retry_count < step.max_retries:
                 return "RETRY"
@@ -778,6 +810,353 @@ class ExecutionEngine:
             return "REPLAN"
 
         return "FAIL_HARD"
+
+    def _contract_clause_for_step(self, *, session: SessionRow, step: PlanStepRow) -> dict[str, Any] | None:
+        context = session.replan_context if isinstance(session.replan_context, dict) else {}
+        contract = context.get("intent_contract") if isinstance(context.get("intent_contract"), dict) else {}
+        clauses = contract.get("clauses") if isinstance(contract.get("clauses"), list) else []
+        for clause in clauses:
+            if not isinstance(clause, dict):
+                continue
+            if clause.get("tool_name") == step.tool_name and int(clause.get("step_index", step.step_index)) == int(step.step_index):
+                return clause
+        if 0 <= int(step.step_index or 0) < len(clauses):
+            candidate = clauses[int(step.step_index or 0)]
+            return candidate if isinstance(candidate, dict) else None
+        return None
+
+    def _verify_predicate_contract(
+        self,
+        *,
+        session: SessionRow,
+        step: PlanStepRow,
+        tool: ToolInfo,
+        body: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if tool.method != "GET":
+            return None
+        clause = self._contract_clause_for_step(session=session, step=step)
+        if not clause:
+            return None
+        predicates = clause.get("predicates") if isinstance(clause.get("predicates"), list) else []
+        requested = [p for p in predicates if isinstance(p, dict) and p.get("requested")]
+        if not requested:
+            return None
+
+        path_args, query_args, body_args = _normalize_tool_args(tool, step.args or {})
+        sent_args = {**body_args, **path_args, **query_args}
+        items = _result_items(body)
+        coverage_predicates: list[dict[str, Any]] = []
+        errors: list[str] = []
+        unknowns = 0
+        verified_count = 0
+        for pred in requested:
+            field = pred.get("field")
+            expected = pred.get("value")
+            current = dict(pred)
+            sent = bool(field and field in sent_args and sent_args.get(field) not in (None, ""))
+            current["sent"] = sent
+            if not pred.get("resolved") or not field:
+                errors.append(f"predicate unresolved: {pred.get('raw_term')}")
+                current["verified"] = False
+            elif not sent:
+                errors.append(f"predicate not sent: {field}={expected}")
+                current["verified"] = False
+            elif items is None:
+                current["verified"] = "unknown"
+                current["reason"] = "response has no comparable list/data field"
+                unknowns += 1
+            elif len(items) == 0:
+                # Empty result is AMBIGUOUS: the filter may be correct (no data)
+                # OR the term was mapped to the wrong field.  Mark unknown_empty so
+                # the repair loop in _repair_empty_predicate_result can investigate
+                # alternative candidate fields before surfacing the result.
+                current["verified"] = "unknown_empty"
+                current["reason"] = "empty result — filter sent but result is ambiguous; repair loop may retry"
+                unknowns += 1
+            else:
+                comparable = [item for item in items if field in item]
+                if not comparable:
+                    current["verified"] = "unknown"
+                    current["reason"] = "response rows do not include comparable field"
+                    unknowns += 1
+                else:
+                    expected_norm = normalize_predicate_value(str(expected))
+                    mismatches = [
+                        item.get(field)
+                        for item in comparable
+                        if normalize_predicate_value(str(item.get(field))) != expected_norm
+                    ]
+                    if mismatches:
+                        current["verified"] = False
+                        current["reason"] = "comparable rows did not match predicate"
+                        errors.append(f"predicate mismatch: {field}={expected}")
+                    else:
+                        current["verified"] = True
+                        current["reason"] = "all comparable rows matched"
+                        verified_count += 1
+            coverage_predicates.append(current)
+
+        total_checks = max(1, len(requested) * 3)
+        met = 0
+        for pred in coverage_predicates:
+            for key in ("requested", "resolved", "sent"):
+                if pred.get(key):
+                    met += 1
+        coverage = {
+            "predicates": coverage_predicates,
+            "predicate_coverage_score": round(met / total_checks, 3),
+            "verified_count": verified_count,
+            "unknown_count": unknowns,
+            "errors": errors,
+        }
+        if errors:
+            log_event(
+                "predicate_verifier_blocked",
+                level="WARNING",
+                session_id=session.session_id,
+                step_id=step.step_id,
+                tool=tool.name,
+                coverage=coverage,
+            )
+            raise PredicateVerificationError("; ".join(errors), coverage=coverage)
+        log_event(
+            "predicate_verifier_passed",
+            session_id=session.session_id,
+            step_id=step.step_id,
+            tool=tool.name,
+            coverage=coverage,
+        )
+        return coverage
+
+    # ------------------------------------------------------------------
+    # Schema-field repair loop
+    # ------------------------------------------------------------------
+
+    def _get_repair_candidates(
+        self,
+        *,
+        session: SessionRow,
+        step: PlanStepRow,
+        tool: ToolInfo,
+        live_coverage: dict[str, Any],
+        tried_args: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Return ordered list of untried (field, value) pairs from the predicate
+        candidate_fields that were recorded during intent verification.
+
+        Uses the live coverage dict (from _verify_predicate_contract) to find
+        predicates that came back unknown_empty, then reads candidate_fields from
+        the planning-time contract clause to discover alternatives."""
+        # Live coverage tells us which predicates are ambiguous right now.
+        live_preds = live_coverage.get("predicates") if isinstance(live_coverage.get("predicates"), list) else []
+        unknown_fields: dict[str, str] = {}  # field -> raw_term
+        for p in live_preds:
+            if not isinstance(p, dict):
+                continue
+            if p.get("verified") == "unknown_empty":
+                field = p.get("field")
+                value = p.get("value") or p.get("raw_term")
+                if field and value:
+                    unknown_fields[str(field)] = str(value)
+        if not unknown_fields:
+            return []
+
+        # The planning-time contract clause holds candidate_fields per predicate.
+        clause = self._contract_clause_for_step(session=session, step=step)
+        contract_preds = clause.get("predicates") if clause and isinstance(clause.get("predicates"), list) else []
+        properties = (tool.input_schema or {}).get("properties", {})
+        candidates: list[dict[str, Any]] = []
+
+        for pred in contract_preds:
+            if not isinstance(pred, dict):
+                continue
+            tried_field = pred.get("field")
+            # Only process predicates whose tried field is ambiguous.
+            if tried_field not in unknown_fields:
+                continue
+            raw_term = unknown_fields[tried_field]
+            for cand in pred.get("candidate_fields") or []:
+                if not isinstance(cand, dict):
+                    continue
+                alt_field = cand.get("field")
+                if not isinstance(alt_field, str) or not alt_field:
+                    continue
+                if alt_field == tried_field:
+                    continue
+                if alt_field not in properties:
+                    continue
+                # Skip if we already tried this field in a previous repair attempt.
+                if tried_args.get(alt_field) not in (None, ""):
+                    continue
+                candidates.append(
+                    {
+                        "field": alt_field,
+                        "value": raw_term,
+                        "confidence": float(cand.get("confidence") or 0.0),
+                        "reason": str(cand.get("reason") or ""),
+                        "tried_field": tried_field,
+                    }
+                )
+        # Highest-confidence alternative first.
+        candidates.sort(key=lambda c: c["confidence"], reverse=True)
+        # Deduplicate by (field, value) while preserving order.
+        seen: set[tuple[str, str]] = set()
+        deduped: list[dict[str, Any]] = []
+        for c in candidates:
+            key = (c["field"], str(c["value"]).lower())
+            if key not in seen:
+                seen.add(key)
+                deduped.append(c)
+        return deduped
+
+    async def _repair_empty_predicate_result(
+        self,
+        *,
+        session: SessionRow,
+        plan: PlanRow,
+        step: PlanStepRow,
+        tool: ToolInfo,
+        original_args: dict[str, Any],
+        original_body: dict[str, Any] | None,
+        live_coverage: dict[str, Any],
+        db: AsyncSession,
+    ) -> dict[str, Any] | None:
+        """Try alternative schema fields when a filtered GET returns empty.
+
+        Iterates through candidate_fields (ranked by confidence) that were
+        produced by the intent verifier.  The first alternative that returns
+        a non-empty result is adopted.  If all alternatives are also empty,
+        returns a synthesised body with a user-friendly explanation.
+
+        Returns the repaired body (ready to assign to step.result), or None
+        if the result should be kept as-is (e.g. repair disabled / no candidates).
+        """
+        tried_args = dict(original_args or {})
+        repair_candidates = self._get_repair_candidates(
+            session=session, step=step, tool=tool, live_coverage=live_coverage, tried_args=tried_args
+        )
+        if not repair_candidates:
+            return None
+
+        # Record the originally tried field(s) from the live coverage.
+        tried_fields: list[str] = []
+        for p in live_coverage.get("predicates") or []:
+            if isinstance(p, dict) and p.get("verified") == "unknown_empty":
+                f = p.get("field")
+                if f and f not in tried_fields:
+                    tried_fields.append(f)
+
+        for candidate in repair_candidates:
+            alt_field: str = candidate["field"]
+            alt_value: Any = candidate["value"]
+            repaired_args = dict(original_args)
+            # Remove the original field binding and apply the alternative.
+            orig_field = candidate.get("tried_field")
+            if orig_field and orig_field in repaired_args:
+                del repaired_args[orig_field]
+            repaired_args[alt_field] = alt_value
+
+            log_event(
+                "predicate_repair_attempt",
+                session_id=session.session_id,
+                step_id=step.step_id,
+                tool=tool.name,
+                alt_field=alt_field,
+                alt_value=alt_value,
+                confidence=candidate["confidence"],
+            )
+
+            # Compute a fresh idempotency key for the repair attempt so it
+            # does not collide with the original step snapshot.
+            repair_idem_key = compute_idempotency_key(
+                session_id=session.session_id,
+                step_index=int(step.step_index or 0),
+                plan_version=plan.version,
+                args=repaired_args,
+            )
+            try:
+                repair_body, _ = await self._execute_tool_call(
+                    tool=tool,
+                    args=repaired_args,
+                    idempotency_key=repair_idem_key,
+                    plan_hash=plan.plan_hash,
+                    plan_version=plan.version,
+                    session_id=session.session_id,
+                    step_id=step.step_id,
+                    db=db,
+                )
+            except Exception as exc:
+                log_event(
+                    "predicate_repair_attempt_failed",
+                    level="WARNING",
+                    session_id=session.session_id,
+                    step_id=step.step_id,
+                    tool=tool.name,
+                    alt_field=alt_field,
+                    error=str(exc),
+                )
+                tried_fields.append(alt_field)
+                continue
+
+            items = _result_items(repair_body)
+            tried_fields.append(alt_field)
+
+            if items is not None and len(items) > 0:
+                # Success — annotate the body so callers can see what happened.
+                if isinstance(repair_body, dict):
+                    repair_body = dict(repair_body)
+                    repair_body["_repair_meta"] = {
+                        "repaired": True,
+                        "original_field": orig_field,
+                        "repaired_field": alt_field,
+                        "repaired_value": alt_value,
+                        "tried_fields": tried_fields,
+                    }
+                    # Carry the new args forward so summaries reference the right field.
+                    step.args = repaired_args
+                log_event(
+                    "predicate_repair_success",
+                    session_id=session.session_id,
+                    step_id=step.step_id,
+                    tool=tool.name,
+                    repaired_field=alt_field,
+                    items_found=len(items),
+                )
+                return repair_body
+
+        # All candidates exhausted — build a helpful terminal message.
+        tried_label = " and ".join(tried_fields) if tried_fields else "available fields"
+        raw_term = (
+            repair_candidates[0]["value"]
+            if repair_candidates
+            else str(next(iter(original_args.values()), "the given filter"))
+        )
+        entity = tool.endpoint.strip("/").split("/")[0] if tool.endpoint else "records"
+        exhausted_body: dict[str, Any] = {
+            "success": True,
+            "data": [],
+            "_repair_meta": {
+                "repaired": False,
+                "exhausted": True,
+                "tried_fields": tried_fields,
+                "raw_term": raw_term,
+            },
+            "_summary": (
+                f'No {entity} found for "{raw_term}" after checking '
+                f"likely fields: {tried_label}."
+            ),
+        }
+        log_event(
+            "predicate_repair_exhausted",
+            level="WARNING",
+            session_id=session.session_id,
+            step_id=step.step_id,
+            tool=tool.name,
+            tried_fields=tried_fields,
+            raw_term=raw_term,
+        )
+        return exhausted_body
 
     async def _claim_step(self, db: AsyncSession, *, step_id: str) -> bool:
         stmt = (
@@ -869,6 +1248,21 @@ class ExecutionEngine:
             user_message=user_message,
         )
         session.pending_user_message = None
+
+        if reason.startswith("predicate_") and session.replan_count > max(0, int(self._settings.intent_repair_attempts)):
+            session.status = "BLOCKED"
+            session.error = f"Predicate repair attempts exceeded ({reason})"
+            session.version += 1
+            await db.commit()
+            await self._push_dlq(
+                db,
+                session_id=session.session_id,
+                step_id=failed_step.step_id if failed_step else None,
+                failure_type="predicate_repair_limit_reached",
+                reason=reason,
+                payload=session.replan_context or {},
+            )
+            return ExecuteResult(status=session.status, current_step_index=session.current_step_index)
 
         if session.replan_count >= self._settings.max_replans:
             session.status = "BLOCKED"
@@ -1168,6 +1562,14 @@ class ExecutionEngine:
                     step.status = "DONE" if existing_snapshot.http_status < 400 else "FAILED"
                     step.result = existing_snapshot.response_body
                 if step.status == "DONE":
+                    coverage = self._verify_predicate_contract(
+                        session=session,
+                        step=step,
+                        tool=tool,
+                        body=step.result if isinstance(step.result, dict) else None,
+                    )
+                    if coverage and isinstance(step.result, dict):
+                        step.result["_predicate_coverage"] = coverage
                     step.result_summary = await self._summarize_step_result(tool_name=tool.name, body=step.result, args=step.args)
                 step.completed_at = datetime.utcnow()
                 self._log_step_status_change(
@@ -1210,6 +1612,43 @@ class ExecutionEngine:
                             step_id=step.step_id,
                             db=db,
                         )
+                        coverage = self._verify_predicate_contract(
+                            session=session,
+                            step=step,
+                            tool=tool,
+                            body=body,
+                        )
+                        # --- Schema-field repair loop ---
+                        # If any predicate came back unknown_empty, the filter was
+                        # sent but the result was empty — ambiguous.  Try alternative
+                        # candidate fields before surfacing the empty result.
+                        if (
+                            coverage is not None
+                            and coverage.get("unknown_count", 0) > 0
+                            and tool.method == "GET"
+                        ):
+                            repaired = await self._repair_empty_predicate_result(
+                                session=session,
+                                plan=plan,
+                                step=step,
+                                tool=tool,
+                                original_args=step.args or {},
+                                original_body=body,
+                                live_coverage=coverage,
+                                db=db,
+                            )
+                            if repaired is not None:
+                                body = repaired
+                                # Re-run predicate verification on the repaired result.
+                                coverage = self._verify_predicate_contract(
+                                    session=session,
+                                    step=step,
+                                    tool=tool,
+                                    body=body,
+                                )
+                        # --------------------------------
+                        if coverage and isinstance(body, dict):
+                            body["_predicate_coverage"] = coverage
                         step.status = "DONE"
                         step.result = body
                         step.result_summary = await self._summarize_step_result(tool_name=tool.name, body=body, args=step.args)
@@ -1326,9 +1765,9 @@ class ExecutionEngine:
                             if status_code == 409:
                                 metrics.inc("payload_mismatch_409_total", labels={"tool": tool.name})
                                 metrics.inc("payload_mismatch_409_rate", labels={"tool": tool.name})
-                            reason = (
-                                f"HTTP {status_code}" if status_code is not None else str(e)
-                            )
+                            reason = f"HTTP {status_code}" if status_code is not None else str(e)
+                            if isinstance(e, PredicateVerificationError):
+                                reason = f"predicate_mismatch: {reason}"
                             return await self._trigger_replan(
                                 db,
                                 session=session,

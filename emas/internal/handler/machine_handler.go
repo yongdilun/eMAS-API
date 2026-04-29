@@ -81,11 +81,11 @@ func (h *MachineHandler) GetByID(c *gin.Context) {
 // @Tags machines
 // @Accept json
 // @Produce json
-// @Param status query string false "Filter by status"
+// @Param status query string false "Filter by status" Enums(idle,running,maintenance,offline)
 // @Param machine_type query string false "Filter by machine type"
 // @Param location query string false "Filter by location"
 // @Param sort_by query string false "Field to sort by (machine_id, machine_name, status, created_at)"
-// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param sort_dir query string false "Sort direction (asc, desc)" Enums(asc,desc)
 // @Param limit query int false "Limit number of results"
 // @Param offset query int false "Offset for pagination"
 // @Param fields query string false "Comma-separated fields to return"
@@ -93,23 +93,22 @@ func (h *MachineHandler) GetByID(c *gin.Context) {
 // @Failure 500 {object} dto.Response
 // @Router /machines [get]
 func (h *MachineHandler) List(c *gin.Context) {
-	var f repository.MachineListFilter
-	f.Status = c.Query("status")
-	f.MachineType = c.Query("machine_type")
-	f.Location = c.Query("location")
-	f.SortBy = c.Query("sort_by")
-	f.SortDir = c.Query("sort_dir")
-	f.Fields = c.Query("fields")
-
-	if v := c.Query("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Limit = n
-		}
+	var query dto.MachineListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Response{Success: false, Error: err.Error()})
+		return
 	}
-	if v := c.Query("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Offset = n
-		}
+	var f repository.MachineListFilter
+	f.Status = string(query.Status)
+	f.MachineType = query.MachineType
+	f.Location = query.Location
+	f.SortBy = query.SortBy
+	f.SortDir = string(query.SortDir)
+	f.Fields = query.Fields
+	f.Limit = query.Limit
+	f.Offset = query.Offset
+	if f.SortDir == "" {
+		f.SortDir = "asc"
 	}
 
 	machines, err := h.machineService.ListFiltered(f)

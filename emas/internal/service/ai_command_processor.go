@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"net/url"
 )
 
 // AICommandProcessor processes natural language commands and optionally executes read-only insights.
@@ -425,16 +426,28 @@ func (p *AICommandProcessor) handleQueryStatus(res *dto.AICommandResponse, raw s
 			return
 		}
 		if resource == "jobs" {
-			res.SuggestedCalls = []dto.AISuggestedCall{
-				{Method: "GET", Path: "/api/v1/jobs", Purpose: "List all jobs."},
+			if route, ok := queryRoutes["jobs"]; ok {
+				val := ValidateQueryEntities(res.Entities, route.ParamsMeta)
+				path := buildQueryParams(route.Path, val.AcceptedParams)
+				res.SuggestedCalls = []dto.AISuggestedCall{
+					{Method: "GET", Path: path, Purpose: "List all jobs."},
+				}
+				if len(val.RejectedParams) > 0 {
+					res.Message += generateRejectionMessage(val.RejectedParams)
+				}
 			}
 			return
 		}
 	}
 
-	if resource == "machines" {
+	if route, ok := queryRoutes[resource]; ok {
+		val := ValidateQueryEntities(res.Entities, route.ParamsMeta)
+		path := buildQueryParams(route.Path, val.AcceptedParams)
 		res.SuggestedCalls = []dto.AISuggestedCall{
-			{Method: "GET", Path: "/api/v1/machines", Purpose: "List machines and their status."},
+			{Method: "GET", Path: path, Purpose: "List " + resource + " and their status."},
+		}
+		if len(val.RejectedParams) > 0 {
+			res.Message += generateRejectionMessage(val.RejectedParams)
 		}
 		return
 	}
@@ -797,6 +810,32 @@ func entityStr(entities map[string]interface{}, keys ...string) string {
 	}
 	return ""
 }
+
+func buildQueryParams(basePath string, accepted map[string]string) string {
+	u, err := url.Parse(basePath)
+	if err != nil {
+		return basePath
+	}
+	q := u.Query()
+	for k, v := range accepted {
+		q.Add(k, v)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+func generateRejectionMessage(rejected []RejectedParam) string {
+	var msgs []string
+	for _, rp := range rejected {
+		msg := fmt.Sprintf("\n- '%s' is not supported.", rp.Field)
+		if rp.Reason == "Invalid value" && len(rp.AllowedValues) > 0 {
+			msg = fmt.Sprintf("\n- '%s' must be one of: %s.", rp.Field, strings.Join(rp.AllowedValues, ", "))
+		}
+		msgs = append(msgs, msg)
+	}
+	return "\n\nNote: The following filters could not be applied:" + strings.Join(msgs, "")
+}
+
 
 func entityFloat(entities map[string]interface{}, k string) float64 {
 	if v, ok := entities[k]; ok {

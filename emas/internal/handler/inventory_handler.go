@@ -6,7 +6,6 @@ import (
 	"emas/internal/repository"
 	"emas/internal/service"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -115,26 +114,34 @@ func (h *InventoryHandler) GetMaterial(c *gin.Context) {
 // @Tags inventory
 // @Accept json
 // @Produce json
+// @Param status query string false "Filter by status" Enums(in_stock,low_stock,out_of_stock)
+// @Param q query string false "Search material name"
+// @Param sort_by query string false "Field to sort by" Enums(material_name,current_stock,last_updated)
+// @Param sort_dir query string false "Sort direction" Enums(asc,desc)
+// @Param limit query int false "Limit number of results"
+// @Param offset query int false "Offset for pagination"
 // @Success 200 {object} dto.Response{data=[]domain.InventoryMaterials}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /inventory/materials [get]
 func (h *InventoryHandler) ListMaterials(c *gin.Context) {
-	var f repository.InventoryListFilter
-	f.Status = c.Query("status")
-	f.NameLike = c.Query("q")
-	f.SortBy = c.DefaultQuery("sort_by", "material_name")
-	f.SortDir = c.DefaultQuery("sort_dir", "asc")
-
-	if v := c.Query("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Limit = n
-		}
+	var query dto.InventoryMaterialsListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Response{Success: false, Error: err.Error()})
+		return
 	}
-	if v := c.Query("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Offset = n
-		}
+	var f repository.InventoryListFilter
+	f.Status = string(query.Status)
+	f.NameLike = query.Q
+	f.SortBy = query.SortBy
+	f.SortDir = string(query.SortDir)
+	f.Limit = query.Limit
+	f.Offset = query.Offset
+	if f.SortBy == "" {
+		f.SortBy = "material_name"
+	}
+	if f.SortDir == "" {
+		f.SortDir = "asc"
 	}
 
 	materials, err := h.inventoryService.ListMaterialsFiltered(f)
@@ -174,20 +181,32 @@ func (h *InventoryHandler) ScheduleExpectedArrival(c *gin.Context) {
 // @Tags inventory
 // @Accept json
 // @Produce json
+// @Param material_id query string false "Filter by material ID"
+// @Param status query string false "Filter by status" Enums(pending,received,cancelled)
+// @Param from query string false "RFC3339 start"
+// @Param to query string false "RFC3339 end"
 // @Success 200 {object} dto.Response{data=[]domain.InventoryExpectedArrival}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /inventory/expected-arrivals [get]
 func (h *InventoryHandler) ListExpectedArrivals(c *gin.Context) {
-	materialID := c.Query("material_id")
-	status := c.DefaultQuery("status", domain.ExpectedArrivalStatusPending)
+	var query dto.ExpectedArrivalListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Response{Success: false, Error: err.Error()})
+		return
+	}
+	materialID := query.MaterialID
+	status := string(query.Status)
+	if status == "" {
+		status = domain.ExpectedArrivalStatusPending
+	}
 	var from, to *time.Time
-	if v := c.Query("from"); v != "" {
+	if v := query.From; v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			from = &t
 		}
 	}
-	if v := c.Query("to"); v != "" {
+	if v := query.To; v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			to = &t
 		}
@@ -230,9 +249,9 @@ func (h *InventoryHandler) CreateProductInventory(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param product_id query string false "Filter by product ID"
-// @Param status query string false "Filter by status"
+// @Param status query string false "Filter by status" Enums(available,reserved,blocked,planned)
 // @Param sort_by query string false "Field to sort by (product_id, available_from, last_updated, quantity_on_hand, quantity_reserved, status)"
-// @Param sort_dir query string false "Sort direction (asc, desc)"
+// @Param sort_dir query string false "Sort direction (asc, desc)" Enums(asc,desc)
 // @Param limit query int false "Limit number of results"
 // @Param offset query int false "Offset for pagination"
 // @Param fields query string false "Comma-separated fields to return"
@@ -241,21 +260,24 @@ func (h *InventoryHandler) CreateProductInventory(c *gin.Context) {
 // @Failure 500 {object} dto.Response
 // @Router /inventory/product-stock [get]
 func (h *InventoryHandler) ListProductInventory(c *gin.Context) {
-	var f repository.ProductInventoryListFilter
-	f.ProductID = c.Query("product_id")
-	f.Status = c.Query("status")
-	f.SortBy = c.DefaultQuery("sort_by", "product_id")
-	f.SortDir = c.DefaultQuery("sort_dir", "asc")
-	f.Fields = c.Query("fields")
-	if v := c.Query("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Limit = n
-		}
+	var query dto.ProductInventoryListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Response{Success: false, Error: err.Error()})
+		return
 	}
-	if v := c.Query("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Offset = n
-		}
+	var f repository.ProductInventoryListFilter
+	f.ProductID = query.ProductID
+	f.Status = string(query.Status)
+	f.SortBy = query.SortBy
+	f.SortDir = string(query.SortDir)
+	f.Fields = query.Fields
+	f.Limit = query.Limit
+	f.Offset = query.Offset
+	if f.SortBy == "" {
+		f.SortBy = "product_id"
+	}
+	if f.SortDir == "" {
+		f.SortDir = "asc"
 	}
 
 	list, err := h.inventoryService.ListProductInventoryFiltered(f)
@@ -291,8 +313,16 @@ func (h *InventoryHandler) CreateReservation(c *gin.Context) {
 }
 
 func (h *InventoryHandler) ListReservations(c *gin.Context) {
-	materialID := c.Query("material_id")
-	status := c.DefaultQuery("status", domain.InventoryReservationStatusPending)
+	var query dto.InventoryReservationListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Response{Success: false, Error: err.Error()})
+		return
+	}
+	materialID := query.MaterialID
+	status := string(query.Status)
+	if status == "" {
+		status = domain.InventoryReservationStatusPending
+	}
 	list, err := h.inventoryService.ListReservations(materialID, status)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})

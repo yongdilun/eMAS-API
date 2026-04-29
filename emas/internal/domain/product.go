@@ -15,9 +15,9 @@ type Product struct {
 	Description   string    `gorm:"column:description;type:text"`
 	UnitOfMeasure string    `gorm:"column:unit_of_measure;size:50"` // pcs / kg / liter
 	ProductType   string    `gorm:"column:product_type;size:100"`
-	Status        string    `gorm:"column:status;size:20"`   // active, obsolete
-	FormulaID     string    `gorm:"column:formula_id;size:50;index"` // linked formula for BOM/recipe
-	ProcessID     string    `gorm:"column:process_id;size:50;index"` // active routing for scheduling
+	Status        string    `gorm:"column:status;size:20" json:"status" enums:"active,obsolete"` // active, obsolete
+	FormulaID     string    `gorm:"column:formula_id;size:50;index"`                             // linked formula for BOM/recipe
+	ProcessID     string    `gorm:"column:process_id;size:50;index"`                             // active routing for scheduling
 	CreatedAt     time.Time `gorm:"column:created_at"`
 }
 

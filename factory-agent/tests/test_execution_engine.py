@@ -22,6 +22,59 @@ class FakeEventBus:
         return
 
 
+def _machine_list_tool() -> ToolInfo:
+    return ToolInfo(
+        name="get__machines",
+        description="List machines",
+        endpoint="/machines",
+        method="GET",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "location": {"type": "string"},
+                "machine_type": {"type": "string"},
+            },
+        },
+        query_params=["location", "machine_type"],
+        param_sources={"location": "query", "machine_type": "query"},
+        is_read_only=True,
+        requires_approval=False,
+        side_effect_level="NONE",
+        is_concurrency_safe=True,
+        is_strongly_idempotent=False,
+        capability_tags=["machine", "list"],
+    )
+
+
+def _paint_shop_contract() -> dict:
+    return {
+        "intent": "find all Paint Shop machine",
+        "clauses": [
+            {
+                "step_index": 0,
+                "clause": "find all Paint Shop machine",
+                "tool_name": "get__machines",
+                "args": {"location": "Paint Shop"},
+                "predicates": [
+                    {
+                        "raw_term": "Paint Shop",
+                        "normalized_term": "paint shop",
+                        "field": "location",
+                        "value": "Paint Shop",
+                        "confidence": 0.9,
+                        "source": "heuristic",
+                        "requested": True,
+                        "resolved": True,
+                        "sent": True,
+                        "verified": "unknown",
+                    }
+                ],
+                "predicate_coverage_score": 1.0,
+            }
+        ],
+    }
+
+
 async def _seed_core(db_session, *, session_id: str, plan_id: str, plan_hash: str, plan_version: int):
     from models import Plan, Session, generate_uuid
 
@@ -128,6 +181,118 @@ async def test_execution_happy_path_completes(db_session, respx_mock):
     sess2 = await db_session.get(Session, session_id)
     step = (await db_session.execute(select(PlanStep))).scalars().first()
     assert sess2.status == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_predicate_verifier_passes_empty_result_when_filter_sent(db_session, respx_mock):
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        redis_url=None,
+        go_api_base_url="http://testserver",
+        worker_count=0,
+        session_queue_size=10,
+        max_plan_steps=10,
+        max_session_steps=50,
+        max_replans=5,
+        max_llm_calls=20,
+        max_session_duration_s=1800,
+        http_timeout_s=1.0,
+    )
+    engine = ExecutionEngine(settings, FakeEventBus())
+    session_id = "sess-predicate-empty"
+    plan_id = "plan-predicate-empty"
+    plan_hash = "hash-predicate-empty"
+    plan_version = 1
+    sess, _ = await _seed_core(db_session, session_id=session_id, plan_id=plan_id, plan_hash=plan_hash, plan_version=plan_version)
+    sess.replan_context = {"intent_contract": _paint_shop_contract()}
+    await db_session.commit()
+    await _seed_step(db_session, plan_id=plan_id, session_id=session_id, step_index=0, tool_name="get__machines", args={"location": "Paint Shop"}, plan_version=plan_version)
+
+    respx_mock.get("http://testserver/machines", params={"location": "Paint Shop"}).respond(200, json={"success": True, "data": []})
+    await engine.execute_until_blocked(db_session, session=sess, tools_by_name={"get__machines": _machine_list_tool()})
+
+    from sqlalchemy import select
+    from models import PlanStep, Session
+
+    sess2 = await db_session.get(Session, session_id)
+    step = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert sess2.status == "COMPLETED"
+    assert step.result["_predicate_coverage"]["predicates"][0]["verified"] == "unknown_empty"
+
+
+@pytest.mark.asyncio
+async def test_predicate_verifier_replans_when_requested_filter_not_sent(db_session, respx_mock):
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        redis_url=None,
+        go_api_base_url="http://testserver",
+        worker_count=0,
+        session_queue_size=10,
+        max_plan_steps=10,
+        max_session_steps=50,
+        max_replans=5,
+        max_llm_calls=20,
+        max_session_duration_s=1800,
+        http_timeout_s=1.0,
+    )
+    engine = ExecutionEngine(settings, FakeEventBus())
+    session_id = "sess-predicate-unsent"
+    plan_id = "plan-predicate-unsent"
+    plan_hash = "hash-predicate-unsent"
+    plan_version = 1
+    sess, _ = await _seed_core(db_session, session_id=session_id, plan_id=plan_id, plan_hash=plan_hash, plan_version=plan_version)
+    sess.replan_context = {"intent_contract": _paint_shop_contract()}
+    await db_session.commit()
+    await _seed_step(db_session, plan_id=plan_id, session_id=session_id, step_index=0, tool_name="get__machines", args={}, plan_version=plan_version)
+
+    respx_mock.get("http://testserver/machines").respond(200, json={"success": True, "data": [{"machine_id": "M-1", "location": "Paint Shop"}]})
+    await engine.execute_until_blocked(db_session, session=sess, tools_by_name={"get__machines": _machine_list_tool()})
+
+    from sqlalchemy import select
+    from models import PlanStep, Session
+
+    sess2 = await db_session.get(Session, session_id)
+    step = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert sess2.status == "PLANNING"
+    assert step.status == "FAILED"
+    assert "predicate_mismatch" in (sess2.error or "")
+
+
+@pytest.mark.asyncio
+async def test_predicate_verifier_marks_missing_comparable_field_unknown(db_session, respx_mock):
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        redis_url=None,
+        go_api_base_url="http://testserver",
+        worker_count=0,
+        session_queue_size=10,
+        max_plan_steps=10,
+        max_session_steps=50,
+        max_replans=5,
+        max_llm_calls=20,
+        max_session_duration_s=1800,
+        http_timeout_s=1.0,
+    )
+    engine = ExecutionEngine(settings, FakeEventBus())
+    session_id = "sess-predicate-unknown"
+    plan_id = "plan-predicate-unknown"
+    plan_hash = "hash-predicate-unknown"
+    plan_version = 1
+    sess, _ = await _seed_core(db_session, session_id=session_id, plan_id=plan_id, plan_hash=plan_hash, plan_version=plan_version)
+    sess.replan_context = {"intent_contract": _paint_shop_contract()}
+    await db_session.commit()
+    await _seed_step(db_session, plan_id=plan_id, session_id=session_id, step_index=0, tool_name="get__machines", args={"location": "Paint Shop"}, plan_version=plan_version)
+
+    respx_mock.get("http://testserver/machines", params={"location": "Paint Shop"}).respond(200, json={"success": True, "data": [{"machine_id": "M-1"}]})
+    await engine.execute_until_blocked(db_session, session=sess, tools_by_name={"get__machines": _machine_list_tool()})
+
+    from sqlalchemy import select
+    from models import PlanStep, Session
+
+    sess2 = await db_session.get(Session, session_id)
+    step = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert sess2.status == "COMPLETED"
+    assert step.result["_predicate_coverage"]["predicates"][0]["verified"] == "unknown"
     assert step.status == "DONE"
 
 

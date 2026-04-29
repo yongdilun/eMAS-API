@@ -111,6 +111,16 @@ func TestJobHandler_ListWithFilters(t *testing.T) {
 	if !success {
 		t.Fatal("list filtered failed")
 	}
+
+	w = testutil.Request(r, "GET", "/api/v1/jobs?status=unknown", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("list invalid status: got %d, want 400", w.Code)
+	}
+
+	w = testutil.Request(r, "GET", "/api/v1/jobs?priority=critical", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("list invalid priority: got %d, want 400", w.Code)
+	}
 }
 
 func TestJobHandler_GetNotFound(t *testing.T) {
@@ -131,5 +141,31 @@ func TestJobHandler_CreateValidationError(t *testing.T) {
 	})
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("create invalid: got %d, want 400", w.Code)
+	}
+
+	w = testutil.Request(r, "POST", "/api/v1/products", map[string]interface{}{
+		"product_id": "P-TEST-INVALID", "product_name": "Test Product", "unit_of_measure": "pcs",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create product for invalid status update: got %d, want 201", w.Code)
+	}
+
+	w = testutil.Request(r, "POST", "/api/v1/jobs", map[string]interface{}{
+		"product_id": "P-TEST-INVALID", "quantity_total": 10,
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create job for invalid status update: got %d, want 201", w.Code)
+	}
+	success, data, _ := testutil.DecodeResponse(w)
+	if !success {
+		t.Fatal("job create failed")
+	}
+	jobID := data.(map[string]interface{})["job_id"].(string)
+
+	w = testutil.Request(r, "PUT", "/api/v1/jobs/"+jobID, map[string]interface{}{
+		"status": "unknown",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("update invalid status: got %d, want 400", w.Code)
 	}
 }

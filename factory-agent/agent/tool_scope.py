@@ -12,23 +12,21 @@ class ScopedTools:
     tool_names: list[str]
 
 
+import json
+import os
+
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "ai_domain_config.json")
+try:
+    with open(_CONFIG_PATH, "r") as f:
+        _AI_CONFIG = json.load(f).get("python", {})
+except Exception:
+    _AI_CONFIG = {}
+
 _WORD_RE = re.compile(r"[a-zA-Z0-9_]+")
-_ACTION_TOKENS = {
-    "create": {"create", "new", "add", "open"},
-    "update": {"update", "set", "change", "assign", "record", "apply", "run", "reschedule", "move"},
-    "delete": {"delete", "remove"},
-    "read": {"check", "show", "list", "get", "find", "view", "inspect", "status", "lookup"},
-    "approval": {"approve", "reject", "approval", "approvals", "pending"},
-}
-_METHOD_HINTS = {
-    "GET": {"read"},
-    "POST": {"create"},
-    "PUT": {"update"},
-    "PATCH": {"update"},
-    "DELETE": {"delete"},
-}
-_AUXILIARY_TAGS = {"list", "lookup", "status", "pending", "create", "update", "delete", "approve", "reject"}
-_DOMAIN_TAGS = {"machine", "job", "inventory", "approval", "proposal", "arrival", "product", "line", "slot"}
+_ACTION_TOKENS = {k: set(v) for k, v in _AI_CONFIG.get("action_tokens", {}).items()}
+_METHOD_HINTS = {k: set(v) for k, v in _AI_CONFIG.get("method_hints", {}).items()}
+_AUXILIARY_TAGS = set(_AI_CONFIG.get("auxiliary_tags", []))
+_DOMAIN_TAGS = set(_AI_CONFIG.get("domain_tags", []))
 _COMPOUND_SEPARATOR_RE = re.compile(
     r"\b(?:and then|then|next|after that|afterwards|finally)\b|[;\n.]+",
     re.IGNORECASE,

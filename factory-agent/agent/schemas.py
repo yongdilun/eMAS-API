@@ -10,6 +10,7 @@ SessionStatus = Literal[
     "IDLE",
     "PLANNING",
     "WAITING_APPROVAL",
+    "WAITING_CONFIRMATION",
     "EXECUTING",
     "BLOCKED",
     "FAILED",
@@ -187,6 +188,11 @@ class ApprovalDecisionRequest(BaseModel):
     args: dict[str, Any] | None = None
 
 
+class ConfirmationDecisionRequest(BaseModel):
+    field: str
+    value: str | None = None
+
+
 class ApprovalResponse(BaseModel):
     approval_id: str
     session_id: str
@@ -215,6 +221,8 @@ class TimelineEventResponse(BaseModel):
         "tool_result",
         "approval_required",
         "approval_decided",
+        "confirmation_required",
+        "confirmation_decided",
         "replan_requested",
         "session_blocked",
         "session_failed",

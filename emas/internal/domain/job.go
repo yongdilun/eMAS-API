@@ -33,9 +33,9 @@ type Job struct {
 	ProductID         string             `gorm:"column:product_id;size:50;index" json:"product_id"`
 	QuantityTotal     int                `gorm:"column:quantity_total" json:"quantity_total"`
 	QuantityCompleted int                `gorm:"column:quantity_completed" json:"quantity_completed"`
-	Priority          string             `gorm:"column:priority;size:20" json:"priority"`
+	Priority          string             `gorm:"column:priority;size:20" json:"priority" enums:"low,medium,high,urgent"`
 	Deadline          time.Time          `gorm:"column:deadline" json:"deadline"`
-	Status            string             `gorm:"column:status;size:20" json:"status"`
+	Status            string             `gorm:"column:status;size:20" json:"status" enums:"planned,scheduled,running,blocked,paused,completed,cancelled"`
 	CreatedAt         time.Time          `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt         time.Time          `gorm:"column:updated_at" json:"updated_at"`
 	Notes             string             `gorm:"column:notes;type:text" json:"notes"`
@@ -61,7 +61,7 @@ type JobSteps struct {
 	StepSequence      int    `gorm:"column:step_sequence" json:"step_sequence"`
 	QuantityTarget    int    `gorm:"column:quantity_target" json:"quantity_target"`
 	QuantityCompleted int    `gorm:"column:quantity_completed" json:"quantity_completed"`
-	Status            string `gorm:"column:status;size:20" json:"status"`
+	Status            string `gorm:"column:status;size:20" json:"status" enums:"pending,scheduled,running,blocked,completed"`
 }
 
 func (JobSteps) TableName() string { return "job_steps" }

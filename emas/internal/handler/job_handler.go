@@ -6,7 +6,6 @@ import (
 	"emas/internal/service"
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -81,46 +80,49 @@ func (h *JobHandler) ListSteps(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param product_id query string false "Filter by product"
-// @Param status query string false "Filter by status"
-// @Param priority query string false "Filter by priority (low|medium|high|urgent)"
+// @Param status query string false "Filter by status" Enums(planned,scheduled,running,blocked,paused,completed,cancelled)
+// @Param priority query string false "Filter by priority" Enums(low,medium,high,urgent)
 // @Param machine_id query string false "Filter by machine"
 // @Param start query string false "RFC3339 start"
 // @Param end query string false "RFC3339 end"
 // @Param sort_by query string false "created_at|deadline|priority|quantity_total|completion"
-// @Param sort_dir query string false "asc|desc"
+// @Param sort_dir query string false "asc|desc" Enums(asc,desc)
 // @Param limit query int false "Page size"
 // @Param offset query int false "Offset"
 // @Success 200 {object} dto.Response{data=[]domain.Job}
 // @Failure 500 {object} dto.Response
 // @Router /jobs [get]
 func (h *JobHandler) List(c *gin.Context) {
+	var query dto.JobListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Response{Success: false, Error: err.Error()})
+		return
+	}
 	var f repository.JobListFilter
-	f.ProductID = c.Query("product_id")
-	f.Status = c.Query("status")
-	f.Priority = c.Query("priority")
-	f.MachineID = c.Query("machine_id")
-	f.SortBy = c.DefaultQuery("sort_by", "created_at")
-	f.SortDir = c.DefaultQuery("sort_dir", "desc")
+	f.ProductID = query.ProductID
+	f.Status = string(query.Status)
+	f.Priority = string(query.Priority)
+	f.MachineID = query.MachineID
+	f.SortBy = query.SortBy
+	f.SortDir = string(query.SortDir)
 
-	if v := c.Query("start"); v != "" {
+	if v := query.Start; v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			f.Start = &t
 		}
 	}
-	if v := c.Query("end"); v != "" {
+	if v := query.End; v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			f.End = &t
 		}
 	}
-	if v := c.Query("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Limit = n
-		}
+	f.Limit = query.Limit
+	f.Offset = query.Offset
+	if f.SortBy == "" {
+		f.SortBy = "created_at"
 	}
-	if v := c.Query("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Offset = n
-		}
+	if f.SortDir == "" {
+		f.SortDir = "desc"
 	}
 
 	jobs, err := h.jobService.ListFiltered(f)

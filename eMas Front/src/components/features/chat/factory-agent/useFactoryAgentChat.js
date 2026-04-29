@@ -203,7 +203,7 @@ export function useFactoryAgentChat() {
 
   const sessionPollIntervalMs = useMemo(() => {
     if (!session?.status) return null
-    if ([FACTORY_AGENT_STATUS.PLANNING, FACTORY_AGENT_STATUS.EXECUTING, FACTORY_AGENT_STATUS.WAITING_APPROVAL].includes(session.status)) {
+    if ([FACTORY_AGENT_STATUS.PLANNING, FACTORY_AGENT_STATUS.EXECUTING, FACTORY_AGENT_STATUS.WAITING_APPROVAL, FACTORY_AGENT_STATUS.WAITING_CONFIRMATION].includes(session.status)) {
       return 1500
     }
     if (session.status === FACTORY_AGENT_STATUS.BLOCKED) return 4000
@@ -333,6 +333,9 @@ export function useFactoryAgentChat() {
 
       if ([FACTORY_AGENT_STATUS.IDLE, FACTORY_AGENT_STATUS.BLOCKED, FACTORY_AGENT_STATUS.FAILED, FACTORY_AGENT_STATUS.COMPLETED].includes(current.status)) {
         await runIntent(current.session_id, text, messageMode)
+      } else if (current.status === FACTORY_AGENT_STATUS.WAITING_CONFIRMATION) {
+        await factoryAgentApi.addMessage(current.session_id, { role: 'user', content: text, mode: messageMode })
+        await safelyRefreshSnapshot(current.session_id)
       } else if (current.status === FACTORY_AGENT_STATUS.WAITING_APPROVAL) {
         await factoryAgentApi.addMessage(current.session_id, { role: 'user', content: text, mode: messageMode })
         const planResp = await factoryAgentApi.createPlan(current.session_id)
@@ -446,6 +449,28 @@ export function useFactoryAgentChat() {
     }
   }, [executeWithRetry, refreshSessionList, safelyRefreshSnapshot, session?.session_id])
 
+  const decideConfirmation = useCallback(async (option) => {
+    if (!session?.session_id || !option?.field) return
+    setError(null)
+    setIsSending(true)
+    try {
+      await factoryAgentApi.confirm(session.session_id, {
+        field: option.field,
+        value: option.value,
+      })
+      const planResp = await factoryAgentApi.createPlan(session.session_id)
+      if (!(planResp?.status === 'COMPLETED')) {
+        await executeWithRetry(session.session_id, { background: messageMode !== 'plan' })
+      }
+      await safelyRefreshSnapshot(session.session_id)
+      await refreshSessionList()
+    } catch (err) {
+      setError(normalizeFactoryAgentError(err, 'Failed to confirm filter'))
+    } finally {
+      setIsSending(false)
+    }
+  }, [executeWithRetry, messageMode, refreshSessionList, safelyRefreshSnapshot, session?.session_id])
+
   const messages = useMemo(() => {
     const serverMessages = timeline.map(toTimelineMessage)
     const merged = [...serverMessages, ...optimisticMessages]
@@ -499,6 +524,7 @@ export function useFactoryAgentChat() {
     handleSend,
     handleCancel,
     decideApproval,
+    decideConfirmation,
     startNewSession,
     switchSession,
     renameSession,

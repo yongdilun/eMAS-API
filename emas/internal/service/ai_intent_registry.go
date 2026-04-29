@@ -1,9 +1,23 @@
 package service
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
+	"emas/internal/handler/dto"
 )
+
+type EndpointRoute struct {
+	Path       string
+	ParamsMeta map[string]QueryParamMeta
+}
+
+var queryRoutes = map[string]EndpointRoute{
+	"machines":  {Path: "/api/v1/machines", ParamsMeta: extractQueryParamMeta(dto.MachineListQuery{})},
+	"jobs":      {Path: "/api/v1/jobs", ParamsMeta: extractQueryParamMeta(dto.JobListQuery{})},
+	"products":  {Path: "/api/v1/products", ParamsMeta: extractQueryParamMeta(dto.ProductListQuery{})},
+	"inventory": {Path: "/api/v1/inventory/materials", ParamsMeta: extractQueryParamMeta(dto.InventoryMaterialsListQuery{})},
+}
 
 // ExecutableCall describes a full API call the frontend can execute directly.
 type ExecutableCall struct {
@@ -45,6 +59,19 @@ func ResolveAction(intent string, entities map[string]interface{}) []ExecutableC
 
 	base := "/api/v1"
 	calls := []ExecutableCall{}
+
+	buildQueryFromAccepted := func(basePath string, accepted map[string]string) string {
+		u, err := url.Parse(basePath)
+		if err != nil {
+			return basePath
+		}
+		q := u.Query()
+		for k, v := range accepted {
+			q.Add(k, v)
+		}
+		u.RawQuery = q.Encode()
+		return u.String()
+	}
 
 	switch intent {
 	case "propose_schedule":
@@ -124,17 +151,23 @@ func ResolveAction(intent string, entities map[string]interface{}) []ExecutableC
 					ExecutableCall{Method: "GET", Path: base + "/ai/scheduling/jobs/" + j + "/explanation", Purpose: "Job explanation."},
 				)
 			} else {
-				calls = append(calls, ExecutableCall{Method: "GET", Path: base + "/jobs", Purpose: "List jobs."})
+				if route, ok := queryRoutes["jobs"]; ok {
+					val := ValidateQueryEntities(entities, route.ParamsMeta)
+					path := buildQueryFromAccepted(route.Path, val.AcceptedParams)
+					calls = append(calls, ExecutableCall{Method: "GET", Path: path, Purpose: "List jobs."})
+				}
 			}
-		case "machines":
-			calls = append(calls, ExecutableCall{Method: "GET", Path: base + "/machines", Purpose: "List machines."})
-		case "inventory":
-			calls = append(calls, ExecutableCall{Method: "GET", Path: base + "/inventory/materials", Purpose: "List materials."})
 		default:
-			calls = append(calls,
-				ExecutableCall{Method: "GET", Path: base + "/dashboard/kpis", Purpose: "Dashboard KPIs."},
-				ExecutableCall{Method: "GET", Path: base + "/alerts", Purpose: "Active alerts."},
-			)
+			if route, ok := queryRoutes[resource]; ok {
+				val := ValidateQueryEntities(entities, route.ParamsMeta)
+				path := buildQueryFromAccepted(route.Path, val.AcceptedParams)
+				calls = append(calls, ExecutableCall{Method: "GET", Path: path, Purpose: "List " + resource + "."})
+			} else {
+				calls = append(calls,
+					ExecutableCall{Method: "GET", Path: base + "/dashboard/kpis", Purpose: "Dashboard KPIs."},
+					ExecutableCall{Method: "GET", Path: base + "/alerts", Purpose: "Active alerts."},
+				)
+			}
 		}
 	case "consume_material":
 		mat := getStr("material")

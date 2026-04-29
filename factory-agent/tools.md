@@ -1678,10 +1678,38 @@
 `json
 {
   "type": "object",
-  "properties": {},
+  "properties": {
+    "material_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "received",
+        "cancelled"
+      ]
+    },
+    "from": {
+      "type": "string"
+    },
+    "to": {
+      "type": "string"
+    }
+  },
   "x-path-params": [],
-  "x-query-params": [],
-  "x-param-sources": {}
+  "x-query-params": [
+    "material_id",
+    "status",
+    "from",
+    "to"
+  ],
+  "x-param-sources": {
+    "material_id": "query",
+    "status": "query",
+    "from": "query",
+    "to": "query"
+  }
 }
 `
 **Output Schema**:
@@ -1784,10 +1812,57 @@
 `json
 {
   "type": "object",
-  "properties": {},
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "in_stock",
+        "low_stock",
+        "out_of_stock"
+      ]
+    },
+    "q": {
+      "type": "string"
+    },
+    "sort_by": {
+      "type": "string",
+      "enum": [
+        "material_name",
+        "current_stock",
+        "last_updated"
+      ]
+    },
+    "sort_dir": {
+      "type": "string",
+      "enum": [
+        "asc",
+        "desc"
+      ]
+    },
+    "limit": {
+      "type": "integer"
+    },
+    "offset": {
+      "type": "integer"
+    }
+  },
   "x-path-params": [],
-  "x-query-params": [],
-  "x-param-sources": {}
+  "x-query-params": [
+    "status",
+    "q",
+    "sort_by",
+    "sort_dir",
+    "limit",
+    "offset"
+  ],
+  "x-param-sources": {
+    "status": "query",
+    "q": "query",
+    "sort_by": "query",
+    "sort_dir": "query",
+    "limit": "query",
+    "offset": "query"
+  }
 }
 `
 **Output Schema**:
@@ -1952,13 +2027,23 @@
       "type": "string"
     },
     "status": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "available",
+        "reserved",
+        "blocked",
+        "planned"
+      ]
     },
     "sort_by": {
       "type": "string"
     },
     "sort_dir": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "asc",
+        "desc"
+      ]
     },
     "limit": {
       "type": "integer"
@@ -2025,7 +2110,13 @@
       "type": "number"
     },
     "status": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "available",
+        "reserved",
+        "blocked",
+        "planned"
+      ]
     },
     "storage_location": {
       "type": "string"
@@ -2066,7 +2157,13 @@
         "type": "number"
       },
       "status": {
-        "type": "string"
+        "type": "string",
+        "enum": [
+          "available",
+          "reserved",
+          "blocked",
+          "planned"
+        ]
       },
       "storage_location": {
         "type": "string"
@@ -2414,10 +2511,25 @@
       "type": "string"
     },
     "status": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "planned",
+        "scheduled",
+        "running",
+        "blocked",
+        "paused",
+        "completed",
+        "cancelled"
+      ]
     },
     "priority": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "urgent"
+      ]
     },
     "machine_id": {
       "type": "string"
@@ -2432,7 +2544,11 @@
       "type": "string"
     },
     "sort_dir": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "asc",
+        "desc"
+      ]
     },
     "limit": {
       "type": "integer"
@@ -2662,7 +2778,16 @@
       "type": "integer"
     },
     "status": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "planned",
+        "scheduled",
+        "running",
+        "blocked",
+        "paused",
+        "completed",
+        "cancelled"
+      ]
     }
   },
   "required": [
@@ -2702,7 +2827,16 @@
         "type": "integer"
       },
       "status": {
-        "type": "string"
+        "type": "string",
+        "enum": [
+          "planned",
+          "scheduled",
+          "running",
+          "blocked",
+          "paused",
+          "completed",
+          "cancelled"
+        ]
       }
     }
   },
@@ -2809,7 +2943,13 @@
   "type": "object",
   "properties": {
     "status": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "idle",
+        "running",
+        "maintenance",
+        "offline"
+      ]
     },
     "machine_type": {
       "type": "string"
@@ -2821,7 +2961,11 @@
       "type": "string"
     },
     "sort_dir": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "asc",
+        "desc"
+      ]
     },
     "limit": {
       "type": "integer"
@@ -3219,7 +3363,13 @@
       "type": "integer"
     },
     "status": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "idle",
+        "running",
+        "maintenance",
+        "offline"
+      ]
     }
   },
   "required": [
@@ -3269,7 +3419,13 @@
         "type": "integer"
       },
       "status": {
-        "type": "string"
+        "type": "string",
+        "enum": [
+          "idle",
+          "running",
+          "maintenance",
+          "offline"
+        ]
       }
     }
   },
@@ -4304,7 +4460,11 @@
   "type": "object",
   "properties": {
     "status": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "active",
+        "obsolete"
+      ]
     },
     "product_type": {
       "type": "string"
@@ -4313,7 +4473,11 @@
       "type": "string"
     },
     "sort_dir": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "asc",
+        "desc"
+      ]
     },
     "limit": {
       "type": "integer"
@@ -6330,7 +6494,14 @@
       "type": "string"
     },
     "status": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "planned",
+        "running",
+        "paused",
+        "completed",
+        "cancelled"
+      ]
     }
   },
   "required": [
@@ -6385,7 +6556,14 @@
         "type": "string"
       },
       "status": {
-        "type": "string"
+        "type": "string",
+        "enum": [
+          "planned",
+          "running",
+          "paused",
+          "completed",
+          "cancelled"
+        ]
       }
     }
   },

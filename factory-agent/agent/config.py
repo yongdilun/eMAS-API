@@ -21,6 +21,7 @@ class Settings:
 
     # HTTP execution
     http_timeout_s: float
+    intent_repair_attempts: int = 1
     admin_api_key: str = "changeme-admin-key"
     retry_base_delay_s: float = 0.25
     retry_max_delay_s: float = 5.0
@@ -84,6 +85,7 @@ def get_settings() -> Settings:
         max_replans=int(os.getenv("MAX_REPLANS", "5")),
         max_llm_calls=int(os.getenv("MAX_LLM_CALLS", "20")),
         max_session_duration_s=int(os.getenv("MAX_SESSION_DURATION_S", str(60 * 30))),
+        intent_repair_attempts=int(os.getenv("INTENT_REPAIR_ATTEMPTS", "1")),
         http_timeout_s=float(os.getenv("HTTP_TIMEOUT_S", "20")),
         retry_base_delay_s=float(os.getenv("RETRY_BASE_DELAY_S", "0.25")),
         retry_max_delay_s=float(os.getenv("RETRY_MAX_DELAY_S", "5.0")),

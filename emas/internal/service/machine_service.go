@@ -74,7 +74,7 @@ func (s *MachineService) Update(id string, req dto.UpdateMachineRequest) (*domai
 		m.Location = *req.Location
 	}
 	if req.Status != nil {
-		m.Status = *req.Status
+		m.Status = string(*req.Status)
 	}
 	if req.CapacityPerHour != nil {
 		m.CapacityPerHour = *req.CapacityPerHour

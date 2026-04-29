@@ -5,7 +5,11 @@ import (
 	"emas/internal/handler/dto"
 	"emas/internal/repository"
 	"emas/pkg/id"
+	"encoding/json"
 	"errors"
+	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -186,6 +190,26 @@ var validSlotStatuses = map[string]bool{
 	domain.SlotStatusCancelled: true,
 }
 
+type AIDomainConfig struct {
+	ValidSlotStatuses    map[string]bool `json:"valid_slot_statuses"`
+	ValidSplitStrategies map[string]bool `json:"valid_split_strategies"`
+	ValidObjectives      map[string]bool `json:"valid_objectives"`
+}
+
+func init() {
+	b, err := os.ReadFile(filepath.Join("config", "ai_domain_config.json"))
+	if err == nil {
+		var cfg AIDomainConfig
+		if err := json.Unmarshal(b, &cfg); err == nil {
+			if len(cfg.ValidSlotStatuses) > 0 {
+				validSlotStatuses = cfg.ValidSlotStatuses
+			}
+		} else {
+			log.Printf("Failed to unmarshal ai_domain_config.json: %v", err)
+		}
+	}
+}
+
 func (s *JobSlotService) UpdateSlot(id string, req dto.UpdateSlotRequest) (*domain.JobStepScheduleSlots, error) {
 	slot, err := s.slotRepo.GetByID(id)
 	if err != nil {
@@ -214,7 +238,7 @@ func (s *JobSlotService) UpdateSlot(id string, req dto.UpdateSlotRequest) (*doma
 	}
 	// Gap 2: actual_start, actual_end, status (Start/Pause/Resume/Complete)
 	if req.Status != nil {
-		st := strings.TrimSpace(strings.ToLower(*req.Status))
+		st := strings.TrimSpace(strings.ToLower(string(*req.Status)))
 		if !validSlotStatuses[st] {
 			return nil, errors.New("status must be planned, running, paused, completed, or cancelled")
 		}

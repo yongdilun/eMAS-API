@@ -88,6 +88,13 @@ func TestJobSlotHandler_CreateJobStepsSplitUpdateCancel(t *testing.T) {
 		t.Fatalf("get slot: got %d", w.Code)
 	}
 
+	w = testutil.Request(r, "PUT", "/api/v1/slots/"+slotID, map[string]interface{}{
+		"status": "invalid",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("update invalid slot status: got %d, want 400", w.Code)
+	}
+
 	// List slots by job
 	w = testutil.Request(r, "GET", "/api/v1/jobs/"+jobID+"/slots", nil)
 	if w.Code != http.StatusOK {

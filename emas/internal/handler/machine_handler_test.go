@@ -41,6 +41,87 @@ func TestMachineHandler_CRUD(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("update: got %d", w.Code)
 	}
+
+	w = testutil.Request(r, "GET", "/api/v1/machines?status=broken", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("list invalid status: got %d, want 400", w.Code)
+	}
+
+	w = testutil.Request(r, "PUT", "/api/v1/machines/M-TEST", map[string]interface{}{
+		"status": "broken",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("update invalid status: got %d, want 400", w.Code)
+	}
+}
+
+func TestMachineHandler_ListFiltersAreApplied(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	r := testutil.NewTestRouter(db, router.Setup)
+
+	for _, body := range []map[string]interface{}{
+		{"machine_id": "M-PAINT-1", "machine_name": "Paint Booth 1", "machine_type": "PAINT", "location": "Paint Shop"},
+		{"machine_id": "M-CNC-1", "machine_name": "CNC Mill 1", "machine_type": "CNC", "location": "Machine Shop"},
+		{"machine_id": "M-CNC-2", "machine_name": "CNC Mill 2", "machine_type": "CNC", "location": "Paint Shop"},
+	} {
+		w := testutil.Request(r, "POST", "/api/v1/machines", body)
+		if w.Code != http.StatusCreated {
+			t.Fatalf("seed machine: got %d, body: %s", w.Code, w.Body.String())
+		}
+	}
+
+	w := testutil.Request(r, "GET", "/api/v1/machines?location=Paint%20Shop", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list location filter: got %d, body: %s", w.Code, w.Body.String())
+	}
+	success, data, _ := testutil.DecodeResponse(w)
+	if !success {
+		t.Fatal("list location filter failed")
+	}
+	rows, ok := data.([]interface{})
+	if !ok {
+		t.Fatalf("location filter data not list: %T", data)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("location filter returned %d rows, want 2", len(rows))
+	}
+	for _, row := range rows {
+		m := row.(map[string]interface{})
+		if m["Location"] != "Paint Shop" && m["location"] != "Paint Shop" {
+			t.Fatalf("location filter returned nonmatching row: %#v", m)
+		}
+	}
+
+	w = testutil.Request(r, "GET", "/api/v1/machines?machine_type=CNC", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list machine_type filter: got %d, body: %s", w.Code, w.Body.String())
+	}
+	success, data, _ = testutil.DecodeResponse(w)
+	if !success {
+		t.Fatal("list machine_type filter failed")
+	}
+	rows = data.([]interface{})
+	if len(rows) != 2 {
+		t.Fatalf("machine_type filter returned %d rows, want 2", len(rows))
+	}
+	for _, row := range rows {
+		m := row.(map[string]interface{})
+		if m["MachineType"] != "CNC" && m["machine_type"] != "CNC" {
+			t.Fatalf("machine_type filter returned nonmatching row: %#v", m)
+		}
+	}
+
+	w = testutil.Request(r, "GET", "/api/v1/machines?location=Nope", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list nonmatching location: got %d, body: %s", w.Code, w.Body.String())
+	}
+	success, data, _ = testutil.DecodeResponse(w)
+	if !success {
+		t.Fatal("list nonmatching location failed")
+	}
+	if rows = data.([]interface{}); len(rows) != 0 {
+		t.Fatalf("nonmatching location returned %d rows, want 0", len(rows))
+	}
 }
 
 func TestMachineHandler_AssignCapability(t *testing.T) {

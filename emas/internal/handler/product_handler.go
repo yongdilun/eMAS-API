@@ -5,7 +5,6 @@ import (
 	"emas/internal/repository"
 	"emas/internal/service"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -68,10 +67,10 @@ func (h *ProductHandler) GetByID(c *gin.Context) {
 // @Tags products
 // @Accept json
 // @Produce json
-// @Param status query string false "Filter by status"
+// @Param status query string false "Filter by status" Enums(active,obsolete)
 // @Param product_type query string false "Filter by product type"
 // @Param sort_by query string false "product_id|product_name|created_at"
-// @Param sort_dir query string false "asc|desc"
+// @Param sort_dir query string false "asc|desc" Enums(asc,desc)
 // @Param limit query int false "Page size"
 // @Param offset query int false "Offset"
 // @Param fields query string false "Comma-separated fields; use product_id for ID-only view"
@@ -79,20 +78,23 @@ func (h *ProductHandler) GetByID(c *gin.Context) {
 // @Failure 500 {object} dto.Response
 // @Router /products [get]
 func (h *ProductHandler) List(c *gin.Context) {
-	var f repository.ProductListFilter
-	f.Status = strings.TrimSpace(c.Query("status"))
-	f.ProductType = strings.TrimSpace(c.Query("product_type"))
-	f.SortBy = strings.TrimSpace(c.DefaultQuery("sort_by", "product_id"))
-	f.SortDir = strings.TrimSpace(c.DefaultQuery("sort_dir", "asc"))
-	if v := c.Query("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Limit = n
-		}
+	var query dto.ProductListQuery
+	if err := c.ShouldBindQuery(&query); err != nil {
+		c.JSON(http.StatusBadRequest, dto.Response{Success: false, Error: err.Error()})
+		return
 	}
-	if v := c.Query("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			f.Offset = n
-		}
+	var f repository.ProductListFilter
+	f.Status = strings.TrimSpace(string(query.Status))
+	f.ProductType = strings.TrimSpace(query.ProductType)
+	f.SortBy = strings.TrimSpace(query.SortBy)
+	f.SortDir = strings.TrimSpace(string(query.SortDir))
+	f.Limit = query.Limit
+	f.Offset = query.Offset
+	if f.SortBy == "" {
+		f.SortBy = "product_id"
+	}
+	if f.SortDir == "" {
+		f.SortDir = "asc"
 	}
 
 	products, err := h.productService.ListFiltered(f)
@@ -101,7 +103,7 @@ func (h *ProductHandler) List(c *gin.Context) {
 		return
 	}
 
-	fields := strings.TrimSpace(strings.ToLower(c.Query("fields")))
+	fields := strings.TrimSpace(strings.ToLower(query.Fields))
 	if fields != "" {
 		selected := make(map[string]bool)
 		for _, token := range strings.Split(fields, ",") {

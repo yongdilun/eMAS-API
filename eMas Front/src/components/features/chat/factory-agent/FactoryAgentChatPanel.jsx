@@ -1,128 +1,278 @@
 /* eslint-disable react/prop-types */
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import ChatMessage from '../ChatMessage'
 import ApprovalCard from './ApprovalCard'
-import ExecutionTracker from './ExecutionTracker'
-import SessionStatusBanner from './SessionStatusBanner'
 import { useFactoryAgentChat } from './useFactoryAgentChat'
 import { FACTORY_AGENT_STATUS } from '../../../../services/factoryAgentApi'
-import { ApprovalBlocks, ThinkingBlock, ToolBlocks } from '../turns/TurnBlocks'
+import { TablePresentation } from '../turns/TurnBlocks'
 
-const statusPillTone = {
-  plan_created: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
-  execution_started: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
-  tool_result: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-  approval_required: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  approval_decided: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-  replan_requested: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
-  session_blocked: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
-  session_failed: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-  session_completed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+const CHAT_VIEW_MODE = (import.meta.env?.VITE_FACTORY_AGENT_CHAT_MODE || 'user').trim().toLowerCase() === 'dev' ? 'dev' : 'user'
+const STREAM_BUFFER_MS = Number(import.meta.env?.VITE_FACTORY_AGENT_STREAM_BUFFER_MS || 40)
+
+function dedupeLines(lines = []) {
+  const seen = new Set()
+  return lines.filter((line) => {
+    const normalized = String(line || '').trim()
+    if (!normalized || seen.has(normalized)) return false
+    seen.add(normalized)
+    return true
+  })
 }
 
-function PlanSummaryCard({ plan }) {
-  if (!plan) return null
-  return (
-    <div className="mb-3 rounded-xl border border-indigo-200/70 dark:border-indigo-800/40 bg-white dark:bg-gray-800/60 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-indigo-600 dark:text-indigo-300">
-            Active Plan
-          </div>
-          <div className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
-            Version {plan.version}
-          </div>
-        </div>
-        <div className="text-right text-[11px] text-gray-500 dark:text-gray-400">
-          <div>{plan.created_by || 'backend'}</div>
-          <div className="mt-1 uppercase tracking-wide">
-            {(plan.kind || 'execution')} · {(plan.status || 'draft')}
-          </div>
-        </div>
-      </div>
-      <p className="mt-3 text-sm text-gray-800 dark:text-gray-100">
-        {plan.plan_explanation || 'No plan explanation available.'}
-      </p>
-      <div className="mt-2 rounded-lg bg-indigo-50/70 dark:bg-indigo-950/20 px-3 py-2 text-xs text-indigo-800 dark:text-indigo-200">
-        Risk summary: {plan.risk_summary || 'No risk summary available.'}
-      </div>
-    </div>
+function formatToolName(toolName) {
+  return String(toolName || '')
+    .replaceAll('_', ' ')
+    .replaceAll('-', ' ')
+    .trim()
+}
+
+function toDeveloperStatus(turn) {
+  const terminalType = turn?.terminal?.event_type
+  if (terminalType === 'session_completed') return 'Completed'
+  if (terminalType === 'session_failed') return 'Failed'
+  if (terminalType === 'session_blocked') return 'Blocked'
+
+  const approval = Array.isArray(turn?.approvals) ? turn.approvals[turn.approvals.length - 1] : null
+  if (approval?.event_type === 'approval_required') return 'Waiting for approval'
+
+  const lastTool = Array.isArray(turn?.tools) ? turn.tools[turn.tools.length - 1] : null
+  if (lastTool?.status === 'FAILED') return 'Request failed'
+  if (lastTool?.status === 'DONE') return 'Request completed'
+  if (lastTool) return 'Working'
+  if (Array.isArray(turn?.thinking) && turn.thinking.length) return 'Thinking'
+  return 'Working'
+}
+
+function toDeveloperResult(turn) {
+  const lastTool = Array.isArray(turn?.tools) ? turn.tools[turn.tools.length - 1] : null
+  const result = lastTool?.details?.result
+  const lastError = lastTool?.details?.last_error
+
+  if (result?.not_found) return '404 Not Found'
+  if (typeof lastError === 'string' && lastError.trim()) return lastError.trim()
+  if (typeof lastTool?.status === 'string' && lastTool.status.trim()) return lastTool.status.trim()
+  if (turn?.terminal?.event_type === 'session_completed') return 'Completed'
+  if (turn?.terminal?.event_type === 'session_failed') return 'Failed'
+  if (turn?.terminal?.event_type === 'session_blocked') return 'Blocked'
+  return null
+}
+
+function buildUserDetailLines(turn) {
+  const thinking = Array.isArray(turn?.thinking) ? turn.thinking : []
+  const tools = Array.isArray(turn?.tools) ? turn.tools : []
+  const approvals = Array.isArray(turn?.approvals) ? turn.approvals : []
+  const terminal = turn?.terminal || null
+
+  const lines = []
+  const planExplanation = thinking[thinking.length - 1]?.details?.plan_explanation || thinking[thinking.length - 1]?.content
+  if (planExplanation && !['Thinking...', 'Working...'].includes(String(planExplanation).trim())) {
+    lines.push(planExplanation)
+  }
+
+  for (const tool of tools) {
+    if (tool?.content && !['Thinking...', 'Working...'].includes(String(tool.content).trim())) {
+      lines.push(tool.content)
+    }
+  }
+
+  for (const approval of approvals) {
+    if (approval?.content) lines.push(approval.content)
+  }
+
+  if (terminal?.details?.reason) lines.push(`Reason: ${terminal.details.reason}`)
+  if (terminal?.details?.rejection_reason) lines.push(`Reason: ${terminal.details.rejection_reason}`)
+
+  return dedupeLines(lines).slice(0, 4)
+}
+
+function buildDeveloperDetailLines(turn) {
+  const lastTool = Array.isArray(turn?.tools) ? turn.tools[turn.tools.length - 1] : null
+  const traceId = lastTool?.step_id || turn?.terminal?.id || turn?.id || null
+  const toolLabel = formatToolName(lastTool?.tool_name)
+
+  return dedupeLines([
+    `Status: ${toDeveloperStatus(turn)}`,
+    toolLabel ? `Tool: ${toolLabel}` : null,
+    toDeveloperResult(turn) ? `Result: ${toDeveloperResult(turn)}` : null,
+    traceId ? `Trace ID: ${traceId}` : null,
+  ])
+}
+
+function StreamedAssistantText({ text, streamKey, enabled }) {
+  const [displayed, setDisplayed] = useState(enabled ? '' : text)
+
+  useEffect(() => {
+    if (!enabled) {
+      setDisplayed(text)
+      return undefined
+    }
+
+    const tokens = String(text || '').match(/\S+\s*/g) || []
+    if (!tokens.length) {
+      setDisplayed(text)
+      return undefined
+    }
+
+    let index = 0
+    let nextValue = ''
+    setDisplayed('')
+
+    const timer = window.setInterval(() => {
+      if (index >= tokens.length) {
+        window.clearInterval(timer)
+        return
+      }
+
+      nextValue += tokens[index]
+      index += 1
+      setDisplayed(nextValue)
+
+      if (index >= tokens.length) {
+        window.clearInterval(timer)
+      }
+    }, Number.isFinite(STREAM_BUFFER_MS) && STREAM_BUFFER_MS > 0 ? STREAM_BUFFER_MS : 40)
+
+    return () => window.clearInterval(timer)
+  }, [enabled, streamKey, text])
+
+  return <>{displayed || (enabled ? '' : text)}</>
+}
+
+function getLatestToolPresentation(turn) {
+  const tools = Array.isArray(turn?.tools) ? turn.tools : []
+  for (let index = tools.length - 1; index >= 0; index -= 1) {
+    const presentation = tools[index]?.details?.presentation
+    if (presentation?.render_hint === 'table' && presentation?.table?.rows?.length) {
+      return presentation
+    }
+  }
+  return null
+}
+
+function TurnDetails({ mode, turn }) {
+  const lines = useMemo(
+    () => (mode === 'dev' ? buildDeveloperDetailLines(turn) : buildUserDetailLines(turn)),
+    [mode, turn],
   )
-}
 
-function DebugDetails({ session, plan, steps, pendingApproval }) {
-  if (!session) return null
+  if (!lines.length) return null
+
   return (
-    <details className="mb-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/50">
-      <summary className="cursor-pointer px-4 py-3 text-xs font-semibold text-gray-600 dark:text-gray-300">
-        Debug Details
+    <details className="mt-3">
+      <summary className="cursor-pointer text-xs font-medium text-gray-500 dark:text-gray-400">
+        Show details
       </summary>
-      <div className="border-t border-gray-200 dark:border-gray-700 px-4 py-3">
-        <pre className="overflow-x-auto rounded-lg bg-gray-50 dark:bg-gray-950/60 p-3 text-[11px] text-gray-700 dark:text-gray-200">
-{JSON.stringify({ session, plan, steps, pendingApproval }, null, 2)}
-        </pre>
+      <div className="mt-2 space-y-1 text-xs text-gray-600 dark:text-gray-300">
+        {lines.map((line) => (
+          <div key={line} className="whitespace-pre-wrap break-words">
+            {line}
+          </div>
+        ))}
       </div>
     </details>
   )
 }
 
-function EventBlock({
-  message,
+function ConfirmationOptions({ turn, onConfirm, disabled }) {
+  const [expanded, setExpanded] = useState(false)
+  const latest = Array.isArray(turn?.confirmations) ? turn.confirmations[turn.confirmations.length - 1] : null
+  const confirmation = latest?.details?.confirmation
+  const defaultOptions = Array.isArray(confirmation?.options) ? confirmation.options : []
+  const allOptions = Array.isArray(confirmation?.all_options) ? confirmation.all_options : defaultOptions
+  const hasMore = confirmation?.has_more === true && allOptions.length > defaultOptions.length
+  const visibleOptions = expanded ? allOptions : defaultOptions
+
+  if (!defaultOptions.length) return null
+
+  return (
+    <div className="mt-3 space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {visibleOptions.map((option) => (
+          <button
+            key={`${option.field}-${option.value}`}
+            type="button"
+            disabled={disabled}
+            onClick={() => onConfirm(option)}
+            className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-60 dark:border-primary/40 dark:bg-primary/15"
+          >
+            {option.label || `${option.field}: ${option.value}`}
+          </button>
+        ))}
+      </div>
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          className="flex items-center gap-1 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-primary dark:hover:text-primary transition-colors"
+        >
+          <span className="material-symbols-outlined text-sm">
+            {expanded ? 'expand_less' : 'expand_more'}
+          </span>
+          {expanded ? 'Show fewer fields' : `Show all fields (${allOptions.length})`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+
+function AssistantTurnBubble({
+  turn,
+  timestamp,
+  showApprovalCard,
   pendingApproval,
   approvalReason,
   setApprovalReason,
   decideApproval,
+  decideConfirmation,
   isDecidingApproval,
+  isSending,
+  mode,
+  shouldAnimateText,
 }) {
-  if (message.eventType === 'approval_required' && pendingApproval?.approval_id === message.approvalId) {
-    return (
-      <ApprovalCard
-        approval={pendingApproval}
-        reason={approvalReason}
-        onReasonChange={setApprovalReason}
-        onApprove={(args) => decideApproval('approve', args)}
-        onReject={() => decideApproval('reject')}
-        deciding={isDecidingApproval}
-      />
-    )
-  }
-
-  if (!message.eventType || message.eventType === 'user_message') return null
+  const summary = turn?.summary || 'Working...'
+  const showDetails = !['Thinking...', 'Working...'].includes(summary)
+  const presentation = getLatestToolPresentation(turn)
+  const tableAnimKey = `${turn?.id || 'turn'}:${presentation?.table?.total_rows || 0}:${summary}`
 
   return (
-    <div className="mt-2 rounded-xl border border-gray-200/70 dark:border-gray-700/70 bg-gray-50 dark:bg-gray-900/40 p-3 text-xs">
-      <div className="flex items-center justify-between gap-2">
-        <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusPillTone[message.eventType] || 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200'}`}>
-          {message.eventType.replaceAll('_', ' ')}
-        </span>
-        {(message.toolName || message.status) ? (
-          <span className="text-[10px] text-gray-500 dark:text-gray-400">
-            {[message.toolName, message.status].filter(Boolean).join(' · ')}
-          </span>
-        ) : null}
-      </div>
-
-      {message.eventType === 'tool_result' && message.details?.result ? (
-        <details className="mt-2">
-          <summary className="cursor-pointer text-gray-600 dark:text-gray-300">Show raw result</summary>
-          <pre className="mt-2 overflow-x-auto rounded bg-white dark:bg-gray-950/60 p-2 text-[11px] text-gray-700 dark:text-gray-200">
-{JSON.stringify(message.details.result, null, 2)}
-          </pre>
-        </details>
-      ) : null}
-
-      {message.eventType === 'approval_decided' && message.details?.rejection_reason ? (
-        <div className="mt-2 rounded-lg bg-red-50 dark:bg-red-950/20 px-2.5 py-2 text-red-700 dark:text-red-300">
-          Reason: {message.details.rejection_reason}
-        </div>
-      ) : null}
-
-      {message.eventType === 'replan_requested' && message.details?.reason ? (
-        <div className="mt-2 rounded-lg bg-violet-50 dark:bg-violet-950/20 px-2.5 py-2 text-violet-700 dark:text-violet-300">
-          Trigger: {message.details.reason}
-        </div>
-      ) : null}
-    </div>
+    <ChatMessage
+      message=""
+      isUser={false}
+      timestamp={timestamp}
+      renderBlocks={() => (
+        <>
+          <div className="whitespace-pre-wrap break-words text-gray-900 dark:text-gray-100">
+            <StreamedAssistantText
+              text={summary}
+              streamKey={`${turn?.id || 'turn'}:${summary}`}
+              enabled={shouldAnimateText && showDetails}
+            />
+          </div>
+          {presentation ? (
+            <TablePresentation
+              presentation={presentation}
+              animate={shouldAnimateText && showDetails}
+              animateKey={tableAnimKey}
+            />
+          ) : null}
+          {showDetails ? <TurnDetails mode={mode} turn={turn} /> : null}
+          <ConfirmationOptions turn={turn} onConfirm={decideConfirmation} disabled={isSending} />
+          {showApprovalCard ? (
+            <div className="mt-3">
+              <ApprovalCard
+                approval={pendingApproval}
+                reason={approvalReason}
+                onReasonChange={setApprovalReason}
+                onApprove={(args) => decideApproval('approve', args)}
+                onReject={() => decideApproval('reject')}
+                deciding={isDecidingApproval}
+              />
+            </div>
+          ) : null}
+        </>
+      )}
+    />
   )
 }
 
@@ -131,8 +281,6 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
   const shouldAutoScrollRef = useRef(true)
   const {
     session,
-    plan,
-    steps,
     messages,
     turns,
     sessionList,
@@ -149,17 +297,14 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
     setApprovalReason,
     setMessageMode,
     isDecidingApproval,
-    isPollingSession,
-    isPollingApprovals,
-    lastSyncedAt,
     handleSend,
     handleCancel,
-	    decideApproval,
-	    startNewSession,
-	    switchSession,
-	    renameSession,
-	    deleteSession,
-    retryFromCurrent,
+    decideApproval,
+    decideConfirmation,
+    startNewSession,
+    switchSession,
+    renameSession,
+    deleteSession,
   } = useFactoryAgentChat()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [editingSessionId, setEditingSessionId] = useState(null)
@@ -185,7 +330,8 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
   }, [session?.session_id])
 
   const inputDisabled = isSending || session?.status === FACTORY_AGENT_STATUS.PLANNING
-  const canCancel = Boolean(session?.session_id) && [FACTORY_AGENT_STATUS.PLANNING, FACTORY_AGENT_STATUS.EXECUTING, FACTORY_AGENT_STATUS.WAITING_APPROVAL, FACTORY_AGENT_STATUS.BLOCKED].includes(session?.status)
+  const canCancel = Boolean(session?.session_id) && [FACTORY_AGENT_STATUS.PLANNING, FACTORY_AGENT_STATUS.EXECUTING, FACTORY_AGENT_STATUS.WAITING_APPROVAL, FACTORY_AGENT_STATUS.WAITING_CONFIRMATION, FACTORY_AGENT_STATUS.BLOCKED].includes(session?.status)
+  const mode = CHAT_VIEW_MODE === 'dev' ? 'dev' : 'user'
 
   let placeholder = 'Ask factory agent...'
   if (session?.status === FACTORY_AGENT_STATUS.PLANNING) placeholder = 'Planning in progress...'
@@ -201,7 +347,6 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
           aria-modal="true"
           aria-label="Delete session confirmation"
           onMouseDown={(e) => {
-            // click outside to close
             if (e.target === e.currentTarget && !isDeletingSession) setDeleteTarget(null)
           }}
         >
@@ -212,7 +357,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
                   Delete session?
                 </div>
                 <div className="mt-1 text-xs text-gray-600 dark:text-gray-300">
-                  This will permanently remove the chat history, plan steps, approvals, and debug timeline for:
+                  This will permanently remove the chat history and approvals for:
                 </div>
               </div>
               <button
@@ -349,50 +494,50 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
                               {item.status || FACTORY_AGENT_STATUS.IDLE}
                             </div>
                           </div>
-	                          <span
-	                            role="button"
-	                            tabIndex={0}
-	                            onClick={(e) => {
-	                              e.preventDefault()
-	                              e.stopPropagation()
-	                              setEditingSessionId(item.session_id)
-	                              setEditingName(item.name || '')
-	                            }}
-	                            onKeyDown={(e) => {
-	                              if (e.key === 'Enter' || e.key === ' ') {
-	                                e.preventDefault()
-	                                e.stopPropagation()
-	                                setEditingSessionId(item.session_id)
-	                                setEditingName(item.name || '')
-	                              }
-	                            }}
-	                            className="material-symbols-outlined text-base text-gray-500 dark:text-gray-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-	                          >
-	                            edit
-	                          </span>
-	                          <span
-	                            role="button"
-	                            tabIndex={0}
-	                            onClick={(e) => {
-	                              e.preventDefault()
-	                              e.stopPropagation()
-	                              setDeleteTarget(item)
-	                            }}
-	                            onKeyDown={(e) => {
-	                              if (e.key === 'Enter' || e.key === ' ') {
-	                                e.preventDefault()
-	                                e.stopPropagation()
-	                                setDeleteTarget(item)
-	                              }
-	                            }}
-	                            className="material-symbols-outlined text-base text-gray-500 dark:text-gray-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-	                            aria-label="Delete session"
-	                            title="Delete session"
-	                          >
-	                            delete
-	                          </span>
-	                        </div>
-	                      )}
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setEditingSessionId(item.session_id)
+                              setEditingName(item.name || '')
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setEditingSessionId(item.session_id)
+                                setEditingName(item.name || '')
+                              }
+                            }}
+                            className="material-symbols-outlined text-base text-gray-500 dark:text-gray-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                          >
+                            edit
+                          </span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setDeleteTarget(item)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setDeleteTarget(item)
+                              }
+                            }}
+                            className="material-symbols-outlined text-base text-gray-500 dark:text-gray-400 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                            aria-label="Delete session"
+                            title="Delete session"
+                          >
+                            delete
+                          </span>
+                        </div>
+                      )}
                     </button>
                   </div>
                 )
@@ -449,16 +594,6 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
         )}
 
         <div ref={chatRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto px-4 py-4 bg-gray-50 dark:bg-gray-900/60">
-          <SessionStatusBanner session={session} onRetry={retryFromCurrent} />
-          <ExecutionTracker
-            session={session}
-            lastSyncedAt={lastSyncedAt}
-            isPollingSession={isPollingSession}
-            isPollingApprovals={isPollingApprovals}
-          />
-          <PlanSummaryCard plan={plan} />
-          <DebugDetails session={session} plan={plan} steps={steps} pendingApproval={pendingApproval} />
-
           {loading && (turns?.length || 0) === 0 && messages.length === 0 ? (
             <div className="flex items-center justify-center h-32 text-gray-500 dark:text-gray-400 text-sm">
               Loading...
@@ -494,19 +629,11 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
             </div>
           ) : (
             <>
-              {(turns || []).map((turn) => {
+              {(turns || []).map((turn, index) => {
                 const hasApprovalCard =
                   pendingApproval &&
                   Array.isArray(turn.approvals) &&
                   turn.approvals.some((a) => a?.event_type === 'approval_required' && a?.approval_id === pendingApproval.approval_id)
-
-                const passiveApprovals = Array.isArray(turn.approvals)
-                  ? turn.approvals.filter((a) => {
-                    if (a?.event_type === 'approval_required' && pendingApproval?.approval_id === a?.approval_id) return false
-                    if (a?.event_type === 'approval_decided' && String(a?.status || '').toUpperCase() === 'APPROVED') return false
-                    return true
-                  })
-                  : []
 
                 const userTs = turn.user?.created_at
                   ? new Date(turn.user.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -514,39 +641,29 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
                 const assistantTs = turn.created_at
                   ? new Date(turn.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                   : null
+                const isLatestTurn = index === turns.length - 1
+                const shouldAnimateText =
+                  isLatestTurn &&
+                  ![FACTORY_AGENT_STATUS.PLANNING, FACTORY_AGENT_STATUS.EXECUTING, FACTORY_AGENT_STATUS.WAITING_APPROVAL].includes(session?.status)
 
                 return (
                   <Fragment key={turn.id}>
                     {turn.user?.content ? (
                       <ChatMessage message={turn.user.content} isUser timestamp={userTs} />
                     ) : null}
-                    <ChatMessage
-                      message=""
-                      isUser={false}
+                    <AssistantTurnBubble
+                      turn={turn}
                       timestamp={assistantTs}
-                      messageAfterBlocks
-                      renderBlocks={() => (
-                        <>
-                          <ThinkingBlock items={turn.thinking} />
-                          <ToolBlocks tools={turn.tools} />
-                          <ApprovalBlocks approvals={passiveApprovals} />
-                          {hasApprovalCard ? (
-                            <ApprovalCard
-                              approval={pendingApproval}
-                              reason={approvalReason}
-                              onReasonChange={setApprovalReason}
-                              onApprove={(args) => decideApproval('approve', args)}
-                              onReject={() => decideApproval('reject')}
-                              deciding={isDecidingApproval}
-                            />
-                          ) : null}
-                          {turn.summary ? (
-                            <div className="mt-2 whitespace-pre-wrap break-words text-gray-900 dark:text-gray-100">
-                              {turn.summary}
-                            </div>
-                          ) : null}
-                        </>
-                      )}
+                      showApprovalCard={hasApprovalCard}
+                      pendingApproval={pendingApproval}
+                      approvalReason={approvalReason}
+                      setApprovalReason={setApprovalReason}
+                      decideApproval={decideApproval}
+                      decideConfirmation={decideConfirmation}
+                      isDecidingApproval={isDecidingApproval}
+                      isSending={isSending}
+                      mode={mode}
+                      shouldAnimateText={shouldAnimateText}
                     />
                   </Fragment>
                 )
@@ -562,19 +679,9 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
 
           {isSending && (
             <ChatMessage
-              message=""
+              message="Working..."
               isUser={false}
               timestamp={new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              renderBlocks={() => (
-                <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
-                  <span className="flex gap-1">
-                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </span>
-                  <span className="text-sm">Working...</span>
-                </div>
-              )}
             />
           )}
         </div>

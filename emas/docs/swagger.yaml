@@ -105,6 +105,10 @@ definitions:
       referenceJobID:
         type: string
       status:
+        enum:
+        - pending
+        - received
+        - cancelled
         type: string
     type: object
   domain.InventoryMaterials:
@@ -122,6 +126,10 @@ definitions:
       reorderLevel:
         type: number
       status:
+        enum:
+        - in_stock
+        - low_stock
+        - out_of_stock
         type: string
       storageLocation:
         type: string
@@ -145,6 +153,10 @@ definitions:
       reservedQty:
         type: number
       status:
+        enum:
+        - pending
+        - consumed
+        - released
         type: string
       updatedAt:
         type: string
@@ -162,6 +174,11 @@ definitions:
       notes:
         type: string
       priority:
+        enum:
+        - low
+        - medium
+        - high
+        - urgent
         type: string
       product_id:
         type: string
@@ -170,6 +187,14 @@ definitions:
       quantity_total:
         type: integer
       status:
+        enum:
+        - planned
+        - scheduled
+        - running
+        - blocked
+        - paused
+        - completed
+        - cancelled
         type: string
       updated_at:
         type: string
@@ -221,6 +246,12 @@ definitions:
       split_group_id:
         type: string
       status:
+        enum:
+        - planned
+        - running
+        - completed
+        - cancelled
+        - paused
         type: string
     type: object
   domain.JobSteps:
@@ -234,6 +265,12 @@ definitions:
       quantity_target:
         type: integer
       status:
+        enum:
+        - pending
+        - scheduled
+        - running
+        - blocked
+        - completed
         type: string
       step_id:
         type: string
@@ -264,6 +301,11 @@ definitions:
       maintenanceIntervalDays:
         type: integer
       status:
+        enum:
+        - idle
+        - running
+        - maintenance
+        - offline
         type: string
       utilizationRate:
         type: number
@@ -410,6 +452,9 @@ definitions:
         type: string
       status:
         description: active, obsolete
+        enum:
+        - active
+        - obsolete
         type: string
       unitOfMeasure:
         description: pcs / kg / liter
@@ -451,6 +496,11 @@ definitions:
       quantityReserved:
         type: number
       status:
+        enum:
+        - available
+        - reserved
+        - blocked
+        - planned
         type: string
       storageLocation:
         type: string
@@ -1070,6 +1120,11 @@ definitions:
       quantity_reserved:
         type: number
       status:
+        enum:
+        - available
+        - reserved
+        - blocked
+        - planned
         type: string
       storage_location:
         type: string
@@ -1354,6 +1409,14 @@ definitions:
       quantity_total:
         type: integer
       status:
+        enum:
+        - planned
+        - scheduled
+        - running
+        - blocked
+        - paused
+        - completed
+        - cancelled
         type: string
     type: object
   dto.UpdateMachineRequest:
@@ -1375,6 +1438,11 @@ definitions:
       maintenance_interval_days:
         type: integer
       status:
+        enum:
+        - idle
+        - running
+        - maintenance
+        - offline
         type: string
     type: object
   dto.UpdateMachineTypeRequest:
@@ -1406,6 +1474,12 @@ definitions:
       scheduled_start:
         type: string
       status:
+        enum:
+        - planned
+        - running
+        - paused
+        - completed
+        - cancelled
         type: string
     type: object
   dto.VerifyOverlapsProposal:
@@ -2958,6 +3032,27 @@ paths:
       consumes:
       - application/json
       description: List expected arrivals
+      parameters:
+      - description: Filter by material ID
+        in: query
+        name: material_id
+        type: string
+      - description: Filter by status
+        enum:
+        - pending
+        - received
+        - cancelled
+        in: query
+        name: status
+        type: string
+      - description: RFC3339 start
+        in: query
+        name: from
+        type: string
+      - description: RFC3339 end
+        in: query
+        name: to
+        type: string
       produces:
       - application/json
       responses:
@@ -3022,6 +3117,42 @@ paths:
       consumes:
       - application/json
       description: List materials
+      parameters:
+      - description: Filter by status
+        enum:
+        - in_stock
+        - low_stock
+        - out_of_stock
+        in: query
+        name: status
+        type: string
+      - description: Search material name
+        in: query
+        name: q
+        type: string
+      - description: Field to sort by
+        enum:
+        - material_name
+        - current_stock
+        - last_updated
+        in: query
+        name: sort_by
+        type: string
+      - description: Sort direction
+        enum:
+        - asc
+        - desc
+        in: query
+        name: sort_dir
+        type: string
+      - description: Limit number of results
+        in: query
+        name: limit
+        type: integer
+      - description: Offset for pagination
+        in: query
+        name: offset
+        type: integer
       produces:
       - application/json
       responses:
@@ -3126,6 +3257,11 @@ paths:
         name: product_id
         type: string
       - description: Filter by status
+        enum:
+        - available
+        - reserved
+        - blocked
+        - planned
         in: query
         name: status
         type: string
@@ -3135,6 +3271,9 @@ paths:
         name: sort_by
         type: string
       - description: Sort direction (asc, desc)
+        enum:
+        - asc
+        - desc
         in: query
         name: sort_dir
         type: string
@@ -3401,10 +3540,23 @@ paths:
         name: product_id
         type: string
       - description: Filter by status
+        enum:
+        - planned
+        - scheduled
+        - running
+        - blocked
+        - paused
+        - completed
+        - cancelled
         in: query
         name: status
         type: string
-      - description: Filter by priority (low|medium|high|urgent)
+      - description: Filter by priority
+        enum:
+        - low
+        - medium
+        - high
+        - urgent
         in: query
         name: priority
         type: string
@@ -3425,6 +3577,9 @@ paths:
         name: sort_by
         type: string
       - description: asc|desc
+        enum:
+        - asc
+        - desc
         in: query
         name: sort_dir
         type: string
@@ -3636,6 +3791,11 @@ paths:
         pagination
       parameters:
       - description: Filter by status
+        enum:
+        - idle
+        - running
+        - maintenance
+        - offline
         in: query
         name: status
         type: string
@@ -3652,6 +3812,9 @@ paths:
         name: sort_by
         type: string
       - description: Sort direction (asc, desc)
+        enum:
+        - asc
+        - desc
         in: query
         name: sort_dir
         type: string
@@ -4526,6 +4689,9 @@ paths:
       description: List products with optional filters, sorting, and field selection
       parameters:
       - description: Filter by status
+        enum:
+        - active
+        - obsolete
         in: query
         name: status
         type: string
@@ -4538,6 +4704,9 @@ paths:
         name: sort_by
         type: string
       - description: asc|desc
+        enum:
+        - asc
+        - desc
         in: query
         name: sort_dir
         type: string

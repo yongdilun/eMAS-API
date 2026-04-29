@@ -142,9 +142,13 @@ def validate_plan(
             schema = tool.input_schema
             if tool.requires_approval:
                 schema = _strip_required(schema)
+            
+            # Clean None values from args to support optional parameters passed as null/None
+            step.args = {k: v for k, v in step.args.items() if v is not None}
             Draft202012Validator(schema).validate(step.args)
         except Exception as e:  # jsonschema raises ValidationError, but keep robust
             errors.append(f"Invalid args for tool {step.tool_name}: {e}")
+
 
     # Rule 5 (10.2): No duplicate (tool_name + args) pairs
     seen: set[str] = set()

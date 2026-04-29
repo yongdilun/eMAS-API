@@ -45,6 +45,7 @@ export function assembleFactoryAgentTurns(timeline = []) {
       thinking: [],
       tools: [],
       approvals: [],
+      confirmations: [],
       status: [],
       terminal: null,
       debug: [],
@@ -137,6 +138,18 @@ export function assembleFactoryAgentTurns(timeline = []) {
       continue
     }
 
+    if (e.event_type === 'confirmation_required' || e.event_type === 'confirmation_decided') {
+      turn.confirmations.push({
+        id: e.event_id || e.id,
+        event_type: e.event_type,
+        status: e.status || null,
+        content: e.content,
+        created_at: e.created_at,
+        details: e.details || null,
+      })
+      continue
+    }
+
     if (['execution_started', 'replan_requested', 'session_blocked', 'session_failed', 'session_completed'].includes(e.event_type)) {
       const item = {
         id: e.event_id || e.id,
@@ -171,12 +184,18 @@ export function computeFactoryAgentTurnSummary(turn) {
   }
 
   const lastApproval = Array.isArray(turn.approvals) ? turn.approvals[turn.approvals.length - 1] : null
+  const lastConfirmation = Array.isArray(turn.confirmations) ? turn.confirmations[turn.confirmations.length - 1] : null
   const lastTool = Array.isArray(turn.tools) ? turn.tools[turn.tools.length - 1] : null
   const terminal = turn.terminal || null
   const approvalTs = toTs(lastApproval?.created_at)
+  const confirmationTs = toTs(lastConfirmation?.created_at)
   const latestProgressTs = Math.max(toTs(lastTool?.created_at), toTs(terminal?.created_at))
   const waitingOnApproval = latestProgressTs <= approvalTs
+  const waitingOnConfirmation = latestProgressTs <= confirmationTs
 
+  if (lastConfirmation?.event_type === 'confirmation_required' && waitingOnConfirmation) {
+    return lastConfirmation.content || 'Please confirm the filter.'
+  }
   if (lastApproval?.event_type === 'approval_required' && waitingOnApproval) {
     return lastApproval.content || 'Waiting for approval.'
   }
@@ -185,7 +204,7 @@ export function computeFactoryAgentTurnSummary(turn) {
   }
 
   if (terminal?.event_type === 'session_blocked' || terminal?.event_type === 'session_failed') {
-    return terminal.content || 'Execution stopped.'
+    return terminal.content || lastTool?.content || 'Execution stopped.'
   }
   if (terminal?.event_type === 'session_completed') {
     // Prefer the last tool result when completion is a generic status line.
@@ -201,10 +220,8 @@ export function computeFactoryAgentTurnSummary(turn) {
     return terminal.content || 'Execution completed.'
   }
 
-  if (lastTool?.content) return lastTool.content
-
   const lastPlan = Array.isArray(turn.thinking) ? turn.thinking[turn.thinking.length - 1] : null
-  if (lastPlan?.details?.status === 'COMPLETED' && lastPlan?.content) return lastPlan.content
+  if (lastTool || turn.status?.length) return 'Working...'
   if (lastPlan?.content) return 'Working...'
 
   return 'Working...'

@@ -192,3 +192,63 @@ def test_tools_from_openapi_merges_path_level_parameters():
     assert set(schema["properties"].keys()) == {"id", "capability"}
     assert set(schema["required"]) == {"id", "capability"}
     assert schema["x-path-params"] == ["id"]
+
+
+def test_tools_from_openapi_preserves_enum_metadata_for_query_and_body_fields():
+    spec = {
+        "swagger": "2.0",
+        "definitions": {
+            "UpdateMachineRequest": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["idle", "running", "maintenance", "offline"],
+                    }
+                },
+            }
+        },
+        "paths": {
+            "/machines": {
+                "get": {
+                    "operationId": "get__machines",
+                    "parameters": [
+                        {
+                            "name": "status",
+                            "in": "query",
+                            "type": "string",
+                            "enum": ["idle", "running", "maintenance", "offline"],
+                        }
+                    ],
+                }
+            },
+            "/machines/{id}": {
+                "put": {
+                    "operationId": "put__machines_{id}",
+                    "parameters": [
+                        {"name": "id", "in": "path", "required": True, "type": "string"},
+                        {
+                            "name": "request",
+                            "in": "body",
+                            "required": True,
+                            "schema": {"$ref": "#/definitions/UpdateMachineRequest"},
+                        },
+                    ],
+                }
+            },
+        },
+    }
+
+    tools = {tool.name: tool for tool in tools_from_openapi(spec)}
+    assert tools["get__machines"].input_schema["properties"]["status"]["enum"] == [
+        "idle",
+        "running",
+        "maintenance",
+        "offline",
+    ]
+    assert tools["put__machines_{id}"].input_schema["properties"]["status"]["enum"] == [
+        "idle",
+        "running",
+        "maintenance",
+        "offline",
+    ]

@@ -1,0 +1,52 @@
+{
+  "python": {
+    "stopwords": [
+      "a", "all", "an", "and", "any", "by", "for", "from", 
+      "machine", "machines", "job", "jobs", "inventory", 
+      "material", "materials", "new", "of", "on", "please", 
+      "record", "records", "show", "find", "get", "list", 
+      "view", "inspect", "lookup", "status", "with"
+    ],
+    "action_verbs": [
+      "check", "show", "list", "get", "find", "view", "inspect",
+      "lookup", "give", "provide", "fetch", "all", "any", "the",
+      "a", "an", "some", "every", "please"
+    ],
+    "vague_free_text": [
+      "bad", "close", "fast", "far", "near", "old", "slow", 
+      "quick", "recent", "latest"
+    ],
+    "control_fields": ["limit", "offset", "sort_by", "sort_dir", "fields"],
+    "field_implying_prepositions": {
+      "location": ["in", "at", "inside", "within"]
+    },
+    "action_tokens": {
+      "create": ["create", "new", "add", "open"],
+      "update": ["update", "set", "change", "assign", "record", "apply", "run", "reschedule", "move"],
+      "delete": ["delete", "remove"],
+      "read": ["check", "show", "list", "get", "find", "view", "inspect", "status", "lookup"],
+      "approval": ["approve", "reject", "approval", "approvals", "pending"]
+    },
+    "method_hints": {
+      "GET": ["read"],
+      "POST": ["create"],
+      "PUT": ["update"],
+      "PATCH": ["update"],
+      "DELETE": ["delete"]
+    },
+    "auxiliary_tags": ["list", "lookup", "status", "pending", "create", "update", "delete", "approve", "reject", "schedule", "slot", "slots"],
+    "domain_tags": ["machine", "job", "inventory", "approval", "proposal", "arrival", "product", "line", "slot"],
+    "field_mapping_groups": {
+      "quantity": ["quantity_total", "quantity", "qty", "units"],
+      "deadline": ["deadline", "due_date", "due_at"],
+      "notes": ["notes", "note", "comment", "description"],
+      "ids_only": ["ids_only", "id_only"],
+      "fields": ["fields", "select"]
+    }
+  },
+  "go": {
+    "valid_slot_statuses": ["planned", "running", "paused", "completed", "cancelled"],
+    "valid_split_strategies": ["equal", "proportional", "custom"],
+    "valid_objectives": ["time", "cost", "efficiency"]
+  }
+}

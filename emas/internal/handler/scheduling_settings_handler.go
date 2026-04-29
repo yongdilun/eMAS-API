@@ -6,7 +6,10 @@ import (
 	"emas/internal/service"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -172,6 +175,29 @@ var validSplitStrategies = map[string]bool{
 var validObjectives = map[string]bool{
 	"minimize_tardiness": true, "minimize_makespan": true, "balance_load": true,
 	"maximize_utilization": true,
+}
+
+type AIDomainConfig struct {
+	ValidSlotStatuses    map[string]bool `json:"valid_slot_statuses"`
+	ValidSplitStrategies map[string]bool `json:"valid_split_strategies"`
+	ValidObjectives      map[string]bool `json:"valid_objectives"`
+}
+
+func init() {
+	b, err := os.ReadFile(filepath.Join("config", "ai_domain_config.json"))
+	if err == nil {
+		var cfg AIDomainConfig
+		if err := json.Unmarshal(b, &cfg); err == nil {
+			if len(cfg.ValidSplitStrategies) > 0 {
+				validSplitStrategies = cfg.ValidSplitStrategies
+			}
+			if len(cfg.ValidObjectives) > 0 {
+				validObjectives = cfg.ValidObjectives
+			}
+		} else {
+			log.Printf("Failed to unmarshal ai_domain_config.json: %v", err)
+		}
+	}
 }
 
 // @Summary Update scheduling settings

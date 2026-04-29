@@ -1110,6 +1110,176 @@ async def test_conversation_message_returns_completed_empty_plan(sessionmaker_ov
 
 
 @pytest.mark.asyncio
+async def test_planner_clarification_returns_message_not_error(sessionmaker_override, db_session):
+    from models import Message, Session
+    from agent.planner import PlannerClarificationError
+
+    await _seed_tool(
+        db_session,
+        name="get__machines",
+        endpoint="/machines",
+        method="GET",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["idle", "running", "maintenance", "offline"]},
+            },
+        },
+        capability_tags='["machine","list"]',
+        is_read_only=True,
+    )
+
+    class FakePlanner:
+        async def generate_plan(self, *, intent, scoped_tools, context=None, force_backend=None):
+            del intent, scoped_tools, context, force_backend
+            raise PlannerClarificationError(
+                'I found machines, but I could not safely map "broke" to a valid status. '
+                "Allowed status values are: idle, running, maintenance, offline.",
+                negative_bindings=[
+                    {
+                        "term": "broke",
+                        "normalized_term": "broke",
+                        "entity": "machine",
+                        "field": "status",
+                        "reason": "semantic enum mapping was not an allowed value",
+                    }
+                ],
+            )
+
+    app, _ = await _make_app(sessionmaker_override, planner_adapter=FakePlanner())
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        session_id = (await client.post("/sessions", json={"user_id": "u1"})).json()["session_id"]
+        await client.post(
+            f"/sessions/{session_id}/messages",
+            json={"role": "user", "content": "find all broke machine", "mode": "normal"},
+        )
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+        assert plan.json()["status"] == "COMPLETED"
+
+        snapshot = await client.get(f"/sessions/{session_id}/snapshot")
+        assert snapshot.status_code == 200
+        assert any(
+            event["event_type"] == "session_completed" and "could not safely map" in event["content"]
+            for event in snapshot.json()["timeline"]
+        )
+
+    messages = (
+        await db_session.execute(
+            select(Message)
+            .where(Message.session_id == session_id)
+            .where(Message.role == "assistant")
+            .order_by(Message.created_at.asc())
+        )
+    ).scalars().all()
+    session = (
+        await db_session.execute(select(Session).where(Session.session_id == session_id))
+    ).scalars().one()
+    memory = (session.replan_context or {}).get("intent_memory", {})
+    assert memory["negative_bindings"][0]["field"] == "status"
+    assert any("Allowed status values are: idle, running, maintenance, offline." in msg.content for msg in messages)
+
+
+@pytest.mark.asyncio
+async def test_planner_unknown_term_clarification_returns_message_not_error(sessionmaker_override, db_session, monkeypatch):
+    from models import Message
+    from agent.reasoning_pipeline import ReasoningPipeline
+
+    await _seed_tool(
+        db_session,
+        name="get__machines",
+        endpoint="/machines",
+        method="GET",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["idle", "running", "maintenance", "offline"]},
+            },
+        },
+        capability_tags='["machine","list"]',
+        is_read_only=True,
+    )
+
+    async def _fake_classify_unknown_term(self, *, clause, term, entity, tool):
+        del self, clause, entity, tool
+        assert term == "bsn"
+        return {"field_name": None, "confidence": 0.0, "reason": "no matching schema field"}
+
+    monkeypatch.setattr(ReasoningPipeline, "classify_unknown_term", _fake_classify_unknown_term)
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        session_id = (await client.post("/sessions", json={"user_id": "u1"})).json()["session_id"]
+        await client.post(
+            f"/sessions/{session_id}/messages",
+            json={"role": "user", "content": "find all bsn machine", "mode": "normal"},
+        )
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+        assert plan.json()["status"] == "COMPLETED"
+
+    messages = (
+        await db_session.execute(
+            select(Message)
+            .where(Message.session_id == session_id)
+            .where(Message.role == "assistant")
+            .order_by(Message.created_at.asc())
+        )
+    ).scalars().all()
+    assert any('couldn\'t match "bsn" to any supported machine field or filter' in msg.content.lower() for msg in messages)
+
+
+@pytest.mark.asyncio
+async def test_predicate_confirmation_round_trip_resumes_with_selected_filter(sessionmaker_override, db_session):
+    from models import PlanStep, Session
+
+    await _seed_tool(
+        db_session,
+        name="get__machines",
+        endpoint="/machines",
+        method="GET",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "machine_type": {"type": "string"},
+                "location": {"type": "string"},
+            },
+        },
+        capability_tags='["machine","list"]',
+        is_read_only=True,
+    )
+
+    app, _ = await _make_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        session_id = (await client.post("/sessions", json={"user_id": "u1"})).json()["session_id"]
+        await client.post(
+            f"/sessions/{session_id}/messages",
+            json={"role": "user", "content": "find all CNC machine", "mode": "normal"},
+        )
+        plan = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan.status_code == 200
+
+        snapshot = await client.get(f"/sessions/{session_id}/snapshot")
+        assert snapshot.status_code == 200
+        body = snapshot.json()
+        assert body["session"]["status"] == "WAITING_CONFIRMATION"
+        confirmation_event = next(event for event in body["timeline"] if event["event_type"] == "confirmation_required")
+        assert {opt["field"] for opt in confirmation_event["details"]["confirmation"]["options"]} >= {"machine_type", "location"}
+
+        confirmed = await client.post(f"/sessions/{session_id}/confirm", json={"field": "machine_type", "value": "CNC"})
+        assert confirmed.status_code == 200
+        assert confirmed.json()["status"] == "IDLE"
+
+        plan2 = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert plan2.status_code == 200
+
+    sess = await db_session.get(Session, session_id)
+    step = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().first()
+    assert sess.status == "PLANNING"
+    assert step.args == {"machine_type": "CNC"}
+
+
+@pytest.mark.asyncio
 async def test_plan_mode_creates_plan_level_approval_after_discovery(sessionmaker_override, db_session, respx_mock):
     from models import Approval, Plan
 
@@ -2429,6 +2599,170 @@ async def test_product_ids_result_summary_works_without_llm(sessionmaker_overrid
     assert "found 3 id(s)" in tool_message.content.lower()
     assert "p-001" in tool_message.content.lower()
     assert "record(s)" not in tool_message.content.lower()
+
+
+@pytest.mark.asyncio
+async def test_job_list_result_summary_uses_llm_in_hybrid_mode(sessionmaker_override, db_session, respx_mock, monkeypatch):
+    from models import Message
+
+    class _FakeResponse:
+        def __init__(self, content: str):
+            self.content = content
+
+    class _FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            del kwargs
+
+        async def ainvoke(self, prompt: str):
+            lowered = prompt.lower()
+            if '"message"' in prompt or "write a concise user-facing response" in lowered:
+                return _FakeResponse('{"message":"Retrieved 4 jobs. Sample statuses include planned, scheduled, and done."}')
+            if '"grounded"' in prompt or "verify whether the response is fully grounded" in lowered:
+                return _FakeResponse('{"grounded": true, "issues": []}')
+            if '"answer_type"' in prompt or "extract grounded facts" in lowered:
+                return _FakeResponse(
+                    '{"answer_type":"summary","facts":["Retrieved 4 jobs. Sample statuses include planned, scheduled, and done."],"ids":[],"counts":{"records":4},"warnings":[],"grounding_refs":["$.data[0].job_id"]}'
+                )
+            return _FakeResponse("Completed.")
+
+    fake_langchain = types.SimpleNamespace(ChatOpenAI=_FakeChatOpenAI)
+    monkeypatch.setitem(sys.modules, "langchain_openai", fake_langchain)
+
+    await _seed_tool(
+        db_session,
+        name="get__jobs",
+        endpoint="/jobs",
+        method="GET",
+        input_schema={"type": "object", "properties": {}},
+        capability_tags='["job","list"]',
+        is_read_only=True,
+    )
+    respx_mock.get("http://testserver/jobs").respond(
+        200,
+        json={
+            "success": True,
+            "data": [
+                {"job_id": "JOB-001", "product_id": "P-100", "status": "planned", "quantity_total": 40},
+                {"job_id": "JOB-002", "product_id": "P-200", "status": "scheduled", "quantity_total": 25},
+                {"job_id": "JOB-003", "product_id": "P-300", "status": "done", "quantity_total": 10},
+                {"job_id": "JOB-004", "product_id": "P-400", "status": "planned", "quantity_total": 15},
+            ],
+        },
+    )
+
+    app, _ = await _make_app(sessionmaker_override, openai_base_url="http://fake-llm")
+    draft = PlanDraft(
+        plan_explanation="List jobs",
+        risk_summary="read-only",
+        steps=[PlanStepDraft(step_index=0, tool_name="get__jobs", args={})],
+    )
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "list all job"})
+        await client.post(f"/sessions/{session_id}/plans", json={"draft": draft.model_dump()})
+        executed = await client.post(f"/sessions/{session_id}/execute")
+        assert executed.status_code == 200
+        assert executed.json()["status"] == "COMPLETED"
+
+    tool_message = (
+        await db_session.execute(
+            select(Message)
+            .where(Message.session_id == session_id)
+            .where(Message.role == "tool_result")
+        )
+    ).scalars().first()
+    assert tool_message is not None
+    assert "retrieved 4 jobs" in tool_message.content.lower()
+    assert "planned" in tool_message.content.lower()
+    assert "scheduled" in tool_message.content.lower()
+    assert "retrieved 4 records" not in tool_message.content.lower()
+
+
+@pytest.mark.asyncio
+async def test_job_list_result_summary_recovers_from_structured_fact_dump(sessionmaker_override, db_session, respx_mock, monkeypatch):
+    from models import Message
+
+    class _FakeResponse:
+        def __init__(self, content: str):
+            self.content = content
+
+    class _FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            del kwargs
+
+        async def ainvoke(self, prompt: str):
+            lowered = prompt.lower()
+            if '"message"' in prompt or "write a concise user-facing response" in lowered:
+                return _FakeResponse('{"message":"Retrieved 26 jobs. One example is JOB-SEED-001, a high-priority planned job for product P-001 with quantity 320 due on 2026-05-12."}')
+            if '"grounded"' in prompt or "verify whether the response is fully grounded" in lowered:
+                return _FakeResponse('{"grounded": true, "issues": []}')
+            if '"answer_type"' in prompt or "extract grounded facts" in lowered:
+                return _FakeResponse(
+                    '{"answer_type":"summary","facts":["{\\"job_id\\": \\"JOB-SEED-001\\", \\"product_id\\": \\"P-001\\", \\"quantity_total\\": 320, \\"quantity_completed\\": 0, \\"priority\\": \\"high\\", \\"deadline\\": \\"2026-05-12T08:00:00+08:00\\", \\"status\\": \\"planned\\"}"],"ids":[],"counts":{"records":26},"warnings":[],"grounding_refs":["$.data[0].job_id"]}'
+                )
+            return _FakeResponse("Completed.")
+
+    fake_langchain = types.SimpleNamespace(ChatOpenAI=_FakeChatOpenAI)
+    monkeypatch.setitem(sys.modules, "langchain_openai", fake_langchain)
+
+    await _seed_tool(
+        db_session,
+        name="get__jobs",
+        endpoint="/jobs",
+        method="GET",
+        input_schema={"type": "object", "properties": {}},
+        capability_tags='["job","list"]',
+        is_read_only=True,
+    )
+    respx_mock.get("http://testserver/jobs").respond(
+        200,
+        json={
+            "success": True,
+            "data": [
+                {"job_id": "JOB-SEED-001", "product_id": "P-001", "quantity_total": 320, "quantity_completed": 0, "priority": "high", "deadline": "2026-05-12T08:00:00+08:00", "status": "planned"},
+                {"job_id": "JOB-SEED-002", "product_id": "P-002", "quantity_total": 420, "quantity_completed": 0, "priority": "medium", "deadline": "2026-05-12T08:00:00+08:00", "status": "planned"},
+            ],
+        },
+    )
+
+    app, _ = await _make_app(sessionmaker_override, openai_base_url="http://fake-llm")
+    draft = PlanDraft(
+        plan_explanation="List jobs",
+        risk_summary="read-only",
+        steps=[PlanStepDraft(step_index=0, tool_name="get__jobs", args={})],
+    )
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": "list all job"})
+        await client.post(f"/sessions/{session_id}/plans", json={"draft": draft.model_dump()})
+        executed = await client.post(f"/sessions/{session_id}/execute")
+        assert executed.status_code == 200
+        assert executed.json()["status"] == "COMPLETED"
+
+    tool_message = (
+        await db_session.execute(
+            select(Message)
+            .where(Message.session_id == session_id)
+            .where(Message.role == "tool_result")
+        )
+    ).scalars().first()
+    assert tool_message is not None
+    assert "retrieved 26 jobs" in tool_message.content.lower()
+    assert "job-seed-001" in tool_message.content.lower()
+    assert "{" not in tool_message.content
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        snapshot = await client.get(f"/sessions/{session_id}/snapshot")
+        assert snapshot.status_code == 200
+        timeline = snapshot.json()["timeline"]
+
+    tool_event = next(event for event in timeline if event["event_type"] == "tool_result")
+    presentation = tool_event["details"]["presentation"]
+    assert presentation["render_hint"] == "table"
+    assert presentation["table"]["total_rows"] == 2
+    assert len(presentation["table"]["rows"]) == 2
 
 
 @pytest.mark.asyncio

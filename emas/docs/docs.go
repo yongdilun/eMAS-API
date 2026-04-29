@@ -2142,6 +2142,37 @@ const docTemplate = `{
                     "inventory"
                 ],
                 "summary": "List expected arrivals",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by material ID",
+                        "name": "material_id",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "pending",
+                            "received",
+                            "cancelled"
+                        ],
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 start",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "RFC3339 end",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2248,6 +2279,58 @@ const docTemplate = `{
                     "inventory"
                 ],
                 "summary": "List materials",
+                "parameters": [
+                    {
+                        "enum": [
+                            "in_stock",
+                            "low_stock",
+                            "out_of_stock"
+                        ],
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search material name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "material_name",
+                            "current_stock",
+                            "last_updated"
+                        ],
+                        "type": "string",
+                        "description": "Field to sort by",
+                        "name": "sort_by",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
+                        "type": "string",
+                        "description": "Sort direction",
+                        "name": "sort_dir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit number of results",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -2418,6 +2501,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "enum": [
+                            "available",
+                            "reserved",
+                            "blocked",
+                            "planned"
+                        ],
                         "type": "string",
                         "description": "Filter by status",
                         "name": "status",
@@ -2430,6 +2519,10 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
                         "type": "string",
                         "description": "Sort direction (asc, desc)",
                         "name": "sort_dir",
@@ -2866,14 +2959,29 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "enum": [
+                            "planned",
+                            "scheduled",
+                            "running",
+                            "blocked",
+                            "paused",
+                            "completed",
+                            "cancelled"
+                        ],
                         "type": "string",
                         "description": "Filter by status",
                         "name": "status",
                         "in": "query"
                     },
                     {
+                        "enum": [
+                            "low",
+                            "medium",
+                            "high",
+                            "urgent"
+                        ],
                         "type": "string",
-                        "description": "Filter by priority (low|medium|high|urgent)",
+                        "description": "Filter by priority",
                         "name": "priority",
                         "in": "query"
                     },
@@ -2902,6 +3010,10 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
                         "type": "string",
                         "description": "asc|desc",
                         "name": "sort_dir",
@@ -3242,6 +3354,12 @@ const docTemplate = `{
                 "summary": "List all machines",
                 "parameters": [
                     {
+                        "enum": [
+                            "idle",
+                            "running",
+                            "maintenance",
+                            "offline"
+                        ],
                         "type": "string",
                         "description": "Filter by status",
                         "name": "status",
@@ -3266,6 +3384,10 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
                         "type": "string",
                         "description": "Sort direction (asc, desc)",
                         "name": "sort_dir",
@@ -4690,6 +4812,10 @@ const docTemplate = `{
                 "summary": "List all products",
                 "parameters": [
                     {
+                        "enum": [
+                            "active",
+                            "obsolete"
+                        ],
                         "type": "string",
                         "description": "Filter by status",
                         "name": "status",
@@ -4708,6 +4834,10 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "enum": [
+                            "asc",
+                            "desc"
+                        ],
                         "type": "string",
                         "description": "asc|desc",
                         "name": "sort_dir",
@@ -7270,7 +7400,12 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "pending",
+                        "received",
+                        "cancelled"
+                    ]
                 }
             }
         },
@@ -7296,7 +7431,12 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "in_stock",
+                        "low_stock",
+                        "out_of_stock"
+                    ]
                 },
                 "storageLocation": {
                     "type": "string"
@@ -7331,7 +7471,12 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "pending",
+                        "consumed",
+                        "released"
+                    ]
                 },
                 "updatedAt": {
                     "type": "string"
@@ -7357,7 +7502,13 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "priority": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "low",
+                        "medium",
+                        "high",
+                        "urgent"
+                    ]
                 },
                 "product_id": {
                     "type": "string"
@@ -7369,7 +7520,16 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "planned",
+                        "scheduled",
+                        "running",
+                        "blocked",
+                        "paused",
+                        "completed",
+                        "cancelled"
+                    ]
                 },
                 "updated_at": {
                     "type": "string"
@@ -7446,7 +7606,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "planned",
+                        "running",
+                        "completed",
+                        "cancelled",
+                        "paused"
+                    ]
                 }
             }
         },
@@ -7466,7 +7633,14 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "pending",
+                        "scheduled",
+                        "running",
+                        "blocked",
+                        "completed"
+                    ]
                 },
                 "step_id": {
                     "type": "string"
@@ -7511,7 +7685,13 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "idle",
+                        "running",
+                        "maintenance",
+                        "offline"
+                    ]
                 },
                 "utilizationRate": {
                     "type": "number"
@@ -7725,7 +7905,11 @@ const docTemplate = `{
                 },
                 "status": {
                     "description": "active, obsolete",
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "active",
+                        "obsolete"
+                    ]
                 },
                 "unitOfMeasure": {
                     "description": "pcs / kg / liter",
@@ -7786,7 +7970,13 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "available",
+                        "reserved",
+                        "blocked",
+                        "planned"
+                    ]
                 },
                 "storageLocation": {
                     "type": "string"
@@ -8712,7 +8902,13 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "available",
+                        "reserved",
+                        "blocked",
+                        "planned"
+                    ]
                 },
                 "storage_location": {
                     "type": "string"
@@ -9127,7 +9323,16 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "planned",
+                        "scheduled",
+                        "running",
+                        "blocked",
+                        "paused",
+                        "completed",
+                        "cancelled"
+                    ]
                 }
             }
         },
@@ -9159,7 +9364,13 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "idle",
+                        "running",
+                        "maintenance",
+                        "offline"
+                    ]
                 }
             }
         },
@@ -9206,7 +9417,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                        "planned",
+                        "running",
+                        "paused",
+                        "completed",
+                        "cancelled"
+                    ]
                 }
             }
         },

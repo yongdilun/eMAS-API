@@ -131,7 +131,7 @@ func (s *InventoryService) ListExpectedArrivals(materialID, status string, from,
 }
 
 func (s *InventoryService) CreateProductInventory(req dto.CreateProductInventoryRequest) (*domain.ProductInventory, error) {
-	status := req.Status
+	status := string(req.Status)
 	if status == "" {
 		status = domain.ProductInventoryStatusAvailable
 	}

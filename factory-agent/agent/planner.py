@@ -5,7 +5,10 @@ import json
 import re
 from typing import Any, Literal
 
+from jsonschema import Draft202012Validator
+
 from .config import Settings
+from .intent_verifier import verify_clause_against_tool
 from .intent import assess_intent
 from .plan_validator import validate_plan
 from .prompting import build_planner_prompt
@@ -23,7 +26,22 @@ class PlannerBackendError(RuntimeError):
 
 
 class PlannerClarificationError(PlannerBackendError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        predicates: list[dict[str, Any]] | None = None,
+        negative_bindings: list[dict[str, Any]] | None = None,
+    ):
+        self.predicates = predicates or []
+        self.negative_bindings = negative_bindings or []
+        super().__init__(message)
+
+
+class PlannerConfirmationRequired(PlannerBackendError):
+    def __init__(self, message: str, *, confirmation: dict[str, Any]):
+        self.confirmation = confirmation
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -31,6 +49,7 @@ class PlannerResult:
     draft: PlanDraft
     backend_used: PlannerBackendName
     llm_calls: int = 0
+    intent_contract: dict[str, Any] | None = None
 
 
 _NUMBER_RE = re.compile(r"\b\d+\b")
@@ -81,12 +100,22 @@ _COMPOUND_SEPARATOR_RE = re.compile(
     r"\b(?:and then|then|next|after that|afterwards|finally)\b|[;\n.]+",
     re.IGNORECASE,
 )
+import json
+import os
+
+_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "ai_domain_config.json")
+try:
+    with open(_CONFIG_PATH, "r") as f:
+        _AI_CONFIG = json.load(f).get("python", {})
+except Exception:
+    _AI_CONFIG = {}
+
 _AND_CONNECTOR_RE = re.compile(r"\b(?:and|also)\b", re.IGNORECASE)
 _ACTION_VERB_RE = re.compile(
     r"\b(?:check|show|list|get|find|view|inspect|update|set|create|delete|approve|reject|replan|assign|schedule|replenish|move|run)\b",
     re.IGNORECASE,
 )
-_AUXILIARY_CAPABILITY_TAGS = {"list", "lookup", "status", "pending", "create", "update", "delete", "approve", "reject"}
+_AUXILIARY_CAPABILITY_TAGS = set(_AI_CONFIG.get("auxiliary_tags", []))
 _INTENT_TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
 _ID_ONLY_PHRASE_RE = re.compile(r"\b(?:ids?\s+only|only\s+ids?|only\s+id|id\s+only)\b", re.IGNORECASE)
 _LIST_VERB_RE = re.compile(r"\b(?:get|show|list|find|view|fetch|give|provide)\b", re.IGNORECASE)
@@ -105,6 +134,11 @@ def _tool_required_arg_count(tool: ToolInfo) -> int:
 def _tool_missing_required_args(tool: ToolInfo, args: dict[str, Any]) -> int:
     required = list((tool.input_schema or {}).get("required", []))
     return sum(1 for field in required if field not in args or args.get(field) in (None, ""))
+
+
+def _tool_missing_required_fields(tool: ToolInfo, args: dict[str, Any]) -> list[str]:
+    required = list((tool.input_schema or {}).get("required", []))
+    return [field for field in required if field not in args or args.get(field) in (None, "")]
 
 
 def _path_param_names(endpoint: str) -> list[str]:
@@ -326,26 +360,26 @@ def _extract_field_value_from_intent(
     field = field_name.lower()
     intent_lower = (intent or "").lower()
 
-    if field in {"quantity_total", "quantity", "qty", "units"} and field_type in {"integer", "number"}:
+    if field in set(_AI_CONFIG.get("field_mapping_groups", {}).get("quantity", [])) and field_type in {"integer", "number"}:
         qty = _extract_quantity_from_intent(intent)
         if qty is not None:
             return qty
 
-    if field in {"deadline", "due_date", "due_at"} and field_type == "string":
+    if field in set(_AI_CONFIG.get("field_mapping_groups", {}).get("deadline", [])) and field_type == "string":
         deadline = _extract_deadline_from_intent(intent)
         if deadline:
             return deadline
 
-    if field in {"notes", "note", "comment", "description"} and field_type == "string":
+    if field in set(_AI_CONFIG.get("field_mapping_groups", {}).get("notes", [])) and field_type == "string":
         notes = _extract_notes_from_intent(intent)
         if notes:
             return notes
 
-    if field in {"ids_only", "id_only"} and field_type == "boolean":
+    if field in set(_AI_CONFIG.get("field_mapping_groups", {}).get("ids_only", [])) and field_type == "boolean":
         if _intent_requests_id_only_fields(intent):
             return True
 
-    if field in {"fields", "select"} and field_type == "string":
+    if field in set(_AI_CONFIG.get("field_mapping_groups", {}).get("fields", [])) and field_type == "string":
         if _intent_requests_id_only_fields(intent):
             return "product_id"
 
@@ -467,6 +501,215 @@ def _extract_required_args(intent: str, tool: ToolInfo) -> tuple[dict[str, Any],
     return args, missing
 
 
+def _merge_deterministic_supported_args(intent: str, tool: ToolInfo, args: dict[str, Any]) -> dict[str, Any]:
+    deterministic_args, _ = _extract_required_args(intent, tool)
+    if not deterministic_args:
+        return args
+    merged = dict(args)
+    for field, value in deterministic_args.items():
+        if merged.get(field) in (None, ""):
+            merged[field] = value
+    return merged
+
+
+def _sanitize_tool_args_against_schema(tool: ToolInfo, args: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    schema = tool.input_schema or {}
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    if not isinstance(args, dict) or not properties:
+        return ({}, sorted(args.keys())) if isinstance(args, dict) and not properties else (args or {}, [])
+
+    sanitized: dict[str, Any] = {}
+    dropped: list[str] = []
+    for field, value in args.items():
+        if field not in properties:
+            dropped.append(str(field))
+            continue
+        if value is None:
+            continue
+
+        field_schema = properties.get(field)
+        if not isinstance(field_schema, dict):
+            sanitized[field] = value
+            continue
+
+        candidate = value
+        field_type = field_schema.get("type")
+        if isinstance(field_type, list):
+            field_type = next((t for t in field_type if t != "null"), None)
+        if field_type in {"string", "integer", "number"}:
+            try:
+                candidate = _coerce_field_value(value=value, field_type=field_type)
+            except Exception:
+                dropped.append(str(field))
+                continue
+
+        if not Draft202012Validator(field_schema).is_valid(candidate):
+            dropped.append(str(field))
+            continue
+        sanitized[field] = candidate
+
+    return sanitized, dropped
+
+
+def _build_unsupported_enum_clarification(
+    *,
+    tool: ToolInfo,
+    raw_args: dict[str, Any],
+    sanitized_args: dict[str, Any],
+    dropped_fields: list[str],
+) -> str | None:
+    schema = tool.input_schema or {}
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    entity = _infer_primary_entity(tool) or "record"
+
+    for field in dropped_fields:
+        field_schema = properties.get(field)
+        if not isinstance(field_schema, dict):
+            continue
+        enum_values = field_schema.get("enum")
+        if not isinstance(enum_values, list) or not enum_values:
+            continue
+        if field in sanitized_args:
+            continue
+        raw_value = raw_args.get(field)
+        if raw_value in (None, ""):
+            continue
+        allowed = ", ".join(str(value) for value in enum_values)
+        return (
+            f'I found {entity}s, but I could not safely map "{raw_value}" to a valid {field}. '
+            f"Allowed {field} values are: {allowed}."
+        )
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Provenance validation for optional filter args
+# ---------------------------------------------------------------------------
+
+# Values that are clearly synthesised placeholders and must never be sent.
+_PLACEHOLDER_VALUES: frozenset[str] = frozenset({
+    "default",
+    "none",
+    "n/a",
+    "na",
+    "null",
+    "unknown",
+    "undefined",
+    "any",
+    "all",
+    "placeholder",
+    "example",
+    "sample",
+    "test",
+    "",
+})
+
+# Control / pagination fields are always safe — they never filter business data.
+_SAFE_CONTROL_FIELDS: frozenset[str] = frozenset({
+    "limit", "offset", "page", "page_size", "sort_by", "sort_dir",
+    "order_by", "order_dir", "fields", "ids_only",
+})
+
+
+def _is_placeholder(value: Any) -> bool:
+    """Return True when *value* looks like a synthesised placeholder."""
+    if value is None:
+        return True
+    str_value = str(value).strip().lower()
+    return str_value in _PLACEHOLDER_VALUES
+
+
+def _value_found_in_text(value: Any, *texts: str) -> bool:
+    """Return True when *value*'s string representation appears in at least one *text*."""
+    needle = str(value).strip()
+    if not needle:
+        return False
+    needle_lower = needle.lower()
+    for text in texts:
+        haystack = (text or "").lower()
+        # Accept exact word-boundary match or substring match for short tokens.
+        if re.search(rf"\b{re.escape(needle_lower)}\b", haystack):
+            return True
+    return False
+
+
+def _strip_unsupported_optional_args(
+    *,
+    tool: ToolInfo,
+    args: dict[str, Any],
+    intent: str,
+    clause: str,
+    intent_memory: dict[str, Any] | None = None,
+    resolved_predicates: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    """Remove optional (non-required, non-path-param) filter args that lack provenance.
+
+    An arg is considered *supported* when ANY of the following is true:
+      1. It is a required field (from input_schema.required or path params).
+      2. It is a safe control / pagination field (limit, offset, sort_by, …).
+      3. Its value is NOT a known placeholder AND appears verbatim in the intent
+         text or clause.
+      4. Its value was positively confirmed via session memory.
+      5. Its value is present in the IntentContract's resolved_predicates.
+
+    Args that fail all checks are stripped.  A warning is logged per dropped arg.
+    Returns (clean_args, list_of_dropped_field_names).
+    """
+    schema = tool.input_schema or {}
+    required_fields: set[str] = set(schema.get("required") or [])
+    required_fields.update(_path_param_names(tool.endpoint))
+
+    # Build a quick lookup of positive memory bindings.
+    memory_values: set[str] = set()
+    if isinstance(intent_memory, dict):
+        for binding in (intent_memory.get("positive_bindings") or []):
+            if isinstance(binding, dict):
+                v = binding.get("value") or binding.get("term")
+                if v:
+                    memory_values.add(str(v).strip().lower())
+
+    clean: dict[str, Any] = {}
+    dropped: list[str] = []
+
+    for field, value in args.items():
+        # --- 1. Always keep required / path-param fields (even if empty).
+        if field in required_fields:
+            clean[field] = value
+            continue
+
+        # --- 2. Always keep safe control fields.
+        if field in _SAFE_CONTROL_FIELDS:
+            clean[field] = value
+            continue
+
+        text = f"{intent} {clause}".lower()
+        value_text = str(value).strip().lower()
+
+        is_placeholder = value_text in _PLACEHOLDER_VALUES
+        has_value_evidence = value_text and value_text in text
+
+        if has_value_evidence and not is_placeholder:
+            clean[field] = value
+        elif value_text in memory_values:
+            clean[field] = value
+        elif isinstance(resolved_predicates, dict) and field in resolved_predicates:
+            clean[field] = value
+        else:
+            dropped.append(field)
+            log_event(
+                "planner_optional_arg_stripped",
+                level="WARNING",
+                reason="no_provenance",
+                field=field,
+                value=str(value),
+                tool_name=tool.name,
+                intent=intent,
+                clause=clause,
+            )
+
+    return clean, dropped
+
+
 def _select_legacy_tool(intent: str, scoped_tools: list[ToolInfo]) -> ToolInfo:
     assessment = assess_intent(intent)
     entities = _extract_intent_entities(intent)
@@ -486,8 +729,8 @@ def _select_legacy_tool(intent: str, scoped_tools: list[ToolInfo]) -> ToolInfo:
                 or assessment.action is None
             ),
             not (has_explicit_id and _tool_prefers_entity_lookup(t)),
-            _tool_missing_required_args(t, _extract_required_args(intent, t)[0]),
             -_tool_intent_match_score(intent, t),
+            _tool_missing_required_args(t, _extract_required_args(intent, t)[0]),
             not t.is_read_only,
             t.name,
         ),
@@ -659,7 +902,9 @@ class LegacyPlannerBackend:
         context: dict[str, Any] | None = None,
         tools_markdown: str = "",
     ) -> PlannerResult:
-        del context, tools_markdown
+        del tools_markdown
+        context = context or {}
+        intent_memory = context.get("intent_memory") if isinstance(context.get("intent_memory"), dict) else {}
         log_llm_prompt_skipped(
             component="planner",
             backend="legacy",
@@ -678,6 +923,7 @@ class LegacyPlannerBackend:
 
         clauses = _split_compound_intent(intent)
         step_drafts: list[PlanStepDraft] = []
+        contract_clauses: list[dict[str, Any]] = []
         tools_by_name = {tool.name: tool for tool in scoped_tools}
         for idx, clause in enumerate(clauses):
             selected = _select_legacy_tool(clause, scoped_tools)
@@ -687,8 +933,8 @@ class LegacyPlannerBackend:
             ranked_candidates = sorted(
                 scoped_tools,
                 key=lambda t: (
-                    _tool_missing_required_args(t, _extract_required_args(clause, t)[0]),
                     -_tool_intent_match_score(clause, t),
+                    _tool_missing_required_args(t, _extract_required_args(clause, t)[0]),
                     t.name,
                 ),
             )[:8]
@@ -714,11 +960,37 @@ class LegacyPlannerBackend:
                 decision = None
             if decision and decision.tool_name in tools_by_name:
                 candidate = tools_by_name[decision.tool_name]
-                candidate_required_missing = _tool_missing_required_args(candidate, decision.args or {})
-                if candidate_required_missing == 0 or candidate.requires_approval:
+                sanitized_args, dropped_fields = _sanitize_tool_args_against_schema(candidate, decision.args or {})
+                if dropped_fields:
+                    log_event(
+                        "planner_llm_args_sanitized",
+                        level="WARNING",
+                        tool_name=candidate.name,
+                        dropped_fields=dropped_fields,
+                        raw_args=decision.args or {},
+                        intent=intent,
+                        clause=clause,
+                    )
+                    clarification = _build_unsupported_enum_clarification(
+                        tool=candidate,
+                        raw_args=decision.args or {},
+                        sanitized_args=sanitized_args,
+                        dropped_fields=dropped_fields,
+                    )
+                    if clarification:
+                        raise PlannerClarificationError(clarification)
+                candidate_required_missing = _tool_missing_required_args(candidate, sanitized_args)
+                candidate_score = _tool_intent_match_score(clause, candidate)
+                selected_score = _tool_intent_match_score(clause, selected)
+                approval_candidate_is_not_worse = candidate.requires_approval and candidate_score >= selected_score
+                if candidate_required_missing == 0 or approval_candidate_is_not_worse:
                     selected = candidate
-                    args = decision.args or {}
-                    missing = decision.missing_args or []
+                    args = sanitized_args
+                    missing = _tool_missing_required_fields(candidate, sanitized_args)
+
+            # Preserve deterministic optional predicate extraction such as enum-backed
+            # query filters even when the LLM reranker returns sparse args.
+            args = _merge_deterministic_supported_args(clause, selected, args)
 
             if missing:
                 # If the clause lost an identifier during splitting, retry with
@@ -727,6 +999,44 @@ class LegacyPlannerBackend:
                 if not fallback_missing:
                     args = fallback_args
                     missing = []
+
+            args = _merge_deterministic_supported_args(intent, selected, args)
+
+            verification = await verify_clause_against_tool(
+                clause=clause,
+                tool=selected,
+                args=args,
+                reasoning=self._reasoning,
+                memory=intent_memory,
+            )
+            args = verification.args
+            if verification.confirmation:
+                log_event(
+                    "predicate_confirmation_required",
+                    intent=intent,
+                    clause=clause,
+                    tool_name=selected.name,
+                    confirmation=verification.confirmation,
+                    predicates=verification.predicates,
+                )
+                raise PlannerConfirmationRequired(
+                    verification.confirmation.get("message") or "Please confirm the intended filter.",
+                    confirmation=verification.confirmation,
+                )
+            if verification.clarification:
+                log_event(
+                    "predicate_clarification_required",
+                    intent=intent,
+                    clause=clause,
+                    tool_name=selected.name,
+                    clarification=verification.clarification,
+                    predicates=verification.predicates,
+                )
+                raise PlannerClarificationError(
+                    verification.clarification,
+                    predicates=verification.predicates,
+                    negative_bindings=verification.negative_bindings,
+                )
 
             if missing:
                 # For approval-gated tools (typically write operations), allow
@@ -738,6 +1048,31 @@ class LegacyPlannerBackend:
                         f"Need {pretty} before I can use `{selected.name}` for: {clause.strip() or intent.strip() or 'user request'}."
                     )
 
+            # ------------------------------------------------------------------
+            # Provenance gate: strip optional filter args that lack support
+            # from the user text, session memory, or a safe default.
+            # This prevents placeholder values like "default" from reaching
+            # the backend and causing HTTP 500s.
+            # ------------------------------------------------------------------
+            args, provenance_dropped = _strip_unsupported_optional_args(
+                tool=selected,
+                args=args,
+                intent=intent,
+                clause=clause,
+                intent_memory=intent_memory,
+                resolved_predicates=verification.resolved_predicates,
+            )
+            if provenance_dropped:
+                log_event(
+                    "planner_provenance_gate",
+                    level="INFO",
+                    tool_name=selected.name,
+                    dropped_fields=provenance_dropped,
+                    intent=intent,
+                    clause=clause,
+                    planner_backend="legacy",
+                )
+
             step_drafts.append(
                 PlanStepDraft(
                     step_index=idx,
@@ -745,6 +1080,19 @@ class LegacyPlannerBackend:
                     args=args,
                     depends_on=[idx - 1] if idx > 0 else [],
                 )
+            )
+            contract_clauses.append(
+                {
+                    "step_index": idx,
+                    "clause": clause,
+                    "tool_name": selected.name,
+                    "args": args,
+                    "resolved_predicates": verification.resolved_predicates,
+                    "unresolved_terms": verification.unresolved_terms,
+                    "predicates": verification.predicates,
+                    "predicate_coverage_score": verification.predicate_coverage_score,
+                    "provenance_dropped": provenance_dropped,
+                }
             )
 
         plan_explanation, risk_summary, llm_calls = await self._build_explainability(
@@ -757,7 +1105,12 @@ class LegacyPlannerBackend:
             risk_summary=risk_summary,
             steps=step_drafts,
         )
-        return PlannerResult(draft=draft, backend_used="legacy", llm_calls=llm_calls)
+        return PlannerResult(
+            draft=draft,
+            backend_used="legacy",
+            llm_calls=llm_calls,
+            intent_contract={"intent": intent, "clauses": contract_clauses},
+        )
 
 
 class LangChainPlannerBackend:
@@ -919,9 +1272,10 @@ class PlannerAdapter:
     ) -> PlannerResult:
         backend = (force_backend or self._settings.planner_backend or "legacy").strip().lower()
         tools_markdown = self._tool_registry.load_tools_markdown()
+        result: PlannerResult | None = None
         if backend == "langchain":
             try:
-                return await self._langchain.generate_plan(
+                result = await self._langchain.generate_plan(
                     intent=intent,
                     scoped_tools=scoped_tools,
                     context=context,
@@ -939,15 +1293,43 @@ class PlannerAdapter:
                     scoped_tool_count=len(scoped_tools),
                     error=str(exc),
                 )
-                return await self._legacy.generate_plan(
+        
+        if result is None:
+            result = await self._legacy.generate_plan(
+                intent=intent,
+                scoped_tools=scoped_tools,
+                context=context,
+                tools_markdown=tools_markdown,
+            )
+
+        if result and result.draft and result.draft.steps:
+            tools_by_name = {t.name: t for t in scoped_tools}
+            intent_memory = None
+            if isinstance(context, dict) and "memory" in context:
+                intent_memory = context["memory"]
+            elif isinstance(context, dict):
+                intent_memory = context
+
+            for step in result.draft.steps:
+                tool = tools_by_name.get(step.tool_name)
+                if not tool:
+                    continue
+                
+                clean_args, dropped = _strip_unsupported_optional_args(
+                    tool=tool,
+                    args=step.args or {},
                     intent=intent,
-                    scoped_tools=scoped_tools,
-                    context=context,
-                    tools_markdown=tools_markdown,
+                    clause=intent,
+                    intent_memory=intent_memory,
                 )
-        return await self._legacy.generate_plan(
-            intent=intent,
-            scoped_tools=scoped_tools,
-            context=context,
-            tools_markdown=tools_markdown,
-        )
+                if dropped:
+                    step.args = clean_args
+                    log_event(
+                        "planner_universal_provenance_gate",
+                        level="INFO",
+                        tool_name=tool.name,
+                        dropped_fields=dropped,
+                        intent=intent,
+                    )
+        
+        return result

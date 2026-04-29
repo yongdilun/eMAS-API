@@ -1,5 +1,6 @@
 /* eslint-disable react/prop-types */
 import { getReadableAction } from './turnAssembler'
+import { useEffect, useState } from 'react'
 
 function JsonDetails({ summary, value }) {
   if (value == null) return null
@@ -10,6 +11,68 @@ function JsonDetails({ summary, value }) {
 {JSON.stringify(value, null, 2)}
       </pre>
     </details>
+  )
+}
+
+export function TablePresentation({ presentation, animate = false, animateKey = 'table' }) {
+  const table = presentation?.table
+  const columns = Array.isArray(table?.columns) ? table.columns : []
+  const rows = Array.isArray(table?.rows) ? table.rows : []
+  const [visibleRows, setVisibleRows] = useState(animate ? 0 : rows.length)
+
+  useEffect(() => {
+    if (!animate) {
+      setVisibleRows(rows.length)
+      return undefined
+    }
+    setVisibleRows(0)
+    if (!rows.length) return undefined
+
+    let index = 0
+    const timer = window.setInterval(() => {
+      index += 1
+      setVisibleRows(Math.min(index, rows.length))
+      if (index >= rows.length) window.clearInterval(timer)
+    }, 55)
+
+    return () => window.clearInterval(timer)
+  }, [animate, animateKey, rows.length])
+
+  if (!columns.length || !rows.length) return null
+  const renderedRows = animate ? rows.slice(0, visibleRows) : rows
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-lg border border-gray-200/80 dark:border-gray-700/70">
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-left text-[11px]">
+          <thead className="bg-gray-100/80 dark:bg-gray-800/80 text-gray-700 dark:text-gray-200">
+            <tr>
+              {columns.map((column) => (
+                <th key={column.key} className="px-3 py-2 font-semibold whitespace-nowrap">
+                  {column.label || column.key}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200/70 dark:divide-gray-700/60 bg-white dark:bg-gray-950/30 text-gray-700 dark:text-gray-200">
+            {renderedRows.map((row, rowIndex) => (
+              <tr key={`${rowIndex}-${String(row?.[columns[0]?.key] ?? rowIndex)}`}>
+                {columns.map((column) => (
+                  <td key={column.key} className="px-3 py-2 align-top whitespace-nowrap">
+                    {row?.[column.key] == null ? '—' : String(row[column.key])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {(table?.displayed_rows || 0) < (table?.total_rows || 0) ? (
+        <div className="border-t border-gray-200/70 dark:border-gray-700/60 bg-gray-50/80 dark:bg-gray-900/40 px-3 py-2 text-[11px] text-gray-500 dark:text-gray-400">
+          Showing {table.displayed_rows} of {table.total_rows} rows.
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -80,6 +143,9 @@ export function ToolBlocks({ tools = [] }) {
               ) : null}
               {t.content ? (
                 <div className="mt-2 whitespace-pre-wrap text-gray-700 dark:text-gray-200">{t.content}</div>
+              ) : null}
+              {t?.details?.presentation?.render_hint === 'table' ? (
+                <TablePresentation presentation={t.details.presentation} />
               ) : null}
               <JsonDetails summary="Show args/result" value={t.details} />
             </details>

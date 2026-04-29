@@ -132,6 +132,8 @@ def _infer_input_schema(
         schema = param.get("schema")
         if not schema and "type" in param:
             schema = {"type": param.get("type", "string")}
+            if isinstance(param.get("enum"), list):
+                schema["enum"] = list(param.get("enum") or [])
         resolved = _resolve_schema(spec, schema)
         param_name = str(param.get("name", "param"))
         location = str(param.get("in", "")).lower()

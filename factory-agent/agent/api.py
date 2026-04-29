@@ -27,11 +27,12 @@ from .events import AgentEvent, EventBus
 from .execution import ExecutionEngine, compute_idempotency_key
 from .intent import assess_intent
 from .metrics import metrics
-from .planner import PlannerAdapter, PlannerBackendError, PlannerClarificationError
+from .planner import PlannerAdapter, PlannerBackendError, PlannerClarificationError, PlannerConfirmationRequired
 from .plan_validator import validate_plan
 from .schemas import (
     ApprovalDecisionRequest,
     ApprovalResponse,
+    ConfirmationDecisionRequest,
     DeadLetterDismissRequest,
     DeadLetterPushRequest,
     DeadLetterReplayRequest,
@@ -55,6 +56,7 @@ from .summary_backend import SummaryAdapter, SummaryBackendError
 from .telemetry import log_event, log_step_status_changed
 from .tool_registry import ToolRegistry
 from .tool_selector import ToolSelector
+from .presentation import extract_table_from_result
 
 
 def _normalize_session_name(name: str | None) -> str | None:
@@ -193,6 +195,15 @@ def _timeline_event(
     )
 
 
+def _build_tool_result_details(*, tool_name: str | None, args: dict[str, Any] | None, result: dict[str, Any] | None, last_error: str | None, content: str | None) -> dict[str, Any]:
+    details: dict[str, Any] = {"args": args, "result": result, "last_error": last_error}
+    presentation = extract_table_from_result(tool_name=tool_name, result=result)
+    if presentation:
+        presentation["message"] = content or ""
+        details["presentation"] = presentation
+    return details
+
+
 _TIMELINE_EVENT_PRIORITY = {
     "user_message": 0,
     "plan_created": 1,
@@ -246,6 +257,143 @@ def build_router(
             return None
         return (await db.execute(select(PlanRow).where(PlanRow.plan_id == sess.plan_id))).scalars().first()
 
+    async def _persist_conversation_reply_as_empty_plan(
+        *,
+        db: AsyncSession,
+        sess: SessionRow,
+        reply: str,
+        mode: str,
+        tools_by_name: dict[str, ToolInfo],
+        intent: str,
+        context_to_keep: dict[str, Any] | None = None,
+    ) -> PlanResponse:
+        from .schemas import PlanDraft
+
+        db.add(
+            MessageRow(
+                message_id=generate_uuid(),
+                session_id=sess.session_id,
+                role="assistant",
+                content=reply,
+                mode=mode,
+                tool_name="__conversation__",
+            )
+        )
+        await db.commit()
+        empty_draft = PlanDraft(
+            plan_explanation=reply,
+            risk_summary="No tool execution required.",
+            steps=[],
+        )
+        return await _persist_plan(
+            db=db,
+            sess=sess,
+            draft=empty_draft,
+            tools_by_name=tools_by_name,
+            backend_used="system",
+            kind="execution",
+            status="COMPLETED",
+            intent=intent,
+            context_to_keep=context_to_keep,
+        )
+
+    def _remember_negative_predicate_bindings(
+        *,
+        sess: SessionRow,
+        bindings: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        if not bindings:
+            return sess.replan_context if isinstance(sess.replan_context, dict) else None
+        context = dict(sess.replan_context or {})
+        memory = context.get("intent_memory") if isinstance(context.get("intent_memory"), dict) else {}
+        negatives = memory.get("negative_bindings") if isinstance(memory.get("negative_bindings"), list) else []
+        existing = {
+            (str(item.get("entity")), str(item.get("normalized_term") or item.get("term")), str(item.get("field")))
+            for item in negatives
+            if isinstance(item, dict)
+        }
+        added: list[dict[str, Any]] = []
+        for binding in bindings:
+            if not isinstance(binding, dict):
+                continue
+            key = (
+                str(binding.get("entity")),
+                str(binding.get("normalized_term") or binding.get("term")),
+                str(binding.get("field")),
+            )
+            if key in existing:
+                continue
+            negatives.append(dict(binding))
+            existing.add(key)
+            added.append(dict(binding))
+        if not added:
+            return context
+        memory["negative_bindings"] = negatives
+        context["intent_memory"] = memory
+        sess.replan_context = context
+        log_event(
+            "predicate_memory_updated",
+            session_id=sess.session_id,
+            memory_type="negative_binding",
+            bindings=added,
+        )
+        return context
+
+    async def _persist_confirmation_request_as_empty_plan(
+        *,
+        db: AsyncSession,
+        sess: SessionRow,
+        confirmation: dict[str, Any],
+        mode: str,
+        tools_by_name: dict[str, ToolInfo],
+        intent: str,
+    ) -> PlanResponse:
+        reply = str(confirmation.get("message") or "Please confirm the intended filter.")
+        context = dict(sess.replan_context or {})
+        context["confirmation_request"] = confirmation
+        context.setdefault("intent_memory", {})
+        db.add(
+            MessageRow(
+                message_id=generate_uuid(),
+                session_id=sess.session_id,
+                role="assistant",
+                content=reply,
+                mode=mode,
+                tool_name="__confirmation__",
+            )
+        )
+        await db.commit()
+        from .schemas import PlanDraft
+
+        empty_draft = PlanDraft(
+            plan_explanation=reply,
+            risk_summary="Waiting for operator confirmation before tool execution.",
+            steps=[],
+        )
+        response = await _persist_plan(
+            db=db,
+            sess=sess,
+            draft=empty_draft,
+            tools_by_name=tools_by_name,
+            backend_used="system",
+            kind="execution",
+            status="COMPLETED",
+            intent=intent,
+            context_to_keep=context,
+        )
+        sess.status = "WAITING_CONFIRMATION"
+        sess.replan_context = context
+        sess.error = reply
+        sess.version += 1
+        await db.commit()
+        log_event(
+            "predicate_confirmation_requested",
+            session_id=sess.session_id,
+            intent=intent,
+            confirmation=confirmation,
+        )
+        return response
+
     async def _ensure_registry_health(*, db: AsyncSession) -> dict[str, ToolInfo]:
         tools_by_name = await tool_registry.get_tools_by_name(db)
         if _should_enforce_registry_health():
@@ -295,6 +443,7 @@ def build_router(
         status: str,
         intent: str,
         derived_from_plan_id: str | None = None,
+        context_to_keep: dict[str, Any] | None = None,
     ) -> PlanResponse:
         validation = validate_plan(draft, tools_by_name, max_steps=settings.max_plan_steps)
         if not validation.ok:
@@ -355,7 +504,7 @@ def build_router(
         sess.plan_hash = plan_row.plan_hash
         sess.current_step_index = 0
         sess.pending_user_message = None
-        sess.replan_context = None
+        sess.replan_context = context_to_keep if context_to_keep else None
         sess.error = None
         sess.version += 1
         sess.status = "PLANNING" if draft.steps else "IDLE"
@@ -444,6 +593,11 @@ def build_router(
 
         sess.llm_call_count += selection.llm_calls
         sess.llm_call_count += generated.llm_calls
+        context_to_keep = None
+        intent_contract = getattr(generated, "intent_contract", None)
+        if intent_contract:
+            context_to_keep = dict(sess.replan_context or {})
+            context_to_keep["intent_contract"] = intent_contract
         response = await _persist_plan(
             db=db,
             sess=sess,
@@ -454,6 +608,7 @@ def build_router(
             status="PENDING_APPROVAL",
             intent=intent,
             derived_from_plan_id=discovery_plan.plan_id,
+            context_to_keep=context_to_keep,
         )
         plan_row = (await db.execute(select(PlanRow).where(PlanRow.plan_id == response.plan_id))).scalars().first()
         if not plan_row:
@@ -545,6 +700,7 @@ def build_router(
         assistant_messages = [row for row in message_rows if row.role == "assistant"]
         plan_messages = [row for row in assistant_messages if row.tool_name == "__plan__"]
         conversation_messages = [row for row in assistant_messages if row.tool_name == "__conversation__"]
+        confirmation_messages = [row for row in assistant_messages if row.tool_name == "__confirmation__"]
         step_ids_by_plan: dict[str, list[str]] = {}
         for step in step_rows:
             step_ids_by_plan.setdefault(step.plan_id, []).append(step.step_id)
@@ -691,6 +847,27 @@ def build_router(
                 )
             )
 
+        confirmation_request = None
+        if isinstance(sess.replan_context, dict):
+            maybe = sess.replan_context.get("confirmation_request")
+            if isinstance(maybe, dict):
+                confirmation_request = maybe
+        for msg in confirmation_messages:
+            events.append(
+                _timeline_event(
+                    event_id=f"confirmation:{msg.message_id}",
+                    event_type="confirmation_required",
+                    content=msg.content,
+                    created_at=msg.created_at,
+                    status="WAITING_CONFIRMATION",
+                    role="assistant",
+                    mode=(getattr(msg, "mode", None) or "normal"),
+                    turn_id=_turn_id_for_time(msg.created_at),
+                    step_context={**_session_ctx(), "message_id": msg.message_id},
+                    details={"confirmation": confirmation_request},
+                )
+            )
+
         for idx, plan_row in enumerate(plan_rows):
             if _is_noop_plan(plan_row):
                 continue
@@ -804,7 +981,13 @@ def build_router(
                     step_id=step.step_id,
                     tool_name=step.tool_name,
                     status=step.status,
-                    details={"args": step.args, "result": step.result, "last_error": step.last_error},
+                    details=_build_tool_result_details(
+                        tool_name=step.tool_name,
+                        args=step.args,
+                        result=step.result,
+                        last_error=step.last_error,
+                        content=content,
+                    ),
                 )
             )
 
@@ -1136,6 +1319,68 @@ def build_router(
         ).scalars().all()
         return [_message_to_response(r) for r in rows]
 
+    @router.post("/sessions/{session_id}/confirm", response_model=SessionResponse)
+    async def confirm_predicate(
+        session_id: str,
+        req: ConfirmationDecisionRequest,
+        _: dict[str, Any] = Depends(require_jwt),
+        db: AsyncSession = Depends(get_db),
+    ):
+        sess = await session_mgr.get_session(db, session_id=session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="session not found")
+        context = dict(sess.replan_context or {})
+        confirmation = context.get("confirmation_request")
+        if sess.status != "WAITING_CONFIRMATION" or not isinstance(confirmation, dict):
+            raise HTTPException(status_code=409, detail="session is not waiting for confirmation")
+        options = confirmation.get("options") if isinstance(confirmation.get("options"), list) else []
+        selected = next((opt for opt in options if isinstance(opt, dict) and opt.get("field") == req.field), None)
+        if not selected:
+            raise HTTPException(status_code=400, detail="confirmation option is not valid for this session")
+
+        raw_term = str(confirmation.get("raw_term") or selected.get("value") or req.value or "").strip()
+        value = str(req.value or selected.get("value") or raw_term).strip()
+        entity = str(confirmation.get("entity") or "record")
+        memory = context.get("intent_memory") if isinstance(context.get("intent_memory"), dict) else {}
+        positives = memory.get("positive_bindings") if isinstance(memory.get("positive_bindings"), list) else []
+        positives.append(
+            {
+                "entity": entity,
+                "term": raw_term,
+                "normalized_term": raw_term.lower().replace("_", " ").replace("-", " "),
+                "field": req.field,
+                "value": value,
+                "source": "operator_confirmation",
+                "confirmed_at": datetime.utcnow().isoformat() + "Z",
+            }
+        )
+        memory["positive_bindings"] = positives
+        context["intent_memory"] = memory
+        context.pop("confirmation_request", None)
+        sess.replan_context = context
+        sess.status = "IDLE"
+        sess.error = None
+        sess.version += 1
+        db.add(
+            MessageRow(
+                message_id=generate_uuid(),
+                session_id=session_id,
+                role="assistant",
+                content=f'Confirmed: use {req.field}="{value}".',
+                mode="normal",
+                tool_name="__confirmation_decision__",
+            )
+        )
+        await db.commit()
+        log_event(
+            "predicate_confirmation_decided",
+            session_id=session_id,
+            field=req.field,
+            value=value,
+            raw_term=raw_term,
+        )
+        return _session_to_response(sess)
+
     @router.get("/sessions/{session_id}/steps", response_model=list[PlanStepResponse])
     async def list_steps(
         session_id: str,
@@ -1180,32 +1425,12 @@ def build_router(
 
         if assessment.kind != "operations":
             reply = assessment.reply or "I need a factory operations request before I can create a plan."
-            from .schemas import PlanDraft
-
-            db.add(
-                MessageRow(
-                    message_id=generate_uuid(),
-                    session_id=session_id,
-                    role="assistant",
-                    content=reply,
-                    mode=mode,
-                    tool_name="__conversation__",
-                )
-            )
-            await db.commit()
-            empty_draft = PlanDraft(
-                plan_explanation=reply,
-                risk_summary="No tool execution required.",
-                steps=[],
-            )
-            plan_resp = await _persist_plan(
+            plan_resp = await _persist_conversation_reply_as_empty_plan(
                 db=db,
                 sess=sess,
-                draft=empty_draft,
+                reply=reply,
+                mode=mode,
                 tools_by_name=tools_by_name,
-                backend_used="system",
-                kind="execution",
-                status="COMPLETED",
                 intent=intent,
             )
             metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
@@ -1222,6 +1447,7 @@ def build_router(
             scoped_tools = [tools_by_name[name] for name in selection.tool_names if name in tools_by_name]
             if mode == "plan":
                 scoped_tools = [tool for tool in scoped_tools if tool.is_read_only]
+            context_to_keep: dict[str, Any] | None = None
             try:
                 if scoped_tools:
                     generated = await planner.generate_plan(
@@ -1231,6 +1457,12 @@ def build_router(
                     )
                     draft = generated.draft
                     backend_used = generated.backend_used
+                    intent_contract = getattr(generated, "intent_contract", None)
+                    if intent_contract:
+                        context = dict(sess.replan_context or {})
+                        context["intent_contract"] = intent_contract
+                        sess.replan_context = context
+                        context_to_keep = context
                     sess.llm_call_count += selection.llm_calls
                     sess.llm_call_count += generated.llm_calls
                 else:
@@ -1242,8 +1474,38 @@ def build_router(
                         steps=[],
                     )
                     backend_used = "system"
+            except PlannerConfirmationRequired as e:
+                plan_resp = await _persist_confirmation_request_as_empty_plan(
+                    db=db,
+                    sess=sess,
+                    confirmation=e.confirmation,
+                    mode=mode,
+                    tools_by_name=tools_by_name,
+                    intent=intent,
+                )
+                metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
+                return plan_resp
             except PlannerClarificationError as e:
-                raise HTTPException(status_code=400, detail={"errors": [str(e)]}) from e
+                reply = str(e)
+                if ('could not safely map "' in reply and "Allowed " in reply) or (
+                    'couldn\'t match "' in reply and "supported " in reply
+                ):
+                    context_to_keep = _remember_negative_predicate_bindings(
+                        sess=sess,
+                        bindings=getattr(e, "negative_bindings", []) or [],
+                    )
+                    plan_resp = await _persist_conversation_reply_as_empty_plan(
+                        db=db,
+                        sess=sess,
+                        reply=reply,
+                        mode=mode,
+                        tools_by_name=tools_by_name,
+                        intent=intent,
+                        context_to_keep=context_to_keep,
+                    )
+                    metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
+                    return plan_resp
+                raise HTTPException(status_code=400, detail={"errors": [reply]}) from e
             except PlannerBackendError as e:
                 raise HTTPException(status_code=503, detail={"errors": [str(e)]}) from e
             except Exception as e:
@@ -1276,6 +1538,11 @@ def build_router(
                 )
                 draft = fallback.draft
                 backend_used = fallback.backend_used
+                fallback_contract = getattr(fallback, "intent_contract", None)
+                if fallback_contract:
+                    context = dict(sess.replan_context or {})
+                    context["intent_contract"] = fallback_contract
+                    sess.replan_context = context
                 validation = validate_plan(draft, tools_by_name, max_steps=settings.max_plan_steps)
                 metrics.inc("plan_backend_used_total", labels={"backend_used": "legacy_fallback"})
                 log_event("planner_fallback_used", session_id=session_id, fallback_backend="legacy")
@@ -1317,6 +1584,7 @@ def build_router(
             kind=plan_kind,
             status=plan_status,
             intent=intent,
+            context_to_keep=sess.replan_context if isinstance(sess.replan_context, dict) else None,
         )
         metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
         return response

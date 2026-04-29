@@ -16,7 +16,7 @@ type Machine struct {
 	MachineName             string     `gorm:"column:machine_name;size:255"`
 	MachineType             string     `gorm:"column:machine_type;size:100"` // CNC / Press / Coating etc
 	Location                string     `gorm:"column:location;size:255"`
-	Status                  string     `gorm:"column:status;size:20"`
+	Status                  string     `gorm:"column:status;size:20" json:"status" enums:"idle,running,maintenance,offline"`
 	CapacityPerHour         int        `gorm:"column:capacity_per_hour"`
 	DefaultSetupTime        int        `gorm:"column:default_setup_time"`
 	DefaultCleaningTime     int        `gorm:"column:default_cleaning_time"`

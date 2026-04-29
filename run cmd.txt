@@ -3,7 +3,7 @@ cd "c:\Users\dilun\OneDrive\Documents\eMas APi\factory-agent"
 
 
 cd "C:\Users\dilun\Downloads\llama-b8902-bin-win-cuda-13.1-x64"
-.\llama-server.exe -hf unsloth/Qwen3.5-4B-GGUF:UD-Q4_K_XL -ngl 40 --port 9000
+.\llama-server.exe -hf bartowski/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M -ngl 999 -c 4096 -b 256 -t 6 --port 900
 
 cd "C:\Users\dilun\OneDrive\Documents\eMas APi\eMas Front"
 npm run dev

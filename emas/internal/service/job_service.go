@@ -43,14 +43,14 @@ func (s *JobService) Create(req dto.CreateJobRequest) (*domain.Job, error) {
 		deadline = time.Now().Add(24 * time.Hour)
 	}
 	if req.Priority == "" {
-		req.Priority = domain.JobPriorityMedium
+		req.Priority = dto.JobPriority(domain.JobPriorityMedium)
 	}
 
 	job := &domain.Job{
 		JobID:         id.NewPrefixed("JOB-"),
 		ProductID:     req.ProductID,
 		QuantityTotal: req.QuantityTotal,
-		Priority:      req.Priority,
+		Priority:      string(req.Priority),
 		Deadline:      deadline,
 		Status:        domain.JobStatusPlanned,
 		CreatedAt:     time.Now(),
@@ -312,13 +312,13 @@ func (s *JobService) Update(id string, req dto.UpdateJobRequest) (*domain.Job, e
 		job.QuantityTotal = *req.QuantityTotal
 	}
 	if req.Priority != nil {
-		job.Priority = *req.Priority
+		job.Priority = string(*req.Priority)
 	}
 	if req.Deadline != nil {
 		job.Deadline = *req.Deadline
 	}
 	if req.Status != nil {
-		job.Status = *req.Status
+		job.Status = string(*req.Status)
 	}
 	if req.Notes != nil {
 		job.Notes = *req.Notes

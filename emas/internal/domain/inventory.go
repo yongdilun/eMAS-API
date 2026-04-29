@@ -18,7 +18,7 @@ type InventoryMaterials struct {
 	MinStock        float64   `gorm:"column:min_stock"`
 	ReorderLevel    float64   `gorm:"column:reorder_level"`
 	StorageLocation string    `gorm:"column:storage_location;size:255"`
-	Status          string    `gorm:"column:status;size:20"`
+	Status          string    `gorm:"column:status;size:20" json:"status" enums:"in_stock,low_stock,out_of_stock"`
 	LastUpdated     time.Time `gorm:"column:last_updated"`
 }
 
@@ -57,7 +57,7 @@ type InventoryExpectedArrival struct {
 	MaterialID       string     `gorm:"column:material_id;size:50;index;not null"`
 	Quantity         float64    `gorm:"column:quantity;not null"`
 	ExpectedArriveAt time.Time  `gorm:"column:expected_arrive_at;index;not null"`
-	Status           string     `gorm:"column:status;size:20;default:pending"`
+	Status           string     `gorm:"column:status;size:20;default:pending" json:"status" enums:"pending,received,cancelled"`
 	Notes            string     `gorm:"column:notes;type:text"`
 	ReferenceJobID   string     `gorm:"column:reference_job_id;size:50;index"`
 	ReceivedAt       *time.Time `gorm:"column:received_at"`
@@ -84,7 +84,7 @@ type ProductInventory struct {
 	ProductID        string    `gorm:"column:product_id;size:50;index;not null"`
 	QuantityOnHand   float64   `gorm:"column:quantity_on_hand;not null"`
 	QuantityReserved float64   `gorm:"column:quantity_reserved;not null"`
-	Status           string    `gorm:"column:status;size:20;default:available"`
+	Status           string    `gorm:"column:status;size:20;default:available" json:"status" enums:"available,reserved,blocked,planned"`
 	StorageLocation  string    `gorm:"column:storage_location;size:255"`
 	AvailableFrom    time.Time `gorm:"column:available_from;index"`
 	LastUpdated      time.Time `gorm:"column:last_updated"`
@@ -107,7 +107,7 @@ type InventoryReservation struct {
 	JobStepID     string    `gorm:"column:job_step_id;size:50;index"`
 	ReservedQty   float64   `gorm:"column:reserved_qty;not null"`
 	NeededAt      time.Time `gorm:"column:needed_at;index"`
-	Status        string    `gorm:"column:status;size:20;default:pending"`
+	Status        string    `gorm:"column:status;size:20;default:pending" json:"status" enums:"pending,consumed,released"`
 	CreatedAt     time.Time `gorm:"column:created_at"`
 	UpdatedAt     time.Time `gorm:"column:updated_at"`
 }

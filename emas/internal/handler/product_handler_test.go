@@ -33,6 +33,11 @@ func TestProductHandler_CRUD(t *testing.T) {
 		t.Fatalf("list: got %d", w.Code)
 	}
 
+	w = testutil.Request(r, "GET", "/api/v1/products?status=invalid", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("list invalid status: got %d, want 400", w.Code)
+	}
+
 	// List IDs only view (same endpoint, query-based field selection)
 	w = testutil.Request(r, "GET", "/api/v1/products?fields=product_id", nil)
 	if w.Code != http.StatusOK {

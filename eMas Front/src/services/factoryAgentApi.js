@@ -111,6 +111,9 @@ export const factoryAgentApi = {
     return request('POST', `/sessions/${sessionId}/execute${suffix}`, {}, options)
   },
 
+  confirm: (sessionId, payload = {}, options) =>
+    request('POST', `/sessions/${sessionId}/confirm`, payload, options),
+
   cancelSession: (sessionId, options) => request('POST', `/sessions/${sessionId}/cancel`, {}, options),
 
   listPendingApprovals: (params = {}, options) => {
@@ -132,6 +135,7 @@ export const FACTORY_AGENT_STATUS = {
   IDLE: 'IDLE',
   PLANNING: 'PLANNING',
   WAITING_APPROVAL: 'WAITING_APPROVAL',
+  WAITING_CONFIRMATION: 'WAITING_CONFIRMATION',
   EXECUTING: 'EXECUTING',
   BLOCKED: 'BLOCKED',
   FAILED: 'FAILED',

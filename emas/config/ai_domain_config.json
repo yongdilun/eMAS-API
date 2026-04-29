@@ -1,0 +1,19 @@
+{
+  "valid_slot_statuses": {
+    "planned": true,
+    "running": true,
+    "paused": true,
+    "completed": true,
+    "cancelled": true
+  },
+  "valid_split_strategies": {
+    "equal": true,
+    "proportional": true,
+    "custom": true
+  },
+  "valid_objectives": {
+    "time": true,
+    "cost": true,
+    "efficiency": true
+  }
+}

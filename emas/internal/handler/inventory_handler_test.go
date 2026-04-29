@@ -78,4 +78,18 @@ func TestInventoryHandler_ProductStockListOptions(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("list product stock with query options: got %d, body: %s", w.Code, w.Body.String())
 	}
+
+	w = testutil.Request(r, "GET", "/api/v1/inventory/product-stock?status=invalid", nil)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("list product stock invalid status: got %d, want 400", w.Code)
+	}
+
+	w = testutil.Request(r, "POST", "/api/v1/inventory/product-stock", map[string]interface{}{
+		"product_id":       "P-STOCK-2",
+		"quantity_on_hand": 10,
+		"status":           "invalid",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("create product stock invalid status: got %d, want 400", w.Code)
+	}
 }
