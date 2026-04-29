@@ -42,6 +42,7 @@ class ReasoningPipeline:
         re.compile(r"^found \d+ ids? in tool result\.?$", re.IGNORECASE),
         re.compile(r"^tool execution completed\.?$", re.IGNORECASE),
     )
+    _ALLOWED_ANSWER_TYPES = {"id_list", "record", "not_found", "error", "summary"}
 
     def _component_backend(self, component: str) -> str:
         if component == "reasoning_tool_selection":
@@ -348,6 +349,27 @@ class ReasoningPipeline:
             grounding_refs=[],
         )
 
+    def deterministic_response_contract(self, *, facts: FactExtractionResult) -> str | None:
+        if not isinstance(facts.counts, dict):
+            return None
+        records = facts.counts.get("records")
+        try:
+            n = int(records)
+        except Exception:
+            return None
+        if n > 1:
+            return f"Retrieved {n} records. Rows are shown below."
+        if n == 1:
+            return "Retrieved 1 record."
+        return None
+
+    def response_policy(self, *, facts: FactExtractionResult) -> str:
+        if facts.answer_type in {"error", "not_found"}:
+            return "deterministic"
+        if self.deterministic_response_contract(facts=facts):
+            return "deterministic_or_grounded"
+        return "llm_or_fallback"
+
     def _build_model(self, *, component: str):
         from langchain_openai import ChatOpenAI
 
@@ -578,6 +600,8 @@ class ReasoningPipeline:
             if not isinstance(parsed, dict):
                 return deterministic
             answer_type = str(parsed.get("answer_type") or "summary")
+            if "|" in answer_type or answer_type not in self._ALLOWED_ANSWER_TYPES:
+                return deterministic
             facts = self._sanitize_facts(parsed.get("facts") if isinstance(parsed.get("facts"), list) else [])
             ids = parsed.get("ids") if isinstance(parsed.get("ids"), list) else []
             counts = parsed.get("counts") if isinstance(parsed.get("counts"), dict) else {}
@@ -667,6 +691,9 @@ class ReasoningPipeline:
         return bool(grounded is True)
 
     def fallback_response_from_facts(self, *, facts: FactExtractionResult) -> str:
+        contract = self.deterministic_response_contract(facts=facts)
+        if contract:
+            return contract
         if facts.answer_type == "id_list":
             ids = facts.ids[:10]
             suffix = f", +{len(facts.ids) - len(ids)} more" if len(facts.ids) > len(ids) else ""
@@ -685,7 +712,7 @@ class ReasoningPipeline:
             return " ".join(self._normalize_fact_text(fact) for fact in facts.facts[:3] if str(fact).strip())
         if facts.warnings:
             return facts.warnings[0]
-        return "Tool execution completed."
+        return "Execution completed successfully."
 
     def build_selection_candidates(
         self,

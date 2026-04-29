@@ -284,6 +284,23 @@ class ExecutionEngine:
             return f"{tool_name} completed. Response keys: {keys or 'none'}."
         return f"{tool_name} completed."
 
+    def _result_has_records(self, body: dict[str, Any] | None) -> bool:
+        if not isinstance(body, dict):
+            return False
+        data = body.get("data")
+        if isinstance(data, list) and len(data) > 0:
+            return True
+        items = body.get("items")
+        if isinstance(items, list) and len(items) > 0:
+            return True
+        data_count = body.get("data_count")
+        try:
+            if data_count is not None and int(data_count) > 0:
+                return True
+        except Exception:
+            pass
+        return False
+
     async def _summarize_step_result(self, *, tool_name: str, body: dict[str, Any] | None, args: dict[str, Any] | None = None) -> str:
         fallback = self._summarize_step_result_fallback(tool_name=tool_name, body=body)
         if not isinstance(body, dict):
@@ -297,6 +314,12 @@ class ExecutionEngine:
             result=body,
         )
         if facts:
+            policy = self._reasoning.response_policy(facts=facts)
+            deterministic_contract = self._reasoning.deterministic_response_contract(facts=facts)
+            if policy == "deterministic" and deterministic_contract:
+                return deterministic_contract
+            if policy == "deterministic":
+                return self._reasoning.fallback_response_from_facts(facts=facts)
             if not self._reasoning.should_generate_response(facts=facts):
                 return self._reasoning.fallback_response_from_facts(facts=facts)
             generated = await self._reasoning.generate_response(
@@ -1817,19 +1840,26 @@ class ExecutionEngine:
         session.status = "COMPLETED"
         session.completed_at = datetime.utcnow()
         session.version += 1
-        completion_text = await self._build_completion_text(
-            plan_kind=(getattr(plan, "kind", None) or "execution"),
-            step_count=session.step_count,
-        )
-        db.add(
-            MessageRow(
-                message_id=generate_uuid(),
-                session_id=session.session_id,
-                role="assistant",
-                content=completion_text,
-                tool_name="__session__",
+        last_step_result_has_data = False
+        if steps:
+            last_step = steps[-1]
+            last_step_result_has_data = self._result_has_records(
+                last_step.result if isinstance(last_step.result, dict) else None
             )
-        )
+        if not last_step_result_has_data:
+            completion_text = await self._build_completion_text(
+                plan_kind=(getattr(plan, "kind", None) or "execution"),
+                step_count=session.step_count,
+            )
+            db.add(
+                MessageRow(
+                    message_id=generate_uuid(),
+                    session_id=session.session_id,
+                    role="assistant",
+                    content=completion_text,
+                    tool_name="__session__",
+                )
+            )
         await db.commit()
         metrics.inc("session_completed_total")
         metrics.inc("session_completion_rate")
