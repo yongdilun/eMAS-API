@@ -53,7 +53,45 @@ def _resolve_schema(spec: dict[str, Any], schema: dict[str, Any] | None) -> dict
                 merged["required"].extend(resolved_part.get("required", []))
         merged["required"] = sorted(set(merged["required"]))
         return merged
+    if isinstance(normalized.get("properties"), dict):
+        normalized["properties"] = {
+            name: _resolve_schema(spec, prop_schema if isinstance(prop_schema, dict) else {})
+            for name, prop_schema in normalized["properties"].items()
+        }
+    if isinstance(normalized.get("items"), dict):
+        normalized["items"] = _resolve_schema(spec, normalized["items"])
     return normalized
+
+
+def _infer_output_schema(spec: dict[str, Any], operation: dict[str, Any]) -> dict[str, Any]:
+    responses = operation.get("responses") if isinstance(operation.get("responses"), dict) else {}
+    for status in ("200", "201", "202", "204", "default"):
+        response = responses.get(status)
+        if not isinstance(response, dict):
+            continue
+        if isinstance(response.get("schema"), dict):
+            return _resolve_schema(spec, response.get("schema"))
+        content = response.get("content") if isinstance(response.get("content"), dict) else {}
+        for media in ("application/json", "application/*+json", "*/*"):
+            candidate = content.get(media)
+            if isinstance(candidate, dict) and isinstance(candidate.get("schema"), dict):
+                return _resolve_schema(spec, candidate.get("schema"))
+        for candidate in content.values():
+            if isinstance(candidate, dict) and isinstance(candidate.get("schema"), dict):
+                return _resolve_schema(spec, candidate.get("schema"))
+    return {"type": "object", "properties": {}}
+
+
+def _allowed_roles_for_operation(method: str, operation: dict[str, Any]) -> list[str]:
+    for key in ("x-ai-allowed-roles", "x-allowed-roles", "x-rbac-roles"):
+        values = operation.get(key)
+        if isinstance(values, list):
+            roles = [str(value).strip().lower() for value in values if str(value).strip()]
+            if roles:
+                return list(dict.fromkeys(roles))
+    if method.lower() == "get":
+        return ["viewer", "planner", "manager", "admin"]
+    return ["planner", "manager", "admin"]
 
 
 def _merge_object_schema(
@@ -208,6 +246,21 @@ def _infer_input_schema(
     return input_schema
 
 
+def _ai_extension_tokens(operation: dict[str, Any]) -> list[str]:
+    tokens: list[str] = []
+    for key in ("x-ai-entity", "x-ai-intent", "x-ai-action"):
+        value = operation.get(key)
+        if isinstance(value, str) and value.strip():
+            tokens.extend(part for part in re.split(r"[^a-z0-9]+", value.lower()) if part)
+    for key in ("x-ai-aliases", "x-ai-capability-tags", "x-ai-tags"):
+        values = operation.get(key)
+        if isinstance(values, list):
+            for value in values:
+                if str(value).strip():
+                    tokens.extend(part for part in re.split(r"[^a-z0-9]+", str(value).lower()) if part)
+    return tokens
+
+
 def _operation_tokens(path: str, method: str, operation: dict[str, Any]) -> list[str]:
     raw = " ".join(
         [
@@ -216,6 +269,7 @@ def _operation_tokens(path: str, method: str, operation: dict[str, Any]) -> list
             str(operation.get("description", "") or ""),
             str(operation.get("operationId", "") or ""),
             " ".join(str(tag) for tag in (operation.get("tags") or []) if str(tag)),
+            " ".join(_ai_extension_tokens(operation)),
         ]
     ).lower()
     tokens = [token for token in re.split(r"[^a-z0-9]+", raw) if token]
@@ -248,6 +302,10 @@ def _operation_tokens(path: str, method: str, operation: dict[str, Any]) -> list
 
     for token in ("pending", "approve", "reject", "maintenance", "utilization", "capability", "downtime", "alerts"):
         if token in tokens:
+            tags.append(token)
+
+    for token in _ai_extension_tokens(operation):
+        if token:
             tags.append(token)
 
     seen: set[str] = set()
@@ -313,6 +371,11 @@ def tools_from_openapi(spec: dict[str, Any]) -> list[Tool]:
             description = operation.get("summary", "") or operation.get("description", "")
 
             input_schema = _infer_input_schema(spec, operation, method, path_parameters=shared_parameters)
+            for key, value in operation.items():
+                if isinstance(key, str) and key.startswith("x-ai-"):
+                    input_schema[key] = value
+            input_schema["x-allowed-roles"] = _allowed_roles_for_operation(method, operation)
+            output_schema = _infer_output_schema(spec, operation)
 
             capability_tags = _operation_tokens(path, method, operation)
 
@@ -330,7 +393,7 @@ def tools_from_openapi(spec: dict[str, Any]) -> list[Tool]:
                     version=1,
                     schema_version=1,
                     input_schema=input_schema,
-                    output_schema={"type": "object"},
+                    output_schema=output_schema,
                     is_read_only=is_read_only,
                     requires_approval=requires_approval,
                     side_effect_level=side_effect_level,

@@ -345,6 +345,20 @@ Create a machine.
 
 List all machines.
 
+**Query Parameters**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `status` | `string` | Filter by status |
+| `machine_name` | `string` | Case-insensitive contains filter by machine name |
+| `machine_type` | `string` | Filter by machine type |
+| `location` | `string` | Filter by location |
+| `sort_by` | `string` | `machine_id`, `machine_name`, `status`, or `created_at` |
+| `sort_dir` | `string` | `asc` or `desc` |
+| `limit` | `integer` | Limit number of results |
+| `offset` | `integer` | Offset for pagination |
+| `fields` | `string` | Comma-separated fields to return |
+
 **Response (200)** `data`: `Machine[]`
 
 | Field | Type |

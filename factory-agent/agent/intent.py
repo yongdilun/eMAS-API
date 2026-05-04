@@ -18,12 +18,12 @@ _ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("create", re.compile(r"\b(?:create|new|add|open)\b", re.IGNORECASE)),
     ("update", re.compile(r"\b(?:update|set|change|assign|record|apply|run|reschedule|move)\b", re.IGNORECASE)),
     ("delete", re.compile(r"\b(?:delete|remove)\b", re.IGNORECASE)),
-    ("read", re.compile(r"\b(?:check|show|list|get|find|view|inspect|status|lookup)\b", re.IGNORECASE)),
+    ("read", re.compile(r"\b(?:assist|candidate|check|explain|explosion|forecast|get|find|inspect|list|lookup|preview|rank|readiness|report|reports|show|status|suggestion|view)\b", re.IGNORECASE)),
 ]
 _ENTITY_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("approval", re.compile(r"\b(?:approval|approvals)\b", re.IGNORECASE)),
     ("machine", re.compile(r"\b(?:machine|machines)\b", re.IGNORECASE)),
-    ("job", re.compile(r"\b(?:job|jobs|schedule|scheduling|slot|slots)\b", re.IGNORECASE)),
+    ("job", re.compile(r"\b(?:job|jobs|job-step|job-steps|schedule|scheduling|slot|slots|step|steps)\b", re.IGNORECASE)),
     ("inventory", re.compile(r"\b(?:inventory|material|materials|stock|arrival|arrivals)\b", re.IGNORECASE)),
     ("product", re.compile(r"\b(?:product|products)\b", re.IGNORECASE)),
     ("proposal", re.compile(r"\b(?:proposal|proposals)\b", re.IGNORECASE)),

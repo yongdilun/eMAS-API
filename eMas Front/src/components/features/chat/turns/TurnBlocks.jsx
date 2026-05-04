@@ -18,6 +18,7 @@ export function TablePresentation({ presentation, animate = false, animateKey = 
   const table = presentation?.table
   const columns = Array.isArray(table?.columns) ? table.columns : []
   const rows = Array.isArray(table?.rows) ? table.rows : []
+  const analysisFacts = Array.isArray(presentation?.analysis?.facts) ? presentation.analysis.facts : []
   const [visibleRows, setVisibleRows] = useState(animate ? 0 : rows.length)
 
   useEffect(() => {
@@ -43,6 +44,17 @@ export function TablePresentation({ presentation, animate = false, animateKey = 
 
   return (
     <div className="mt-3 overflow-hidden rounded-lg border border-gray-200/80 dark:border-gray-700/70">
+      {analysisFacts.length ? (
+        <div className="border-b border-gray-200/70 bg-emerald-50/80 px-3 py-2 text-[11px] text-emerald-900 dark:border-gray-700/60 dark:bg-emerald-950/20 dark:text-emerald-100">
+          <div className="space-y-1">
+            {analysisFacts.map((fact) => (
+              <div key={fact} className="break-words">
+                {fact}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-[11px]">
           <thead className="bg-gray-100/80 dark:bg-gray-800/80 text-gray-700 dark:text-gray-200">

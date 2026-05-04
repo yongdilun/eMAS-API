@@ -193,6 +193,38 @@ def test_fallback_response_for_multi_record_summary_mentions_table():
 
 
 @pytest.mark.asyncio
+async def test_extract_facts_deterministically_analyzes_deadline_and_quantity_without_llm(monkeypatch):
+    pipeline = ReasoningPipeline(_settings(tool_result_summary_backend="legacy"))
+
+    def _unexpected_build_model(*, component: str):
+        raise AssertionError(f"LLM should not be built for {component}")
+
+    monkeypatch.setattr(pipeline, "_build_model", _unexpected_build_model)
+
+    result = await pipeline.extract_facts(
+        intent="Show low-priority planned jobs and highlight the earliest deadline and largest quantity.",
+        tool_name="get__jobs",
+        args={"priority": "low", "status": "planned"},
+        result={
+            "data": [
+                {"job_id": "JOB-SEED-005", "product_id": "P-005", "quantity_total": 520, "deadline": "2026-05-19T08:00:00+08:00"},
+                {"job_id": "JOB-SEED-009", "product_id": "P-003", "quantity_total": 140, "deadline": "2026-05-19T08:00:00+08:00"},
+                {"job_id": "JOB-SEED-012", "product_id": "P-009", "quantity_total": 240, "deadline": "2026-05-19T08:00:00+08:00"},
+                {"job_id": "JOB-SEED-017", "product_id": "P-004", "quantity_total": 180, "deadline": "2026-05-19T08:00:00+08:00"},
+                {"job_id": "JOB-SEED-024", "product_id": "P-002", "quantity_total": 480, "deadline": "2026-05-07T08:00:00+08:00"},
+            ]
+        },
+    )
+
+    assert result is not None
+    message = pipeline.fallback_response_from_facts(facts=result).lower()
+    assert "retrieved 5 records" in message
+    assert "earliest deadline: job-seed-024" in message
+    assert "largest quantity: job-seed-005" in message
+    assert result.counts["analysis"]["dataset"]["row_count"] == 5
+
+
+@pytest.mark.asyncio
 async def test_extract_facts_sanitizes_structured_fact_dump(monkeypatch):
     pipeline = ReasoningPipeline(_settings(tool_result_summary_backend="auto"))
 

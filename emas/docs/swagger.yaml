@@ -3799,6 +3799,10 @@ paths:
         in: query
         name: status
         type: string
+      - description: Filter by machine name (case-insensitive contains)
+        in: query
+        name: machine_name
+        type: string
       - description: Filter by machine type
         in: query
         name: machine_type

@@ -124,3 +124,75 @@ def test_selector_compact_index_contains_name_and_summary():
     assert len(compact) == 1
     assert compact[0]["name"] == "post__machines"
     assert "required: machine_name" in compact[0]["summary"]
+
+
+@pytest.mark.asyncio
+async def test_selector_prefers_specialized_report_endpoint_over_entity_insight():
+    selector = ToolSelector(_settings(tool_selector_backend="retrieval", tool_selector_top_k=5))
+    tools = {
+        "get__reports_machine-utilization": ToolInfo(
+            name="get__reports_machine-utilization",
+            description="Machine utilization",
+            endpoint="/reports/machine-utilization",
+            method="GET",
+            input_schema={"type": "object", "properties": {}},
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["machine", "list", "utilization"],
+        ),
+        "get__machines_utilization": ToolInfo(
+            name="get__machines_utilization",
+            description="Get machine utilization",
+            endpoint="/machines/utilization",
+            method="GET",
+            input_schema={"type": "object", "properties": {}},
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["machine", "list", "utilization"],
+        ),
+    }
+
+    selected = await selector.select_tools(
+        intent="show machine utilization report",
+        tools_by_name=tools,
+        mode="normal",
+        max_tools=10,
+    )
+
+    assert selected.tool_names[0] == "get__reports_machine-utilization"
+
+
+@pytest.mark.asyncio
+async def test_selector_adds_delete_preflight_companion():
+    selector = ToolSelector(_settings(tool_selector_backend="retrieval", tool_selector_top_k=1))
+    tools = {
+        "delete__jobs_{id}": ToolInfo(
+            name="delete__jobs_{id}",
+            description="Delete a job",
+            endpoint="/jobs/{id}",
+            method="DELETE",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            is_read_only=False,
+            requires_approval=True,
+            capability_tags=["job", "delete"],
+        ),
+        "get__jobs_{id}": ToolInfo(
+            name="get__jobs_{id}",
+            description="Get a job",
+            endpoint="/jobs/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["job", "lookup"],
+        ),
+    }
+
+    selected = await selector.select_tools(
+        intent="delete job JOB-1",
+        tools_by_name=tools,
+        mode="normal",
+        max_tools=10,
+    )
+
+    assert selected.tool_names[:2] == ["delete__jobs_{id}", "get__jobs_{id}"]

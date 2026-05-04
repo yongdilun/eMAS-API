@@ -19,10 +19,21 @@ type AICommandPlan struct {
 	Message        string                 `json:"message"`
 }
 
-type AICommandOrchestrator struct{}
+type CommandParserClient interface {
+	ParseCommand(ctx context.Context, raw string) ([]byte, error)
+	RepairCommand(ctx context.Context, raw string, missingFields []string) ([]byte, error)
+}
+
+type AICommandOrchestrator struct {
+	parserClient CommandParserClient
+}
 
 func NewAICommandOrchestrator() *AICommandOrchestrator {
 	return &AICommandOrchestrator{}
+}
+
+func NewAICommandOrchestratorWithParser(client CommandParserClient) *AICommandOrchestrator {
+	return &AICommandOrchestrator{parserClient: client}
 }
 
 func (o *AICommandOrchestrator) Parse(raw string) AICommandPlan {
@@ -44,7 +55,10 @@ func (o *AICommandOrchestrator) Parse(raw string) AICommandPlan {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	client := NewLLMParserClient()
+	client := o.parserClient
+	if client == nil {
+		client = NewLLMParserClient()
+	}
 	rawJSON, err := client.ParseCommand(ctx, raw)
 	if err != nil || len(rawJSON) == 0 {
 		// Deterministic fallback for common commands when the LLM is unavailable.

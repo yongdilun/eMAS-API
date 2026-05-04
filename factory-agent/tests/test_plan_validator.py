@@ -177,3 +177,116 @@ def test_rejects_args_schema_mismatch():
     assert not res.ok
     assert any("Invalid args" in e for e in res.errors)
 
+
+def test_validates_binding_against_response_schema():
+    tools = {
+        "get__jobs": _tool(
+            name="get__jobs",
+            method="GET",
+            endpoint="/jobs",
+            input_schema={"type": "object", "properties": {}},
+            is_read_only=True,
+        ).model_copy(
+            update={
+                "output_schema": {
+                    "type": "object",
+                    "properties": {
+                        "data": {
+                            "type": "array",
+                            "items": {"type": "object", "properties": {"job_id": {"type": "string"}}},
+                        }
+                    },
+                }
+            }
+        ),
+        "patch__jobs_{id}": _tool(
+            name="patch__jobs_{id}",
+            method="PATCH",
+            endpoint="/jobs/{id}",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            requires_approval=True,
+            side_effect_level="HIGH",
+        ),
+    }
+    plan = PlanDraft(
+        plan_explanation="x",
+        risk_summary="x",
+        steps=[
+            PlanStepDraft(step_index=0, tool_name="get__jobs", args={}),
+            PlanStepDraft(
+                step_index=1,
+                tool_name="patch__jobs_{id}",
+                args={},
+                execution_mode="foreach",
+                bindings=[
+                    {
+                        "from_step": 0,
+                        "result_path": "data",
+                        "field": "job_id",
+                        "target_arg": "id",
+                        "mode": "foreach",
+                    }
+                ],
+            ),
+        ],
+    )
+    res = validate_plan(plan, tools)
+    assert res.ok
+    assert res.normalized_dependency_graph[1] == [0]
+
+
+def test_rejects_binding_unknown_response_field():
+    tools = {
+        "get__jobs": _tool(
+            name="get__jobs",
+            method="GET",
+            endpoint="/jobs",
+            input_schema={"type": "object", "properties": {}},
+            is_read_only=True,
+        ).model_copy(
+            update={
+                "output_schema": {
+                    "type": "object",
+                    "properties": {
+                        "data": {
+                            "type": "array",
+                            "items": {"type": "object", "properties": {"job_id": {"type": "string"}}},
+                        }
+                    },
+                }
+            }
+        ),
+        "patch__jobs_{id}": _tool(
+            name="patch__jobs_{id}",
+            method="PATCH",
+            endpoint="/jobs/{id}",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            requires_approval=True,
+            side_effect_level="HIGH",
+        ),
+    }
+    plan = PlanDraft(
+        plan_explanation="x",
+        risk_summary="x",
+        steps=[
+            PlanStepDraft(step_index=0, tool_name="get__jobs", args={}),
+            PlanStepDraft(
+                step_index=1,
+                tool_name="patch__jobs_{id}",
+                args={},
+                execution_mode="foreach",
+                bindings=[
+                    {
+                        "from_step": 0,
+                        "result_path": "data",
+                        "field": "missing_id",
+                        "target_arg": "id",
+                        "mode": "foreach",
+                    }
+                ],
+            ),
+        ],
+    )
+    res = validate_plan(plan, tools)
+    assert not res.ok
+    assert any("missing_id" in error for error in res.errors)

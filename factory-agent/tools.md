@@ -57,13 +57,460 @@
   ],
   "x-body-required": [
     "query"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "ambiguous": {
+          "type": "boolean"
+        },
+        "approval_request": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "bdi_result": {
+          "type": "object",
+          "properties": {
+            "beliefs": {
+              "type": "object",
+              "properties": {
+                "entities": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "resource": {
+                  "type": "string"
+                }
+              }
+            },
+            "desire": {
+              "type": "object",
+              "properties": {
+                "confidence": {
+                  "type": "number"
+                },
+                "intent": {
+                  "type": "string"
+                }
+              }
+            },
+            "intention": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "executable_calls": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "body": {
+                        "type": "object",
+                        "additionalProperties": true
+                      },
+                      "method": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "purpose": {
+                        "type": "string"
+                      },
+                      "requires_approval": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "clarifications": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "debug_payload": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "entities": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "executed": {
+          "type": "boolean"
+        },
+        "executed_call": {
+          "type": "object",
+          "properties": {
+            "body": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "method": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "purpose": {
+              "type": "string"
+            },
+            "requires_approval": {
+              "type": "boolean"
+            },
+            "ui": {
+              "type": "object",
+              "properties": {
+                "display": {
+                  "description": "primary | secondary | hidden_if_result_card_exists",
+                  "type": "string"
+                },
+                "priority": {
+                  "description": "high | normal | low",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "executed_calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "body": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string"
+              },
+              "requires_approval": {
+                "type": "boolean"
+              },
+              "ui": {
+                "type": "object",
+                "properties": {
+                  "display": {
+                    "description": "primary | secondary | hidden_if_result_card_exists",
+                    "type": "string"
+                  },
+                  "priority": {
+                    "description": "high | normal | low",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "execution_mode": {
+          "type": "string"
+        },
+        "form_request": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "guidance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "human_message": {
+          "type": "string"
+        },
+        "insights": {
+          "type": "object",
+          "properties": {}
+        },
+        "intent": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "message_kind": {
+          "type": "string"
+        },
+        "pending_approvals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "approve_call": {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "method": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "purpose": {
+                    "type": "string"
+                  },
+                  "requires_approval": {
+                    "type": "boolean"
+                  },
+                  "ui": {
+                    "type": "object",
+                    "properties": {
+                      "display": {
+                        "description": "primary | secondary | hidden_if_result_card_exists",
+                        "type": "string"
+                      },
+                      "priority": {
+                        "description": "high | normal | low",
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "id": {
+                "type": "string"
+              },
+              "reject_call": {
+                "type": "object",
+                "properties": {
+                  "body": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "method": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "purpose": {
+                    "type": "string"
+                  },
+                  "requires_approval": {
+                    "type": "boolean"
+                  },
+                  "ui": {
+                    "type": "object",
+                    "properties": {
+                      "display": {
+                        "description": "primary | secondary | hidden_if_result_card_exists",
+                        "type": "string"
+                      },
+                      "priority": {
+                        "description": "high | normal | low",
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "risk_summary": {
+                "type": "string"
+              },
+              "side_effect_level": {
+                "type": "string"
+              },
+              "tool_name": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "result_cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "body": {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    "method": {
+                      "type": "string"
+                    },
+                    "path": {
+                      "type": "string"
+                    },
+                    "purpose": {
+                      "type": "string"
+                    },
+                    "requires_approval": {
+                      "type": "boolean"
+                    },
+                    "ui": {
+                      "type": "object",
+                      "properties": {
+                        "display": {
+                          "description": "primary | secondary | hidden_if_result_card_exists",
+                          "type": "string"
+                        },
+                        "priority": {
+                          "description": "high | normal | low",
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "bullets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "kind": {
+                "type": "string"
+              },
+              "metrics": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "summary": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "tone": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "description": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "read_only": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "status_label": {
+          "type": "string"
+        },
+        "suggested_calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "body": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "method": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string"
+              },
+              "requires_approval": {
+                "type": "boolean"
+              },
+              "ui": {
+                "type": "object",
+                "properties": {
+                  "display": {
+                    "description": "primary | secondary | hidden_if_result_card_exists",
+                    "type": "string"
+                  },
+                  "priority": {
+                    "description": "high | normal | low",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "turn_id": {
+          "type": "string"
+        },
+        "ui_blocks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -82,13 +529,32 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -108,13 +574,95 @@
     "arrivals": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/dto.ReplenishmentArrivalItem"
+        "type": "object",
+        "required": [
+          "arrive_at",
+          "material_id",
+          "quantity"
+        ],
+        "properties": {
+          "arrive_at": {
+            "type": "string"
+          },
+          "inventory_snapshot": {
+            "type": "object",
+            "required": [
+              "material_id",
+              "version"
+            ],
+            "properties": {
+              "computed_at": {
+                "type": "string"
+              },
+              "material_id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "material_id": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "option_type": {
+            "description": "OptionType: omit or \"replenish\" (default) = material expected arrival; \"schedule_production\" = planned subproduct stock (product_id in material_id).",
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          }
+        }
       }
     },
     "suggestions": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/dto.ReplenishmentArrivalItem"
+        "type": "object",
+        "required": [
+          "arrive_at",
+          "material_id",
+          "quantity"
+        ],
+        "properties": {
+          "arrive_at": {
+            "type": "string"
+          },
+          "inventory_snapshot": {
+            "type": "object",
+            "required": [
+              "material_id",
+              "version"
+            ],
+            "properties": {
+              "computed_at": {
+                "type": "string"
+              },
+              "material_id": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          "material_id": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "option_type": {
+            "description": "OptionType: omit or \"replenish\" (default) = material expected arrival; \"schedule_production\" = planned subproduct stock (product_id in material_id).",
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          }
+        }
       }
     }
   },
@@ -130,13 +678,95 @@
       "arrivals": {
         "type": "array",
         "items": {
-          "$ref": "#/definitions/dto.ReplenishmentArrivalItem"
+          "type": "object",
+          "required": [
+            "arrive_at",
+            "material_id",
+            "quantity"
+          ],
+          "properties": {
+            "arrive_at": {
+              "type": "string"
+            },
+            "inventory_snapshot": {
+              "type": "object",
+              "required": [
+                "material_id",
+                "version"
+              ],
+              "properties": {
+                "computed_at": {
+                  "type": "string"
+                },
+                "material_id": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              }
+            },
+            "material_id": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "option_type": {
+              "description": "OptionType: omit or \"replenish\" (default) = material expected arrival; \"schedule_production\" = planned subproduct stock (product_id in material_id).",
+              "type": "string"
+            },
+            "quantity": {
+              "type": "number"
+            }
+          }
         }
       },
       "suggestions": {
         "type": "array",
         "items": {
-          "$ref": "#/definitions/dto.ReplenishmentArrivalItem"
+          "type": "object",
+          "required": [
+            "arrive_at",
+            "material_id",
+            "quantity"
+          ],
+          "properties": {
+            "arrive_at": {
+              "type": "string"
+            },
+            "inventory_snapshot": {
+              "type": "object",
+              "required": [
+                "material_id",
+                "version"
+              ],
+              "properties": {
+                "computed_at": {
+                  "type": "string"
+                },
+                "material_id": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "string"
+                }
+              }
+            },
+            "material_id": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "option_type": {
+              "description": "OptionType: omit or \"replenish\" (default) = material expected arrival; \"schedule_production\" = planned subproduct stock (product_id in material_id).",
+              "type": "string"
+            },
+            "quantity": {
+              "type": "number"
+            }
+          }
         }
       }
     }
@@ -145,13 +775,31 @@
     "arrivals",
     "suggestions"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -224,13 +872,31 @@
     "order_by",
     "scope"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -260,13 +926,32 @@
   ],
   "x-param-sources": {
     "days_ahead": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -296,13 +981,32 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -332,13 +1036,32 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -368,13 +1091,31 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -404,13 +1145,31 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -440,13 +1199,32 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -476,13 +1254,32 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -512,13 +1309,32 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -548,13 +1364,32 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -584,13 +1419,31 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -620,13 +1473,32 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -656,13 +1528,31 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -692,13 +1582,32 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -728,13 +1637,32 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -764,13 +1692,31 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -800,13 +1746,31 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -836,13 +1800,31 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -891,13 +1873,31 @@
     "dry_run",
     "order_by"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -932,7 +1932,35 @@
       "description": "or pass inline (e.g. data.proposals from batch-proposals)",
       "type": "array",
       "items": {
-        "$ref": "#/definitions/dto.VerifyOverlapsProposal"
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "proposed_slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "job_step_id": {
+                  "type": "string"
+                },
+                "machine_id": {
+                  "type": "string"
+                },
+                "scheduled_end": {
+                  "type": "string"
+                },
+                "scheduled_start": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "scope": {
@@ -969,7 +1997,35 @@
         "description": "or pass inline (e.g. data.proposals from batch-proposals)",
         "type": "array",
         "items": {
-          "$ref": "#/definitions/dto.VerifyOverlapsProposal"
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string"
+            },
+            "proposal_id": {
+              "type": "string"
+            },
+            "proposed_slots": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "job_step_id": {
+                    "type": "string"
+                  },
+                  "machine_id": {
+                    "type": "string"
+                  },
+                  "scheduled_end": {
+                    "type": "string"
+                  },
+                  "scheduled_start": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
         }
       },
       "scope": {
@@ -984,13 +2040,31 @@
     "proposals",
     "scope"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1020,13 +2094,91 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "args_json": {
+            "type": "string"
+          },
+          "conversation_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "decided_at": {
+            "type": "string"
+          },
+          "decided_by": {
+            "type": "string"
+          },
+          "execution_error": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "requested_by": {
+            "type": "string"
+          },
+          "result_snapshot_id": {
+            "type": "string"
+          },
+          "risk_summary": {
+            "type": "string"
+          },
+          "side_effect_level": {
+            "type": "string"
+          },
+          "status": {
+            "description": "PENDING, APPROVED, REJECTED, EXECUTED, EXPIRED, FAILED",
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "turn_audit_id": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1056,13 +2208,88 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "args_json": {
+          "type": "string"
+        },
+        "conversation_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": "string"
+        },
+        "decided_by": {
+          "type": "string"
+        },
+        "execution_error": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "requested_by": {
+          "type": "string"
+        },
+        "result_snapshot_id": {
+          "type": "string"
+        },
+        "risk_summary": {
+          "type": "string"
+        },
+        "side_effect_level": {
+          "type": "string"
+        },
+        "status": {
+          "description": "PENDING, APPROVED, REJECTED, EXECUTED, EXPIRED, FAILED",
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "turn_audit_id": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1092,13 +2319,31 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1128,13 +2373,87 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "args_json": {
+          "type": "string"
+        },
+        "conversation_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": "string"
+        },
+        "decided_by": {
+          "type": "string"
+        },
+        "execution_error": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "requested_by": {
+          "type": "string"
+        },
+        "result_snapshot_id": {
+          "type": "string"
+        },
+        "risk_summary": {
+          "type": "string"
+        },
+        "side_effect_level": {
+          "type": "string"
+        },
+        "status": {
+          "description": "PENDING, APPROVED, REJECTED, EXECUTED, EXPIRED, FAILED",
+          "type": "string"
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "turn_audit_id": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1191,13 +2510,48 @@
     "limit": "query",
     "offset": "query",
     "fields": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "machine_id": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1216,13 +2570,57 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "downtime_change": {
+          "type": "number"
+        },
+        "downtime_hrs": {
+          "type": "number"
+        },
+        "oee_change": {
+          "type": "number"
+        },
+        "oee_pct": {
+          "type": "number"
+        },
+        "production_change": {
+          "type": "number"
+        },
+        "production_units": {
+          "type": "integer"
+        },
+        "utilization_change": {
+          "type": "number"
+        },
+        "utilization_pct": {
+          "type": "number"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1274,13 +2672,60 @@
     "limit": "query",
     "offset": "query",
     "fields": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "effectiveFrom": {
+            "type": "string"
+          },
+          "effectiveTo": {
+            "type": "string"
+          },
+          "formulaID": {
+            "type": "string"
+          },
+          "formulaName": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "safetyNotes": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1360,13 +2805,56 @@
   "x-body-required": [
     "formula_id",
     "formula_name"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "effectiveFrom": {
+          "type": "string"
+        },
+        "effectiveTo": {
+          "type": "string"
+        },
+        "formulaID": {
+          "type": "string"
+        },
+        "formulaName": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "safetyNotes": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1396,13 +2884,57 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "effectiveFrom": {
+          "type": "string"
+        },
+        "effectiveTo": {
+          "type": "string"
+        },
+        "formulaID": {
+          "type": "string"
+        },
+        "formulaName": {
+          "type": "string"
+        },
+        "instructions": {
+          "type": "string"
+        },
+        "safetyNotes": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1432,13 +2964,31 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1468,13 +3018,66 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "component_type": {
+            "type": "string"
+          },
+          "formula_id": {
+            "type": "string"
+          },
+          "ingredient_id": {
+            "type": "string"
+          },
+          "material_id": {
+            "type": "string"
+          },
+          "material_name": {
+            "type": "string"
+          },
+          "product_id": {
+            "type": "string"
+          },
+          "product_name": {
+            "type": "string"
+          },
+          "quantity_per_unit": {
+            "type": "number"
+          },
+          "scrap_rate": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1578,13 +3181,67 @@
     "scrap_rate",
     "unit"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "component_type": {
+          "type": "string"
+        },
+        "formula_id": {
+          "type": "string"
+        },
+        "ingredient_id": {
+          "type": "string"
+        },
+        "lead_time_hours": {
+          "description": "0 = instant",
+          "type": "integer"
+        },
+        "material_id": {
+          "type": "string"
+        },
+        "percentage": {
+          "type": "number"
+        },
+        "product_id": {
+          "type": "string"
+        },
+        "quantity_per_unit": {
+          "type": "number"
+        },
+        "scrap_rate": {
+          "type": "number"
+        },
+        "source": {
+          "description": "\"make\" | \"buy\"",
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1656,13 +3313,31 @@
   "x-body-required": [
     "material_id",
     "quantity"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1709,13 +3384,68 @@
     "status": "query",
     "from": "query",
     "to": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "arrivalID": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expectedArriveAt": {
+            "type": "string"
+          },
+          "materialID": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "receivedAt": {
+            "type": "string"
+          },
+          "referenceJobID": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "received",
+              "cancelled"
+            ]
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1790,13 +3520,64 @@
     "expected_arrive_at",
     "material_id",
     "quantity"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "arrivalID": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "expectedArriveAt": {
+          "type": "string"
+        },
+        "materialID": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "receivedAt": {
+          "type": "string"
+        },
+        "referenceJobID": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "received",
+            "cancelled"
+          ]
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1862,13 +3643,68 @@
     "sort_dir": "query",
     "limit": "query",
     "offset": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "currentStock": {
+            "type": "number"
+          },
+          "lastUpdated": {
+            "type": "string"
+          },
+          "materialID": {
+            "type": "string"
+          },
+          "materialName": {
+            "type": "string"
+          },
+          "minStock": {
+            "type": "number"
+          },
+          "reorderLevel": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "in_stock",
+              "low_stock",
+              "out_of_stock"
+            ]
+          },
+          "storageLocation": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -1964,13 +3800,64 @@
   "x-body-required": [
     "material_id",
     "material_name"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "currentStock": {
+          "type": "number"
+        },
+        "lastUpdated": {
+          "type": "string"
+        },
+        "materialID": {
+          "type": "string"
+        },
+        "materialName": {
+          "type": "string"
+        },
+        "minStock": {
+          "type": "number"
+        },
+        "reorderLevel": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "in_stock",
+            "low_stock",
+            "out_of_stock"
+          ]
+        },
+        "storageLocation": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2000,13 +3887,65 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "currentStock": {
+          "type": "number"
+        },
+        "lastUpdated": {
+          "type": "string"
+        },
+        "materialID": {
+          "type": "string"
+        },
+        "materialName": {
+          "type": "string"
+        },
+        "minStock": {
+          "type": "number"
+        },
+        "reorderLevel": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "in_stock",
+            "low_stock",
+            "out_of_stock"
+          ]
+        },
+        "storageLocation": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2073,13 +4012,66 @@
     "limit": "query",
     "offset": "query",
     "fields": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "availableFrom": {
+            "type": "string"
+          },
+          "inventoryID": {
+            "type": "string"
+          },
+          "lastUpdated": {
+            "type": "string"
+          },
+          "productID": {
+            "type": "string"
+          },
+          "quantityOnHand": {
+            "type": "number"
+          },
+          "quantityReserved": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "reserved",
+              "blocked",
+              "planned"
+            ]
+          },
+          "storageLocation": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2181,13 +4173,62 @@
   "x-body-required": [
     "product_id",
     "quantity_on_hand"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "availableFrom": {
+          "type": "string"
+        },
+        "inventoryID": {
+          "type": "string"
+        },
+        "lastUpdated": {
+          "type": "string"
+        },
+        "productID": {
+          "type": "string"
+        },
+        "quantityOnHand": {
+          "type": "number"
+        },
+        "quantityReserved": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "available",
+            "reserved",
+            "blocked",
+            "planned"
+          ]
+        },
+        "storageLocation": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2243,13 +4284,31 @@
   "x-body-required": [
     "material_id",
     "quantity"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2329,13 +4388,64 @@
   "x-body-required": [
     "material_id",
     "reserved_qty"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "jobID": {
+          "type": "string"
+        },
+        "jobStepID": {
+          "type": "string"
+        },
+        "materialID": {
+          "type": "string"
+        },
+        "neededAt": {
+          "type": "string"
+        },
+        "reservationID": {
+          "type": "string"
+        },
+        "reservedQty": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "consumed",
+            "released"
+          ]
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2380,13 +4490,63 @@
   ],
   "x-body-required": [
     "job_id"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "job_step_id": {
+            "type": "string"
+          },
+          "quantity_completed": {
+            "type": "integer"
+          },
+          "quantity_target": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "scheduled",
+              "running",
+              "blocked",
+              "completed"
+            ]
+          },
+          "step_id": {
+            "type": "string"
+          },
+          "step_sequence": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2409,7 +4569,59 @@
     "splits": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/dto.CreateSlotRequest"
+        "type": "object",
+        "required": [
+          "duration_mins",
+          "machine_id",
+          "quantity",
+          "start_time"
+        ],
+        "properties": {
+          "allocation_percent": {
+            "type": "number"
+          },
+          "batch_sequence": {
+            "type": "integer"
+          },
+          "buffer_mins": {
+            "type": "integer"
+          },
+          "cleaning_mins": {
+            "type": "integer"
+          },
+          "duration_mins": {
+            "type": "integer"
+          },
+          "is_parallel": {
+            "type": "boolean"
+          },
+          "job_step_id": {
+            "description": "optional, for split",
+            "type": "string"
+          },
+          "machine_id": {
+            "type": "string"
+          },
+          "prep_mins": {
+            "type": "integer"
+          },
+          "processing_mins": {
+            "type": "integer"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "split_group_id": {
+            "type": "string"
+          },
+          "start_time": {
+            "description": "RFC3339",
+            "type": "string"
+          }
+        }
       }
     }
   },
@@ -2436,7 +4648,59 @@
       "splits": {
         "type": "array",
         "items": {
-          "$ref": "#/definitions/dto.CreateSlotRequest"
+          "type": "object",
+          "required": [
+            "duration_mins",
+            "machine_id",
+            "quantity",
+            "start_time"
+          ],
+          "properties": {
+            "allocation_percent": {
+              "type": "number"
+            },
+            "batch_sequence": {
+              "type": "integer"
+            },
+            "buffer_mins": {
+              "type": "integer"
+            },
+            "cleaning_mins": {
+              "type": "integer"
+            },
+            "duration_mins": {
+              "type": "integer"
+            },
+            "is_parallel": {
+              "type": "boolean"
+            },
+            "job_step_id": {
+              "description": "optional, for split",
+              "type": "string"
+            },
+            "machine_id": {
+              "type": "string"
+            },
+            "prep_mins": {
+              "type": "integer"
+            },
+            "processing_mins": {
+              "type": "integer"
+            },
+            "proposal_id": {
+              "type": "string"
+            },
+            "quantity": {
+              "type": "integer"
+            },
+            "split_group_id": {
+              "type": "string"
+            },
+            "start_time": {
+              "description": "RFC3339",
+              "type": "string"
+            }
+          }
         }
       }
     }
@@ -2448,13 +4712,99 @@
   "x-body-required": [
     "job_step_id",
     "splits"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "actual_end": {
+            "type": "string"
+          },
+          "actual_start": {
+            "type": "string"
+          },
+          "allocation_percent": {
+            "type": "number"
+          },
+          "batch_sequence": {
+            "type": "integer"
+          },
+          "buffer_time_minutes": {
+            "type": "integer"
+          },
+          "changeover_time_minutes": {
+            "type": "integer"
+          },
+          "cleaning_time_minutes": {
+            "type": "integer"
+          },
+          "is_parallel": {
+            "type": "boolean"
+          },
+          "job_step_id": {
+            "type": "string"
+          },
+          "machine_id": {
+            "type": "string"
+          },
+          "preparation_time_minutes": {
+            "type": "integer"
+          },
+          "processing_time_minutes": {
+            "type": "integer"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "quantity_planned": {
+            "type": "integer"
+          },
+          "scheduled_end": {
+            "type": "string"
+          },
+          "scheduled_start": {
+            "type": "string"
+          },
+          "slot_id": {
+            "type": "string"
+          },
+          "split_group_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "running",
+              "completed",
+              "cancelled",
+              "paused"
+            ]
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2484,13 +4834,100 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "actual_end": {
+            "type": "string"
+          },
+          "actual_start": {
+            "type": "string"
+          },
+          "allocation_percent": {
+            "type": "number"
+          },
+          "batch_sequence": {
+            "type": "integer"
+          },
+          "buffer_time_minutes": {
+            "type": "integer"
+          },
+          "changeover_time_minutes": {
+            "type": "integer"
+          },
+          "cleaning_time_minutes": {
+            "type": "integer"
+          },
+          "is_parallel": {
+            "type": "boolean"
+          },
+          "job_step_id": {
+            "type": "string"
+          },
+          "machine_id": {
+            "type": "string"
+          },
+          "preparation_time_minutes": {
+            "type": "integer"
+          },
+          "processing_time_minutes": {
+            "type": "integer"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "quantity_planned": {
+            "type": "integer"
+          },
+          "scheduled_end": {
+            "type": "string"
+          },
+          "scheduled_start": {
+            "type": "string"
+          },
+          "slot_id": {
+            "type": "string"
+          },
+          "split_group_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "running",
+              "completed",
+              "cancelled",
+              "paused"
+            ]
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2581,13 +5018,93 @@
     "sort_dir": "query",
     "limit": "query",
     "offset": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "deadline": {
+            "type": "string"
+          },
+          "deadline_status": {
+            "type": "object",
+            "properties": {
+              "is_late": {
+                "type": "boolean"
+              },
+              "late_by": {
+                "description": "human-readable: \"2 days\", \"4 hours\", \"on time\"",
+                "type": "string"
+              }
+            }
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "urgent"
+            ]
+          },
+          "product_id": {
+            "type": "string"
+          },
+          "quantity_completed": {
+            "type": "integer"
+          },
+          "quantity_total": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "scheduled",
+              "running",
+              "blocked",
+              "paused",
+              "completed",
+              "cancelled"
+            ]
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2630,7 +5147,59 @@
       "description": "optional split slots",
       "type": "array",
       "items": {
-        "$ref": "#/definitions/dto.CreateSlotRequest"
+        "type": "object",
+        "required": [
+          "duration_mins",
+          "machine_id",
+          "quantity",
+          "start_time"
+        ],
+        "properties": {
+          "allocation_percent": {
+            "type": "number"
+          },
+          "batch_sequence": {
+            "type": "integer"
+          },
+          "buffer_mins": {
+            "type": "integer"
+          },
+          "cleaning_mins": {
+            "type": "integer"
+          },
+          "duration_mins": {
+            "type": "integer"
+          },
+          "is_parallel": {
+            "type": "boolean"
+          },
+          "job_step_id": {
+            "description": "optional, for split",
+            "type": "string"
+          },
+          "machine_id": {
+            "type": "string"
+          },
+          "prep_mins": {
+            "type": "integer"
+          },
+          "processing_mins": {
+            "type": "integer"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "split_group_id": {
+            "type": "string"
+          },
+          "start_time": {
+            "description": "RFC3339",
+            "type": "string"
+          }
+        }
       }
     }
   },
@@ -2681,7 +5250,59 @@
         "description": "optional split slots",
         "type": "array",
         "items": {
-          "$ref": "#/definitions/dto.CreateSlotRequest"
+          "type": "object",
+          "required": [
+            "duration_mins",
+            "machine_id",
+            "quantity",
+            "start_time"
+          ],
+          "properties": {
+            "allocation_percent": {
+              "type": "number"
+            },
+            "batch_sequence": {
+              "type": "integer"
+            },
+            "buffer_mins": {
+              "type": "integer"
+            },
+            "cleaning_mins": {
+              "type": "integer"
+            },
+            "duration_mins": {
+              "type": "integer"
+            },
+            "is_parallel": {
+              "type": "boolean"
+            },
+            "job_step_id": {
+              "description": "optional, for split",
+              "type": "string"
+            },
+            "machine_id": {
+              "type": "string"
+            },
+            "prep_mins": {
+              "type": "integer"
+            },
+            "processing_mins": {
+              "type": "integer"
+            },
+            "proposal_id": {
+              "type": "string"
+            },
+            "quantity": {
+              "type": "integer"
+            },
+            "split_group_id": {
+              "type": "string"
+            },
+            "start_time": {
+              "description": "RFC3339",
+              "type": "string"
+            }
+          }
         }
       }
     }
@@ -2697,13 +5318,89 @@
   "x-body-required": [
     "product_id",
     "quantity_total"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "deadline": {
+          "type": "string"
+        },
+        "deadline_status": {
+          "type": "object",
+          "properties": {
+            "is_late": {
+              "type": "boolean"
+            },
+            "late_by": {
+              "description": "human-readable: \"2 days\", \"4 hours\", \"on time\"",
+              "type": "string"
+            }
+          }
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "urgent"
+          ]
+        },
+        "product_id": {
+          "type": "string"
+        },
+        "quantity_completed": {
+          "type": "integer"
+        },
+        "quantity_total": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "scheduled",
+            "running",
+            "blocked",
+            "paused",
+            "completed",
+            "cancelled"
+          ]
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2733,13 +5430,90 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "deadline": {
+          "type": "string"
+        },
+        "deadline_status": {
+          "type": "object",
+          "properties": {
+            "is_late": {
+              "type": "boolean"
+            },
+            "late_by": {
+              "description": "human-readable: \"2 days\", \"4 hours\", \"on time\"",
+              "type": "string"
+            }
+          }
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "urgent"
+          ]
+        },
+        "product_id": {
+          "type": "string"
+        },
+        "quantity_completed": {
+          "type": "integer"
+        },
+        "quantity_total": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "scheduled",
+            "running",
+            "blocked",
+            "paused",
+            "completed",
+            "cancelled"
+          ]
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2847,13 +5621,89 @@
     "quantity_total",
     "status"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "deadline": {
+          "type": "string"
+        },
+        "deadline_status": {
+          "type": "object",
+          "properties": {
+            "is_late": {
+              "type": "boolean"
+            },
+            "late_by": {
+              "description": "human-readable: \"2 days\", \"4 hours\", \"on time\"",
+              "type": "string"
+            }
+          }
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "urgent"
+          ]
+        },
+        "product_id": {
+          "type": "string"
+        },
+        "quantity_completed": {
+          "type": "integer"
+        },
+        "quantity_total": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "scheduled",
+            "running",
+            "blocked",
+            "paused",
+            "completed",
+            "cancelled"
+          ]
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2883,13 +5733,30 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -2919,13 +5786,100 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "actual_end": {
+            "type": "string"
+          },
+          "actual_start": {
+            "type": "string"
+          },
+          "allocation_percent": {
+            "type": "number"
+          },
+          "batch_sequence": {
+            "type": "integer"
+          },
+          "buffer_time_minutes": {
+            "type": "integer"
+          },
+          "changeover_time_minutes": {
+            "type": "integer"
+          },
+          "cleaning_time_minutes": {
+            "type": "integer"
+          },
+          "is_parallel": {
+            "type": "boolean"
+          },
+          "job_step_id": {
+            "type": "string"
+          },
+          "machine_id": {
+            "type": "string"
+          },
+          "preparation_time_minutes": {
+            "type": "integer"
+          },
+          "processing_time_minutes": {
+            "type": "integer"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "quantity_planned": {
+            "type": "integer"
+          },
+          "scheduled_end": {
+            "type": "string"
+          },
+          "scheduled_start": {
+            "type": "string"
+          },
+          "slot_id": {
+            "type": "string"
+          },
+          "split_group_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "running",
+              "completed",
+              "cancelled",
+              "paused"
+            ]
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -2950,6 +5904,9 @@
         "maintenance",
         "offline"
       ]
+    },
+    "machine_name": {
+      "type": "string"
     },
     "machine_type": {
       "type": "string"
@@ -2980,6 +5937,7 @@
   "x-path-params": [],
   "x-query-params": [
     "status",
+    "machine_name",
     "machine_type",
     "location",
     "sort_by",
@@ -2990,6 +5948,7 @@
   ],
   "x-param-sources": {
     "status": "query",
+    "machine_name": "query",
     "machine_type": "query",
     "location": "query",
     "sort_by": "query",
@@ -2997,13 +5956,79 @@
     "limit": "query",
     "offset": "query",
     "fields": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "capacityPerHour": {
+            "type": "integer"
+          },
+          "defaultChangeoverTime": {
+            "type": "integer"
+          },
+          "defaultCleaningTime": {
+            "type": "integer"
+          },
+          "defaultSetupTime": {
+            "type": "integer"
+          },
+          "lastMaintenanceDate": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "machineID": {
+            "type": "string"
+          },
+          "machineName": {
+            "type": "string"
+          },
+          "machineType": {
+            "description": "CNC / Press / Coating etc",
+            "type": "string"
+          },
+          "maintenanceIntervalDays": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "running",
+              "maintenance",
+              "offline"
+            ]
+          },
+          "utilizationRate": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3118,13 +6143,75 @@
     "machine_id",
     "machine_name",
     "machine_type"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "capacityPerHour": {
+          "type": "integer"
+        },
+        "defaultChangeoverTime": {
+          "type": "integer"
+        },
+        "defaultCleaningTime": {
+          "type": "integer"
+        },
+        "defaultSetupTime": {
+          "type": "integer"
+        },
+        "lastMaintenanceDate": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "machineID": {
+          "type": "string"
+        },
+        "machineName": {
+          "type": "string"
+        },
+        "machineType": {
+          "description": "CNC / Press / Coating etc",
+          "type": "string"
+        },
+        "maintenanceIntervalDays": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "running",
+            "maintenance",
+            "offline"
+          ]
+        },
+        "utilizationRate": {
+          "type": "number"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3201,13 +6288,53 @@
   ],
   "x-body-required": [
     "machine_id"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "cause": {
+          "type": "string"
+        },
+        "downtimeID": {
+          "type": "string"
+        },
+        "durationMinutes": {
+          "type": "integer"
+        },
+        "endTime": {
+          "type": "string"
+        },
+        "jobStepSlotID": {
+          "type": "string"
+        },
+        "machineID": {
+          "type": "string"
+        },
+        "startTime": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3226,13 +6353,79 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "capacityPerHour": {
+            "type": "integer"
+          },
+          "defaultChangeoverTime": {
+            "type": "integer"
+          },
+          "defaultCleaningTime": {
+            "type": "integer"
+          },
+          "defaultSetupTime": {
+            "type": "integer"
+          },
+          "lastMaintenanceDate": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "machineID": {
+            "type": "string"
+          },
+          "machineName": {
+            "type": "string"
+          },
+          "machineType": {
+            "description": "CNC / Press / Coating etc",
+            "type": "string"
+          },
+          "maintenanceIntervalDays": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "running",
+              "maintenance",
+              "offline"
+            ]
+          },
+          "utilizationRate": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3251,13 +6444,37 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3276,13 +6493,32 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3312,13 +6548,76 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "capacityPerHour": {
+          "type": "integer"
+        },
+        "defaultChangeoverTime": {
+          "type": "integer"
+        },
+        "defaultCleaningTime": {
+          "type": "integer"
+        },
+        "defaultSetupTime": {
+          "type": "integer"
+        },
+        "lastMaintenanceDate": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "machineID": {
+          "type": "string"
+        },
+        "machineName": {
+          "type": "string"
+        },
+        "machineType": {
+          "description": "CNC / Press / Coating etc",
+          "type": "string"
+        },
+        "maintenanceIntervalDays": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "running",
+            "maintenance",
+            "offline"
+          ]
+        },
+        "utilizationRate": {
+          "type": "number"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3440,13 +6739,75 @@
     "maintenance_interval_days",
     "status"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "capacityPerHour": {
+          "type": "integer"
+        },
+        "defaultChangeoverTime": {
+          "type": "integer"
+        },
+        "defaultCleaningTime": {
+          "type": "integer"
+        },
+        "defaultSetupTime": {
+          "type": "integer"
+        },
+        "lastMaintenanceDate": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "machineID": {
+          "type": "string"
+        },
+        "machineName": {
+          "type": "string"
+        },
+        "machineType": {
+          "description": "CNC / Press / Coating etc",
+          "type": "string"
+        },
+        "maintenanceIntervalDays": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "running",
+            "maintenance",
+            "offline"
+          ]
+        },
+        "utilizationRate": {
+          "type": "number"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3506,13 +6867,45 @@
   ],
   "x-body-required": [
     "step_id"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "capabilityID": {
+          "type": "string"
+        },
+        "efficiencyFactor": {
+          "description": "speed modifier for this step",
+          "type": "number"
+        },
+        "machineID": {
+          "type": "string"
+        },
+        "stepID": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3597,13 +6990,53 @@
   ],
   "x-body-required": [
     "machine_id"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "endTime": {
+          "type": "string"
+        },
+        "machineID": {
+          "type": "string"
+        },
+        "maintenanceID": {
+          "type": "string"
+        },
+        "maintenanceType": {
+          "type": "string"
+        },
+        "startTime": {
+          "type": "string"
+        },
+        "technician": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3622,13 +7055,42 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "confidence_pct": {
+          "type": "number"
+        },
+        "last_trained": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3647,13 +7109,32 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3672,13 +7153,54 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "delay_minutes": {
+            "type": "integer"
+          },
+          "issue": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "machine_name": {
+            "type": "string"
+          },
+          "risk_level": {
+            "type": "string"
+          },
+          "risk_score": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3697,13 +7219,48 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3740,13 +7297,58 @@
   "x-param-sources": {
     "step_id": "path",
     "role": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "materialID": {
+            "type": "string"
+          },
+          "productID": {
+            "type": "string"
+          },
+          "quantityPerUnit": {
+            "type": "number"
+          },
+          "role": {
+            "description": "input | output",
+            "type": "string"
+          },
+          "stepID": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3832,13 +7434,54 @@
     "role",
     "unit"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "materialID": {
+          "type": "string"
+        },
+        "productID": {
+          "type": "string"
+        },
+        "quantityPerUnit": {
+          "type": "number"
+        },
+        "role": {
+          "description": "input | output",
+          "type": "string"
+        },
+        "stepID": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -3874,13 +7517,30 @@
   "x-param-sources": {
     "step_id": "path",
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -3932,13 +7592,65 @@
     "limit": "query",
     "offset": "query",
     "fields": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "effectiveFrom": {
+            "type": "string"
+          },
+          "effectiveTo": {
+            "type": "string"
+          },
+          "isPrimary": {
+            "description": "primary vs alternative routing",
+            "type": "boolean"
+          },
+          "processID": {
+            "type": "string"
+          },
+          "processName": {
+            "type": "string"
+          },
+          "productID": {
+            "type": "string"
+          },
+          "sequence": {
+            "description": "order when multiple (0=primary)",
+            "type": "integer"
+          },
+          "version": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4021,13 +7733,61 @@
     "process_id",
     "process_name",
     "product_id"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "effectiveFrom": {
+          "type": "string"
+        },
+        "effectiveTo": {
+          "type": "string"
+        },
+        "isPrimary": {
+          "description": "primary vs alternative routing",
+          "type": "boolean"
+        },
+        "processID": {
+          "type": "string"
+        },
+        "processName": {
+          "type": "string"
+        },
+        "productID": {
+          "type": "string"
+        },
+        "sequence": {
+          "description": "order when multiple (0=primary)",
+          "type": "integer"
+        },
+        "version": {
+          "type": "integer"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4057,13 +7817,62 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "effectiveFrom": {
+          "type": "string"
+        },
+        "effectiveTo": {
+          "type": "string"
+        },
+        "isPrimary": {
+          "description": "primary vs alternative routing",
+          "type": "boolean"
+        },
+        "processID": {
+          "type": "string"
+        },
+        "processName": {
+          "type": "string"
+        },
+        "productID": {
+          "type": "string"
+        },
+        "sequence": {
+          "description": "order when multiple (0=primary)",
+          "type": "integer"
+        },
+        "version": {
+          "type": "integer"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4093,13 +7902,62 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "effectiveFrom": {
+          "type": "string"
+        },
+        "effectiveTo": {
+          "type": "string"
+        },
+        "isPrimary": {
+          "description": "primary vs alternative routing",
+          "type": "boolean"
+        },
+        "processID": {
+          "type": "string"
+        },
+        "processName": {
+          "type": "string"
+        },
+        "productID": {
+          "type": "string"
+        },
+        "sequence": {
+          "description": "order when multiple (0=primary)",
+          "type": "integer"
+        },
+        "version": {
+          "type": "integer"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4129,13 +7987,30 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -4165,13 +8040,113 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "allow_parallel_execution": {
+            "type": "boolean"
+          },
+          "batch_size": {
+            "description": "0 = no batch constraint",
+            "type": "integer"
+          },
+          "default_changeover_time": {
+            "description": "minutes",
+            "type": "integer"
+          },
+          "default_cleaning_time": {
+            "description": "minutes",
+            "type": "integer"
+          },
+          "default_preparation_time": {
+            "description": "minutes",
+            "type": "integer"
+          },
+          "default_processing_time": {
+            "description": "minutes",
+            "type": "integer"
+          },
+          "is_batch_process": {
+            "description": "true if step runs in batches",
+            "type": "boolean"
+          },
+          "machine_type_required": {
+            "type": "string"
+          },
+          "max_parallel_machines": {
+            "type": "integer"
+          },
+          "min_batch_size": {
+            "description": "minimum batch when splitting",
+            "type": "integer"
+          },
+          "min_split_qty": {
+            "type": "integer"
+          },
+          "min_wait_minutes": {
+            "description": "e.g. cooling time before next step",
+            "type": "integer"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "predecessor_step_ids": {
+            "description": "JSON array of step_ids; empty = infer from StepSequence",
+            "type": "string"
+          },
+          "process_id": {
+            "type": "string"
+          },
+          "quality_check_required": {
+            "type": "boolean"
+          },
+          "step_id": {
+            "type": "string"
+          },
+          "step_name": {
+            "type": "string"
+          },
+          "step_sequence": {
+            "type": "integer"
+          },
+          "step_type": {
+            "description": "matches reference_step_types.name",
+            "type": "string"
+          },
+          "transfer_batch_size": {
+            "type": "integer"
+          },
+          "transfer_minutes": {
+            "description": "transport time to next step",
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4335,13 +8310,109 @@
   ],
   "x-body-required": [
     "step_name"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "allow_parallel_execution": {
+          "type": "boolean"
+        },
+        "batch_size": {
+          "description": "0 = no batch constraint",
+          "type": "integer"
+        },
+        "default_changeover_time": {
+          "description": "minutes",
+          "type": "integer"
+        },
+        "default_cleaning_time": {
+          "description": "minutes",
+          "type": "integer"
+        },
+        "default_preparation_time": {
+          "description": "minutes",
+          "type": "integer"
+        },
+        "default_processing_time": {
+          "description": "minutes",
+          "type": "integer"
+        },
+        "is_batch_process": {
+          "description": "true if step runs in batches",
+          "type": "boolean"
+        },
+        "machine_type_required": {
+          "type": "string"
+        },
+        "max_parallel_machines": {
+          "type": "integer"
+        },
+        "min_batch_size": {
+          "description": "minimum batch when splitting",
+          "type": "integer"
+        },
+        "min_split_qty": {
+          "type": "integer"
+        },
+        "min_wait_minutes": {
+          "description": "e.g. cooling time before next step",
+          "type": "integer"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "predecessor_step_ids": {
+          "description": "JSON array of step_ids; empty = infer from StepSequence",
+          "type": "string"
+        },
+        "process_id": {
+          "type": "string"
+        },
+        "quality_check_required": {
+          "type": "boolean"
+        },
+        "step_id": {
+          "type": "string"
+        },
+        "step_name": {
+          "type": "string"
+        },
+        "step_sequence": {
+          "type": "integer"
+        },
+        "step_type": {
+          "description": "matches reference_step_types.name",
+          "type": "string"
+        },
+        "transfer_batch_size": {
+          "type": "integer"
+        },
+        "transfer_minutes": {
+          "description": "transport time to next step",
+          "type": "integer"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4436,13 +8507,57 @@
   ],
   "x-body-required": [
     "slot_id"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "downtimeMinutes": {
+          "description": "Gap 7 - downtime during slot for OEE",
+          "type": "integer"
+        },
+        "endTime": {
+          "type": "string"
+        },
+        "operatorNotes": {
+          "type": "string"
+        },
+        "productionID": {
+          "type": "string"
+        },
+        "quantityProduced": {
+          "type": "integer"
+        },
+        "quantityScrap": {
+          "type": "integer"
+        },
+        "slotID": {
+          "type": "string"
+        },
+        "startTime": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4507,13 +8622,71 @@
     "limit": "query",
     "offset": "query",
     "fields": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "formulaID": {
+            "description": "linked formula for BOM/recipe",
+            "type": "string"
+          },
+          "processID": {
+            "description": "active routing for scheduling",
+            "type": "string"
+          },
+          "productID": {
+            "type": "string"
+          },
+          "productName": {
+            "type": "string"
+          },
+          "productType": {
+            "type": "string"
+          },
+          "status": {
+            "description": "active, obsolete",
+            "type": "string",
+            "enum": [
+              "active",
+              "obsolete"
+            ]
+          },
+          "unitOfMeasure": {
+            "description": "pcs / kg / liter",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4609,13 +8782,67 @@
   "x-body-required": [
     "product_id",
     "product_name"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "formulaID": {
+          "description": "linked formula for BOM/recipe",
+          "type": "string"
+        },
+        "processID": {
+          "description": "active routing for scheduling",
+          "type": "string"
+        },
+        "productID": {
+          "type": "string"
+        },
+        "productName": {
+          "type": "string"
+        },
+        "productType": {
+          "type": "string"
+        },
+        "status": {
+          "description": "active, obsolete",
+          "type": "string",
+          "enum": [
+            "active",
+            "obsolete"
+          ]
+        },
+        "unitOfMeasure": {
+          "description": "pcs / kg / liter",
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4645,13 +8872,68 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "formulaID": {
+          "description": "linked formula for BOM/recipe",
+          "type": "string"
+        },
+        "processID": {
+          "description": "active routing for scheduling",
+          "type": "string"
+        },
+        "productID": {
+          "type": "string"
+        },
+        "productName": {
+          "type": "string"
+        },
+        "productType": {
+          "type": "string"
+        },
+        "status": {
+          "description": "active, obsolete",
+          "type": "string",
+          "enum": [
+            "active",
+            "obsolete"
+          ]
+        },
+        "unitOfMeasure": {
+          "description": "pcs / kg / liter",
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4674,7 +8956,31 @@
     "bom_items": {
       "type": "array",
       "items": {
-        "$ref": "#/definitions/dto.BOMItem"
+        "type": "object",
+        "properties": {
+          "material_id": {
+            "description": "required if product_id not set",
+            "type": "string"
+          },
+          "product_id": {
+            "description": "sub-product, required if material_id not set",
+            "type": "string"
+          },
+          "quantity_per_unit": {
+            "description": "required; qty per 1 unit of parent",
+            "type": "number"
+          },
+          "quantity_required": {
+            "description": "backward compat",
+            "type": "number"
+          },
+          "scrap_rate": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string"
+          }
+        }
       }
     },
     "formula_id": {
@@ -4703,7 +9009,31 @@
       "bom_items": {
         "type": "array",
         "items": {
-          "$ref": "#/definitions/dto.BOMItem"
+          "type": "object",
+          "properties": {
+            "material_id": {
+              "description": "required if product_id not set",
+              "type": "string"
+            },
+            "product_id": {
+              "description": "sub-product, required if material_id not set",
+              "type": "string"
+            },
+            "quantity_per_unit": {
+              "description": "required; qty per 1 unit of parent",
+              "type": "number"
+            },
+            "quantity_required": {
+              "description": "backward compat",
+              "type": "number"
+            },
+            "scrap_rate": {
+              "type": "number"
+            },
+            "unit": {
+              "type": "string"
+            }
+          }
         }
       },
       "formula_id": {
@@ -4719,13 +9049,30 @@
     "formula_id",
     "process_id"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -4755,13 +9102,296 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "bom_items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "bomid": {
+                "type": "string"
+              },
+              "componentType": {
+                "type": "string"
+              },
+              "materialID": {
+                "type": "string"
+              },
+              "productComponentID": {
+                "description": "sub-product",
+                "type": "string"
+              },
+              "productID": {
+                "type": "string"
+              },
+              "quantityRequired": {
+                "description": "qty per 1 unit of parent",
+                "type": "number"
+              },
+              "scrapRate": {
+                "type": "number"
+              },
+              "unit": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "composition_source": {
+          "type": "string"
+        },
+        "formula": {
+          "type": "object",
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "effectiveFrom": {
+              "type": "string"
+            },
+            "effectiveTo": {
+              "type": "string"
+            },
+            "formulaID": {
+              "type": "string"
+            },
+            "formulaName": {
+              "type": "string"
+            },
+            "instructions": {
+              "type": "string"
+            },
+            "safetyNotes": {
+              "type": "string"
+            },
+            "version": {
+              "type": "integer"
+            }
+          }
+        },
+        "ingredients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "component_type": {
+                "type": "string"
+              },
+              "formula_id": {
+                "type": "string"
+              },
+              "ingredient_id": {
+                "type": "string"
+              },
+              "material_id": {
+                "type": "string"
+              },
+              "material_name": {
+                "type": "string"
+              },
+              "product_id": {
+                "type": "string"
+              },
+              "product_name": {
+                "type": "string"
+              },
+              "quantity_per_unit": {
+                "type": "number"
+              },
+              "scrap_rate": {
+                "type": "number"
+              },
+              "unit": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "process": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "effectiveFrom": {
+              "type": "string"
+            },
+            "effectiveTo": {
+              "type": "string"
+            },
+            "isPrimary": {
+              "description": "primary vs alternative routing",
+              "type": "boolean"
+            },
+            "processID": {
+              "type": "string"
+            },
+            "processName": {
+              "type": "string"
+            },
+            "productID": {
+              "type": "string"
+            },
+            "sequence": {
+              "description": "order when multiple (0=primary)",
+              "type": "integer"
+            },
+            "version": {
+              "type": "integer"
+            }
+          }
+        },
+        "product": {
+          "type": "object",
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "formulaID": {
+              "description": "linked formula for BOM/recipe",
+              "type": "string"
+            },
+            "processID": {
+              "description": "active routing for scheduling",
+              "type": "string"
+            },
+            "productID": {
+              "type": "string"
+            },
+            "productName": {
+              "type": "string"
+            },
+            "productType": {
+              "type": "string"
+            },
+            "status": {
+              "description": "active, obsolete",
+              "type": "string",
+              "enum": [
+                "active",
+                "obsolete"
+              ]
+            },
+            "unitOfMeasure": {
+              "description": "pcs / kg / liter",
+              "type": "string"
+            }
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "allow_parallel_execution": {
+                "type": "boolean"
+              },
+              "batch_size": {
+                "description": "0 = no batch constraint",
+                "type": "integer"
+              },
+              "default_changeover_time": {
+                "description": "minutes",
+                "type": "integer"
+              },
+              "default_cleaning_time": {
+                "description": "minutes",
+                "type": "integer"
+              },
+              "default_preparation_time": {
+                "description": "minutes",
+                "type": "integer"
+              },
+              "default_processing_time": {
+                "description": "minutes",
+                "type": "integer"
+              },
+              "is_batch_process": {
+                "description": "true if step runs in batches",
+                "type": "boolean"
+              },
+              "machine_type_required": {
+                "type": "string"
+              },
+              "max_parallel_machines": {
+                "type": "integer"
+              },
+              "min_batch_size": {
+                "description": "minimum batch when splitting",
+                "type": "integer"
+              },
+              "min_split_qty": {
+                "type": "integer"
+              },
+              "min_wait_minutes": {
+                "description": "e.g. cooling time before next step",
+                "type": "integer"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "predecessor_step_ids": {
+                "description": "JSON array of step_ids; empty = infer from StepSequence",
+                "type": "string"
+              },
+              "process_id": {
+                "type": "string"
+              },
+              "quality_check_required": {
+                "type": "boolean"
+              },
+              "step_id": {
+                "type": "string"
+              },
+              "step_name": {
+                "type": "string"
+              },
+              "step_sequence": {
+                "type": "integer"
+              },
+              "step_type": {
+                "description": "matches reference_step_types.name",
+                "type": "string"
+              },
+              "transfer_batch_size": {
+                "type": "integer"
+              },
+              "transfer_minutes": {
+                "description": "transport time to next step",
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4840,13 +9470,54 @@
   ],
   "x-body-required": [
     "job_step_id"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "defectCount": {
+          "type": "integer"
+        },
+        "inspectionID": {
+          "type": "string"
+        },
+        "inspectionTime": {
+          "type": "string"
+        },
+        "inspectorName": {
+          "type": "string"
+        },
+        "jobStepID": {
+          "type": "string"
+        },
+        "notes": {
+          "type": "string"
+        },
+        "result": {
+          "description": "pass, fail",
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4898,13 +9569,49 @@
     "limit": "query",
     "offset": "query",
     "fields": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "bay": {
+            "type": "string"
+          },
+          "display": {
+            "description": "computed in app",
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "zone": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4957,13 +9664,45 @@
   ],
   "x-body-required": [
     "zone"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "bay": {
+          "type": "string"
+        },
+        "display": {
+          "description": "computed in app",
+          "type": "string"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "zone": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -4993,13 +9732,30 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5051,13 +9807,45 @@
     "limit": "query",
     "offset": "query",
     "fields": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -5110,13 +9898,41 @@
   ],
   "x-body-required": [
     "name"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -5170,13 +9986,41 @@
     "description",
     "name"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -5206,13 +10050,30 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5264,13 +10125,42 @@
     "limit": "query",
     "offset": "query",
     "fields": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -5315,13 +10205,38 @@
   ],
   "x-body-required": [
     "name"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -5351,13 +10266,30 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5410,13 +10342,41 @@
   ],
   "x-body-required": [
     "name"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "default_machine_type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -5446,13 +10406,30 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5509,13 +10486,46 @@
     "limit": "query",
     "offset": "query",
     "fields": "query"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "description": "shelf, rack, cold, hazardous, floor, dock",
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -5568,13 +10578,42 @@
   ],
   "x-body-required": [
     "name"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "description": "shelf, rack, cold, hazardous, floor, dock",
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -5604,13 +10643,30 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5629,13 +10685,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5654,13 +10728,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5679,13 +10771,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5704,13 +10814,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5729,13 +10857,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5754,13 +10900,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5779,13 +10943,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "string"
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -5804,13 +10986,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5829,13 +11029,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5854,13 +11072,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5879,13 +11115,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5904,13 +11158,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -5966,13 +11238,31 @@
   "x-body-required": [
     "payload",
     "type"
+  ],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
   ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -5991,13 +11281,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -6016,13 +11324,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "boolean"
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -6041,13 +11367,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "boolean"
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -6066,13 +11410,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -6091,13 +11453,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -6228,13 +11608,74 @@
     "work_end_time",
     "work_start_time"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "auto_reschedule_on_event": {
+          "type": "boolean"
+        },
+        "deviation_penalty_weight": {
+          "type": "number"
+        },
+        "lateness_weight": {
+          "type": "number"
+        },
+        "lock_in_window_minutes": {
+          "type": "integer"
+        },
+        "objective": {
+          "type": "string"
+        },
+        "public_holidays": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "setup_weight": {
+          "type": "number"
+        },
+        "slack_weight": {
+          "type": "number"
+        },
+        "split_strategy": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "work_days": {
+          "type": "string"
+        },
+        "work_end_time": {
+          "type": "string"
+        },
+        "work_start_time": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -6253,13 +11694,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -6278,13 +11737,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -6303,13 +11780,31 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -6328,13 +11823,30 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  }
 }
 `
 ---
@@ -6353,13 +11865,32 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {}
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -6378,13 +11909,51 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "ai_enabled": {
+          "type": "boolean"
+        },
+        "integrations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "language": {
+          "type": "string"
+        },
+        "notifications": {
+          "type": "boolean"
+        },
+        "theme": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -6403,13 +11972,50 @@
   "properties": {},
   "x-path-params": [],
   "x-query-params": [],
-  "x-param-sources": {}
+  "x-param-sources": {},
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "ai_enabled": {
+          "type": "boolean"
+        },
+        "integrations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "language": {
+          "type": "string"
+        },
+        "notifications": {
+          "type": "boolean"
+        },
+        "theme": {
+          "type": "string"
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -6439,13 +12045,97 @@
   "x-query-params": [],
   "x-param-sources": {
     "id": "path"
-  }
+  },
+  "x-allowed-roles": [
+    "viewer",
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "actual_end": {
+          "type": "string"
+        },
+        "actual_start": {
+          "type": "string"
+        },
+        "allocation_percent": {
+          "type": "number"
+        },
+        "batch_sequence": {
+          "type": "integer"
+        },
+        "buffer_time_minutes": {
+          "type": "integer"
+        },
+        "changeover_time_minutes": {
+          "type": "integer"
+        },
+        "cleaning_time_minutes": {
+          "type": "integer"
+        },
+        "is_parallel": {
+          "type": "boolean"
+        },
+        "job_step_id": {
+          "type": "string"
+        },
+        "machine_id": {
+          "type": "string"
+        },
+        "preparation_time_minutes": {
+          "type": "integer"
+        },
+        "processing_time_minutes": {
+          "type": "integer"
+        },
+        "proposal_id": {
+          "type": "string"
+        },
+        "quantity_planned": {
+          "type": "integer"
+        },
+        "scheduled_end": {
+          "type": "string"
+        },
+        "scheduled_start": {
+          "type": "string"
+        },
+        "slot_id": {
+          "type": "string"
+        },
+        "split_group_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "running",
+            "completed",
+            "cancelled",
+            "paused"
+          ]
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---
@@ -6579,13 +12269,96 @@
     "scheduled_start",
     "status"
   ],
-  "x-body-required": []
+  "x-body-required": [],
+  "x-allowed-roles": [
+    "planner",
+    "manager",
+    "admin"
+  ]
 }
 `
 **Output Schema**:
 `json
 {
-  "type": "object"
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "properties": {
+        "actual_end": {
+          "type": "string"
+        },
+        "actual_start": {
+          "type": "string"
+        },
+        "allocation_percent": {
+          "type": "number"
+        },
+        "batch_sequence": {
+          "type": "integer"
+        },
+        "buffer_time_minutes": {
+          "type": "integer"
+        },
+        "changeover_time_minutes": {
+          "type": "integer"
+        },
+        "cleaning_time_minutes": {
+          "type": "integer"
+        },
+        "is_parallel": {
+          "type": "boolean"
+        },
+        "job_step_id": {
+          "type": "string"
+        },
+        "machine_id": {
+          "type": "string"
+        },
+        "preparation_time_minutes": {
+          "type": "integer"
+        },
+        "processing_time_minutes": {
+          "type": "integer"
+        },
+        "proposal_id": {
+          "type": "string"
+        },
+        "quantity_planned": {
+          "type": "integer"
+        },
+        "scheduled_end": {
+          "type": "string"
+        },
+        "scheduled_start": {
+          "type": "string"
+        },
+        "slot_id": {
+          "type": "string"
+        },
+        "split_group_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned",
+            "running",
+            "completed",
+            "cancelled",
+            "paused"
+          ]
+        }
+      }
+    },
+    "error": {
+      "type": "string"
+    },
+    "success": {
+      "type": "boolean"
+    }
+  },
+  "required": []
 }
 `
 ---

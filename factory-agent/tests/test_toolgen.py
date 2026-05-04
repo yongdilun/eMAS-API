@@ -252,3 +252,48 @@ def test_tools_from_openapi_preserves_enum_metadata_for_query_and_body_fields():
         "maintenance",
         "offline",
     ]
+
+
+def test_tools_from_openapi_preserves_response_schema_and_roles():
+    spec = {
+        "swagger": "2.0",
+        "definitions": {
+            "Response": {"type": "object", "properties": {"success": {"type": "boolean"}}},
+            "Job": {"type": "object", "properties": {"job_id": {"type": "string"}}},
+        },
+        "paths": {
+            "/jobs": {
+                "get": {
+                    "operationId": "get__jobs",
+                    "responses": {
+                        "200": {
+                            "schema": {
+                                "allOf": [
+                                    {"$ref": "#/definitions/Response"},
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            "data": {
+                                                "type": "array",
+                                                "items": {"$ref": "#/definitions/Job"},
+                                            }
+                                        },
+                                    },
+                                ]
+                            }
+                        }
+                    },
+                },
+                "post": {
+                    "operationId": "post__jobs",
+                    "x-ai-allowed-roles": ["manager", "admin"],
+                    "responses": {"201": {"schema": {"$ref": "#/definitions/Job"}}},
+                },
+            }
+        },
+    }
+
+    tools = {tool.name: tool for tool in tools_from_openapi(spec)}
+    assert tools["get__jobs"].output_schema["properties"]["data"]["items"]["properties"]["job_id"]["type"] == "string"
+    assert tools["get__jobs"].input_schema["x-allowed-roles"] == ["viewer", "planner", "manager", "admin"]
+    assert tools["post__jobs"].input_schema["x-allowed-roles"] == ["manager", "admin"]

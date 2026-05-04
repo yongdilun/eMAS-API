@@ -1,3 +1,24 @@
 .aider*
 .gocache/
 .gocache_test/
+
+# Python / Factory Agent caches
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.env
+
+# Pytest caches
+pytest-cache-files-*/
+.pytest_cache/
+
+# Test artifacts
+test-artifacts/
+
+# System / Go Build Caches
+.cache/
+emas/.cache/
+.cursor/

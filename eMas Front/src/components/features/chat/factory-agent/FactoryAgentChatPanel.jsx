@@ -174,42 +174,60 @@ function TurnDetails({ mode, turn }) {
 }
 
 function ConfirmationOptions({ turn, onConfirm, disabled }) {
-  const [expanded, setExpanded] = useState(false)
+  const [showOther, setShowOther] = useState(false)
   const latest = Array.isArray(turn?.confirmations) ? turn.confirmations[turn.confirmations.length - 1] : null
   const confirmation = latest?.details?.confirmation
-  const defaultOptions = Array.isArray(confirmation?.options) ? confirmation.options : []
-  const allOptions = Array.isArray(confirmation?.all_options) ? confirmation.all_options : defaultOptions
-  const hasMore = confirmation?.has_more === true && allOptions.length > defaultOptions.length
-  const visibleOptions = expanded ? allOptions : defaultOptions
+  const primaryOptions = Array.isArray(confirmation?.options) ? confirmation.options : []
+  const otherOptions = Array.isArray(confirmation?.other_possible_fields) ? confirmation.other_possible_fields : []
 
-  if (!defaultOptions.length) return null
+  if (!primaryOptions.length && !otherOptions.length) return null
+
+  const renderOption = (option, variant = 'primary') => {
+    const count = Number(option?.match_count)
+    const countLabel = Number.isFinite(count) && count >= 0 ? ` · ${count} match${count === 1 ? '' : 'es'}` : ''
+    const modeLabel = option?.match_mode ? ` · ${option.match_mode}` : ''
+    const isOther = variant === 'other'
+    return (
+      <button
+        key={`${variant}-${option.field}-${option.value}`}
+        type="button"
+        disabled={disabled}
+        onClick={() => onConfirm(option)}
+        className={`rounded-lg border px-3 py-2 text-xs font-medium disabled:opacity-60 ${
+          isOther
+            ? 'border-gray-300 bg-gray-50 text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300'
+            : 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15 dark:border-primary/40 dark:bg-primary/15'
+        }`}
+        title={option.reason || undefined}
+      >
+        {option.label || `${option.field}: ${option.value}`}
+        {countLabel}
+        {modeLabel}
+      </button>
+    )
+  }
 
   return (
     <div className="mt-3 space-y-2">
       <div className="flex flex-wrap gap-2">
-        {visibleOptions.map((option) => (
-          <button
-            key={`${option.field}-${option.value}`}
-            type="button"
-            disabled={disabled}
-            onClick={() => onConfirm(option)}
-            className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/15 disabled:opacity-60 dark:border-primary/40 dark:bg-primary/15"
-          >
-            {option.label || `${option.field}: ${option.value}`}
-          </button>
-        ))}
+        {primaryOptions.map((option) => renderOption(option))}
       </div>
-      {hasMore && (
+      {otherOptions.length > 0 && (
         <button
           type="button"
-          onClick={() => setExpanded((prev) => !prev)}
+          onClick={() => setShowOther((prev) => !prev)}
           className="flex items-center gap-1 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-primary dark:hover:text-primary transition-colors"
         >
           <span className="material-symbols-outlined text-sm">
-            {expanded ? 'expand_less' : 'expand_more'}
+            {showOther ? 'expand_less' : 'expand_more'}
           </span>
-          {expanded ? 'Show fewer fields' : `Show all fields (${allOptions.length})`}
+          {showOther ? 'Hide other possible fields' : `Other possible fields (${otherOptions.length})`}
         </button>
+      )}
+      {showOther && otherOptions.length > 0 && (
+        <div className="flex flex-wrap gap-2 border-t border-gray-200 pt-2 dark:border-gray-800">
+          {otherOptions.map((option) => renderOption(option, 'other'))}
+        </div>
       )}
     </div>
   )

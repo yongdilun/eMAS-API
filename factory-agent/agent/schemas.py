@@ -31,6 +31,15 @@ StepStatus = Literal[
 ]
 
 SideEffectLevel = Literal["NONE", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
+BindingMode = Literal["single", "foreach"]
+
+
+class PlanBinding(BaseModel):
+    from_step: int = Field(ge=0)
+    result_path: str = "data"
+    field: str
+    target_arg: str
+    mode: BindingMode = "single"
 
 
 class PlanStepDraft(BaseModel):
@@ -39,6 +48,8 @@ class PlanStepDraft(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
     depends_on: list[int] = Field(default_factory=list)
     parallel_group: int | None = None
+    execution_mode: BindingMode = "single"
+    bindings: list[PlanBinding] = Field(default_factory=list)
 
 
 class PlanDraft(BaseModel):
@@ -68,6 +79,7 @@ class ToolInfo(BaseModel):
     endpoint: str
     method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
     input_schema: dict[str, Any]
+    output_schema: dict[str, Any] = Field(default_factory=lambda: {"type": "object"})
     path_params: list[str] = Field(default_factory=list)
     query_params: list[str] = Field(default_factory=list)
     body_fields: list[str] = Field(default_factory=list)
@@ -81,6 +93,7 @@ class ToolInfo(BaseModel):
     is_concurrency_safe: bool = True
     is_strongly_idempotent: bool = False
     capability_tags: list[str] = Field(default_factory=list)
+    allowed_roles: list[str] = Field(default_factory=list)
 
 
 class SessionCreateRequest(BaseModel):
@@ -169,6 +182,9 @@ class PlanStepResponse(BaseModel):
     step_index: int
     tool_name: str
     args: dict[str, Any]
+    execution_mode: BindingMode = "single"
+    bindings: list[PlanBinding] = Field(default_factory=list)
+    bulk_state: dict[str, Any] | None = None
     status: StepStatus
     idempotency_key: str
     requires_approval: bool

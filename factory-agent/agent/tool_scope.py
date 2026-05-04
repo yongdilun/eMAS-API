@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from .intent import assess_intent
 from .schemas import ToolInfo
+from .tool_intent_profile import profile_match_score
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,7 @@ def score_tool(intent: str, tool: ToolInfo) -> int:
 
     assessment = assess_intent(intent)
     tool_tokens = _tool_search_tokens(tool)
-    score = 0
+    score = profile_match_score(intent, tool)
     for tag in tool.capability_tags:
         if tag.lower() in intent_tokens:
             score += 10

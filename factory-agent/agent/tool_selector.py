@@ -10,6 +10,7 @@ from .intent import assess_intent
 from .schemas import ToolInfo
 from .telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped
 from .tool_scope import ScopedTools, filter_tools_for_intent, score_tool
+from .tool_intent_profile import build_tool_intent_profile, profile_match_score
 
 
 ToolSelectorBackendName = Literal["retrieval", "langchain"]
@@ -25,11 +26,21 @@ class ToolSelectionResult:
 class ToolSelector:
     def __init__(self, settings: Settings):
         self._settings = settings
+        self._embedding_model: Any | None = None
+        self._embedding_unavailable = False
+        self._semantic_cache_key: tuple[str, ...] | None = None
+        self._semantic_tool_names: list[str] = []
+        self._semantic_vectors: Any | None = None
 
     def _backend_mode(self) -> str:
         return (self._settings.tool_selector_backend or "auto").strip().lower()
 
+    def _embedding_backend_mode(self) -> str:
+        return (self._settings.embedding_backend or "auto").strip().lower()
+
     def _can_use_llm_reranker(self) -> bool:
+        if self._settings.force_llm_trace_all:
+            return bool(self._settings.openai_base_url or self._settings.openai_api_key)
         if not self._settings.tool_selector_reranker_enabled:
             return False
         backend = self._backend_mode()
@@ -73,11 +84,53 @@ class ToolSelector:
                     if name in tools_by_name and tools_by_name[name].is_read_only
                 ]
                 ranked.sort(key=lambda item: item[1], reverse=True)
-        return ranked[: max(1, min(self._settings.tool_selector_top_k, max_tools))]
+        limit = max(1, min(self._settings.tool_selector_top_k, max_tools))
+        selected = ranked[:limit]
+        if mode != "plan":
+            selected = self._add_planning_companions(selected=selected, tools_by_name=tools_by_name, max_tools=max_tools)
+        return selected[:max_tools]
+
+    def _add_planning_companions(
+        self,
+        *,
+        selected: list[tuple[str, int]],
+        tools_by_name: dict[str, ToolInfo],
+        max_tools: int,
+    ) -> list[tuple[str, int]]:
+        out: list[tuple[str, int]] = list(selected)
+        present = {name for name, _ in out}
+        for name, score in list(selected):
+            tool = tools_by_name.get(name)
+            if not tool:
+                continue
+            companions: list[str] = []
+            if tool.method == "DELETE":
+                companions.extend(
+                    candidate.name
+                    for candidate in tools_by_name.values()
+                    if candidate.method == "GET" and candidate.endpoint == tool.endpoint
+                )
+            if tool.method == "POST" and "{" not in (tool.endpoint or ""):
+                lookup_endpoint = f"{tool.endpoint.rstrip('/')}/{{id}}"
+                companions.extend(
+                    candidate.name
+                    for candidate in tools_by_name.values()
+                    if candidate.method == "GET" and candidate.endpoint == lookup_endpoint
+                )
+            for companion in companions:
+                if companion in present or companion not in tools_by_name:
+                    continue
+                out.append((companion, max(1, score - 1)))
+                present.add(companion)
+                if len(out) >= max_tools:
+                    return out
+        return out
 
     def _should_rerank(self, candidates: list[tuple[str, int]]) -> bool:
         if len(candidates) < 2 or not self._can_use_llm_reranker():
             return False
+        if self._settings.force_llm_trace_all:
+            return True
         top_score = candidates[0][1]
         second_score = candidates[1][1]
         return (top_score - second_score) <= self._settings.tool_selector_max_score_gap
@@ -114,13 +167,14 @@ class ToolSelector:
         return {token for token in raw if token}
 
     def _endpoint_root(self, endpoint: str) -> str:
-        normalized = (endpoint or "").strip().strip("/")
-        if not normalized:
-            return ""
-        root = normalized.split("/", 1)[0]
-        if root.endswith("s") and len(root) > 1:
-            root = root[:-1]
-        return root
+        tool = ToolInfo(
+            name="",
+            description="",
+            endpoint=endpoint,
+            method="GET",
+            input_schema={"type": "object", "properties": {}},
+        )
+        return build_tool_intent_profile(tool).endpoint_root
 
     def _compact_summary(self, tool: ToolInfo) -> str:
         required = [str(x) for x in (tool.input_schema or {}).get("required", []) if str(x)]
@@ -154,6 +208,120 @@ class ToolSelector:
         ]
         return self._tokenize(" ".join(p for p in parts if p))
 
+    def _semantic_document(self, tool: ToolInfo) -> str:
+        schema = tool.input_schema or {}
+        properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        field_parts: list[str] = []
+        for field_name, field_schema in properties.items():
+            if not isinstance(field_schema, dict):
+                field_parts.append(str(field_name))
+                continue
+            aliases = field_schema.get("x-ai-aliases")
+            prepositions = field_schema.get("x-ai-prepositions")
+            field_parts.append(
+                " ".join(
+                    str(part)
+                    for part in [
+                        field_name,
+                        field_schema.get("description"),
+                        " ".join(str(x) for x in aliases) if isinstance(aliases, list) else "",
+                        " ".join(str(x) for x in prepositions) if isinstance(prepositions, list) else "",
+                        " ".join(str(x) for x in field_schema.get("enum", [])) if isinstance(field_schema.get("enum"), list) else "",
+                    ]
+                    if str(part or "").strip()
+                )
+            )
+        ai_aliases = schema.get("x-ai-aliases")
+        return " ".join(
+            part
+            for part in [
+                tool.name,
+                tool.description,
+                tool.endpoint,
+                tool.method,
+                " ".join(tool.capability_tags or []),
+                " ".join(tool.path_params or []),
+                " ".join(tool.query_params or []),
+                " ".join(tool.body_fields or []),
+                str(schema.get("x-ai-entity") or ""),
+                " ".join(str(x) for x in ai_aliases) if isinstance(ai_aliases, list) else "",
+                " ".join(field_parts),
+            ]
+            if part
+        )
+
+    def _load_embedding_model(self):
+        if self._embedding_unavailable:
+            return None
+        if self._embedding_backend_mode() in {"disabled", "off", "false", "none"}:
+            return None
+        if self._embedding_model is not None:
+            return self._embedding_model
+        try:
+            from sentence_transformers import SentenceTransformer
+        except Exception as exc:
+            self._embedding_unavailable = True
+            log_event(
+                "tool_selector_embedding_disabled",
+                level="INFO",
+                reason="sentence_transformers_unavailable",
+                error=str(exc),
+            )
+            return None
+        try:
+            self._embedding_model = SentenceTransformer(self._settings.embedding_model)
+            return self._embedding_model
+        except Exception as exc:
+            self._embedding_unavailable = True
+            log_event(
+                "tool_selector_embedding_disabled",
+                level="WARNING",
+                reason="model_load_failed",
+                model=self._settings.embedding_model,
+                error=str(exc),
+            )
+            return None
+
+    def _semantic_retrieve_candidates(
+        self,
+        *,
+        intent: str,
+        tools_by_name: dict[str, ToolInfo],
+        candidates: list[str],
+        limit: int,
+    ) -> list[tuple[str, int]]:
+        model = self._load_embedding_model()
+        if model is None or not candidates:
+            return []
+        try:
+            import numpy as np
+        except Exception as exc:
+            self._embedding_unavailable = True
+            log_event(
+                "tool_selector_embedding_disabled",
+                level="INFO",
+                reason="numpy_unavailable",
+                error=str(exc),
+            )
+            return []
+
+        names = [name for name in candidates if name in tools_by_name]
+        cache_key = tuple(names)
+        if self._semantic_vectors is None or self._semantic_cache_key != cache_key:
+            documents = [self._semantic_document(tools_by_name[name]) for name in names]
+            vectors = model.encode(documents, normalize_embeddings=True)
+            self._semantic_vectors = np.asarray(vectors, dtype="float32")
+            self._semantic_tool_names = names
+            self._semantic_cache_key = cache_key
+
+        query_vector = np.asarray(model.encode([intent], normalize_embeddings=True)[0], dtype="float32")
+        scores = self._semantic_vectors @ query_vector
+        ranked: list[tuple[str, int]] = []
+        for name, score in zip(self._semantic_tool_names, scores):
+            ranked.append((name, int(round(float(score) * 100))))
+        ranked.sort(key=lambda item: item[1], reverse=True)
+        return [(name, score) for name, score in ranked[: max(1, limit)] if score > 15]
+
     def _retrieve_candidates(
         self,
         *,
@@ -165,6 +333,12 @@ class ToolSelector:
         intent_tokens = self._tokenize(intent)
         if not intent_tokens:
             return []
+        semantic = self._semantic_retrieve_candidates(
+            intent=intent,
+            tools_by_name=tools_by_name,
+            candidates=candidates,
+            limit=limit,
+        )
         assessment = assess_intent(intent)
         ranked: list[tuple[str, int]] = []
         for name in candidates:
@@ -173,7 +347,7 @@ class ToolSelector:
                 continue
             tool_tokens = self._tool_retrieval_tokens(tool)
             overlap = intent_tokens & tool_tokens
-            score = len(overlap) * 2
+            score = len(overlap) * 2 + profile_match_score(intent, tool)
 
             if assessment.action == "create" and tool.method == "POST":
                 score += 6
@@ -206,7 +380,14 @@ class ToolSelector:
                 ranked.append((name, score))
 
         ranked.sort(key=lambda item: (item[1], score_tool(intent, tools_by_name[item[0]])), reverse=True)
-        return ranked[: max(1, limit)]
+        if not semantic:
+            return ranked[: max(1, limit)]
+
+        blended: dict[str, int] = {name: score for name, score in ranked}
+        for name, semantic_score in semantic:
+            blended[name] = max(blended.get(name, 0), semantic_score + score_tool(intent, tools_by_name[name]))
+        merged = sorted(blended.items(), key=lambda item: item[1], reverse=True)
+        return merged[: max(1, limit)]
 
     def _build_rerank_prompt(
         self,

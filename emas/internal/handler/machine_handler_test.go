@@ -111,6 +111,29 @@ func TestMachineHandler_ListFiltersAreApplied(t *testing.T) {
 		}
 	}
 
+	w = testutil.Request(r, "GET", "/api/v1/machines?machine_name=mill", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list machine_name filter: got %d, body: %s", w.Code, w.Body.String())
+	}
+	success, data, _ = testutil.DecodeResponse(w)
+	if !success {
+		t.Fatal("list machine_name filter failed")
+	}
+	rows = data.([]interface{})
+	if len(rows) != 2 {
+		t.Fatalf("machine_name filter returned %d rows, want 2", len(rows))
+	}
+	for _, row := range rows {
+		m := row.(map[string]interface{})
+		name, _ := m["machine_name"].(string)
+		if name == "" {
+			name, _ = m["MachineName"].(string)
+		}
+		if name != "CNC Mill 1" && name != "CNC Mill 2" {
+			t.Fatalf("machine_name filter returned nonmatching row: %#v", m)
+		}
+	}
+
 	w = testutil.Request(r, "GET", "/api/v1/machines?location=Nope", nil)
 	if w.Code != http.StatusOK {
 		t.Fatalf("list nonmatching location: got %d, body: %s", w.Code, w.Body.String())

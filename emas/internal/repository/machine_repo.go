@@ -37,6 +37,7 @@ func (r *MachineRepository) ListAll() ([]domain.Machine, error) {
 type MachineListFilter struct {
 	BaseFilter
 	Status      string
+	MachineName string
 	MachineType string
 	Location    string
 }
@@ -46,6 +47,9 @@ func (r *MachineRepository) ListFiltered(f MachineListFilter) ([]domain.Machine,
 
 	if f.Status != "" {
 		db = db.Where("status = ?", f.Status)
+	}
+	if f.MachineName != "" {
+		db = db.Where("LOWER(machine_name) LIKE LOWER(?)", "%"+f.MachineName+"%")
 	}
 	if f.MachineType != "" {
 		db = db.Where("machine_type = ?", f.MachineType)

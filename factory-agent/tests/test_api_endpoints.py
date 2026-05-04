@@ -2766,6 +2766,80 @@ async def test_job_list_result_summary_recovers_from_structured_fact_dump(sessio
 
 
 @pytest.mark.asyncio
+async def test_job_list_result_summary_deterministically_extracts_analysis_intent(sessionmaker_override, db_session, respx_mock):
+    from models import Message
+
+    await _seed_tool(
+        db_session,
+        name="get__jobs",
+        endpoint="/jobs",
+        method="GET",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "priority": {"type": "string"},
+                "status": {"type": "string"},
+            },
+            "x-query-params": ["priority", "status"],
+            "x-param-sources": {"priority": "query", "status": "query"},
+        },
+        capability_tags='["job","list"]',
+        is_read_only=True,
+    )
+    respx_mock.get("http://testserver/jobs", params={"priority": "low", "status": "planned"}).respond(
+        200,
+        json={
+            "success": True,
+            "data": [
+                {"job_id": "JOB-SEED-005", "product_id": "P-005", "quantity_total": 520, "deadline": "2026-05-19T08:00:00+08:00", "priority": "low", "status": "planned"},
+                {"job_id": "JOB-SEED-009", "product_id": "P-003", "quantity_total": 140, "deadline": "2026-05-19T08:00:00+08:00", "priority": "low", "status": "planned"},
+                {"job_id": "JOB-SEED-012", "product_id": "P-009", "quantity_total": 240, "deadline": "2026-05-19T08:00:00+08:00", "priority": "low", "status": "planned"},
+                {"job_id": "JOB-SEED-017", "product_id": "P-004", "quantity_total": 180, "deadline": "2026-05-19T08:00:00+08:00", "priority": "low", "status": "planned"},
+                {"job_id": "JOB-SEED-024", "product_id": "P-002", "quantity_total": 480, "deadline": "2026-05-07T08:00:00+08:00", "priority": "low", "status": "planned"},
+            ],
+        },
+    )
+
+    app, _ = await _make_app(sessionmaker_override, openai_base_url=None)
+    draft = PlanDraft(
+        plan_explanation="List low-priority planned jobs",
+        risk_summary="read-only",
+        steps=[PlanStepDraft(step_index=0, tool_name="get__jobs", args={"priority": "low", "status": "planned"})],
+    )
+    prompt = "Show low-priority planned jobs and highlight the earliest deadline and largest quantity."
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post("/sessions", json={"user_id": "u1"})
+        session_id = created.json()["session_id"]
+        await client.post(f"/sessions/{session_id}/messages", json={"role": "user", "content": prompt})
+        await client.post(f"/sessions/{session_id}/plans", json={"draft": draft.model_dump()})
+        executed = await client.post(f"/sessions/{session_id}/execute")
+        assert executed.status_code == 200
+        assert executed.json()["status"] == "COMPLETED"
+
+        snapshot = await client.get(f"/sessions/{session_id}/snapshot")
+        assert snapshot.status_code == 200
+        timeline = snapshot.json()["timeline"]
+
+    tool_message = (
+        await db_session.execute(
+            select(Message)
+            .where(Message.session_id == session_id)
+            .where(Message.role == "tool_result")
+        )
+    ).scalars().first()
+    assert tool_message is not None
+    content = tool_message.content.lower()
+    assert "retrieved 5 records" in content
+    assert "earliest deadline: job-seed-024" in content
+    assert "largest quantity: job-seed-005" in content
+
+    tool_event = next(event for event in timeline if event["event_type"] == "tool_result")
+    result = tool_event["details"]["result"]
+    assert result["_analysis"]["dataset"]["row_count"] == 5
+    assert "earliest deadline: job-seed-024" in tool_event["details"]["presentation"]["analysis"]["facts"][0].lower()
+
+
+@pytest.mark.asyncio
 async def test_read_only_machine_not_found_returns_operator_friendly_completion(sessionmaker_override, db_session, respx_mock):
     from models import Message, Session
 

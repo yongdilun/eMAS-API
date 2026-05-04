@@ -1,0 +1,34 @@
+description: eMAS seed-pipeline LLM intent smoke suite
+
+prompts:
+  - "{{input}}"
+
+providers:
+  - id: openai:chat:local
+    config:
+      apiBaseUrl: "{{env.OPENAI_BASE_URL}}"
+      apiKey: "{{env.OPENAI_API_KEY}}"
+
+tests:
+  - vars:
+      input: "Suggest schedule for job JOB-SEED-001"
+    assert:
+      - type: contains-json
+      - type: contains
+        value: "propose_schedule"
+      - type: contains
+        value: "JOB-SEED-001"
+  - vars:
+      input: "Reject proposal AIPROP-SEED-001 because it is too disruptive"
+    assert:
+      - type: contains-json
+      - type: contains
+        value: "reject_proposal"
+      - type: contains
+        value: "AIPROP-SEED-001"
+  - vars:
+      input: "approve this please"
+    assert:
+      - type: contains-json
+      - type: contains
+        value: "unknown"

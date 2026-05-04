@@ -45,6 +45,9 @@ def _ensure_schema_compatibility(sync_conn) -> None:
     ensure_column("plans", "status", "VARCHAR(30) NOT NULL DEFAULT 'DRAFT'")
     ensure_column("plans", "approved_plan_hash", "VARCHAR(255)")
     ensure_column("plans", "derived_from_plan_id", "VARCHAR(36)")
+    ensure_column("plan_steps", "bindings", "JSON")
+    ensure_column("plan_steps", "execution_mode", "VARCHAR(20) NOT NULL DEFAULT 'single'")
+    ensure_column("plan_steps", "bulk_state", "JSON")
     ensure_column("approvals", "subject_type", "VARCHAR(20) NOT NULL DEFAULT 'step'")
     ensure_column("approvals", "plan_id", "VARCHAR(36)")
 

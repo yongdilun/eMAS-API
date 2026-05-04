@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import json
 import re
 from typing import Any, Literal
 
+import httpx
 from jsonschema import Draft202012Validator
 
 from .config import Settings
@@ -13,12 +15,13 @@ from .intent import assess_intent
 from .plan_validator import validate_plan
 from .prompting import build_planner_prompt
 from .reasoning_pipeline import ReasoningPipeline
-from .schemas import PlanDraft, PlanStepDraft, ToolInfo
+from .schemas import PlanBinding, PlanDraft, PlanStepDraft, ToolInfo
 from .telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped
+from .tool_intent_profile import child_tools_for_parent, profile_match_score, tool_covers_descriptive_terms
 from .tool_registry import ToolRegistry
 
 
-PlannerBackendName = Literal["legacy", "langchain"]
+PlannerBackendName = Literal["legacy", "structured", "langchain"]
 
 
 class PlannerBackendError(RuntimeError):
@@ -210,7 +213,7 @@ def _tool_intent_match_score(intent: str, tool: ToolInfo) -> int:
     assessment = assess_intent(intent)
     intent_lower = intent.lower()
     token = f"{tool.name} {tool.description} {tool.endpoint} {' '.join(tool.capability_tags or [])}".lower()
-    score = 0
+    score = profile_match_score(intent, tool)
     for keyword in _INTENT_MATCH_KEYWORDS:
         if keyword in intent_lower and keyword in token:
             score += 1
@@ -501,12 +504,23 @@ def _extract_required_args(intent: str, tool: ToolInfo) -> tuple[dict[str, Any],
     return args, missing
 
 
-def _merge_deterministic_supported_args(intent: str, tool: ToolInfo, args: dict[str, Any]) -> dict[str, Any]:
+def _merge_deterministic_supported_args(
+    intent: str,
+    tool: ToolInfo,
+    args: dict[str, Any],
+    *,
+    provenance: dict[str, dict[str, Any]] | None = None,
+    exclude_fields: set[str] | None = None,
+) -> dict[str, Any]:
+    del provenance
     deterministic_args, _ = _extract_required_args(intent, tool)
     if not deterministic_args:
         return args
     merged = dict(args)
+    excluded = exclude_fields or set()
     for field, value in deterministic_args.items():
+        if field in excluded:
+            continue
         if merged.get(field) in (None, ""):
             merged[field] = value
     return merged
@@ -557,6 +571,9 @@ def _build_unsupported_enum_clarification(
     raw_args: dict[str, Any],
     sanitized_args: dict[str, Any],
     dropped_fields: list[str],
+    intent: str,
+    clause: str,
+    arg_provenance: dict[str, dict[str, Any]] | None = None,
 ) -> str | None:
     schema = tool.input_schema or {}
     properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
@@ -573,6 +590,19 @@ def _build_unsupported_enum_clarification(
             continue
         raw_value = raw_args.get(field)
         if raw_value in (None, ""):
+            continue
+        provenance = arg_provenance.get(field) if isinstance(arg_provenance, dict) else None
+        source = str((provenance or {}).get("source") or "").strip().lower()
+        represented_by_another_enum = False
+        if source != "user" and not _field_name_found_in_text(field, intent, clause):
+            for kept_field, kept_value in sanitized_args.items():
+                if kept_field == field or not _same_arg_value(raw_value, kept_value):
+                    continue
+                kept_schema = properties.get(kept_field)
+                if isinstance(kept_schema, dict) and isinstance(kept_schema.get("enum"), list):
+                    represented_by_another_enum = _value_found_in_text(raw_value, intent, clause)
+                    break
+        if represented_by_another_enum:
             continue
         allowed = ", ".join(str(value) for value in enum_values)
         return (
@@ -609,6 +639,36 @@ _SAFE_CONTROL_FIELDS: frozenset[str] = frozenset({
     "limit", "offset", "page", "page_size", "sort_by", "sort_dir",
     "order_by", "order_dir", "fields", "ids_only",
 })
+_USER_CONFIRMATION_MIN_CONFIDENCE = 0.6
+
+
+def _unwrap_arg_provenance(args: dict[str, Any]) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    clean: dict[str, Any] = {}
+    provenance: dict[str, dict[str, Any]] = {}
+    for field, value in (args or {}).items():
+        if isinstance(value, dict) and "value" in value:
+            source = str(value.get("source") or "llm").strip().lower()
+            if source not in {"user", "llm"}:
+                source = "llm"
+            entry = {"value": value.get("value"), "source": source}
+            if "confidence" in value:
+                entry["confidence"] = value.get("confidence")
+            clean[field] = value.get("value")
+            provenance[field] = entry
+            continue
+        clean[field] = value
+        provenance[field] = {"value": value, "source": "llm"}
+    return clean, provenance
+
+
+def _mark_user_provenance(
+    *,
+    provenance: dict[str, dict[str, Any]],
+    field: str,
+    value: Any,
+    confidence: float = 1.0,
+) -> None:
+    provenance[field] = {"value": value, "source": "user", "confidence": confidence}
 
 
 def _is_placeholder(value: Any) -> bool:
@@ -625,12 +685,245 @@ def _value_found_in_text(value: Any, *texts: str) -> bool:
     if not needle:
         return False
     needle_lower = needle.lower()
+    needle_compact = re.sub(r"[^a-z0-9]+", "", needle_lower)
     for text in texts:
         haystack = (text or "").lower()
         # Accept exact word-boundary match or substring match for short tokens.
         if re.search(rf"\b{re.escape(needle_lower)}\b", haystack):
             return True
+        if needle_compact and needle_compact in re.sub(r"[^a-z0-9]+", "", haystack):
+            return True
     return False
+
+
+def _plan_step_dedupe_key(step: PlanStepDraft) -> str:
+    return f"{step.tool_name}:{json.dumps(step.args or {}, sort_keys=True, separators=(',', ':'), ensure_ascii=False)}"
+
+
+def _dedupe_plan_steps(draft: PlanDraft) -> tuple[PlanDraft, int]:
+    if len(draft.steps) <= 1:
+        return draft, 0
+
+    ordered = sorted(draft.steps, key=lambda s: s.step_index)
+    by_old_index = {step.step_index: step for step in ordered}
+    key_to_canonical_old: dict[str, int] = {}
+    old_to_canonical_old: dict[int, int] = {}
+    canonical_old_indexes: list[int] = []
+
+    for step in ordered:
+        old_idx = step.step_index
+        key = _plan_step_dedupe_key(step)
+        canonical_old = key_to_canonical_old.get(key)
+        if canonical_old is None:
+            key_to_canonical_old[key] = old_idx
+            old_to_canonical_old[old_idx] = old_idx
+            canonical_old_indexes.append(old_idx)
+        else:
+            old_to_canonical_old[old_idx] = canonical_old
+
+    dropped = len(ordered) - len(canonical_old_indexes)
+    if dropped <= 0:
+        return draft, 0
+
+    canonical_old_to_new: dict[int, int] = {
+        old_idx: new_idx for new_idx, old_idx in enumerate(canonical_old_indexes)
+    }
+    old_to_new: dict[int, int] = {}
+    for old_idx, canonical_old in old_to_canonical_old.items():
+        mapped = canonical_old_to_new.get(canonical_old)
+        if mapped is not None:
+            old_to_new[old_idx] = mapped
+
+    rebuilt_steps: list[PlanStepDraft] = []
+    for canonical_old in canonical_old_indexes:
+        src = by_old_index[canonical_old]
+        new_idx = canonical_old_to_new[canonical_old]
+
+        mapped_deps = []
+        for dep in src.depends_on or []:
+            dep_new = old_to_new.get(dep)
+            if dep_new is None or dep_new == new_idx:
+                continue
+            mapped_deps.append(dep_new)
+        mapped_deps = sorted(set(mapped_deps))
+
+        rebuilt_bindings: list[PlanBinding] = []
+        seen_binding_keys: set[tuple[int, str, str, str, str]] = set()
+        for binding in src.bindings or []:
+            from_new = old_to_new.get(binding.from_step)
+            if from_new is None:
+                continue
+            binding_key = (
+                from_new,
+                str(binding.result_path),
+                str(binding.field),
+                str(binding.target_arg),
+                str(binding.mode),
+            )
+            if binding_key in seen_binding_keys:
+                continue
+            seen_binding_keys.add(binding_key)
+            rebuilt_bindings.append(
+                PlanBinding(
+                    from_step=from_new,
+                    result_path=binding.result_path,
+                    field=binding.field,
+                    target_arg=binding.target_arg,
+                    mode=binding.mode,
+                )
+            )
+
+        rebuilt_steps.append(
+            PlanStepDraft(
+                step_index=new_idx,
+                tool_name=src.tool_name,
+                args=dict(src.args or {}),
+                depends_on=mapped_deps,
+                parallel_group=src.parallel_group,
+                execution_mode=src.execution_mode,
+                bindings=rebuilt_bindings,
+            )
+        )
+
+    deduped = PlanDraft(
+        plan_explanation=draft.plan_explanation,
+        risk_summary=draft.risk_summary,
+        steps=rebuilt_steps,
+        dependency_graph=None,
+        parallel_groups=None,
+    )
+    return deduped, dropped
+
+
+def _field_name_found_in_text(field: str, *texts: str) -> bool:
+    normalized = str(field or "").strip().lower()
+    if not normalized:
+        return False
+    aliases = {normalized, normalized.replace("_", " ")}
+    aliases.update(part for part in re.split(r"[_\W]+", normalized) if part)
+    for text in texts:
+        haystack = text or ""
+        for alias in aliases:
+            pattern = re.escape(alias).replace(r"\ ", r"[ _-]+")
+            if re.search(rf"\b{pattern}\b", haystack, flags=re.IGNORECASE):
+                return True
+    return False
+
+
+def _same_arg_value(left: Any, right: Any) -> bool:
+    if left == right:
+        return True
+    left_text = re.sub(r"\s+", " ", str(left).strip()).lower()
+    right_text = re.sub(r"\s+", " ", str(right).strip()).lower()
+    return bool(left_text) and left_text == right_text
+
+
+def _tool_supports_arg_field(tool: ToolInfo, field: str) -> bool:
+    schema = tool.input_schema or {}
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    if field in properties:
+        return True
+    required_fields = set(schema.get("required") or [])
+    required_fields.update(_path_param_names(tool.endpoint))
+    return field in required_fields
+
+
+def _control_field_explicitly_requested(*, field: str, value: Any, intent: str, clause: str) -> bool:
+    text = f"{intent} {clause}".lower()
+    value_text = str(value).strip().lower()
+    has_value = _value_found_in_text(value, intent, clause)
+    field_text = field.replace("_", " ")
+
+    if field in {"ids_only"}:
+        return _intent_requests_id_only_fields(text)
+
+    if field in {"fields"}:
+        if value_text in {"id", "ids", "product_id"} and _intent_requests_id_only_fields(text):
+            return True
+        return bool(
+            re.search(r"\b(?:fields?|select|only|ids?\s+only|only\s+ids?)\b", text)
+            and (has_value or value_text in {"id", "ids", "product_id"})
+        )
+
+    if field in {"sort_by", "order_by"}:
+        return bool(
+            (re.search(r"\b(?:sort|order)\s+by\b", text) and has_value)
+            or (
+                _field_name_found_in_text(value_text, text)
+                and re.search(
+                    r"\b(?:earliest|soonest|latest|largest|highest|biggest|greatest|smallest|lowest|least|maximum|max|minimum|min|most)\b",
+                    text,
+                )
+            )
+        )
+
+    if field in {"sort_dir", "order_dir"}:
+        if not re.search(r"\b(?:sort|order|ascending|descending|asc|desc)\b", text):
+            if value_text in {"asc", "ascending"}:
+                return bool(re.search(r"\b(?:earliest|soonest|smallest|lowest|least|minimum|min)\b", text))
+            if value_text in {"desc", "descending"}:
+                return bool(re.search(r"\b(?:latest|largest|highest|biggest|greatest|maximum|max|most)\b", text))
+            return False
+        if value_text in {"asc", "ascending"}:
+            return bool(re.search(r"\b(?:asc|ascending|increasing)\b", text))
+        if value_text in {"desc", "descending"}:
+            return bool(re.search(r"\b(?:desc|descending|decreasing)\b", text))
+        return has_value
+
+    if field in {"limit", "page_size"}:
+        return bool(
+            has_value
+            and re.search(r"\b(?:limit|top|first|last|only|show|give|get|list)\s+\d+\b", text)
+        )
+
+    if field in {"offset", "page"}:
+        return bool(has_value and re.search(rf"\b{re.escape(field_text)}\s+\d+\b", text))
+
+    return bool(has_value and re.search(rf"\b{re.escape(field_text)}\b", text))
+
+
+def _promote_user_provenance(
+    *,
+    tool: ToolInfo,
+    args: dict[str, Any],
+    intent: str,
+    clause: str,
+    arg_provenance: dict[str, dict[str, Any]] | None,
+    resolved_predicates: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Mark only schema-valid, user-grounded args as user provenance."""
+    promoted: dict[str, dict[str, Any]] = {}
+    for field, value in (args or {}).items():
+        existing = arg_provenance.get(field) if isinstance(arg_provenance, dict) else None
+        promoted[field] = dict(existing) if isinstance(existing, dict) else {"source": "llm"}
+        promoted[field]["value"] = value
+        promoted[field]["source"] = "llm"
+
+    deterministic_clause_args, _ = _extract_required_args(clause, tool)
+    deterministic_intent_args, _ = _extract_required_args(intent, tool)
+    resolved = resolved_predicates if isinstance(resolved_predicates, dict) else {}
+
+    for field, value in (args or {}).items():
+        if not _tool_supports_arg_field(tool, field) or _is_placeholder(value):
+            continue
+        if field in _SAFE_CONTROL_FIELDS and not _control_field_explicitly_requested(
+            field=field,
+            value=value,
+            intent=intent,
+            clause=clause,
+        ):
+            continue
+
+        deterministic_match = (
+            (field in deterministic_clause_args and _same_arg_value(deterministic_clause_args[field], value))
+            or (field in deterministic_intent_args and _same_arg_value(deterministic_intent_args[field], value))
+        )
+        predicate_match = field in resolved and _same_arg_value(resolved[field], value)
+        text_match = _value_found_in_text(value, intent, clause)
+        if deterministic_match or predicate_match or text_match:
+            _mark_user_provenance(provenance=promoted, field=field, value=value)
+
+    return promoted
 
 
 def _strip_unsupported_optional_args(
@@ -641,6 +934,7 @@ def _strip_unsupported_optional_args(
     clause: str,
     intent_memory: dict[str, Any] | None = None,
     resolved_predicates: dict[str, Any] | None = None,
+    arg_provenance: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Remove optional (non-required, non-path-param) filter args that lack provenance.
 
@@ -677,22 +971,30 @@ def _strip_unsupported_optional_args(
             clean[field] = value
             continue
 
-        # --- 2. Always keep safe control fields.
-        if field in _SAFE_CONTROL_FIELDS:
+        text = f"{intent} {clause}".lower()
+        value_text = str(value).strip().lower()
+        is_placeholder = value_text in _PLACEHOLDER_VALUES
+        has_value_evidence = _value_found_in_text(value, intent, clause)
+        provenance = arg_provenance.get(field) if isinstance(arg_provenance, dict) else None
+        source = str((provenance or {}).get("source") or "").strip().lower()
+        source_is_user = source == "user"
+
+        # --- 2. Keep control fields only when the user asked for that value
+        # or another deterministic stage marked it as supported. LLM-generated
+        # sort/fields defaults can otherwise create backend 400s.
+        if field in _SAFE_CONTROL_FIELDS and source_is_user and (
+            has_value_evidence
+            or value_text in memory_values
+            or (isinstance(resolved_predicates, dict) and field in resolved_predicates)
+        ):
             clean[field] = value
             continue
 
-        text = f"{intent} {clause}".lower()
-        value_text = str(value).strip().lower()
-
-        is_placeholder = value_text in _PLACEHOLDER_VALUES
-        has_value_evidence = value_text and value_text in text
-
-        if has_value_evidence and not is_placeholder:
+        if source_is_user and has_value_evidence and not is_placeholder:
             clean[field] = value
-        elif value_text in memory_values:
+        elif source_is_user and value_text in memory_values:
             clean[field] = value
-        elif isinstance(resolved_predicates, dict) and field in resolved_predicates:
+        elif source_is_user and isinstance(resolved_predicates, dict) and field in resolved_predicates:
             clean[field] = value
         else:
             dropped.append(field)
@@ -719,6 +1021,7 @@ def _select_legacy_tool(intent: str, scoped_tools: list[ToolInfo]) -> ToolInfo:
     ranked = sorted(
         scoped_tools,
         key=lambda t: (
+            not tool_covers_descriptive_terms(intent, t),
             not _tool_matches_entity(t, preferred_entity),
             not (
                 (assessment.action == "create" and t.method == "POST")
@@ -758,6 +1061,76 @@ def _split_compound_intent(intent: str) -> list[str]:
     return [normalized]
 
 
+def _terminal_endpoint_tokens(tool: ToolInfo) -> set[str]:
+    parts = [part for part in (tool.endpoint or "").strip("/").split("/") if part and "{" not in part]
+    if not parts:
+        return set()
+    return _intent_tokens(parts[-1].replace("-", " "))
+
+
+def _find_get_tool_for_endpoint(endpoint: str, scoped_tools: list[ToolInfo]) -> ToolInfo | None:
+    return next(
+        (
+            tool
+            for tool in scoped_tools
+            if tool.method == "GET" and tool.endpoint == endpoint
+        ),
+        None,
+    )
+
+
+def _parent_lookup_tool(child: ToolInfo, scoped_tools: list[ToolInfo]) -> ToolInfo | None:
+    parts = [part for part in (child.endpoint or "").strip("/").split("/") if part]
+    if len(parts) < 3:
+        return None
+    if "{" not in parts[-2]:
+        return None
+    parent_endpoint = "/" + "/".join(parts[:-1])
+    return _find_get_tool_for_endpoint(parent_endpoint, scoped_tools)
+
+
+def _child_requested_by_clause(clause: str, child: ToolInfo) -> bool:
+    tokens = _intent_tokens(clause)
+    terminal = _terminal_endpoint_tokens(child)
+    return bool(terminal and terminal <= tokens) or bool(terminal and terminal & tokens and re.search(r"\b(?:its|with|and)\b", clause or "", re.IGNORECASE))
+
+
+def _requested_child_tools(clause: str, parent: ToolInfo, scoped_tools: list[ToolInfo]) -> list[ToolInfo]:
+    children = child_tools_for_parent(parent, scoped_tools)
+    requested = [child for child in children if _child_requested_by_clause(clause, child)]
+    requested.sort(key=lambda tool: (-_tool_intent_match_score(clause, tool), tool.name))
+    return requested
+
+
+def _lookup_tool_for_created_resource(write_tool: ToolInfo, scoped_tools: list[ToolInfo]) -> ToolInfo | None:
+    if write_tool.method != "POST":
+        return None
+    base = (write_tool.endpoint or "").rstrip("/")
+    if not base or "{" in base:
+        return None
+    return _find_get_tool_for_endpoint(f"{base}/{{id}}", scoped_tools)
+
+
+def _binding_field_for_lookup(source_tool: ToolInfo, target_tool: ToolInfo) -> str:
+    root = (target_tool.endpoint or "").strip("/").split("/", 1)[0]
+    root = root[:-1] if root.endswith("s") and len(root) > 1 else root
+    preferred = [f"{root}_id", "id", "job_id", "machine_id", "product_id", "material_id", "proposal_id"]
+    try:
+        data = (source_tool.output_schema or {}).get("properties", {}).get("data", {})
+        properties = data.get("properties") if isinstance(data, dict) else {}
+        if isinstance(properties, dict):
+            for field in preferred:
+                if field in properties:
+                    return field
+    except Exception:
+        pass
+    return preferred[0]
+
+
+def _clause_refers_to_previous_result(clause: str) -> bool:
+    return bool(re.search(r"\b(?:it|that|created|newly created|result)\b", clause or "", re.IGNORECASE))
+
+
 def build_planner_visible_tools(scoped_tools: list[ToolInfo]) -> list[dict[str, Any]]:
     wrappers: list[dict[str, Any]] = []
     for tool in scoped_tools:
@@ -772,6 +1145,186 @@ def build_planner_visible_tools(scoped_tools: list[ToolInfo]) -> list[dict[str, 
             }
         )
     return wrappers
+
+
+def _mark_contract_fields_stripped(
+    *,
+    intent_contract: dict[str, Any] | None,
+    step_index: int,
+    tool_name: str,
+    dropped_fields: list[str],
+) -> None:
+    if not isinstance(intent_contract, dict) or not dropped_fields:
+        return
+    clauses = intent_contract.get("clauses") if isinstance(intent_contract.get("clauses"), list) else []
+    if not clauses:
+        clauses = intent_contract.get("steps") if isinstance(intent_contract.get("steps"), list) else []
+    dropped = set(dropped_fields)
+    for clause in clauses:
+        if not isinstance(clause, dict):
+            continue
+        clause_step = int(clause.get("step_index", step_index))
+        if clause_step != int(step_index) or clause.get("tool_name") != tool_name:
+            continue
+        resolved = clause.get("resolved_predicates")
+        if isinstance(resolved, dict):
+            clause["resolved_predicates"] = {
+                field: value
+                for field, value in resolved.items()
+                if field not in dropped
+            }
+        existing_dropped = clause.get("provenance_dropped") if isinstance(clause.get("provenance_dropped"), list) else []
+        clause["provenance_dropped"] = list(dict.fromkeys([*existing_dropped, *dropped_fields]))
+        predicates = clause.get("predicates") if isinstance(clause.get("predicates"), list) else []
+        updated_predicates: list[dict[str, Any]] = []
+        for predicate in predicates:
+            if not isinstance(predicate, dict):
+                continue
+            current = dict(predicate)
+            field = str(current.get("field") or "")
+            if field in dropped:
+                current["requested"] = False
+                current["resolved"] = False
+                current["sent"] = False
+                current["stripped"] = True
+                current["reason"] = "stripped by provenance gate before execution"
+            updated_predicates.append(current)
+        if predicates:
+            clause["predicates"] = updated_predicates
+
+
+def _lookup_contract_clause(
+    *,
+    intent_contract: dict[str, Any] | None,
+    step_index: int,
+    tool_name: str,
+) -> dict[str, Any] | None:
+    if not isinstance(intent_contract, dict):
+        return None
+    clauses = intent_contract.get("clauses") if isinstance(intent_contract.get("clauses"), list) else []
+    if not clauses:
+        clauses = intent_contract.get("steps") if isinstance(intent_contract.get("steps"), list) else []
+    for clause in clauses:
+        if not isinstance(clause, dict):
+            continue
+        clause_step = int(clause.get("step_index", step_index))
+        if clause_step == int(step_index) and clause.get("tool_name") == tool_name:
+            return clause
+    return None
+
+
+def _clean_confirmation_term(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return raw
+    configured_stopwords = set(_AI_CONFIG.get("stopwords", []))
+    configured_actions = set(_AI_CONFIG.get("action_verbs", []))
+    configured_domains = set(_AI_CONFIG.get("domain_tags", []))
+    configured_auxiliary = set(_AI_CONFIG.get("auxiliary_tags", []))
+    stop = configured_stopwords | configured_actions | configured_domains | configured_auxiliary
+    tokens = [token for token in re.split(r"\s+", raw) if token]
+    cleaned = [token for token in tokens if token.lower() not in stop]
+    return " ".join(cleaned).strip() or raw
+
+
+def _schema_aliases(field_schema: dict[str, Any]) -> list[str]:
+    aliases = field_schema.get("x-ai-aliases")
+    return [str(alias).strip().lower() for alias in aliases if str(alias).strip()] if isinstance(aliases, list) else []
+
+
+def _field_confirmation_candidate(
+    *,
+    name: str,
+    field_schema: dict[str, Any],
+    selected_field: str,
+    raw_term: str,
+) -> dict[str, Any]:
+    if name == selected_field:
+        confidence = 0.7
+        reason = "model selected this field, but the extracted value needed confirmation"
+    elif any(alias and alias in raw_term.lower() for alias in _schema_aliases(field_schema)):
+        confidence = 0.68
+        reason = "term matches schema aliases for this field"
+    elif isinstance(field_schema.get("enum"), list):
+        confidence = 0.15
+        reason = "plausible enum-backed filter field"
+    else:
+        confidence = 0.35
+        reason = "plausible text filter field"
+    return {
+        "field": name,
+        "value": raw_term,
+        "label": f"{name}: {raw_term}",
+        "confidence": confidence,
+        "reason": reason,
+    }
+
+
+def _build_stripped_arg_confirmation(
+    *,
+    tool: ToolInfo,
+    raw_args: dict[str, Any],
+    dropped_fields: list[str],
+    arg_provenance: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    if not dropped_fields:
+        return None
+    field = dropped_fields[0]
+    provenance = arg_provenance.get(field) if isinstance(arg_provenance, dict) else None
+    source = str((provenance or {}).get("source") or "").strip().lower()
+    if source != "user":
+        return None
+    try:
+        confidence = float((provenance or {}).get("confidence") if provenance else 0.0)
+    except Exception:
+        confidence = 0.0
+    if confidence < _USER_CONFIRMATION_MIN_CONFIDENCE:
+        return None
+    raw_term = _clean_confirmation_term(raw_args.get(field))
+    if not raw_term:
+        return None
+
+    schema = tool.input_schema or {}
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    query_names = set(tool.query_params or [])
+    query_names.update(
+        key for key, source in (tool.param_sources or {}).items() if source == "query"
+    )
+    candidates: list[dict[str, Any]] = []
+    for name, field_schema in properties.items():
+        if name in _SAFE_CONTROL_FIELDS:
+            continue
+        if query_names and name not in query_names:
+            continue
+        if not isinstance(field_schema, dict):
+            continue
+        field_type = field_schema.get("type")
+        if isinstance(field_type, list):
+            field_type = next((t for t in field_type if t != "null"), None)
+        if field_type not in {"string", None}:
+            continue
+        candidates.append(
+            _field_confirmation_candidate(
+                name=name,
+                field_schema=field_schema,
+                selected_field=field,
+                raw_term=raw_term,
+            )
+        )
+    candidates.sort(key=lambda item: item["confidence"], reverse=True)
+    if not candidates:
+        return None
+    entity = _infer_primary_entity(tool) or "record"
+    return {
+        "kind": "predicate_field_confirmation",
+        "entity": entity,
+        "raw_term": raw_term,
+        "normalized_term": re.sub(r"[^a-z0-9]+", "", raw_term.lower()),
+        "message": f'I found "{raw_term}" in your {entity} request. Which field should it filter?',
+        "options": candidates[:3],
+        "all_options": candidates,
+        "has_more": len(candidates) > 3,
+    }
 
 
 class LegacyPlannerBackend:
@@ -894,6 +1447,132 @@ class LegacyPlannerBackend:
 
         return fallback_explanation, fallback_risk, 0
 
+    def _predicate_match_mode(self, field: str) -> str:
+        normalized = (field or "").strip().lower()
+        if normalized.endswith("_name") or normalized in {"name", "q", "search"}:
+            return "contains"
+        return "exact"
+
+    def _should_skip_llm_clause_tool_choice(
+        self,
+        *,
+        clause: str,
+        ranked_candidates: list[ToolInfo],
+        missing_by_tool: dict[str, list[str]],
+    ) -> tuple[bool, str]:
+        if not ranked_candidates:
+            return True, "no_candidates"
+
+        top = ranked_candidates[0]
+        top_missing = missing_by_tool.get(top.name, [])
+        if len(ranked_candidates) == 1:
+            return False, "single_candidate_keep_clause_llm"
+
+        second = ranked_candidates[1]
+        second_missing = missing_by_tool.get(second.name, [])
+        top_score = _tool_intent_match_score(clause, top)
+        second_score = _tool_intent_match_score(clause, second)
+        gap = top_score - second_score
+
+        # Skip clause-level LLM rerank when one read candidate is clearly better
+        # and has all required args already inferred.
+        if not top_missing and top.is_read_only:
+            if second_missing and gap >= 1:
+                return True, "top_candidate_has_required_args_second_missing"
+            if not second_missing and gap >= 4:
+                return True, "clear_score_gap"
+
+        return False, "needs_clause_level_llm_selection"
+
+    def _extract_result_items(self, body: dict[str, Any] | None) -> list[dict[str, Any]]:
+        if not isinstance(body, dict):
+            return []
+        for key in ("data", "items"):
+            value = body.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+            if isinstance(value, dict):
+                return [value]
+        return []
+
+    async def _lookup_predicate_evidence(
+        self,
+        *,
+        tool: ToolInfo,
+        term: str,
+        candidates: list[dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        if tool.method != "GET" or not tool.is_read_only:
+            return {}
+        if "{" in (tool.endpoint or ""):
+            return {}
+        query_names = set(tool.query_params or [])
+        query_names.update(
+            key for key, source in (tool.param_sources or {}).items() if source == "query"
+        )
+        if not query_names:
+            return {}
+
+        url = f"{self._settings.go_api_base_url}{tool.endpoint}"
+        evidence: dict[str, dict[str, Any]] = {}
+        timeout = httpx.Timeout(
+            min(float(self._settings.http_timeout_s or 1.0), 0.75),
+            connect=min(float(self._settings.http_timeout_s or 1.0), 0.25),
+        )
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async def probe(candidate: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+                field = str(candidate.get("field") or "")
+                if not field or field not in query_names:
+                    return "", None
+                params: dict[str, Any] = {field: term}
+                if "limit" in query_names:
+                    params["limit"] = 25
+                try:
+                    resp = await client.get(url, params=params)
+                except Exception as exc:
+                    log_event(
+                        "predicate_evidence_lookup_failed",
+                        level="WARNING",
+                        tool_name=tool.name,
+                        field=field,
+                        error=str(exc),
+                    )
+                    return "", None
+                if resp.status_code >= 400:
+                    return field, {
+                        "match_count": 0,
+                        "match_mode": self._predicate_match_mode(field),
+                        "sample_values": [],
+                    }
+                try:
+                    body = resp.json() if resp.content else {}
+                except Exception:
+                    body = {}
+                items = self._extract_result_items(body if isinstance(body, dict) else {})
+                samples: list[str] = []
+                for item in items:
+                    value = item.get(field)
+                    if value not in (None, "") and str(value) not in samples:
+                        samples.append(str(value))
+                return field, {
+                    "match_count": len(items),
+                    "match_mode": self._predicate_match_mode(field),
+                    "sample_values": samples[:3],
+                }
+
+            results = await asyncio.gather(*(probe(candidate) for candidate in candidates))
+            for field, field_evidence in results:
+                if field and field_evidence:
+                    evidence[field] = field_evidence
+        if evidence:
+            log_event(
+                "predicate_evidence_lookup_completed",
+                tool_name=tool.name,
+                term=term,
+                evidence=evidence,
+            )
+        return evidence
+
     async def generate_plan(
         self,
         *,
@@ -925,14 +1604,73 @@ class LegacyPlannerBackend:
         step_drafts: list[PlanStepDraft] = []
         contract_clauses: list[dict[str, Any]] = []
         tools_by_name = {tool.name: tool for tool in scoped_tools}
-        for idx, clause in enumerate(clauses):
+        def append_step(
+            *,
+            clause_text: str,
+            tool: ToolInfo,
+            step_args: dict[str, Any],
+            bindings: list[PlanBinding] | None = None,
+            predicates: list[dict[str, Any]] | None = None,
+            resolved_predicates: dict[str, Any] | None = None,
+            provenance: dict[str, dict[str, Any]] | None = None,
+        ) -> None:
+            step_index = len(step_drafts)
+            step_drafts.append(
+                PlanStepDraft(
+                    step_index=step_index,
+                    tool_name=tool.name,
+                    args=step_args,
+                    depends_on=[step_index - 1] if step_index > 0 else [],
+                    bindings=bindings or [],
+                )
+            )
+            contract_clauses.append(
+                {
+                    "step_index": step_index,
+                    "clause": clause_text,
+                    "tool_name": tool.name,
+                    "args": step_args,
+                    "arg_provenance": provenance or {},
+                    "resolved_predicates": resolved_predicates or {},
+                    "unresolved_terms": [],
+                    "predicates": predicates or [],
+                    "predicate_coverage_score": 1.0,
+                    "provenance_dropped": [],
+                }
+            )
+
+        for clause in clauses:
+            previous_step = step_drafts[-1] if step_drafts else None
+            previous_tool = tools_by_name.get(previous_step.tool_name) if previous_step else None
+            if previous_tool and not previous_tool.is_read_only and _clause_refers_to_previous_result(clause):
+                lookup_tool = _lookup_tool_for_created_resource(previous_tool, scoped_tools)
+                if lookup_tool:
+                    binding = PlanBinding(
+                        from_step=previous_step.step_index,
+                        result_path="data",
+                        field=_binding_field_for_lookup(previous_tool, lookup_tool),
+                        target_arg="id",
+                        mode="single",
+                    )
+                    append_step(
+                        clause_text=clause,
+                        tool=lookup_tool,
+                        step_args={},
+                        bindings=[binding],
+                    )
+                    continue
+
             selected = _select_legacy_tool(clause, scoped_tools)
             args, missing = _extract_required_args(clause, selected)
+            arg_provenance: dict[str, dict[str, Any]] = {}
+            for field, value in args.items():
+                _mark_user_provenance(provenance=arg_provenance, field=field, value=value)
 
             # LLM-first tool selection with deterministic guardrails.
             ranked_candidates = sorted(
                 scoped_tools,
                 key=lambda t: (
+                    not tool_covers_descriptive_terms(clause, t),
                     -_tool_intent_match_score(clause, t),
                     _tool_missing_required_args(t, _extract_required_args(clause, t)[0]),
                     t.name,
@@ -950,17 +1688,31 @@ class LegacyPlannerBackend:
                 missing_by_tool=missing_by_tool,
             )
             decision = None
-            try:
-                decision = await self._reasoning.select_tool(
-                    intent=intent,
-                    clause=clause,
-                    candidates=llm_candidates,
+            skip_llm_choice, skip_reason = self._should_skip_llm_clause_tool_choice(
+                clause=clause,
+                ranked_candidates=ranked_candidates,
+                missing_by_tool=missing_by_tool,
+            )
+            if skip_llm_choice:
+                log_llm_prompt_skipped(
+                    component="reasoning_tool_selection",
+                    backend="planner_gate",
+                    reason=skip_reason,
+                    metadata={"intent": intent, "clause": clause, "candidate_count": len(ranked_candidates)},
                 )
-            except Exception:
-                decision = None
+            else:
+                try:
+                    decision = await self._reasoning.select_tool(
+                        intent=intent,
+                        clause=clause,
+                        candidates=llm_candidates,
+                    )
+                except Exception:
+                    decision = None
             if decision and decision.tool_name in tools_by_name:
                 candidate = tools_by_name[decision.tool_name]
-                sanitized_args, dropped_fields = _sanitize_tool_args_against_schema(candidate, decision.args or {})
+                decision_args, decision_provenance = _unwrap_arg_provenance(decision.args or {})
+                sanitized_args, dropped_fields = _sanitize_tool_args_against_schema(candidate, decision_args)
                 if dropped_fields:
                     log_event(
                         "planner_llm_args_sanitized",
@@ -973,9 +1725,12 @@ class LegacyPlannerBackend:
                     )
                     clarification = _build_unsupported_enum_clarification(
                         tool=candidate,
-                        raw_args=decision.args or {},
+                        raw_args=decision_args,
                         sanitized_args=sanitized_args,
                         dropped_fields=dropped_fields,
+                        intent=intent,
+                        clause=clause,
+                        arg_provenance=decision_provenance,
                     )
                     if clarification:
                         raise PlannerClarificationError(clarification)
@@ -983,14 +1738,109 @@ class LegacyPlannerBackend:
                 candidate_score = _tool_intent_match_score(clause, candidate)
                 selected_score = _tool_intent_match_score(clause, selected)
                 approval_candidate_is_not_worse = candidate.requires_approval and candidate_score >= selected_score
-                if candidate_required_missing == 0 or approval_candidate_is_not_worse:
+                preserve_exact_lookup = (
+                    assessment.action == "read"
+                    and selected.method == "GET"
+                    and selected.is_read_only
+                    and _tool_prefers_entity_lookup(selected)
+                    and _tool_missing_required_args(selected, args) == 0
+                    and candidate.method == "GET"
+                    and candidate.is_read_only
+                    and not _tool_prefers_entity_lookup(candidate)
+                )
+                preserve_feature_endpoint = (
+                    assessment.action == "read"
+                    and selected.method == "GET"
+                    and selected.is_read_only
+                    and candidate.method == "GET"
+                    and candidate.is_read_only
+                    and tool_covers_descriptive_terms(clause, selected)
+                    and not tool_covers_descriptive_terms(clause, candidate)
+                    and selected_score >= candidate_score
+                )
+                if preserve_exact_lookup:
+                    log_event(
+                        "planner_llm_tool_choice_ignored",
+                        level="INFO",
+                        reason="preserve_exact_lookup",
+                        selected_tool=selected.name,
+                        ignored_tool=candidate.name,
+                        intent=intent,
+                        clause=clause,
+                    )
+                elif preserve_feature_endpoint:
+                    log_event(
+                        "planner_llm_tool_choice_ignored",
+                        level="INFO",
+                        reason="preserve_feature_endpoint",
+                        selected_tool=selected.name,
+                        ignored_tool=candidate.name,
+                        intent=intent,
+                        clause=clause,
+                    )
+                elif candidate_required_missing == 0 or approval_candidate_is_not_worse:
                     selected = candidate
                     args = sanitized_args
+                    arg_provenance = {
+                        field: (decision_provenance.get(field) or {"value": value, "source": "llm"})
+                        for field, value in args.items()
+                    }
+                    arg_provenance = _promote_user_provenance(
+                        tool=selected,
+                        args=args,
+                        intent=intent,
+                        clause=clause,
+                        arg_provenance=arg_provenance,
+                    )
                     missing = _tool_missing_required_fields(candidate, sanitized_args)
+
+            preverification_raw_args = dict(args)
+            args, preverification_dropped = _strip_unsupported_optional_args(
+                tool=selected,
+                args=args,
+                intent=intent,
+                clause=clause,
+                intent_memory=intent_memory,
+                arg_provenance=arg_provenance,
+            )
+            preverification_dropped_set = set(preverification_dropped)
+            if preverification_dropped:
+                log_event(
+                    "planner_llm_optional_arg_preverification_stripped",
+                    level="INFO",
+                    tool_name=selected.name,
+                    dropped_fields=preverification_dropped,
+                    intent=intent,
+                    clause=clause,
+                )
+                confirmation = _build_stripped_arg_confirmation(
+                    tool=selected,
+                    raw_args=preverification_raw_args,
+                    dropped_fields=preverification_dropped,
+                    arg_provenance=arg_provenance,
+                )
+                if confirmation:
+                    raise PlannerConfirmationRequired(
+                        confirmation.get("message") or "Please confirm the intended filter.",
+                        confirmation=confirmation,
+                    )
 
             # Preserve deterministic optional predicate extraction such as enum-backed
             # query filters even when the LLM reranker returns sparse args.
-            args = _merge_deterministic_supported_args(clause, selected, args)
+            args = _merge_deterministic_supported_args(
+                clause,
+                selected,
+                args,
+                provenance=arg_provenance,
+                exclude_fields=preverification_dropped_set,
+            )
+            arg_provenance = _promote_user_provenance(
+                tool=selected,
+                args=args,
+                intent=intent,
+                clause=clause,
+                arg_provenance=arg_provenance,
+            )
 
             if missing:
                 # If the clause lost an identifier during splitting, retry with
@@ -1000,7 +1850,20 @@ class LegacyPlannerBackend:
                     args = fallback_args
                     missing = []
 
-            args = _merge_deterministic_supported_args(intent, selected, args)
+            args = _merge_deterministic_supported_args(
+                intent,
+                selected,
+                args,
+                provenance=arg_provenance,
+                exclude_fields=preverification_dropped_set,
+            )
+            arg_provenance = _promote_user_provenance(
+                tool=selected,
+                args=args,
+                intent=intent,
+                clause=clause,
+                arg_provenance=arg_provenance,
+            )
 
             verification = await verify_clause_against_tool(
                 clause=clause,
@@ -1008,8 +1871,17 @@ class LegacyPlannerBackend:
                 args=args,
                 reasoning=self._reasoning,
                 memory=intent_memory,
+                evidence_provider=self._lookup_predicate_evidence,
             )
             args = verification.args
+            arg_provenance = _promote_user_provenance(
+                tool=selected,
+                args=args,
+                intent=intent,
+                clause=clause,
+                arg_provenance=arg_provenance,
+                resolved_predicates=verification.resolved_predicates,
+            )
             if verification.confirmation:
                 log_event(
                     "predicate_confirmation_required",
@@ -1061,6 +1933,7 @@ class LegacyPlannerBackend:
                 clause=clause,
                 intent_memory=intent_memory,
                 resolved_predicates=verification.resolved_predicates,
+                arg_provenance=arg_provenance,
             )
             if provenance_dropped:
                 log_event(
@@ -1073,27 +1946,80 @@ class LegacyPlannerBackend:
                     planner_backend="legacy",
                 )
 
-            step_drafts.append(
-                PlanStepDraft(
-                    step_index=idx,
-                    tool_name=selected.name,
-                    args=args,
-                    depends_on=[idx - 1] if idx > 0 else [],
+            contract_predicates: list[dict[str, Any]] = []
+            for predicate in verification.predicates:
+                if not isinstance(predicate, dict):
+                    continue
+                contract_predicate = dict(predicate)
+                field = str(contract_predicate.get("field") or "")
+                if field in provenance_dropped:
+                    contract_predicate["requested"] = False
+                    contract_predicate["resolved"] = False
+                    contract_predicate["sent"] = False
+                    contract_predicate["stripped"] = True
+                    contract_predicate["reason"] = "stripped by provenance gate before execution"
+                contract_predicates.append(contract_predicate)
+            contract_resolved_predicates = {
+                field: value
+                for field, value in verification.resolved_predicates.items()
+                if field not in set(provenance_dropped)
+            }
+
+            if selected.method == "DELETE":
+                preflight = _find_get_tool_for_endpoint(selected.endpoint, scoped_tools)
+                if preflight and not any(
+                    step.tool_name == preflight.name and step.args == args
+                    for step in step_drafts
+                ):
+                    append_step(
+                        clause_text=clause,
+                        tool=preflight,
+                        step_args=dict(args),
+                        provenance=arg_provenance,
+                        resolved_predicates=contract_resolved_predicates,
+                        predicates=contract_predicates,
+                    )
+
+            parent_lookup = _parent_lookup_tool(selected, scoped_tools)
+            if parent_lookup and _child_requested_by_clause(clause, selected) and not any(
+                step.tool_name == parent_lookup.name and step.args == args
+                for step in step_drafts
+            ):
+                parent_args, _ = _extract_required_args(clause, parent_lookup)
+                if not parent_args:
+                    parent_args = dict(args)
+                append_step(
+                    clause_text=clause,
+                    tool=parent_lookup,
+                    step_args=parent_args,
+                    provenance=arg_provenance,
+                    resolved_predicates=contract_resolved_predicates,
+                    predicates=contract_predicates,
                 )
+
+            append_step(
+                clause_text=clause,
+                tool=selected,
+                step_args=args,
+                provenance=arg_provenance,
+                resolved_predicates=contract_resolved_predicates,
+                predicates=contract_predicates,
             )
-            contract_clauses.append(
-                {
-                    "step_index": idx,
-                    "clause": clause,
-                    "tool_name": selected.name,
-                    "args": args,
-                    "resolved_predicates": verification.resolved_predicates,
-                    "unresolved_terms": verification.unresolved_terms,
-                    "predicates": verification.predicates,
-                    "predicate_coverage_score": verification.predicate_coverage_score,
-                    "provenance_dropped": provenance_dropped,
-                }
-            )
+
+            for child in _requested_child_tools(clause, selected, scoped_tools):
+                if any(step.tool_name == child.name and step.args == args for step in step_drafts):
+                    continue
+                child_args, _ = _extract_required_args(clause, child)
+                if not child_args:
+                    child_args = dict(args)
+                append_step(
+                    clause_text=clause,
+                    tool=child,
+                    step_args=child_args,
+                    provenance=arg_provenance,
+                    resolved_predicates=contract_resolved_predicates,
+                    predicates=contract_predicates,
+                )
 
         plan_explanation, risk_summary, llm_calls = await self._build_explainability(
             intent=intent,
@@ -1255,12 +2181,353 @@ class LangChainPlannerBackend:
         return PlannerResult(draft=fallback.draft, backend_used="legacy", llm_calls=max(1, llm_calls))
 
 
+class StructuredPlannerBackend:
+    """LLM-first planner with deterministic schema and provenance guardrails.
+
+    This backend is the Phase 3 path: the model extracts a structured plan from
+    candidate OpenAPI tool schemas, while Python remains responsible for safety.
+    """
+
+    def __init__(self, settings: Settings):
+        self._settings = settings
+
+    def _build_chat_model(self):
+        from langchain_openai import ChatOpenAI
+
+        kwargs: dict[str, Any] = {
+            "model": self._settings.planner_model,
+            "temperature": 0,
+            "timeout": self._settings.llm_json_timeout_s,
+            "max_retries": 0,
+            "max_tokens": max(self._settings.llm_json_max_tokens, 900),
+            "model_kwargs": {"response_format": {"type": "json_object"}},
+        }
+        if self._settings.openai_base_url:
+            kwargs["base_url"] = self._settings.openai_base_url
+            kwargs["api_key"] = self._settings.openai_api_key or "local"
+        elif self._settings.openai_api_key:
+            kwargs["api_key"] = self._settings.openai_api_key
+        return ChatOpenAI(**kwargs)
+
+    def _extract_json_obj(self, text: str) -> dict[str, Any] | None:
+        candidate = (text or "").strip()
+        if not candidate:
+            return None
+        if candidate.startswith("```"):
+            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", candidate, flags=re.DOTALL | re.IGNORECASE)
+            if match:
+                candidate = match.group(1).strip()
+        if not candidate.startswith("{"):
+            start = candidate.find("{")
+            end = candidate.rfind("}")
+            if start >= 0 and end > start:
+                candidate = candidate[start : end + 1]
+        try:
+            parsed = json.loads(candidate)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+
+    def _tool_cards(self, scoped_tools: list[ToolInfo]) -> list[dict[str, Any]]:
+        cards: list[dict[str, Any]] = []
+        for tool in scoped_tools:
+            cards.append(
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "method": tool.method,
+                    "endpoint": tool.endpoint,
+                    "input_schema": tool.input_schema,
+                    "path_params": tool.path_params,
+                    "query_params": tool.query_params,
+                    "body_fields": tool.body_fields,
+                    "required_fields": list((tool.input_schema or {}).get("required", [])),
+                    "output_schema": tool.output_schema,
+                    "capability_tags": tool.capability_tags,
+                    "allowed_roles": tool.allowed_roles,
+                    "read_only": tool.is_read_only,
+                    "requires_approval": tool.requires_approval,
+                }
+            )
+        return cards
+
+    def _build_prompt(
+        self,
+        *,
+        intent: str,
+        scoped_tools: list[ToolInfo],
+        context: dict[str, Any] | None,
+    ) -> str:
+        return (
+            "You are a factory operations planner. Extract the user's request into a safe tool plan.\n"
+            "Return STRICT JSON only with this shape:\n"
+            "{"
+            '"plan_explanation":"string",'
+            '"risk_summary":"string",'
+            '"steps":[{"step_index":0,"tool_name":"string","args":{},"depends_on":[],"execution_mode":"single","bindings":[],"evidence":{},"confidence":0.0,"missing_required":[]}],'
+            '"clarification":null'
+            "}\n"
+            "Rules:\n"
+            "- Choose tool_name only from the provided tools.\n"
+            "- Args must exactly match the selected tool input_schema properties.\n"
+            "- Do not invent placeholder values such as default, any, unknown, sample, or test.\n"
+            "- For every arg, include evidence[field] as the exact user text span or context source that supports it.\n"
+            "- If a required value is missing, list it in missing_required instead of inventing it.\n"
+            "- For values from previous tool results, use bindings, not invented args.\n"
+            "- Binding shape: {\"from_step\":0,\"result_path\":\"data\",\"field\":\"job_id\",\"target_arg\":\"job_id\",\"mode\":\"single\"}.\n"
+            "- Use execution_mode=\"foreach\" only for bounded bulk write/action steps fed by a previous read step.\n"
+            "- If the request is ambiguous, set clarification to a short operator question and keep steps empty.\n"
+            "- Preserve execution order; use depends_on for sequential compound requests.\n\n"
+            f"User request: {intent}\n"
+            f"Session context: {json.dumps(context or {}, ensure_ascii=False)}\n"
+            f"Candidate tools: {json.dumps(self._tool_cards(scoped_tools), ensure_ascii=False)}\n"
+        )
+
+    async def _invoke_json(
+        self,
+        *,
+        intent: str,
+        scoped_tools: list[ToolInfo],
+        context: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        try:
+            from langchain_openai import ChatOpenAI  # noqa: F401
+        except Exception as exc:
+            raise PlannerBackendError(
+                "Structured planner unavailable; install langchain-openai and configure API credentials."
+            ) from exc
+        if not (self._settings.openai_base_url or self._settings.openai_api_key):
+            raise PlannerBackendError("Structured planner requires OPENAI_BASE_URL or OPENAI_API_KEY.")
+
+        prompt = self._build_prompt(intent=intent, scoped_tools=scoped_tools, context=context)
+        log_llm_prompt(
+            component="planner",
+            backend="structured",
+            model=self._settings.planner_model,
+            prompt=prompt,
+            metadata={"intent": intent, "scoped_tool_count": len(scoped_tools)},
+        )
+        model = self._build_chat_model()
+        try:
+            raw_resp = await model.ainvoke(prompt)
+        except Exception as exc:
+            raise PlannerBackendError(str(exc)) from exc
+        parsed = self._extract_json_obj((getattr(raw_resp, "content", "") or "").strip())
+        if not isinstance(parsed, dict):
+            raise PlannerBackendError("Structured planner returned invalid JSON.")
+        return parsed
+
+    def _supported_predicates(
+        self,
+        *,
+        intent: str,
+        args: dict[str, Any],
+        evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        supported: dict[str, Any] = {}
+        for field, value in args.items():
+            if _is_placeholder(value):
+                continue
+            evidence_text = str(evidence.get(field) or "")
+            if _value_found_in_text(value, intent, evidence_text):
+                supported[field] = value
+        return supported
+
+    def _draft_from_payload(
+        self,
+        *,
+        payload: dict[str, Any],
+        intent: str,
+        scoped_tools: list[ToolInfo],
+        context: dict[str, Any] | None,
+    ) -> tuple[PlanDraft, dict[str, Any]]:
+        clarification = payload.get("clarification")
+        if isinstance(clarification, str) and clarification.strip():
+            raise PlannerClarificationError(clarification.strip())
+
+        tools_by_name = {tool.name: tool for tool in scoped_tools}
+        raw_steps = payload.get("steps")
+        if not isinstance(raw_steps, list) or not raw_steps:
+            raise PlannerClarificationError("I could not map that request to a safe factory tool plan.")
+
+        intent_memory = context.get("intent_memory") if isinstance(context, dict) and isinstance(context.get("intent_memory"), dict) else {}
+        step_drafts: list[PlanStepDraft] = []
+        contract_steps: list[dict[str, Any]] = []
+
+        for idx, raw_step in enumerate(raw_steps[: self._settings.max_plan_steps]):
+            if not isinstance(raw_step, dict):
+                continue
+            tool_name = str(raw_step.get("tool_name") or "").strip()
+            tool = tools_by_name.get(tool_name)
+            if not tool:
+                raise PlannerClarificationError(f"I could not safely select a supported tool for step {idx + 1}.")
+
+            raw_args = raw_step.get("args") if isinstance(raw_step.get("args"), dict) else {}
+            sanitized_args, dropped_fields = _sanitize_tool_args_against_schema(tool, raw_args)
+            if dropped_fields:
+                clarification_text = _build_unsupported_enum_clarification(
+                    tool=tool,
+                    raw_args=raw_args,
+                    sanitized_args=sanitized_args,
+                    dropped_fields=dropped_fields,
+                    intent=intent,
+                    clause=intent,
+                )
+                if clarification_text:
+                    raise PlannerClarificationError(clarification_text)
+                log_event(
+                    "structured_planner_args_sanitized",
+                    level="WARNING",
+                    tool_name=tool.name,
+                    dropped_fields=dropped_fields,
+                    raw_args=raw_args,
+                    intent=intent,
+                )
+
+            missing = _tool_missing_required_fields(tool, sanitized_args)
+            model_missing = raw_step.get("missing_required") if isinstance(raw_step.get("missing_required"), list) else []
+            missing = sorted(set(missing) | {str(x) for x in model_missing if str(x)})
+            if missing and not tool.requires_approval:
+                raise PlannerClarificationError(
+                    f"Need {', '.join(missing)} before I can use `{tool.name}` for this request."
+                )
+
+            evidence = raw_step.get("evidence") if isinstance(raw_step.get("evidence"), dict) else {}
+            arg_provenance: dict[str, dict[str, Any]] = {}
+            for field, value in sanitized_args.items():
+                evidence_text = str(evidence.get(field) or "")
+                if _value_found_in_text(value, intent, evidence_text):
+                    _mark_user_provenance(provenance=arg_provenance, field=field, value=value)
+                else:
+                    arg_provenance[field] = {"value": value, "source": "llm"}
+            supported_predicates = self._supported_predicates(
+                intent=intent,
+                args=sanitized_args,
+                evidence=evidence,
+            )
+            arg_provenance = _promote_user_provenance(
+                tool=tool,
+                args=sanitized_args,
+                intent=intent,
+                clause=intent,
+                arg_provenance=arg_provenance,
+                resolved_predicates=supported_predicates,
+            )
+            clean_args, provenance_dropped = _strip_unsupported_optional_args(
+                tool=tool,
+                args=sanitized_args,
+                intent=intent,
+                clause=intent,
+                intent_memory=intent_memory,
+                resolved_predicates=supported_predicates,
+                arg_provenance=arg_provenance,
+            )
+
+            depends_on_raw = raw_step.get("depends_on") if isinstance(raw_step.get("depends_on"), list) else []
+            depends_on: list[int] = []
+            for dep in depends_on_raw:
+                try:
+                    dep_i = int(dep)
+                except Exception:
+                    continue
+                if 0 <= dep_i < idx:
+                    depends_on.append(dep_i)
+            bindings: list[PlanBinding] = []
+            raw_bindings = raw_step.get("bindings") if isinstance(raw_step.get("bindings"), list) else []
+            for raw_binding in raw_bindings:
+                if not isinstance(raw_binding, dict):
+                    continue
+                try:
+                    binding = PlanBinding.model_validate(raw_binding)
+                except Exception:
+                    raise PlannerClarificationError(f"I could not safely validate a dependency binding for step {idx + 1}.")
+                bindings.append(binding)
+                if binding.from_step < idx:
+                    depends_on.append(binding.from_step)
+            execution_mode = str(raw_step.get("execution_mode") or "single").strip().lower()
+            if execution_mode not in {"single", "foreach"}:
+                execution_mode = "single"
+            if any(binding.mode == "foreach" for binding in bindings):
+                execution_mode = "foreach"
+
+            step_drafts.append(
+                PlanStepDraft(
+                    step_index=idx,
+                    tool_name=tool.name,
+                    args=clean_args,
+                    depends_on=sorted(set(depends_on)) or ([idx - 1] if idx > 0 else []),
+                    execution_mode=execution_mode,  # type: ignore[arg-type]
+                    bindings=bindings,
+                )
+            )
+            contract_steps.append(
+                {
+                    "step_index": idx,
+                    "tool_name": tool.name,
+                    "args": clean_args,
+                    "bindings": [binding.model_dump() for binding in bindings],
+                    "execution_mode": execution_mode,
+                    "evidence": evidence,
+                    "confidence": raw_step.get("confidence"),
+                    "missing_required": missing,
+                    "provenance_dropped": provenance_dropped,
+                    "arg_provenance": arg_provenance,
+                    "resolved_predicates": {
+                        field: value
+                        for field, value in supported_predicates.items()
+                        if field not in set(provenance_dropped)
+                    },
+                }
+            )
+
+        if not step_drafts:
+            raise PlannerClarificationError("I could not map that request to a safe factory tool plan.")
+
+        plan_explanation = str(payload.get("plan_explanation") or "").strip() or f"Plan prepared for intent: {intent.strip()}."
+        has_write = any((tool := tools_by_name.get(step.tool_name)) and not tool.is_read_only for step in step_drafts)
+        risk_summary = str(payload.get("risk_summary") or "").strip() or (
+            "This plan includes write operations and requires approval before execution."
+            if has_write
+            else "This plan is read-only and only retrieves information."
+        )
+        draft = PlanDraft(
+            plan_explanation=plan_explanation,
+            risk_summary=risk_summary,
+            steps=step_drafts,
+        )
+        validation = validate_plan(draft, tools_by_name, max_steps=self._settings.max_plan_steps)
+        if not validation.ok:
+            raise PlannerBackendError("; ".join(validation.errors))
+        return draft, {"intent": intent, "backend": "structured", "steps": contract_steps}
+
+    async def generate_plan(
+        self,
+        *,
+        intent: str,
+        scoped_tools: list[ToolInfo],
+        context: dict[str, Any] | None = None,
+        tools_markdown: str = "",
+    ) -> PlannerResult:
+        del tools_markdown
+        if not scoped_tools:
+            raise PlannerBackendError("No scoped tools available to generate a structured plan.")
+        payload = await self._invoke_json(intent=intent, scoped_tools=scoped_tools, context=context)
+        draft, contract = self._draft_from_payload(
+            payload=payload,
+            intent=intent,
+            scoped_tools=scoped_tools,
+            context=context,
+        )
+        return PlannerResult(draft=draft, backend_used="structured", llm_calls=1, intent_contract=contract)
+
+
 class PlannerAdapter:
     def __init__(self, *, settings: Settings, tool_registry: ToolRegistry):
         self._settings = settings
         self._tool_registry = tool_registry
         self._legacy = LegacyPlannerBackend(settings)
         self._langchain = LangChainPlannerBackend(settings)
+        self._structured = StructuredPlannerBackend(settings)
 
     async def generate_plan(
         self,
@@ -1273,7 +2540,27 @@ class PlannerAdapter:
         backend = (force_backend or self._settings.planner_backend or "legacy").strip().lower()
         tools_markdown = self._tool_registry.load_tools_markdown()
         result: PlannerResult | None = None
-        if backend == "langchain":
+        if backend == "structured":
+            try:
+                result = await self._structured.generate_plan(
+                    intent=intent,
+                    scoped_tools=scoped_tools,
+                    context=context,
+                    tools_markdown=tools_markdown,
+                )
+            except PlannerBackendError as exc:
+                if not self._settings.planner_fallback_to_legacy:
+                    raise
+                log_event(
+                    "planner_backend_fallback",
+                    level="WARNING",
+                    requested_backend="structured",
+                    fallback_backend="legacy",
+                    intent=intent,
+                    scoped_tool_count=len(scoped_tools),
+                    error=str(exc),
+                )
+        elif backend == "langchain":
             try:
                 result = await self._langchain.generate_plan(
                     intent=intent,
@@ -1301,6 +2588,34 @@ class PlannerAdapter:
                 context=context,
                 tools_markdown=tools_markdown,
             )
+            tools_by_name = {tool.name: tool for tool in scoped_tools}
+            has_write_step = any(
+                (tool := tools_by_name.get(step.tool_name)) is not None and not tool.is_read_only
+                for step in result.draft.steps
+            )
+            if backend in {"structured", "langchain"} and len(result.draft.steps) > 1 and has_write_step:
+                raise PlannerBackendError(
+                    "Structured planner was unavailable and legacy fallback produced a multi-step write plan; "
+                    "refusing unsafe hardcoded compound write planning."
+                )
+
+        if result and result.draft and result.draft.steps:
+            deduped_draft, dropped_steps = _dedupe_plan_steps(result.draft)
+            if dropped_steps > 0:
+                result = PlannerResult(
+                    draft=deduped_draft,
+                    backend_used=result.backend_used,
+                    llm_calls=result.llm_calls,
+                    intent_contract=result.intent_contract,
+                )
+                log_event(
+                    "planner_duplicate_steps_deduped",
+                    level="INFO",
+                    intent=intent,
+                    dropped_steps=dropped_steps,
+                    remaining_steps=len(deduped_draft.steps),
+                    backend_used=result.backend_used,
+                )
 
         if result and result.draft and result.draft.steps:
             tools_by_name = {t.name: t for t in scoped_tools}
@@ -1314,6 +2629,31 @@ class PlannerAdapter:
                 tool = tools_by_name.get(step.tool_name)
                 if not tool:
                     continue
+                contract_clause = _lookup_contract_clause(
+                    intent_contract=result.intent_contract,
+                    step_index=step.step_index,
+                    tool_name=tool.name,
+                )
+                contract_resolved_predicates = (
+                    contract_clause.get("resolved_predicates")
+                    if isinstance(contract_clause, dict) and isinstance(contract_clause.get("resolved_predicates"), dict)
+                    else None
+                )
+                contract_arg_provenance = (
+                    contract_clause.get("arg_provenance")
+                    if isinstance(contract_clause, dict) and isinstance(contract_clause.get("arg_provenance"), dict)
+                    else None
+                )
+                contract_arg_provenance = _promote_user_provenance(
+                    tool=tool,
+                    args=step.args or {},
+                    intent=intent,
+                    clause=str((contract_clause or {}).get("clause") or intent),
+                    arg_provenance=contract_arg_provenance,
+                    resolved_predicates=contract_resolved_predicates,
+                )
+                if isinstance(contract_clause, dict):
+                    contract_clause["arg_provenance"] = contract_arg_provenance
                 
                 clean_args, dropped = _strip_unsupported_optional_args(
                     tool=tool,
@@ -1321,9 +2661,17 @@ class PlannerAdapter:
                     intent=intent,
                     clause=intent,
                     intent_memory=intent_memory,
+                    resolved_predicates=contract_resolved_predicates,
+                    arg_provenance=contract_arg_provenance,
                 )
                 if dropped:
                     step.args = clean_args
+                    _mark_contract_fields_stripped(
+                        intent_contract=result.intent_contract,
+                        step_index=step.step_index,
+                        tool_name=tool.name,
+                        dropped_fields=dropped,
+                    )
                     log_event(
                         "planner_universal_provenance_gate",
                         level="INFO",

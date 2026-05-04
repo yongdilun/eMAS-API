@@ -7,6 +7,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from .schemas import ToolInfo
+from .tool_intent_profile import tool_covers_descriptive_terms
 
 
 import json
@@ -152,8 +153,19 @@ def _explicit_enum_match(clause: str, field_name: str, field_schema: dict[str, A
     aliases = _field_aliases(field_name)
     enum_values = [str(value) for value in field_schema.get("enum", []) if str(value)]
     enum_by_token = {_normalize_token(value): value for value in enum_values}
+    enum_pattern = "|".join(re.escape(value) for value in enum_values)
     for alias in aliases:
         alias_pattern = re.escape(alias).replace(r"\ ", r"[ _-]+")
+        if enum_pattern:
+            prefix_match = re.search(
+                rf"\b(?P<value>{enum_pattern})\b\s+{alias_pattern}\b",
+                clause or "",
+                flags=re.IGNORECASE,
+            )
+            if prefix_match:
+                mapped = enum_by_token.get(_normalize_token(prefix_match.group("value")))
+                if mapped:
+                    return mapped, None
         match = re.search(
             rf"\b{alias_pattern}\b\s*(?:=|:|is|are)?\s*([A-Za-z][A-Za-z0-9_-]*)",
             clause or "",
@@ -334,11 +346,15 @@ def _candidate_score(*, clause: str, term: str, field_name: str, field_schema: d
             return 0.70, "term looks like a factory location"
         score = 0.45
         reason = "location is a supported filter"
+    if field == "machine_name" or "machine name" in description:
+        if len(normalized_term) >= 3:
+            score = max(score, 0.62)
+            reason = "term may match a machine name"
     if field in {"machine_type", "type"} or "machine type" in description:
         if re.fullmatch(r"[A-Z0-9]{2,8}", term.strip()):
             return 0.78, "term looks like a machine type code"
-        if re.search(r"\b(?:cnc|press|mill|lathe|assembly|paint|pack|weld)\b", normalized_term):
-            score = max(score, 0.68)
+        if re.search(r"\b(?:cnc|press|mill|lathe|assembly|paint|pack|weld|coating|station)\b", normalized_term):
+            score = max(score, 0.74)
             reason = "term may be a machine type"
     return score, reason
 
@@ -403,9 +419,22 @@ def _build_confirmation(
             "label": f'{c["field"]}: {raw_term}',
             "confidence": round(float(c.get("confidence") or 0.0), 3),
             "reason": c.get("reason") or "",
+            **{
+                key: c[key]
+                for key in ("match_count", "match_mode", "sample_values", "evidence_checked")
+                if key in c
+            },
         }
 
     all_opts = [_option(c) for c in candidates]
+    evidence_checked = any(c.get("evidence_checked") for c in candidates)
+    matched = [_option(c) for c in candidates if int(c.get("match_count") or 0) > 0]
+    other_possible = [
+        _option(c)
+        for c in candidates
+        if c.get("evidence_checked") and int(c.get("match_count") or 0) <= 0
+    ]
+    default_opts = matched if matched else all_opts
     return {
         "kind": "predicate_field_confirmation",
         "entity": entity,
@@ -415,10 +444,69 @@ def _build_confirmation(
             f'I found "{raw_term}" in your {entity} request. '
             f"Which field should it filter?"
         ),
-        "options": all_opts[:top_n],
+        "options": default_opts,
+        "top_options": default_opts[:top_n],
         "all_options": all_opts,
-        "has_more": len(all_opts) > top_n,
+        "other_possible_fields": other_possible,
+        "evidence_checked": evidence_checked,
+        "has_more": len(default_opts) > top_n or bool(other_possible),
     }
+
+
+async def _apply_candidate_evidence(
+    *,
+    tool: ToolInfo,
+    raw_term: str,
+    candidates: list[dict[str, Any]],
+    evidence_provider: Any | None,
+) -> list[dict[str, Any]]:
+    if not candidates or evidence_provider is None:
+        return candidates
+    try:
+        evidence = await evidence_provider(tool=tool, term=raw_term, candidates=candidates)
+    except Exception:
+        return candidates
+    if not isinstance(evidence, dict):
+        return candidates
+
+    enriched: list[dict[str, Any]] = []
+    for candidate in candidates:
+        item = dict(candidate)
+        field = str(item.get("field") or "")
+        field_evidence = evidence.get(field)
+        if not isinstance(field_evidence, dict):
+            enriched.append(item)
+            continue
+        try:
+            match_count = int(field_evidence.get("match_count") or 0)
+        except Exception:
+            match_count = 0
+        item["evidence_checked"] = True
+        item["match_count"] = match_count
+        item["match_mode"] = str(field_evidence.get("match_mode") or "query")
+        samples = field_evidence.get("sample_values")
+        if isinstance(samples, list):
+            item["sample_values"] = [str(value) for value in samples[:3] if str(value)]
+        if match_count > 0:
+            mode = item["match_mode"]
+            evidence_confidence = 0.93 if mode == "exact" else 0.91
+            item["confidence"] = max(float(item.get("confidence") or 0.0), evidence_confidence)
+            item["reason"] = f"data match: {match_count} record(s)"
+            item["source"] = "data"
+        else:
+            item["confidence"] = min(float(item.get("confidence") or 0.0), 0.30)
+            item["reason"] = "no matching records found"
+        enriched.append(item)
+
+    enriched.sort(
+        key=lambda c: (
+            int(c.get("match_count") or 0) > 0,
+            float(c.get("confidence") or 0.0),
+            int(c.get("match_count") or 0),
+        ),
+        reverse=True,
+    )
+    return enriched
 
 
 def _memory_lookup(memory: dict[str, Any] | None, *, entity: str, term: str) -> dict[str, Any] | None:
@@ -473,6 +561,19 @@ def _build_unknown_term_clarification(*, entity: str, raw_value: str) -> str:
     return f'I couldn\'t match "{raw_value}" to any supported {entity} field or filter. Please check if it is a typo.'
 
 
+def _descriptive_terms_are_tool_evidence(*, clause: str, tool: ToolInfo, filter_fields: dict[str, dict[str, Any]], args: dict[str, Any]) -> bool:
+    if not tool_covers_descriptive_terms(clause, tool):
+        return False
+    unresolved_filter_fields = {
+        field
+        for field in filter_fields
+        if field not in _CONTROL_FIELDS and field not in set(tool.path_params or []) and field not in args
+    }
+    # If a specialized endpoint already covers the user's descriptive phrase,
+    # do not reinterpret that phrase as a missing query/body predicate.
+    return not unresolved_filter_fields
+
+
 async def verify_clause_against_tool(
     *,
     clause: str,
@@ -480,11 +581,18 @@ async def verify_clause_against_tool(
     args: dict[str, Any],
     reasoning: Any | None = None,
     memory: dict[str, Any] | None = None,
+    evidence_provider: Any | None = None,
 ) -> ClauseVerificationResult:
     entity = _tool_entity(tool)
     repaired_args = dict(args or {})
     resolved_predicates: dict[str, Any] = {}
     filter_fields = _candidate_filter_fields(tool, clause)
+    descriptive_terms_are_tool_evidence = _descriptive_terms_are_tool_evidence(
+        clause=clause,
+        tool=tool,
+        filter_fields=filter_fields,
+        args=repaired_args,
+    )
     enum_fields = {
         name: schema
         for name, schema in filter_fields.items()
@@ -580,6 +688,9 @@ async def verify_clause_against_tool(
             leftover.discard(entity.lower()[:-1] + "ies")
 
         if leftover:
+            if descriptive_terms_are_tool_evidence:
+                leftover.clear()
+        if leftover:
             raw_term = adjacent_phrase
             mem = _memory_lookup(memory, entity=entity, term=raw_term)
             negative_fields = _negative_memory_fields(memory, entity=entity, term=raw_term)
@@ -595,10 +706,12 @@ async def verify_clause_against_tool(
                         source="memory",
                     )
                     candidate_scores.append({"field": field_name, "confidence": score, "reason": reason, "source": "memory"})
-            else:
+            if filter_fields:
                 explicit_matches: list[tuple[str, str]] = []
                 for field_name, field_schema in filter_fields.items():
                     if field_name in negative_fields or field_name in repaired_args or field_name in resolved_predicates:
+                        continue
+                    if mem and field_name == mem.get("field"):
                         continue
                     explicit_value = _explicit_field_value(clause, field_name)
                     if explicit_value:
@@ -617,6 +730,8 @@ async def verify_clause_against_tool(
                     for field_name, field_schema in filter_fields.items():
                         if field_name in negative_fields or field_name in _CONTROL_FIELDS or field_name in repaired_args or field_name in resolved_predicates:
                             continue
+                        if mem and field_name == mem.get("field"):
+                            continue
                         score, reason = _candidate_score(
                             clause=clause,
                             term=raw_term,
@@ -626,10 +741,11 @@ async def verify_clause_against_tool(
                         )
                         # Always include every plausible non-control string field —
                         # the threshold governs auto-map, NOT which fields appear.
-                        if score == 0.0:
+                        if score == 0.0 and not isinstance(field_schema.get("enum"), list):
                             score = 0.15
                             reason = "plausible string filter field"
-                        candidate_scores.append({"field": field_name, "confidence": score, "reason": reason, "source": "heuristic"})
+                        if score > 0.0:
+                            candidate_scores.append({"field": field_name, "confidence": score, "reason": reason, "source": "heuristic"})
 
             candidate_scores.sort(key=lambda item: item["confidence"], reverse=True)
             if not candidate_scores and reasoning is not None and normalize_predicate_value(raw_term) not in _VAGUE_FREE_TEXT:
@@ -676,6 +792,12 @@ async def verify_clause_against_tool(
                                 "source": "semantic",
                             }
                         )
+            candidate_scores = await _apply_candidate_evidence(
+                tool=tool,
+                raw_term=raw_term,
+                candidates=candidate_scores,
+                evidence_provider=evidence_provider,
+            )
             candidate_scores.sort(key=lambda item: item["confidence"], reverse=True)
             top = candidate_scores[0] if candidate_scores else None
             second = candidate_scores[1] if len(candidate_scores) > 1 else None
@@ -762,9 +884,11 @@ async def verify_clause_against_tool(
                         field_schema=filter_fields[fn], source="memory",
                     )
                     cand_scores.append({"field": fn, "confidence": sc, "reason": rs, "source": "memory"})
-            else:
+            if filter_fields:
                 for fn, fs in filter_fields.items():
                     if fn in neg_fields or fn in _CONTROL_FIELDS or fn in repaired_args or fn in resolved_predicates:
+                        continue
+                    if mem2 and fn == mem2.get("field"):
                         continue
                     sc, rs = _candidate_score(
                         clause=clause, term=raw_term, field_name=fn,
@@ -775,10 +899,11 @@ async def verify_clause_against_tool(
                     # governs auto-map, not which options appear in the list.
                     # Give zero-scored fields a small baseline so they rank
                     # above fields that were explicitly excluded.
-                    if sc == 0.0:
+                    if sc == 0.0 and not isinstance(fs.get("enum"), list):
                         sc = 0.15
                         rs = "plausible string filter field"
-                    cand_scores.append({"field": fn, "confidence": sc, "reason": rs, "source": "heuristic"})
+                    if sc > 0.0:
+                        cand_scores.append({"field": fn, "confidence": sc, "reason": rs, "source": "heuristic"})
             if not cand_scores and reasoning is not None and normalize_predicate_value(raw_term) not in _VAGUE_FREE_TEXT:
                 semantic2 = await reasoning.classify_unknown_term(
                     clause=clause, term=raw_term, entity=entity, tool=tool,
@@ -795,6 +920,12 @@ async def verify_clause_against_tool(
                             "reason": str(semantic2.get("reason") or "semantic classifier"),
                             "source": "semantic",
                         })
+            cand_scores = await _apply_candidate_evidence(
+                tool=tool,
+                raw_term=raw_term,
+                candidates=cand_scores,
+                evidence_provider=evidence_provider,
+            )
             cand_scores.sort(key=lambda c: c["confidence"], reverse=True)
             top2 = cand_scores[0] if cand_scores else None
             if not top2:

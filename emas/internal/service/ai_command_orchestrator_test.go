@@ -49,6 +49,10 @@ func (s *stubLLMParserClient) ParseCommand(_ context.Context, raw string) ([]byt
 	return json.Marshal(plan)
 }
 
+func (s *stubLLMParserClient) RepairCommand(_ context.Context, raw string, _ []string) ([]byte, error) {
+	return s.ParseCommand(context.Background(), raw)
+}
+
 // loadFixtures loads ai_commands_200.json from testdata. For brevity in this
 // initial implementation we accept any number of fixtures; the exit criteria
 // expects ~200.
@@ -233,6 +237,28 @@ func TestAICommandOrchestrator_ConcurrentSmoke(t *testing.T) {
 			t.Fatalf("concurrent smoke test timed out")
 		case <-errCh:
 		}
+	}
+}
+
+func TestAICommandOrchestrator_ParserClientInjection(t *testing.T) {
+	fixtures := []aiCommandFixture{
+		{
+			Input: "Suggest schedule for job JOB-SEED-001",
+			Expected: fixtureExpected{
+				Intent:   "propose_schedule",
+				Action:   "propose_schedule",
+				Entities: map[string]interface{}{"job_id": "JOB-SEED-001"},
+			},
+		},
+	}
+	o := NewAICommandOrchestratorWithParser(&stubLLMParserClient{fixtures: fixtures})
+
+	got := o.Parse("Suggest schedule for job JOB-SEED-001")
+	if got.Intent != "propose_schedule" || got.Action != "propose_schedule" {
+		t.Fatalf("unexpected plan: %+v", got)
+	}
+	if got.Entities["job_id"] != "JOB-SEED-001" {
+		t.Fatalf("expected injected parser job_id, got %+v", got.Entities)
 	}
 }
 

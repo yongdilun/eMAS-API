@@ -90,8 +90,66 @@ def _normalize_parallel_groups(steps: list[dict[str, Any]]) -> list[list[int]]:
 def _normalize_dependency_graph(steps: list[dict[str, Any]]) -> dict[int, list[int]]:
     graph: dict[int, list[int]] = {}
     for s in steps:
-        graph[int(s["step_index"])] = [int(x) for x in (s.get("depends_on") or [])]
+        deps = [int(x) for x in (s.get("depends_on") or [])]
+        for binding in s.get("bindings") or []:
+            if isinstance(binding, dict):
+                try:
+                    deps.append(int(binding.get("from_step")))
+                except Exception:
+                    continue
+        graph[int(s["step_index"])] = sorted(set(deps))
     return graph
+
+
+def _schema_without_required(schema: dict[str, Any], fields: set[str]) -> dict[str, Any]:
+    if not fields:
+        return schema
+    normalized = json.loads(json.dumps(schema))
+    required = normalized.get("required")
+    if isinstance(required, list):
+        normalized["required"] = [field for field in required if field not in fields]
+        if not normalized["required"]:
+            normalized.pop("required", None)
+    return normalized
+
+
+def _normalize_result_path(path: str) -> list[str]:
+    normalized = (path or "").strip()
+    if normalized.startswith("$."):
+        normalized = normalized[2:]
+    if normalized.startswith("result."):
+        normalized = normalized[len("result.") :]
+    if normalized.endswith("[*]"):
+        normalized = normalized[:-3]
+    if normalized.endswith("[]"):
+        normalized = normalized[:-2]
+    return [part for part in normalized.split(".") if part]
+
+
+def _schema_for_result_path(schema: dict[str, Any], path: str) -> dict[str, Any] | None:
+    node: Any = schema
+    for part in _normalize_result_path(path):
+        if not isinstance(node, dict):
+            return None
+        if node.get("type") == "array":
+            node = node.get("items")
+        properties = node.get("properties") if isinstance(node.get("properties"), dict) else {}
+        node = properties.get(part)
+        if node is None:
+            return None
+    if isinstance(node, dict) and node.get("type") == "array":
+        items = node.get("items")
+        return items if isinstance(items, dict) else None
+    return node if isinstance(node, dict) else None
+
+
+def _schema_has_field(schema: dict[str, Any] | None, field: str) -> bool:
+    if not isinstance(schema, dict):
+        return False
+    if schema.get("type") == "array":
+        schema = schema.get("items") if isinstance(schema.get("items"), dict) else {}
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+    return field in properties or not properties
 
 
 def validate_plan(
@@ -133,15 +191,51 @@ def validate_plan(
         errors.append("Dependency graph contains a cycle")
 
     # Tool exists + args schema validation
+    steps_by_index = {step.step_index: step for step in plan.steps}
+    tools_by_step = {s.step_index: tools_by_name.get(s.tool_name) for s in plan.steps}
     for step in plan.steps:
         tool = tools_by_name.get(step.tool_name)
         if not tool:
             errors.append(f"Unknown tool: {step.tool_name}")
             continue
+        if step.execution_mode not in ("single", "foreach"):
+            errors.append(f"Invalid execution_mode for step {step.step_index}: {step.execution_mode}")
+        bound_targets = {binding.target_arg for binding in (step.bindings or [])}
+        properties = tool.input_schema.get("properties") if isinstance(tool.input_schema.get("properties"), dict) else {}
+        for target in bound_targets:
+            if target not in properties:
+                errors.append(f"Binding target `{target}` is not an input field for tool {tool.name}.")
+        for binding in step.bindings or []:
+            if binding.from_step >= step.step_index:
+                errors.append(f"Step {step.step_index} binding depends on future step {binding.from_step}")
+                continue
+            source_step = steps_by_index.get(binding.from_step)
+            source_tool = tools_by_step.get(binding.from_step)
+            if source_step is None or source_tool is None:
+                errors.append(f"Step {step.step_index} binding references unknown step {binding.from_step}")
+                continue
+            source_schema = _schema_for_result_path(source_tool.output_schema or {}, binding.result_path)
+            if source_schema is None:
+                errors.append(
+                    f"Step {step.step_index} binding path `{binding.result_path}` is not present in response schema for {source_tool.name}."
+                )
+            elif not _schema_has_field(source_schema, binding.field):
+                errors.append(
+                    f"Step {step.step_index} binding field `{binding.field}` is not present at `{binding.result_path}` for {source_tool.name}."
+                )
+            if binding.mode == "foreach" and not source_tool.is_read_only:
+                errors.append(f"Step {step.step_index} foreach binding source must be read-only.")
+            if binding.mode == "foreach" and tool.is_read_only:
+                errors.append(f"Step {step.step_index} foreach binding target should be a write/action tool.")
+        if step.execution_mode == "foreach" and not step.bindings:
+            errors.append(f"Step {step.step_index} uses foreach without bindings.")
+        if step.execution_mode == "foreach" and not tool.requires_approval:
+            errors.append(f"Step {step.step_index} foreach write requires approval gating.")
         try:
             schema = tool.input_schema
             if tool.requires_approval:
                 schema = _strip_required(schema)
+            schema = _schema_without_required(schema, bound_targets)
             
             # Clean None values from args to support optional parameters passed as null/None
             step.args = {k: v for k, v in step.args.items() if v is not None}
@@ -195,15 +289,14 @@ def validate_plan(
             errors.append(f"Parallel group {group} contains multiple CRITICAL side-effect steps.")
 
     # Rule 1: DELETE must never appear before a GET of same resource in same plan (best-effort by endpoint)
-    tool_by_step = {s.step_index: tools_by_name.get(s.tool_name) for s in plan.steps}
     for step in sorted(plan.steps, key=lambda s: s.step_index):
-        tool = tool_by_step.get(step.step_index)
+        tool = tools_by_step.get(step.step_index)
         if not tool:
             continue
         if tool.method == "DELETE":
             prior_reads = [
                 t
-                for idx, t in tool_by_step.items()
+                for idx, t in tools_by_step.items()
                 if t and idx < step.step_index and t.method == "GET" and t.endpoint == tool.endpoint
             ]
             if not prior_reads:

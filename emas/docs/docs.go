@@ -3367,6 +3367,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Filter by machine name (case-insensitive contains)",
+                        "name": "machine_name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Filter by machine type",
                         "name": "machine_type",
                         "in": "query"

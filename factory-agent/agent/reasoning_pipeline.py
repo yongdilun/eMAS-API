@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from dataclasses import asdict
 from typing import Any
 
 from .config import Settings
 from .schemas import ToolInfo
+from .tabular_analysis import analyze_result
 from .telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped
 
 
@@ -60,6 +62,24 @@ class ReasoningPipeline:
             return self._settings.tool_selector_model
         return self._settings.tool_result_summary_model
 
+    def _component_timeout(self, component: str) -> float:
+        if component in {
+            "reasoning_fact_extraction",
+            "reasoning_response_generation",
+            "reasoning_grounding_verifier",
+        }:
+            return self._settings.tool_result_summary_timeout_s
+        return self._settings.llm_json_timeout_s
+
+    def _component_max_tokens(self, component: str) -> int:
+        if component in {
+            "reasoning_fact_extraction",
+            "reasoning_response_generation",
+            "reasoning_grounding_verifier",
+        }:
+            return self._settings.tool_result_summary_max_tokens
+        return self._settings.llm_json_max_tokens
+
     def _result_json_size(self, result: dict[str, Any]) -> int:
         try:
             raw = json.dumps(result or {}, ensure_ascii=False)
@@ -68,6 +88,8 @@ class ReasoningPipeline:
         return len(raw)
 
     def _enabled(self, component: str) -> bool:
+        if self._settings.force_llm_trace_all:
+            return bool(self._settings.openai_base_url or self._settings.openai_api_key)
         backend = self._component_backend(component)
         if backend in {"legacy", "retrieval", "disabled", "off", "false", "none"}:
             return False
@@ -256,8 +278,12 @@ class ReasoningPipeline:
     ) -> tuple[bool, str]:
         if not self._enabled("reasoning_fact_extraction"):
             return False, "backend_disabled_or_llm_not_configured"
+        if self._settings.force_llm_trace_all:
+            return True, "force_llm_trace_all"
         if deterministic.answer_type in {"id_list", "not_found", "error"}:
             return False, "deterministic_sufficient"
+        if isinstance(deterministic.counts, dict) and isinstance(deterministic.counts.get("analysis"), dict):
+            return False, "deterministic_analysis_sufficient"
         data = result.get("data")
         if isinstance(data, list) and len(data) > 1:
             return True, "multi_record_result"
@@ -352,13 +378,23 @@ class ReasoningPipeline:
     def deterministic_response_contract(self, *, facts: FactExtractionResult) -> str | None:
         if not isinstance(facts.counts, dict):
             return None
+        analysis = facts.counts.get("analysis")
+        if isinstance(analysis, dict) and isinstance(analysis.get("facts"), list) and analysis["facts"]:
+            records = facts.counts.get("records")
+            prefix = ""
+            try:
+                n = int(records)
+                prefix = f"Retrieved {n} records. "
+            except Exception:
+                pass
+            return prefix + " ".join(str(fact) for fact in analysis["facts"][:4])
         records = facts.counts.get("records")
         try:
             n = int(records)
         except Exception:
             return None
         if n > 1:
-            return f"Retrieved {n} records. Rows are shown below."
+            return f"Retrieved {n} records. Rows are shown in the table below."
         if n == 1:
             return "Retrieved 1 record."
         return None
@@ -376,9 +412,9 @@ class ReasoningPipeline:
         kwargs: dict[str, Any] = {
             "model": self._component_model(component),
             "temperature": 0,
-            "timeout": self._settings.llm_json_timeout_s,
+            "timeout": self._component_timeout(component),
             "max_retries": 0,
-            "max_tokens": self._settings.llm_json_max_tokens,
+            "max_tokens": self._component_max_tokens(component),
             "model_kwargs": {"response_format": {"type": "json_object"}},
         }
         if self._settings.openai_base_url:
@@ -396,17 +432,6 @@ class ReasoningPipeline:
                 component=component,
                 backend=backend,
                 reason="backend_disabled_or_llm_not_configured",
-                metadata={"model": model_name, **(metadata or {})},
-            )
-            return None
-
-        try:
-            from langchain_openai import ChatOpenAI  # noqa: F401
-        except Exception:
-            log_llm_prompt_skipped(
-                component=component,
-                backend="disabled",
-                reason="langchain_openai_unavailable",
                 metadata={"model": model_name, **(metadata or {})},
             )
             return None
@@ -561,6 +586,26 @@ class ReasoningPipeline:
         result: dict[str, Any],
     ) -> FactExtractionResult | None:
         deterministic = self._deterministic_extract_facts(tool_name=tool_name, args=args or {}, result=result or {})
+        if isinstance(result, dict):
+            analysis = analyze_result(intent=intent or "", result=result)
+            if analysis is not None and deterministic.answer_type == "summary":
+                deterministic = FactExtractionResult(
+                    answer_type="summary",
+                    facts=[f"Retrieved {analysis.dataset.row_count} records.", *analysis.facts],
+                    ids=deterministic.ids,
+                    counts={
+                        **(deterministic.counts or {}),
+                        "records": analysis.dataset.row_count,
+                        "analysis": {
+                            "dataset": asdict(analysis.dataset),
+                            "operations": [asdict(op) for op in analysis.operations],
+                            "results": analysis.results,
+                            "facts": analysis.facts,
+                        },
+                    },
+                    warnings=deterministic.warnings,
+                    grounding_refs=[*deterministic.grounding_refs, *analysis.grounding_refs],
+                )
         should_use_llm, reason = self._should_use_llm_for_fact_extraction(
             deterministic=deterministic,
             result=result or {},
@@ -595,7 +640,7 @@ class ReasoningPipeline:
             parsed = await self._invoke_json(
                 component="reasoning_fact_extraction",
                 prompt=prompt,
-                metadata={"tool_name": tool_name, "reason": reason},
+                metadata={"tool_name": tool_name, "selection_reason": reason},
             )
             if not isinstance(parsed, dict):
                 return deterministic
@@ -654,9 +699,11 @@ class ReasoningPipeline:
         return message.strip()
 
     def should_generate_response(self, *, facts: FactExtractionResult) -> bool:
-        if facts.answer_type in {"id_list", "not_found", "error"}:
-            return False
         if not self._enabled("reasoning_response_generation"):
+            return False
+        if self._settings.force_llm_trace_all:
+            return facts.answer_type not in {"not_found", "error"}
+        if facts.answer_type in {"id_list", "not_found", "error"}:
             return False
         if isinstance(facts.counts, dict):
             records = facts.counts.get("records")

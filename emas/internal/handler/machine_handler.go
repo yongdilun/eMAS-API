@@ -82,6 +82,7 @@ func (h *MachineHandler) GetByID(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param status query string false "Filter by status" Enums(idle,running,maintenance,offline)
+// @Param machine_name query string false "Filter by machine name (case-insensitive contains)"
 // @Param machine_type query string false "Filter by machine type"
 // @Param location query string false "Filter by location"
 // @Param sort_by query string false "Field to sort by (machine_id, machine_name, status, created_at)"
@@ -100,6 +101,7 @@ func (h *MachineHandler) List(c *gin.Context) {
 	}
 	var f repository.MachineListFilter
 	f.Status = string(query.Status)
+	f.MachineName = query.MachineName
 	f.MachineType = query.MachineType
 	f.Location = query.Location
 	f.SortBy = query.SortBy

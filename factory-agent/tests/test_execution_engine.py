@@ -107,7 +107,19 @@ async def _seed_core(db_session, *, session_id: str, plan_id: str, plan_hash: st
     return sess, plan
 
 
-async def _seed_step(db_session, *, plan_id: str, session_id: str, step_index: int, tool_name: str, args: dict, plan_version: int):
+async def _seed_step(
+    db_session,
+    *,
+    plan_id: str,
+    session_id: str,
+    step_index: int,
+    tool_name: str,
+    args: dict,
+    plan_version: int,
+    execution_mode: str = "single",
+    bindings: list[dict] | None = None,
+    requires_approval: bool = False,
+):
     from models import PlanStep, generate_uuid
 
     step = PlanStep(
@@ -117,11 +129,13 @@ async def _seed_step(db_session, *, plan_id: str, session_id: str, step_index: i
         step_index=step_index,
         tool_name=tool_name,
         args=args,
+        bindings=bindings or [],
+        execution_mode=execution_mode,
         status="NOT_STARTED",
         idempotency_key=compute_idempotency_key(
             session_id=session_id, step_index=step_index, plan_version=plan_version, args=args
         ),
-        requires_approval=False,
+        requires_approval=requires_approval,
         retry_count=0,
         max_retries=3,
     )
@@ -991,3 +1005,131 @@ async def test_db_failure_mid_step_resets_step_to_not_started(db_session):
     assert step is not None
     assert step.status == "NOT_STARTED"
     assert sess2.status == "EXECUTING"
+
+
+@pytest.mark.asyncio
+async def test_foreach_step_uses_per_item_idempotency_and_bulk_state(db_session, respx_mock):
+    from sqlalchemy import select
+    from models import Approval, PlanStep, Session
+
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        redis_url=None,
+        go_api_base_url="http://testserver",
+        worker_count=0,
+        session_queue_size=10,
+        max_plan_steps=10,
+        max_session_steps=50,
+        max_replans=5,
+        max_llm_calls=20,
+        max_session_duration_s=1800,
+        http_timeout_s=1.0,
+    )
+    engine = ExecutionEngine(settings, FakeEventBus())
+    session_id = "sess-foreach"
+    plan_id = "plan-foreach"
+    plan_hash = "hash-foreach"
+    plan_version = 1
+    sess, _ = await _seed_core(db_session, session_id=session_id, plan_id=plan_id, plan_hash=plan_hash, plan_version=plan_version)
+    source = await _seed_step(
+        db_session,
+        plan_id=plan_id,
+        session_id=session_id,
+        step_index=0,
+        tool_name="get__jobs",
+        args={},
+        plan_version=plan_version,
+    )
+    source.status = "DONE"
+    source.result = {"data": [{"job_id": "JOB-1"}, {"job_id": "JOB-2"}, {"job_id": "JOB-3"}]}
+    source.completed_at = datetime.utcnow()
+    await _seed_step(
+        db_session,
+        plan_id=plan_id,
+        session_id=session_id,
+        step_index=1,
+        tool_name="patch__jobs_{id}",
+        args={"status": "scheduled"},
+        plan_version=plan_version,
+        execution_mode="foreach",
+        bindings=[
+            {
+                "from_step": 0,
+                "result_path": "data",
+                "field": "job_id",
+                "target_arg": "id",
+                "mode": "foreach",
+            }
+        ],
+        requires_approval=True,
+    )
+    await db_session.commit()
+
+    tools = {
+        "get__jobs": ToolInfo(
+            name="get__jobs",
+            description="",
+            endpoint="/jobs",
+            method="GET",
+            input_schema={"type": "object", "properties": {}},
+            output_schema={
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "array",
+                        "items": {"type": "object", "properties": {"job_id": {"type": "string"}}},
+                    }
+                },
+            },
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=True,
+            capability_tags=[],
+        ),
+        "patch__jobs_{id}": ToolInfo(
+            name="patch__jobs_{id}",
+            description="",
+            endpoint="/jobs/{id}",
+            method="PATCH",
+            input_schema={
+                "type": "object",
+                "properties": {"id": {"type": "string"}, "status": {"type": "string"}},
+                "required": ["id", "status"],
+            },
+            is_read_only=False,
+            requires_approval=True,
+            side_effect_level="HIGH",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=True,
+            capability_tags=[],
+        ),
+    }
+
+    await engine.execute_until_blocked(db_session, session=sess, tools_by_name=tools)
+    approval = (await db_session.execute(select(Approval))).scalars().first()
+    assert approval is not None
+    assert approval.status == "PENDING"
+    approval.status = "APPROVED"
+    approval.decided_at = datetime.utcnow()
+    await db_session.commit()
+
+    respx_mock.patch("http://testserver/jobs/JOB-1").respond(200, json={"ok": True, "job_id": "JOB-1"})
+    respx_mock.patch("http://testserver/jobs/JOB-2").respond(200, json={"ok": True, "job_id": "JOB-2"})
+    respx_mock.patch("http://testserver/jobs/JOB-3").respond(200, json={"ok": True, "job_id": "JOB-3"})
+    sess = await db_session.get(Session, session_id)
+    await engine.execute_until_blocked(db_session, session=sess, tools_by_name=tools)
+
+    step = (
+        await db_session.execute(
+            select(PlanStep).where(PlanStep.plan_id == plan_id).where(PlanStep.step_index == 1)
+        )
+    ).scalars().first()
+    sess2 = await db_session.get(Session, session_id)
+    assert sess2.status == "COMPLETED"
+    assert step.status == "DONE"
+    assert step.result["bulk"] is True
+    assert step.result["succeeded"] == 3
+    assert len(step.bulk_state["succeeded"]) == 3
+    assert len({item["idempotency_key"] for item in step.bulk_state["succeeded"]}) == 3

@@ -1,15 +1,17 @@
 {
   "python": {
     "stopwords": [
-      "a", "all", "an", "and", "any", "by", "for", "from", 
+      "a", "all", "an", "and", "any", "by", "for", "from", "me",
       "machine", "machines", "job", "jobs", "inventory", 
       "material", "materials", "new", "of", "on", "please", 
       "record", "records", "show", "find", "get", "list", 
       "view", "inspect", "lookup", "status", "with"
     ],
     "action_verbs": [
-      "check", "show", "list", "get", "find", "view", "inspect",
-      "lookup", "give", "provide", "fetch", "all", "any", "the",
+      "assist", "candidate", "check", "explain", "explosion", "forecast",
+      "show", "list", "get", "find", "view", "inspect", "lookup",
+      "preview", "rank", "readiness", "report", "reports", "suggestion",
+      "give", "provide", "fetch", "all", "any", "the",
       "a", "an", "some", "every", "please"
     ],
     "vague_free_text": [
@@ -24,7 +26,7 @@
       "create": ["create", "new", "add", "open"],
       "update": ["update", "set", "change", "assign", "record", "apply", "run", "reschedule", "move"],
       "delete": ["delete", "remove"],
-      "read": ["check", "show", "list", "get", "find", "view", "inspect", "status", "lookup"],
+      "read": ["assist", "candidate", "check", "explain", "explosion", "forecast", "get", "find", "inspect", "list", "lookup", "preview", "rank", "readiness", "report", "reports", "show", "status", "suggestion", "view"],
       "approval": ["approve", "reject", "approval", "approvals", "pending"]
     },
     "method_hints": {

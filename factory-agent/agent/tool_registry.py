@@ -42,6 +42,7 @@ class RegistryHealthResult:
 
 def tool_row_to_info(row: ToolRow) -> ToolInfo:
     schema = row.input_schema if isinstance(row.input_schema, dict) else {}
+    output_schema = row.output_schema if isinstance(row.output_schema, dict) else {"type": "object"}
     path_params = [str(x) for x in (schema.get("x-path-params") or []) if str(x)]
     if not path_params:
         path_params = [match.group(1) for match in _PATH_PARAM_RE.finditer(row.endpoint or "")]
@@ -75,6 +76,7 @@ def tool_row_to_info(row: ToolRow) -> ToolInfo:
         endpoint=row.endpoint,
         method=row.method,
         input_schema=schema,
+        output_schema=output_schema,
         path_params=path_params,
         query_params=query_params,
         body_fields=body_fields,
@@ -87,6 +89,11 @@ def tool_row_to_info(row: ToolRow) -> ToolInfo:
         is_concurrency_safe=bool(row.is_concurrency_safe),
         is_strongly_idempotent=bool(row.is_strongly_idempotent),
         capability_tags=_parse_tags(row.capability_tags),
+        allowed_roles=[
+            str(x).strip().lower()
+            for x in (schema.get("x-allowed-roles") or [])
+            if str(x).strip()
+        ],
     )
 
 

@@ -15,6 +15,7 @@ type SortDirection string
 
 type MachineListQuery struct {
 	Status      MachineStatus `form:"status" binding:"omitempty,oneof=idle running maintenance offline" enums:"idle,running,maintenance,offline"`
+	MachineName string        `form:"machine_name"`
 	MachineType string        `form:"machine_type"`
 	Location    string        `form:"location"`
 	SortBy      string        `form:"sort_by" binding:"omitempty,oneof=machine_id machine_name status created_at"`

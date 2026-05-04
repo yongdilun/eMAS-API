@@ -4,6 +4,7 @@ import (
 	"context"
 	"emas/internal/domain"
 	"emas/internal/repository"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -309,6 +310,7 @@ func chatArgString(args map[string]interface{}, key string) string {
 		if s, ok := v.(string); ok {
 			return s
 		}
+		return fmt.Sprint(v)
 	}
 	return ""
 }

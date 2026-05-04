@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import quote
@@ -14,6 +14,7 @@ import httpx
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from models import Approval as ApprovalRow
 from models import DeadLetter as DeadLetterRow
@@ -31,6 +32,7 @@ from .metrics import metrics
 from .presentation import extract_table_from_result
 from .reasoning_pipeline import ReasoningPipeline
 from .schemas import ToolInfo
+from .tabular_analysis import analyze_result
 from .telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped, log_step_status_changed
 from .intent_verifier import normalize_predicate_value
 
@@ -119,6 +121,34 @@ def _result_items(body: dict[str, Any] | None) -> list[dict[str, Any]] | None:
     return None
 
 
+def _result_path_parts(path: str) -> list[str]:
+    normalized = (path or "data").strip()
+    if normalized.startswith("$."):
+        normalized = normalized[2:]
+    if normalized.startswith("result."):
+        normalized = normalized[len("result.") :]
+    if normalized.endswith("[*]"):
+        normalized = normalized[:-3]
+    if normalized.endswith("[]"):
+        normalized = normalized[:-2]
+    return [part for part in normalized.split(".") if part]
+
+
+def _items_at_path(body: dict[str, Any] | None, path: str) -> list[dict[str, Any]]:
+    if not isinstance(body, dict):
+        return []
+    node: Any = body
+    for part in _result_path_parts(path):
+        if not isinstance(node, dict):
+            return []
+        node = node.get(part)
+    if isinstance(node, list):
+        return [item for item in node if isinstance(item, dict)]
+    if isinstance(node, dict):
+        return [node]
+    return []
+
+
 @dataclass(frozen=True)
 class ExecuteResult:
     status: str
@@ -153,9 +183,9 @@ class ExecutionEngine:
         kwargs: dict[str, Any] = {
             "model": self._settings.tool_result_summary_model,
             "temperature": 0,
-            "timeout": self._settings.llm_json_timeout_s,
+            "timeout": self._settings.tool_result_summary_timeout_s,
             "max_retries": 0,
-            "max_tokens": self._settings.llm_json_max_tokens,
+            "max_tokens": self._settings.tool_result_summary_max_tokens,
         }
         if self._settings.openai_base_url:
             kwargs["base_url"] = self._settings.openai_base_url
@@ -301,14 +331,37 @@ class ExecutionEngine:
             pass
         return False
 
-    async def _summarize_step_result(self, *, tool_name: str, body: dict[str, Any] | None, args: dict[str, Any] | None = None) -> str:
+    def _attach_result_analysis(self, *, body: dict[str, Any] | None, intent: str | None) -> dict[str, Any] | None:
+        if not isinstance(body, dict):
+            return body
+        analysis = analyze_result(intent=intent or "", result=body)
+        if analysis is None:
+            return body
+        enriched = dict(body)
+        enriched["_analysis"] = {
+            "dataset": asdict(analysis.dataset),
+            "operations": [asdict(operation) for operation in analysis.operations],
+            "results": analysis.results,
+            "facts": analysis.facts,
+            "grounding_refs": analysis.grounding_refs,
+        }
+        return enriched
+
+    async def _summarize_step_result(
+        self,
+        *,
+        tool_name: str,
+        body: dict[str, Any] | None,
+        args: dict[str, Any] | None = None,
+        intent: str | None = None,
+    ) -> str:
         fallback = self._summarize_step_result_fallback(tool_name=tool_name, body=body)
         if not isinstance(body, dict):
             return fallback
-        render_context = extract_table_from_result(tool_name=tool_name, result=body)
+        render_context = extract_table_from_result(tool_name=tool_name, result=body, intent=intent)
 
         facts = await self._reasoning.extract_facts(
-            intent="tool_result_summary",
+            intent=intent or "tool_result_summary",
             tool_name=tool_name,
             args=args or {},
             result=body,
@@ -323,7 +376,7 @@ class ExecutionEngine:
             if not self._reasoning.should_generate_response(facts=facts):
                 return self._reasoning.fallback_response_from_facts(facts=facts)
             generated = await self._reasoning.generate_response(
-                intent="tool_result_summary",
+                intent=intent or "tool_result_summary",
                 facts=facts,
                 render_context=render_context,
             )
@@ -494,7 +547,12 @@ class ExecutionEngine:
             step.result_summary = summary
             step.completed_at = datetime.utcnow()
             self._log_step_status_change(session=session, plan=plan, step=step, tool=tool, status=step.status)
-            await self._append_tool_result_message(db, session_id=session.session_id, step=step)
+            await self._append_tool_result_message(
+                db,
+                session_id=session.session_id,
+                step=step,
+                intent=session.current_intent,
+            )
             session.current_step_index += 1
             session.step_count += 1
             session.version += 1
@@ -512,8 +570,14 @@ class ExecutionEngine:
         *,
         session_id: str,
         step: PlanStepRow,
+        intent: str | None = None,
     ) -> None:
-        text = step.result_summary or await self._summarize_step_result(tool_name=step.tool_name, body=step.result, args=step.args)
+        text = step.result_summary or await self._summarize_step_result(
+            tool_name=step.tool_name,
+            body=step.result,
+            args=step.args,
+            intent=intent,
+        )
         msg = MessageRow(
             message_id=generate_uuid(),
             session_id=session_id,
@@ -636,6 +700,227 @@ class ExecutionEngine:
             side_effect_level=tool.side_effect_level,
         )
         return approval
+
+    def _bulk_risk_summary(self, *, tool: ToolInfo, step: PlanStepRow) -> str | None:
+        state = step.bulk_state if isinstance(getattr(step, "bulk_state", None), dict) else {}
+        total = int(state.get("total_items") or 0)
+        if total <= 0:
+            return None
+        threshold = int(state.get("max_foreach_items") or self._settings.max_foreach_items)
+        if total > threshold:
+            return (
+                f"This bulk write will run `{tool.name}` for {total} item(s), "
+                f"which exceeds the safe threshold of {threshold}."
+            )
+        return f"This bulk write will run `{tool.name}` for {total} item(s)."
+
+    async def _auto_page_items(
+        self,
+        *,
+        source_tool: ToolInfo,
+        source_step: PlanStepRow,
+        initial_items: list[dict[str, Any]],
+        result_path: str,
+        plan: PlanRow,
+        session: SessionRow,
+        db: AsyncSession,
+    ) -> list[dict[str, Any]]:
+        if "limit" not in set(source_tool.query_params or []) or "offset" not in set(source_tool.query_params or []):
+            return initial_items
+        if "limit" in (source_step.args or {}) or "offset" in (source_step.args or {}):
+            return initial_items
+        if not initial_items or self._settings.max_auto_pages <= 1:
+            return initial_items
+
+        items = list(initial_items)
+        for page_index in range(1, max(1, self._settings.max_auto_pages)):
+            page_args = dict(source_step.args or {})
+            page_args["limit"] = self._settings.foreach_page_size
+            page_args["offset"] = len(items)
+            page_key = compute_idempotency_key(
+                session_id=session.session_id,
+                step_index=source_step.step_index,
+                plan_version=plan.version,
+                args={**page_args, "__auto_page": page_index},
+            )
+            body, _ = await self._execute_tool_call(
+                tool=source_tool,
+                args=page_args,
+                idempotency_key=page_key,
+                plan_hash=plan.plan_hash,
+                plan_version=plan.version,
+                session_id=session.session_id,
+                step_id=source_step.step_id,
+                db=db,
+            )
+            page_items = _items_at_path(body, result_path)
+            if not page_items:
+                break
+            items.extend(page_items)
+            if len(page_items) < self._settings.foreach_page_size:
+                break
+        return items
+
+    async def _prepare_bound_step(
+        self,
+        *,
+        db: AsyncSession,
+        session: SessionRow,
+        plan: PlanRow,
+        step: PlanStepRow,
+        tool: ToolInfo,
+        steps_by_index: dict[int, PlanStepRow],
+        tools_by_name: dict[str, ToolInfo],
+    ) -> None:
+        bindings = [binding for binding in (step.bindings or []) if isinstance(binding, dict)]
+        if not bindings:
+            return
+        foreach_bindings = [binding for binding in bindings if binding.get("mode") == "foreach"]
+        args = dict(step.args or {})
+
+        if not foreach_bindings:
+            for binding in bindings:
+                source_step = steps_by_index.get(int(binding.get("from_step")))
+                if not source_step or source_step.status != "DONE":
+                    raise ToolInputError(f"Binding source step {binding.get('from_step')} has not completed.")
+                items = _items_at_path(source_step.result if isinstance(source_step.result, dict) else None, str(binding.get("result_path") or "data"))
+                if not items:
+                    raise AmbiguousExecutionError(f"Binding source step {source_step.step_index} returned no usable items.")
+                value = items[0].get(str(binding.get("field")))
+                if value in (None, ""):
+                    raise AmbiguousExecutionError(f"Binding field {binding.get('field')} was missing from source result.")
+                args[str(binding.get("target_arg"))] = value
+            if args != (step.args or {}):
+                step.args = args
+                step.idempotency_key = compute_idempotency_key(
+                    session_id=session.session_id,
+                    step_index=step.step_index,
+                    plan_version=plan.version,
+                    args=args,
+                )
+                await db.commit()
+            return
+
+        source_index = int(foreach_bindings[0].get("from_step"))
+        source_step = steps_by_index.get(source_index)
+        source_tool = tools_by_name.get(source_step.tool_name) if source_step else None
+        if not source_step or not source_tool or source_step.status != "DONE":
+            raise ToolInputError(f"Foreach source step {source_index} has not completed.")
+        result_path = str(foreach_bindings[0].get("result_path") or "data")
+        items = _items_at_path(source_step.result if isinstance(source_step.result, dict) else None, result_path)
+        items = await self._auto_page_items(
+            source_tool=source_tool,
+            source_step=source_step,
+            initial_items=items,
+            result_path=result_path,
+            plan=plan,
+            session=session,
+            db=db,
+        )
+        prepared_args: list[dict[str, Any]] = []
+        for item in items:
+            item_args = dict(args)
+            skip = False
+            for binding in foreach_bindings:
+                value = item.get(str(binding.get("field")))
+                if value in (None, ""):
+                    skip = True
+                    break
+                item_args[str(binding.get("target_arg"))] = value
+            if not skip:
+                prepared_args.append(item_args)
+        if not prepared_args:
+            raise AmbiguousExecutionError("Foreach binding resolved zero executable items.")
+        existing_state = step.bulk_state if isinstance(step.bulk_state, dict) else {}
+        step.bulk_state = {
+            **existing_state,
+            "total_items": len(prepared_args),
+            "max_foreach_items": self._settings.max_foreach_items,
+            "max_auto_pages": self._settings.max_auto_pages,
+            "prepared_args": prepared_args,
+            "requires_bulk_approval": len(prepared_args) > self._settings.max_foreach_items,
+        }
+        flag_modified(step, "bulk_state")
+        await db.commit()
+
+    async def _execute_foreach_step(
+        self,
+        *,
+        tool: ToolInfo,
+        step: PlanStepRow,
+        plan: PlanRow,
+        session: SessionRow,
+        db: AsyncSession,
+    ) -> dict[str, Any]:
+        state = step.bulk_state if isinstance(step.bulk_state, dict) else {}
+        prepared_args = state.get("prepared_args") if isinstance(state.get("prepared_args"), list) else []
+        if not prepared_args:
+            raise ToolInputError("Foreach step has no prepared item args.")
+
+        succeeded = list(state.get("succeeded") or [])
+        failed = list(state.get("failed") or [])
+        succeeded_indexes = {int(item.get("index")) for item in succeeded if isinstance(item, dict) and "index" in item}
+
+        for index, item_args in enumerate(prepared_args):
+            if index in succeeded_indexes:
+                continue
+            if not isinstance(item_args, dict):
+                continue
+            item_key = compute_idempotency_key(
+                session_id=session.session_id,
+                step_index=step.step_index,
+                plan_version=plan.version,
+                args={**item_args, "__foreach_index": index},
+            )
+            existing_snapshot = (
+                await db.execute(
+                    select(SnapshotRow)
+                    .where(SnapshotRow.idempotency_key == item_key)
+                    .where(SnapshotRow.plan_hash == plan.plan_hash)
+                    .order_by(SnapshotRow.executed_at.desc())
+                )
+            ).scalars().first()
+            if existing_snapshot and existing_snapshot.http_status and existing_snapshot.http_status < 400:
+                succeeded.append({"index": index, "idempotency_key": item_key, "replayed": True})
+                step.bulk_state = {**state, "succeeded": succeeded, "failed": failed}
+                flag_modified(step, "bulk_state")
+                await db.commit()
+                continue
+            try:
+                body, _ = await self._execute_tool_call(
+                    tool=tool,
+                    args=item_args,
+                    idempotency_key=item_key,
+                    plan_hash=plan.plan_hash,
+                    plan_version=plan.version,
+                    session_id=session.session_id,
+                    step_id=step.step_id,
+                    db=db,
+                )
+                succeeded.append({"index": index, "idempotency_key": item_key, "result": body})
+                state = {**state, "succeeded": succeeded, "failed": failed}
+                step.bulk_state = state
+                flag_modified(step, "bulk_state")
+                await db.commit()
+            except Exception as exc:
+                decision = self._classify_error(err=exc, tool=tool, step=step)
+                failed.append({"index": index, "args": item_args, "error": str(exc), "decision": decision})
+                step.bulk_state = {**state, "succeeded": succeeded, "failed": failed}
+                flag_modified(step, "bulk_state")
+                await db.commit()
+                if decision == "RETRY":
+                    raise
+                raise AmbiguousExecutionError(
+                    f"Bulk step stopped after {len(succeeded)} success(es) and {len(failed)} failure(s): {exc}"
+                ) from exc
+
+        return {
+            "bulk": True,
+            "total": len(prepared_args),
+            "succeeded": len(succeeded),
+            "failed": len(failed),
+            "items": succeeded[:20],
+        }
 
     async def _record_snapshot(
         self,
@@ -808,6 +1093,8 @@ class ExecutionEngine:
         return body, latency_ms
 
     def _classify_error(self, *, err: Exception, tool: ToolInfo, step: PlanStepRow) -> FailureDecision:
+        if isinstance(err, AmbiguousExecutionError):
+            return "AMBIGUOUS"
         if isinstance(err, PredicateVerificationError):
             return "REPLAN"
         if isinstance(err, ToolNetworkError):
@@ -1439,6 +1726,7 @@ class ExecutionEngine:
                 .order_by(PlanStepRow.step_index.asc())
             )
         ).scalars().all()
+        steps_by_index = {int(step.step_index): step for step in steps}
 
         limit_result = await self._check_limits_and_fail_if_needed(db, session=session)
         if limit_result is not None:
@@ -1484,6 +1772,43 @@ class ExecutionEngine:
                 await db.commit()
                 continue
 
+            try:
+                await self._prepare_bound_step(
+                    db=db,
+                    session=session,
+                    plan=plan,
+                    step=step,
+                    tool=tool,
+                    steps_by_index=steps_by_index,
+                    tools_by_name=tools_by_name,
+                )
+            except Exception as e:
+                decision = self._classify_error(err=e, tool=tool, step=step)
+                if decision == "AMBIGUOUS":
+                    step.status = "AMBIGUOUS"
+                    step.last_error = str(e)
+                    session.status = "BLOCKED"
+                    session.error = str(e)
+                    session.version += 1
+                    await db.commit()
+                    await self._push_dlq(
+                        db,
+                        session_id=session.session_id,
+                        step_id=step.step_id,
+                        failure_type="ambiguous_binding",
+                        reason=str(e),
+                        payload={"tool": tool.name, "bindings": step.bindings or []},
+                    )
+                    return ExecuteResult(status=session.status, current_step_index=session.current_step_index)
+                return await self._trigger_replan(
+                    db,
+                    session=session,
+                    plan=plan,
+                    steps=steps,
+                    failed_step=step,
+                    reason=f"binding_resolution_failed: {e}",
+                )
+
             if tool.requires_approval:
                 if not step.approval_id:
                     skipped, risk_override = await self._preflight_approval_guard(
@@ -1500,7 +1825,7 @@ class ExecutionEngine:
                         session_id=session.session_id,
                         step=step,
                         tool=tool,
-                        risk_summary_override=risk_override,
+                        risk_summary_override=risk_override or self._bulk_risk_summary(tool=tool, step=step),
                     )
                 approval = (
                     await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == step.approval_id))
@@ -1585,6 +1910,10 @@ class ExecutionEngine:
                     step.status = "DONE" if existing_snapshot.http_status < 400 else "FAILED"
                     step.result = existing_snapshot.response_body
                 if step.status == "DONE":
+                    step.result = self._attach_result_analysis(
+                        body=step.result if isinstance(step.result, dict) else None,
+                        intent=session.current_intent,
+                    )
                     coverage = self._verify_predicate_contract(
                         session=session,
                         step=step,
@@ -1593,7 +1922,12 @@ class ExecutionEngine:
                     )
                     if coverage and isinstance(step.result, dict):
                         step.result["_predicate_coverage"] = coverage
-                    step.result_summary = await self._summarize_step_result(tool_name=tool.name, body=step.result, args=step.args)
+                    step.result_summary = await self._summarize_step_result(
+                        tool_name=tool.name,
+                        body=step.result,
+                        args=step.args,
+                        intent=session.current_intent,
+                    )
                 step.completed_at = datetime.utcnow()
                 self._log_step_status_change(
                     session=session,
@@ -1617,7 +1951,12 @@ class ExecutionEngine:
                 )
                 session.version += 1
                 if step.status == "DONE":
-                    await self._append_tool_result_message(db, session_id=session.session_id, step=step)
+                    await self._append_tool_result_message(
+                        db,
+                        session_id=session.session_id,
+                        step=step,
+                        intent=session.current_intent,
+                    )
                 await db.commit()
             else:
                 recovery_step_id = step.step_id
@@ -1625,16 +1964,25 @@ class ExecutionEngine:
                 recovery_step_index = int(session.current_step_index or 0)
                 while True:
                     try:
-                        body, _ = await self._execute_tool_call(
-                            tool=tool,
-                            args=step.args,
-                            idempotency_key=step.idempotency_key,
-                            plan_hash=plan.plan_hash,
-                            plan_version=plan.version,
-                            session_id=session.session_id,
-                            step_id=step.step_id,
-                            db=db,
-                        )
+                        if (getattr(step, "execution_mode", None) or "single") == "foreach":
+                            body = await self._execute_foreach_step(
+                                tool=tool,
+                                step=step,
+                                plan=plan,
+                                session=session,
+                                db=db,
+                            )
+                        else:
+                            body, _ = await self._execute_tool_call(
+                                tool=tool,
+                                args=step.args,
+                                idempotency_key=step.idempotency_key,
+                                plan_hash=plan.plan_hash,
+                                plan_version=plan.version,
+                                session_id=session.session_id,
+                                step_id=step.step_id,
+                                db=db,
+                            )
                         coverage = self._verify_predicate_contract(
                             session=session,
                             step=step,
@@ -1672,9 +2020,15 @@ class ExecutionEngine:
                         # --------------------------------
                         if coverage and isinstance(body, dict):
                             body["_predicate_coverage"] = coverage
+                        body = self._attach_result_analysis(body=body, intent=session.current_intent) or body
                         step.status = "DONE"
                         step.result = body
-                        step.result_summary = await self._summarize_step_result(tool_name=tool.name, body=body, args=step.args)
+                        step.result_summary = await self._summarize_step_result(
+                            tool_name=tool.name,
+                            body=body,
+                            args=step.args,
+                            intent=session.current_intent,
+                        )
                         step.completed_at = datetime.utcnow()
                         self._log_step_status_change(
                             session=session,
@@ -1697,7 +2051,12 @@ class ExecutionEngine:
                             session_replan_count=session.replan_count,
                         )
                         session.version += 1
-                        await self._append_tool_result_message(db, session_id=session.session_id, step=step)
+                        await self._append_tool_result_message(
+                            db,
+                            session_id=session.session_id,
+                            step=step,
+                            intent=session.current_intent,
+                        )
                         await db.commit()
                         break
                     except Exception as e:

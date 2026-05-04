@@ -3,6 +3,7 @@ package testutil
 import (
 	"bytes"
 	"emas/internal/repository"
+	"emas/internal/seeddata"
 	"encoding/json"
 	_ "github.com/ncruces/go-sqlite3/embed"
 	"io"
@@ -66,6 +67,7 @@ func resetTestDB(db *gorm.DB) error {
 	tables := []string{
 		"ai_chat_messages",
 		"ai_conversations",
+		"chatbot_approvals",
 		"chatbot_tool_execution_snapshots",
 		"chatbot_turn_audits",
 		"quality_inspection_records",
@@ -117,6 +119,12 @@ func newTestDBWithDB(t interface{ Fatal(...interface{}) }, db *gorm.DB) *gorm.DB
 		t.Fatal("migrate:", err)
 	}
 	return db
+}
+
+func SeedCanonical(t interface{ Fatal(...interface{}) }, db *gorm.DB) {
+	if err := seeddata.SeedCanonical(db, seeddata.SeedOptions{ValidateFingerprint: true}); err != nil {
+		t.Fatal("seed canonical:", err)
+	}
 }
 
 // NewTestRouter returns a configured Gin router with the given DB.

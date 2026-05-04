@@ -27,6 +27,7 @@ from .events import AgentEvent, EventBus
 from .execution import ExecutionEngine, compute_idempotency_key
 from .intent import assess_intent
 from .metrics import metrics
+from .permissions import filter_tools_for_role, role_from_claims
 from .planner import PlannerAdapter, PlannerBackendError, PlannerClarificationError, PlannerConfirmationRequired
 from .plan_validator import validate_plan
 from .schemas import (
@@ -148,6 +149,9 @@ def _step_to_response(s: PlanStepRow) -> PlanStepResponse:
         step_index=s.step_index,
         tool_name=s.tool_name,
         args=s.args or {},
+        execution_mode=(getattr(s, "execution_mode", None) or "single"),
+        bindings=getattr(s, "bindings", None) or [],
+        bulk_state=getattr(s, "bulk_state", None),
         status=s.status,
         idempotency_key=s.idempotency_key,
         requires_approval=bool(s.requires_approval),
@@ -195,9 +199,17 @@ def _timeline_event(
     )
 
 
-def _build_tool_result_details(*, tool_name: str | None, args: dict[str, Any] | None, result: dict[str, Any] | None, last_error: str | None, content: str | None) -> dict[str, Any]:
+def _build_tool_result_details(
+    *,
+    tool_name: str | None,
+    args: dict[str, Any] | None,
+    result: dict[str, Any] | None,
+    last_error: str | None,
+    content: str | None,
+    intent: str | None = None,
+) -> dict[str, Any]:
     details: dict[str, Any] = {"args": args, "result": result, "last_error": last_error}
-    presentation = extract_table_from_result(tool_name=tool_name, result=result)
+    presentation = extract_table_from_result(tool_name=tool_name, result=result, intent=intent)
     if presentation:
         presentation["message"] = content or ""
         details["presentation"] = presentation
@@ -485,6 +497,9 @@ def build_router(
                 step_index=step.step_index,
                 tool_name=step.tool_name,
                 args=step.args,
+                bindings=[binding.model_dump() for binding in (getattr(step, "bindings", []) or [])],
+                execution_mode=getattr(step, "execution_mode", "single") or "single",
+                bulk_state=None,
                 status="NOT_STARTED",
                 idempotency_key=compute_idempotency_key(
                     session_id=sess.session_id,
@@ -647,11 +662,21 @@ def build_router(
         if x_admin_key != settings.admin_api_key:
             raise HTTPException(status_code=403, detail="forbidden")
 
-    def require_jwt(authorization: str | None = Header(None, alias="Authorization")) -> dict[str, Any]:
+    def require_jwt(
+        authorization: str | None = Header(None, alias="Authorization"),
+        x_user_role: str | None = Header(None, alias="X-User-Role"),
+    ) -> dict[str, Any]:
         try:
-            return validate_bearer_token(authorization, settings=settings)
+            claims = validate_bearer_token(authorization, settings=settings)
         except JwtValidationError as e:
             raise HTTPException(status_code=401, detail=str(e))
+        if x_user_role and "role" not in claims and "user_role" not in claims:
+            claims["role"] = x_user_role.strip().lower()
+        claims.setdefault(
+            "role",
+            role_from_claims(claims, default="viewer" if settings.jwt_required else "admin"),
+        )
+        return claims
 
     async def load_session_snapshot(*, db: AsyncSession, session_id: str) -> SessionSnapshotResponse | None:
         sess = await session_mgr.get_session(db, session_id=session_id)
@@ -987,6 +1012,7 @@ def build_router(
                         result=step.result,
                         last_error=step.last_error,
                         content=content,
+                        intent=sess.current_intent,
                     ),
                 )
             )
@@ -1211,9 +1237,11 @@ def build_router(
     async def list_tools(
         intent: str | None = Query(None, description="Optional user intent to scope tools."),
         max_tools: int = Query(30, ge=1, le=200, description="Maximum tools returned."),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         tools_by_name = await tool_registry.get_tools_by_name(db)
+        tools_by_name = filter_tools_for_role(tools_by_name, role=role_from_claims(user))
         if intent:
             selection = await tool_selector.select_tools(intent=intent, tools_by_name=tools_by_name, max_tools=max_tools)
             return [tools_by_name[name] for name in selection.tool_names if name in tools_by_name]
@@ -1333,7 +1361,17 @@ def build_router(
         confirmation = context.get("confirmation_request")
         if sess.status != "WAITING_CONFIRMATION" or not isinstance(confirmation, dict):
             raise HTTPException(status_code=409, detail="session is not waiting for confirmation")
-        options = confirmation.get("options") if isinstance(confirmation.get("options"), list) else []
+        options: list[dict[str, Any]] = []
+        for key in ("options", "all_options", "other_possible_fields"):
+            raw_options = confirmation.get(key)
+            if not isinstance(raw_options, list):
+                continue
+            for opt in raw_options:
+                if not isinstance(opt, dict):
+                    continue
+                if any(existing.get("field") == opt.get("field") for existing in options):
+                    continue
+                options.append(opt)
         selected = next((opt for opt in options if isinstance(opt, dict) and opt.get("field") == req.field), None)
         if not selected:
             raise HTTPException(status_code=400, detail="confirmation option is not valid for this session")
@@ -1407,7 +1445,7 @@ def build_router(
     async def create_plan(
         session_id: str,
         req: PlanCreateRequest,
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         started = time.perf_counter()
@@ -1420,6 +1458,7 @@ def build_router(
         mode = latest_user.mode if latest_user else "normal"
         assessment = assess_intent(intent)
         tools_by_name = await tool_registry.get_tools_by_name(db)
+        tools_by_name = filter_tools_for_role(tools_by_name, role=role_from_claims(user))
         backend_used = "legacy" if req.draft is None else "client"
         draft = req.draft
 
@@ -1437,6 +1476,9 @@ def build_router(
             return plan_resp
 
         tools_by_name = await _ensure_registry_health(db=db)
+        tools_by_name = filter_tools_for_role(tools_by_name, role=role_from_claims(user))
+        if not tools_by_name:
+            raise HTTPException(status_code=403, detail={"errors": ["No tools are allowed for this user role."]})
 
         selection = await tool_selector.select_tools(intent=intent, tools_by_name=tools_by_name, mode=mode)
         scoped_names = set(selection.tool_names)
@@ -1594,7 +1636,7 @@ def build_router(
         session_id: str,
         background: bool = Query(False, description="If true, enqueue execution to the worker pool (when enabled)."),
         expected_version: int | None = Query(None, ge=1, description="Optional optimistic-lock expected session version."),
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         sess = await session_mgr.get_session(db, session_id=session_id)
@@ -1645,6 +1687,7 @@ def build_router(
             return _session_to_response(sess)
 
         tools_by_name = await _ensure_registry_health(db=db)
+        tools_by_name = filter_tools_for_role(tools_by_name, role=role_from_claims(user))
         await executor.execute_until_blocked(db, session=sess, tools_by_name=tools_by_name)
         sess = await session_mgr.get_session(db, session_id=session_id)
         current_plan = await _load_current_plan(db=db, session_id=session_id)
