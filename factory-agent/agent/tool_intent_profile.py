@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+import json
+from pathlib import Path
 import re
 
 from .schemas import ToolInfo
@@ -9,58 +12,7 @@ from .schemas import ToolInfo
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 _PATH_PARAM_RE = re.compile(r"^\{[^}]+\}$")
 _ID_LIKE_RE = re.compile(r"\b[A-Z]{1,10}[-_][A-Z0-9]+(?:[-_][A-Z0-9]+)*\b|\b\d+\b", re.IGNORECASE)
-
-_GENERIC_TOKENS = {
-    "a",
-    "all",
-    "an",
-    "and",
-    "any",
-    "api",
-    "by",
-    "create",
-    "delete",
-    "fetch",
-    "find",
-    "for",
-    "get",
-    "id",
-    "ids",
-    "inspect",
-    "list",
-    "lookup",
-    "new",
-    "of",
-    "read",
-    "record",
-    "records",
-    "show",
-    "status",
-    "the",
-    "update",
-    "view",
-}
-
-_ENTITY_TOKENS = {
-    "approval",
-    "approvals",
-    "inventory",
-    "inventories",
-    "job",
-    "jobs",
-    "machine",
-    "machines",
-    "material",
-    "materials",
-    "product",
-    "products",
-    "schedule",
-    "scheduling",
-    "slot",
-    "slots",
-    "step",
-    "steps",
-}
+_GENERATED_VOCAB_PATH = Path(__file__).with_name("generated") / "tool_intent_vocabulary.json"
 
 
 @dataclass(frozen=True)
@@ -76,12 +28,28 @@ class ToolIntentProfile:
     parent_endpoint: str | None
 
 
+@dataclass(frozen=True)
+class ToolIntentVocabulary:
+    generic_tokens: frozenset[str]
+    entity_tokens: frozenset[str]
+    known_tool_tokens: frozenset[str]
+
+
+EMPTY_VOCABULARY = ToolIntentVocabulary(
+    generic_tokens=frozenset(),
+    entity_tokens=frozenset(),
+    known_tool_tokens=frozenset(),
+)
+
+
 def normalize_token(token: str) -> str:
     lowered = (token or "").strip().lower()
     if lowered.endswith("ies") and len(lowered) > 3:
         return lowered[:-3] + "y"
-    if lowered.endswith("ses") and len(lowered) > 4:
+    if lowered.endswith("sses") and len(lowered) > 5:
         return lowered[:-2]
+    if lowered.endswith("ss"):
+        return lowered
     if lowered.endswith("s") and len(lowered) > 3:
         return lowered[:-1]
     return lowered
@@ -90,6 +58,124 @@ def normalize_token(token: str) -> str:
 def tokenize(text: str) -> set[str]:
     raw = {normalize_token(match.group(0)) for match in _TOKEN_RE.finditer(text or "")}
     return {token for token in raw if token}
+
+
+def _tool_metadata_tokens(tool: ToolInfo) -> set[str]:
+    schema_text = " ".join([_schema_text(tool.input_schema), _schema_text(tool.output_schema), _schema_text(tool.body_schema)])
+    return tokenize(
+        " ".join(
+            [
+                tool.name.replace("__", " ").replace("_", " "),
+                tool.description,
+                tool.endpoint.replace("/", " "),
+                tool.method,
+                " ".join(tool.capability_tags or []),
+                " ".join(tool.path_params or []),
+                " ".join(tool.query_params or []),
+                " ".join(tool.body_fields or []),
+                " ".join(tool.required_body_fields or []),
+                schema_text,
+            ]
+        )
+    )
+
+
+def _collection_entity_tokens(tools: list[ToolInfo]) -> set[str]:
+    by_endpoint = {(tool.method, (tool.endpoint or "").rstrip("/")) for tool in tools}
+    entities: set[str] = set()
+
+    for tool in tools:
+        parts = [part for part in (tool.endpoint or "").strip("/").split("/") if part]
+        for index, part in enumerate(parts[:-1]):
+            if _PATH_PARAM_RE.match(parts[index + 1]):
+                entities.update(tokenize(part))
+
+        if not parts:
+            continue
+        collection = f"/{parts[0]}"
+        has_collection_read = ("GET", collection) in by_endpoint
+        has_collection_write = ("POST", collection) in by_endpoint
+        has_member_read = ("GET", f"{collection}/{{id}}") in by_endpoint
+        has_member_write = any(
+            (method, f"{collection}/{{id}}") in by_endpoint
+            for method in ("PUT", "PATCH", "DELETE")
+        )
+        if has_collection_read and (has_collection_write or has_member_read or has_member_write):
+            entities.update(tokenize(parts[0]))
+
+    for tool in tools:
+        for schema in (tool.input_schema, tool.output_schema, tool.body_schema):
+            for token in _schema_entity_tokens(schema):
+                entities.add(token)
+
+    return entities
+
+
+def _schema_entity_tokens(schema: dict | None) -> set[str]:
+    if not isinstance(schema, dict):
+        return set()
+    tokens: set[str] = set()
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for name, subschema in properties.items():
+            normalized = str(name).strip().lower()
+            if normalized.endswith("_id") and len(normalized) > 3:
+                tokens.update(tokenize(normalized[:-3]))
+            tokens.update(_schema_entity_tokens(subschema if isinstance(subschema, dict) else {}))
+    items = schema.get("items")
+    if isinstance(items, dict):
+        tokens.update(_schema_entity_tokens(items))
+    return tokens
+
+
+def build_tool_intent_vocabulary(tools: list[ToolInfo], *, generic_threshold: float = 0.60) -> ToolIntentVocabulary:
+    tool_count = len(tools)
+    if tool_count <= 0:
+        return EMPTY_VOCABULARY
+
+    document_frequency: dict[str, int] = {}
+    known_tokens: set[str] = set()
+    for tool in tools:
+        tokens = _tool_metadata_tokens(tool)
+        known_tokens.update(tokens)
+        for token in tokens:
+            document_frequency[token] = document_frequency.get(token, 0) + 1
+
+    min_count = max(3, int(round(tool_count * generic_threshold)))
+    generic_tokens = {
+        token
+        for token, count in document_frequency.items()
+        if count >= min_count and count / tool_count >= generic_threshold
+    }
+    entity_tokens = _collection_entity_tokens(tools)
+    return ToolIntentVocabulary(
+        generic_tokens=frozenset(generic_tokens),
+        entity_tokens=frozenset(entity_tokens),
+        known_tool_tokens=frozenset(known_tokens),
+    )
+
+
+def vocabulary_for_tools(tools: list[ToolInfo]) -> ToolIntentVocabulary:
+    return build_tool_intent_vocabulary(tools)
+
+
+@lru_cache(maxsize=1)
+def load_generated_vocabulary() -> ToolIntentVocabulary:
+    try:
+        payload = json.loads(_GENERATED_VOCAB_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return EMPTY_VOCABULARY
+    return ToolIntentVocabulary(
+        generic_tokens=frozenset(str(token) for token in payload.get("generic_tokens", []) if str(token)),
+        entity_tokens=frozenset(str(token) for token in payload.get("entity_tokens", []) if str(token)),
+        known_tool_tokens=frozenset(str(token) for token in payload.get("known_tool_tokens", []) if str(token)),
+    )
+
+
+def _effective_vocabulary(vocabulary: ToolIntentVocabulary | None) -> ToolIntentVocabulary:
+    if vocabulary is not None:
+        return vocabulary
+    return load_generated_vocabulary()
 
 
 def _has_identifier(text: str) -> bool:
@@ -182,7 +268,8 @@ def _parent_endpoint(endpoint: str) -> str | None:
     return "/" + "/".join(parent)
 
 
-def build_tool_intent_profile(tool: ToolInfo) -> ToolIntentProfile:
+def build_tool_intent_profile(tool: ToolInfo, *, vocabulary: ToolIntentVocabulary | None = None) -> ToolIntentProfile:
+    vocab = _effective_vocabulary(vocabulary)
     endpoint_segments = _endpoint_segments(tool.endpoint)
     field_text = " ".join(
         [
@@ -209,7 +296,7 @@ def build_tool_intent_profile(tool: ToolInfo) -> ToolIntentProfile:
     feature_tokens = frozenset(
         token
         for token in identity_tokens
-        if token not in _GENERIC_TOKENS and token not in _ENTITY_TOKENS and not token.isdigit()
+        if token not in vocab.generic_tokens and token not in vocab.entity_tokens and not token.isdigit()
     )
     return ToolIntentProfile(
         name=tool.name,
@@ -224,21 +311,26 @@ def build_tool_intent_profile(tool: ToolInfo) -> ToolIntentProfile:
     )
 
 
-def intent_feature_tokens(intent: str) -> set[str]:
+def intent_feature_tokens(intent: str, *, vocabulary: ToolIntentVocabulary | None = None) -> set[str]:
+    vocab = _effective_vocabulary(vocabulary)
     tokens = tokenize(_strip_identifiers(intent))
     return {
         token
         for token in tokens
-        if token not in _GENERIC_TOKENS and token not in _ENTITY_TOKENS and not token.isdigit()
+        if token not in vocab.generic_tokens
+        and token not in vocab.entity_tokens
+        and not token.isdigit()
+        and (not vocab.known_tool_tokens or token in vocab.known_tool_tokens)
     }
 
 
-def profile_match_score(intent: str, tool: ToolInfo) -> int:
+def profile_match_score(intent: str, tool: ToolInfo, *, vocabulary: ToolIntentVocabulary | None = None) -> int:
     intent_tokens = tokenize(intent)
     if not intent_tokens:
         return 0
-    profile = build_tool_intent_profile(tool)
-    feature_tokens = intent_feature_tokens(intent)
+    vocab = _effective_vocabulary(vocabulary)
+    profile = build_tool_intent_profile(tool, vocabulary=vocab)
+    feature_tokens = intent_feature_tokens(intent, vocabulary=vocab)
     score = 0
 
     identity_overlap = intent_tokens & set(profile.identity_tokens)
@@ -290,11 +382,12 @@ def profile_match_score(intent: str, tool: ToolInfo) -> int:
     return score
 
 
-def tool_covers_descriptive_terms(intent: str, tool: ToolInfo) -> bool:
-    features = intent_feature_tokens(intent)
+def tool_covers_descriptive_terms(intent: str, tool: ToolInfo, *, vocabulary: ToolIntentVocabulary | None = None) -> bool:
+    vocab = _effective_vocabulary(vocabulary)
+    features = intent_feature_tokens(intent, vocabulary=vocab)
     if not features:
         return False
-    profile = build_tool_intent_profile(tool)
+    profile = build_tool_intent_profile(tool, vocabulary=vocab)
     return _soft_overlap(features, set(profile.identity_tokens)) == features
 
 

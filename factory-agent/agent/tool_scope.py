@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from .intent import assess_intent
 from .schemas import ToolInfo
-from .tool_intent_profile import profile_match_score
+from .tool_intent_profile import ToolIntentVocabulary, profile_match_score, vocabulary_for_tools
 
 
 @dataclass(frozen=True)
@@ -64,19 +64,19 @@ def _split_intent_clauses(intent: str) -> list[str]:
     return parts or [intent]
 
 
-def _ranked_tools(intent: str, tools_by_name: dict[str, ToolInfo]) -> list[tuple[str, int]]:
-    scores = {name: score_tool(intent, tool) for name, tool in tools_by_name.items()}
+def _ranked_tools(intent: str, tools_by_name: dict[str, ToolInfo], *, vocabulary: ToolIntentVocabulary) -> list[tuple[str, int]]:
+    scores = {name: score_tool(intent, tool, vocabulary=vocabulary) for name, tool in tools_by_name.items()}
     return sorted(scores.items(), key=lambda item: item[1], reverse=True)
 
 
-def score_tool(intent: str, tool: ToolInfo) -> int:
+def score_tool(intent: str, tool: ToolInfo, *, vocabulary: ToolIntentVocabulary | None = None) -> int:
     intent_tokens = _tokenize(intent)
     if not intent_tokens:
         return 0
 
     assessment = assess_intent(intent)
     tool_tokens = _tool_search_tokens(tool)
-    score = profile_match_score(intent, tool)
+    score = profile_match_score(intent, tool, vocabulary=vocabulary)
     for tag in tool.capability_tags:
         if tag.lower() in intent_tokens:
             score += 10
@@ -143,8 +143,9 @@ def filter_tools_for_intent(
     picked: list[str] = []
     seen: set[str] = set()
     clauses = _split_intent_clauses(intent)
+    vocabulary = vocabulary_for_tools(list(tools_by_name.values()))
     for clause in clauses:
-        ranked = _ranked_tools(clause, tools_by_name)
+        ranked = _ranked_tools(clause, tools_by_name, vocabulary=vocabulary)
         top_score = ranked[0][1] if ranked else 0
         if top_score <= 2:
             continue

@@ -10,7 +10,7 @@ from .intent import assess_intent
 from .schemas import ToolInfo
 from .telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped
 from .tool_scope import ScopedTools, filter_tools_for_intent, score_tool
-from .tool_intent_profile import build_tool_intent_profile, profile_match_score
+from .tool_intent_profile import ToolIntentVocabulary, build_tool_intent_profile, profile_match_score, vocabulary_for_tools
 
 
 ToolSelectorBackendName = Literal["retrieval", "langchain"]
@@ -62,16 +62,23 @@ class ToolSelector:
         scoped = filter_tools_for_intent(intent=intent, tools_by_name=tools_by_name, max_tools=max(max_tools, candidate_cap))
         scoped_names = [name for name in scoped.tool_names if name in tools_by_name]
         base_names = scoped_names or sorted(tools_by_name.keys())
-        retrieved = self._retrieve_candidates(intent=intent, tools_by_name=tools_by_name, candidates=base_names, limit=candidate_cap)
+        vocabulary = vocabulary_for_tools(list(tools_by_name.values()))
+        retrieved = self._retrieve_candidates(
+            intent=intent,
+            tools_by_name=tools_by_name,
+            candidates=base_names,
+            limit=candidate_cap,
+            vocabulary=vocabulary,
+        )
 
         if not retrieved:
-            ranked = [(name, score_tool(intent, tools_by_name[name])) for name in base_names if name in tools_by_name]
+            ranked = [(name, score_tool(intent, tools_by_name[name], vocabulary=vocabulary)) for name in base_names if name in tools_by_name]
         else:
             ranked = []
             for name, retrieval_score in retrieved:
                 if name not in tools_by_name:
                     continue
-                heuristic_score = score_tool(intent, tools_by_name[name])
+                heuristic_score = score_tool(intent, tools_by_name[name], vocabulary=vocabulary)
                 # Blend retrieval and deterministic intent scoring.
                 ranked.append((name, (retrieval_score * 3) + heuristic_score))
             ranked.sort(key=lambda item: item[1], reverse=True)
@@ -79,7 +86,7 @@ class ToolSelector:
             ranked = [(name, score) for name, score in ranked if tools_by_name[name].is_read_only]
             if not ranked:
                 ranked = [
-                    (name, score_tool(intent, tools_by_name[name]))
+                    (name, score_tool(intent, tools_by_name[name], vocabulary=vocabulary))
                     for name in sorted(tools_by_name.keys())
                     if name in tools_by_name and tools_by_name[name].is_read_only
                 ]
@@ -329,6 +336,7 @@ class ToolSelector:
         tools_by_name: dict[str, ToolInfo],
         candidates: list[str],
         limit: int,
+        vocabulary: ToolIntentVocabulary,
     ) -> list[tuple[str, int]]:
         intent_tokens = self._tokenize(intent)
         if not intent_tokens:
@@ -347,7 +355,7 @@ class ToolSelector:
                 continue
             tool_tokens = self._tool_retrieval_tokens(tool)
             overlap = intent_tokens & tool_tokens
-            score = len(overlap) * 2 + profile_match_score(intent, tool)
+            score = len(overlap) * 2 + profile_match_score(intent, tool, vocabulary=vocabulary)
 
             if assessment.action == "create" and tool.method == "POST":
                 score += 6
@@ -379,13 +387,13 @@ class ToolSelector:
             if score > 0:
                 ranked.append((name, score))
 
-        ranked.sort(key=lambda item: (item[1], score_tool(intent, tools_by_name[item[0]])), reverse=True)
+        ranked.sort(key=lambda item: (item[1], score_tool(intent, tools_by_name[item[0]], vocabulary=vocabulary)), reverse=True)
         if not semantic:
             return ranked[: max(1, limit)]
 
         blended: dict[str, int] = {name: score for name, score in ranked}
         for name, semantic_score in semantic:
-            blended[name] = max(blended.get(name, 0), semantic_score + score_tool(intent, tools_by_name[name]))
+            blended[name] = max(blended.get(name, 0), semantic_score + score_tool(intent, tools_by_name[name], vocabulary=vocabulary))
         merged = sorted(blended.items(), key=lambda item: item[1], reverse=True)
         return merged[: max(1, limit)]
 

@@ -23,6 +23,9 @@ cd "C:\Users\dilun\OneDrive\Documents\eMas APi"
 # Fast manifest/category check only
 & ".\factory-agent\.venv\Scripts\python.exe" -m pytest factory-agent\tests\test_seed_pipeline_manifest.py -q
 
+# Regenerate tool intent vocabulary from local OpenAPI metadata
+& ".\factory-agent\.venv\Scripts\python.exe" factory-agent\scripts\generate_tool_intent_vocabulary.py
+
 # Full seed pipeline: Go fast checks + Python manifest + seeded backend scenarios
 .\tests\e2e\run_seed_pipeline.ps1
 

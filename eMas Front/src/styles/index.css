@@ -1,9 +1,132 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer components {
+  .status-badge {
+    @apply inline-flex items-center px-[8px] py-[2px] rounded-pill bg-surface-2 text-ink-muted text-caption font-medium border border-hairline;
+  }
+
+  .app-nav-section {
+    @apply rounded-lg;
+  }
+
+  .app-nav-link {
+    @apply relative flex min-h-10 items-center gap-3 rounded-md border border-transparent px-3 py-2 text-button outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-primary-focus;
+  }
+
+  .app-nav-link-active {
+    @apply border-hairline-strong bg-surface-3 text-ink;
+  }
+
+  .app-nav-icon {
+    @apply text-[20px] leading-none transition-colors;
+  }
+
+  .app-nav-active-marker {
+    @apply absolute left-0 top-1/2 h-5 w-[2px] -translate-y-1/2 rounded-full bg-primary opacity-0 transition-opacity;
+  }
+
+  .app-nav-link-active .app-nav-active-marker {
+    @apply opacity-100;
+  }
+}
+
+@layer base {
+  :root {
+    /* Brand Colors */
+    --color-primary: #5e6ad2;
+    --color-on-primary: #ffffff;
+    --color-primary-hover: #828fff;
+    --color-primary-focus: #5e69d1;
+    --color-brand-secure: #7a7fad;
+    --color-semantic-success: #27a644;
+    --color-semantic-overlay: #000000;
+
+    /* Light Theme (Default) */
+    --color-ink: #111827;
+    --color-ink-muted: #374151;
+    --color-ink-subtle: #6b7280;
+    --color-ink-tertiary: #9ca3af;
+    --color-canvas: #ffffff;
+    --color-surface-1: #f5f6f6;
+    --color-surface-2: #eaebeb;
+    --color-surface-3: #e1e3e4;
+    --color-surface-4: #d8dadb;
+    --color-hairline: #e5e7eb;
+    --color-hairline-strong: #d1d5db;
+    --color-hairline-tertiary: #9ca3af;
+    --color-inverse-canvas: #010102;
+    --color-inverse-surface-1: #0f1011;
+    --color-inverse-surface-2: #141516;
+    --color-inverse-ink: #f7f8f8;
+    --scrollbar-track: #f5f6f6;
+    --scrollbar-thumb: #d1d5db;
+    --scrollbar-thumb-hover: #9ca3af;
+  }
+
+  /* Dark Theme */
+  .dark {
+    --color-ink: #f7f8f8;
+    --color-ink-muted: #d0d6e0;
+    --color-ink-subtle: #8a8f98;
+    --color-ink-tertiary: #62666d;
+    --color-canvas: #010102;
+    --color-surface-1: #0f1011;
+    --color-surface-2: #141516;
+    --color-surface-3: #18191a;
+    --color-surface-4: #191a1b;
+    --color-hairline: #23252a;
+    --color-hairline-strong: #34343a;
+    --color-hairline-tertiary: #3e3e44;
+    --color-inverse-canvas: #ffffff;
+    --color-inverse-surface-1: #f5f6f6;
+    --color-inverse-surface-2: #f6f7f7;
+    --color-inverse-ink: #000000;
+    --scrollbar-track: #0f1011;
+    --scrollbar-thumb: #34343a;
+    --scrollbar-thumb-hover: #62666d;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: theme('fontFamily.text');
+  }
+
+  * {
+    box-shadow: none !important;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    scrollbar-width: thin;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border: 3px solid var(--scrollbar-track);
+    border-radius: 9999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: var(--scrollbar-track);
+  }
+}
 
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -13,11 +136,113 @@
   font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
-body {
-  font-family: 'Inter', 'Roboto', sans-serif;
+.gantt-grid-day {
+  border-color: color-mix(in srgb, var(--color-hairline) 86%, transparent);
+}
+
+.gantt-grid-major {
+  border-color: color-mix(in srgb, var(--color-hairline-strong) 64%, transparent);
+}
+
+.gantt-grid-hour {
+  border-color: color-mix(in srgb, var(--color-hairline) 38%, transparent);
+}
+
+.gantt-grid-minor {
+  border-color: color-mix(in srgb, var(--color-hairline) 18%, transparent);
+}
+
+.dark .gantt-grid-day {
+  border-color: #23252a;
+}
+
+.dark .gantt-grid-major {
+  border-color: #34343a;
+}
+
+.dark .gantt-grid-hour {
+  border-color: #24262b;
+}
+
+.dark .gantt-grid-minor {
+  border-color: #15171a;
+}
+
+.gantt-job-flow {
+  overflow: visible;
+}
+
+.gantt-job-flow-path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-primary) 82%, var(--color-ink) 18%);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.72;
+}
+
+.gantt-job-flow-arrow {
+  fill: color-mix(in srgb, var(--color-primary) 82%, var(--color-ink) 18%);
+  opacity: 0.72;
+}
+
+.dark .gantt-job-flow-path {
+  stroke: #828fff;
+  opacity: 0.82;
+}
+
+.dark .gantt-job-flow-arrow {
+  fill: #828fff;
+  opacity: 0.82;
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .gantt-zoom-surface {
+    animation: ganttZoomSurface 180ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+    transform-origin: left top;
+  }
+
+  .gantt-job-flow-path {
+    animation: ganttFlowReveal 220ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  }
+
+  @keyframes ganttFlowReveal {
+    from {
+      opacity: 0;
+      stroke-dasharray: 1 16;
+    }
+    to {
+      opacity: 0.72;
+      stroke-dasharray: 1 0;
+    }
+  }
+
+  .dark .gantt-job-flow-path {
+    animation-name: ganttFlowRevealDark;
+  }
+
+  @keyframes ganttFlowRevealDark {
+    from {
+      opacity: 0;
+      stroke-dasharray: 1 16;
+    }
+    to {
+      opacity: 0.82;
+      stroke-dasharray: 1 0;
+    }
+  }
+
+  @keyframes ganttZoomSurface {
+    from {
+      opacity: 0.72;
+      transform: translateX(6px) scaleX(0.992);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) scaleX(1);
+    }
+  }
+
   .emas-chat-enter {
     animation: emasChatEnter 180ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
   }
@@ -33,5 +258,3 @@ body {
     }
   }
 }
-
-

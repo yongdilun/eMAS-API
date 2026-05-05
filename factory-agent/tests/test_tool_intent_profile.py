@@ -1,5 +1,11 @@
 from agent.schemas import ToolInfo
-from agent.tool_intent_profile import build_tool_intent_profile, profile_match_score, tool_covers_descriptive_terms
+from agent.tool_intent_profile import (
+    build_tool_intent_profile,
+    build_tool_intent_vocabulary,
+    intent_feature_tokens,
+    profile_match_score,
+    tool_covers_descriptive_terms,
+)
 
 
 def _tool(name: str, description: str, endpoint: str) -> ToolInfo:
@@ -39,3 +45,18 @@ def test_profile_marks_endpoint_descriptive_terms_as_tool_evidence():
 
     assert tool_covers_descriptive_terms("show predictive high risk jobs", tool)
 
+
+def test_vocabulary_derives_generic_and_entity_tokens_from_registry_shape():
+    tools = [
+        _tool("get__machines", "Get machines", "/machines"),
+        _tool("get__machines_{id}", "Get machine by id", "/machines/{id}"),
+        _tool("get__reports_machine-utilization", "Get machine utilization", "/reports/machine-utilization"),
+    ]
+
+    vocabulary = build_tool_intent_vocabulary(tools, generic_threshold=0.60)
+
+    assert "get" in vocabulary.generic_tokens
+    assert "machine" in vocabulary.entity_tokens
+    assert "show" not in intent_feature_tokens("show machine utilization report", vocabulary=vocabulary)
+    assert "machine" not in intent_feature_tokens("show machine utilization report", vocabulary=vocabulary)
+    assert {"utilization", "report"} <= intent_feature_tokens("show machine utilization report", vocabulary=vocabulary)

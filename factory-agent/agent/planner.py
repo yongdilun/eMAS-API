@@ -17,7 +17,14 @@ from .prompting import build_planner_prompt
 from .reasoning_pipeline import ReasoningPipeline
 from .schemas import PlanBinding, PlanDraft, PlanStepDraft, ToolInfo
 from .telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped
-from .tool_intent_profile import child_tools_for_parent, profile_match_score, tool_covers_descriptive_terms
+from .tool_intent_profile import (
+    ToolIntentVocabulary,
+    child_tools_for_parent,
+    load_generated_vocabulary,
+    profile_match_score,
+    tool_covers_descriptive_terms,
+    vocabulary_for_tools,
+)
 from .tool_registry import ToolRegistry
 
 
@@ -56,11 +63,8 @@ class PlannerResult:
 
 
 _NUMBER_RE = re.compile(r"\b\d+\b")
-_KEYWORD_ID_RE = re.compile(r"\b(machine|job|inventory|approval|proposal|line|slot|schedule)\s+#?(\d+)\b", re.IGNORECASE)
-_KEYWORD_TOKEN_ID_RE = re.compile(
-    r"\b(machine|job|inventory|material|approval|proposal|line|slot|schedule|arrival|product)\s+(?:id\s+)?([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\b",
-    re.IGNORECASE,
-)
+_KEYWORD_ID_RE: re.Pattern[str] | None = None
+_KEYWORD_TOKEN_ID_RE: re.Pattern[str] | None = None
 _TOKEN_ID_RE = re.compile(r"\b([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\b")
 _SKU_RE = re.compile(r"\bsku\s*[:#-]?\s*([a-zA-Z0-9_-]+)\b", re.IGNORECASE)
 _QUANTITY_RE = re.compile(r"\b(\d+)\s*(?:units?|pcs?|pieces?)\b", re.IGNORECASE)
@@ -82,23 +86,6 @@ _SEED_ID_PREFIXES: list[tuple[str, str]] = [
     ("M-", "machine"),
     ("P-", "product"),
 ]
-_INTENT_MATCH_KEYWORDS = (
-    "slot",
-    "slots",
-    "schedule",
-    "proposal",
-    "proposals",
-    "material",
-    "materials",
-    "inventory",
-    "arrival",
-    "arrivals",
-    "approval",
-    "machine",
-    "job",
-    "product",
-)
-
 _COMPOUND_SEPARATOR_RE = re.compile(
     r"\b(?:and then|then|next|after that|afterwards|finally)\b|[;\n.]+",
     re.IGNORECASE,
@@ -122,7 +109,32 @@ _AUXILIARY_CAPABILITY_TAGS = set(_AI_CONFIG.get("auxiliary_tags", []))
 _INTENT_TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
 _ID_ONLY_PHRASE_RE = re.compile(r"\b(?:ids?\s+only|only\s+ids?|only\s+id|id\s+only)\b", re.IGNORECASE)
 _LIST_VERB_RE = re.compile(r"\b(?:get|show|list|find|view|fetch|give|provide)\b", re.IGNORECASE)
-_PLURAL_ENTITY_RE = re.compile(r"\b(?:products?|machines?|jobs?|materials?|inventories|inventory|proposals?|approvals?)\b", re.IGNORECASE)
+
+
+def _registry_entity_tokens(vocabulary: ToolIntentVocabulary | None = None) -> set[str]:
+    vocab = vocabulary or load_generated_vocabulary()
+    return {token for token in vocab.entity_tokens if token and len(token) > 1}
+
+
+def _entity_keyword_regex(*, token_ids: bool) -> re.Pattern[str] | None:
+    global _KEYWORD_ID_RE, _KEYWORD_TOKEN_ID_RE
+    cached = _KEYWORD_TOKEN_ID_RE if token_ids else _KEYWORD_ID_RE
+    if cached is not None:
+        return cached
+    tokens = sorted(_registry_entity_tokens(), key=len, reverse=True)
+    if not tokens:
+        return None
+    alternation = "|".join(re.escape(token) for token in tokens)
+    if token_ids:
+        pattern = re.compile(
+            rf"\b({alternation})\s+(?:id\s+)?([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\b",
+            re.IGNORECASE,
+        )
+        _KEYWORD_TOKEN_ID_RE = pattern
+        return pattern
+    pattern = re.compile(rf"\b({alternation})\s+#?(\d+)\b", re.IGNORECASE)
+    _KEYWORD_ID_RE = pattern
+    return pattern
 
 
 def _tool_prefers_entity_lookup(tool: ToolInfo) -> bool:
@@ -137,6 +149,13 @@ def _tool_required_arg_count(tool: ToolInfo) -> int:
 def _tool_missing_required_args(tool: ToolInfo, args: dict[str, Any]) -> int:
     required = list((tool.input_schema or {}).get("required", []))
     return sum(1 for field in required if field not in args or args.get(field) in (None, ""))
+
+
+def _tool_missing_required_path_args(tool: ToolInfo, args: dict[str, Any]) -> int:
+    path_fields = set(tool.path_params or []) | set(_path_param_names(tool.endpoint))
+    if not path_fields:
+        return 0
+    return sum(1 for field in path_fields if field not in args or args.get(field) in (None, ""))
 
 
 def _tool_missing_required_fields(tool: ToolInfo, args: dict[str, Any]) -> list[str]:
@@ -209,12 +228,12 @@ def _tool_matches_entity(tool: ToolInfo, entity: str | None) -> bool:
     return bool(entity) and _infer_primary_entity(tool) == entity
 
 
-def _tool_intent_match_score(intent: str, tool: ToolInfo) -> int:
+def _tool_intent_match_score(intent: str, tool: ToolInfo, *, vocabulary: ToolIntentVocabulary | None = None) -> int:
     assessment = assess_intent(intent)
     intent_lower = intent.lower()
     token = f"{tool.name} {tool.description} {tool.endpoint} {' '.join(tool.capability_tags or [])}".lower()
-    score = profile_match_score(intent, tool)
-    for keyword in _INTENT_MATCH_KEYWORDS:
+    score = profile_match_score(intent, tool, vocabulary=vocabulary)
+    for keyword in _registry_entity_tokens(vocabulary):
         if keyword in intent_lower and keyword in token:
             score += 1
     if assessment.entity and assessment.entity in token:
@@ -285,14 +304,18 @@ def _tool_specialization_penalty(*, intent: str, tool: ToolInfo, assessment) -> 
 def _extract_intent_entities(intent: str) -> dict[str, Any]:
     numbers = [int(match.group(0)) for match in _NUMBER_RE.finditer(intent or "")]
     ids_by_keyword: dict[str, Any] = {}
-    for match in _KEYWORD_ID_RE.finditer(intent or ""):
-        ids_by_keyword[match.group(1).lower()] = int(match.group(2))
+    keyword_id_re = _entity_keyword_regex(token_ids=False)
+    if keyword_id_re:
+        for match in keyword_id_re.finditer(intent or ""):
+            ids_by_keyword[_normalize_entity_keyword(match.group(1))] = int(match.group(2))
     explicit_ids: list[str] = []
-    for match in _KEYWORD_TOKEN_ID_RE.finditer(intent or ""):
-        keyword = _normalize_entity_keyword(match.group(1))
-        value = match.group(2)
-        ids_by_keyword[keyword] = value
-        explicit_ids.append(value)
+    keyword_token_id_re = _entity_keyword_regex(token_ids=True)
+    if keyword_token_id_re:
+        for match in keyword_token_id_re.finditer(intent or ""):
+            keyword = _normalize_entity_keyword(match.group(1))
+            value = match.group(2)
+            ids_by_keyword[keyword] = value
+            explicit_ids.append(value)
     for match in _TOKEN_ID_RE.finditer(intent or ""):
         value = match.group(1)
         explicit_ids.append(value)
@@ -412,7 +435,8 @@ def _intent_requests_id_only_fields(intent: str) -> bool:
         return True
     if not _LIST_VERB_RE.search(lowered):
         return False
-    if not _PLURAL_ENTITY_RE.search(lowered):
+    entity_tokens = _registry_entity_tokens()
+    if not entity_tokens or not (_intent_tokens(lowered) & entity_tokens):
         return False
     # Handles phrasing like "get all product id" / "list machine ids".
     if re.search(r"\b(?:all\s+)?[a-z_]+\s+ids?\b", lowered):
@@ -1012,7 +1036,7 @@ def _strip_unsupported_optional_args(
     return clean, dropped
 
 
-def _select_legacy_tool(intent: str, scoped_tools: list[ToolInfo]) -> ToolInfo:
+def _select_legacy_tool(intent: str, scoped_tools: list[ToolInfo], *, vocabulary: ToolIntentVocabulary | None = None) -> ToolInfo:
     assessment = assess_intent(intent)
     entities = _extract_intent_entities(intent)
     preferred_entity = assessment.entity or next(iter(entities["ids_by_keyword"]), None)
@@ -1021,7 +1045,8 @@ def _select_legacy_tool(intent: str, scoped_tools: list[ToolInfo]) -> ToolInfo:
     ranked = sorted(
         scoped_tools,
         key=lambda t: (
-            not tool_covers_descriptive_terms(intent, t),
+            _tool_missing_required_path_args(t, _extract_required_args(intent, t)[0]),
+            not tool_covers_descriptive_terms(intent, t, vocabulary=vocabulary),
             not _tool_matches_entity(t, preferred_entity),
             not (
                 (assessment.action == "create" and t.method == "POST")
@@ -1032,7 +1057,7 @@ def _select_legacy_tool(intent: str, scoped_tools: list[ToolInfo]) -> ToolInfo:
                 or assessment.action is None
             ),
             not (has_explicit_id and _tool_prefers_entity_lookup(t)),
-            -_tool_intent_match_score(intent, t),
+            -_tool_intent_match_score(intent, t, vocabulary=vocabulary),
             _tool_missing_required_args(t, _extract_required_args(intent, t)[0]),
             not t.is_read_only,
             t.name,
@@ -1604,6 +1629,7 @@ class LegacyPlannerBackend:
         step_drafts: list[PlanStepDraft] = []
         contract_clauses: list[dict[str, Any]] = []
         tools_by_name = {tool.name: tool for tool in scoped_tools}
+        vocabulary = vocabulary_for_tools(scoped_tools)
         def append_step(
             *,
             clause_text: str,
@@ -1660,7 +1686,7 @@ class LegacyPlannerBackend:
                     )
                     continue
 
-            selected = _select_legacy_tool(clause, scoped_tools)
+            selected = _select_legacy_tool(clause, scoped_tools, vocabulary=vocabulary)
             args, missing = _extract_required_args(clause, selected)
             arg_provenance: dict[str, dict[str, Any]] = {}
             for field, value in args.items():
@@ -1670,8 +1696,9 @@ class LegacyPlannerBackend:
             ranked_candidates = sorted(
                 scoped_tools,
                 key=lambda t: (
-                    not tool_covers_descriptive_terms(clause, t),
-                    -_tool_intent_match_score(clause, t),
+                    _tool_missing_required_path_args(t, _extract_required_args(clause, t)[0]),
+                    not tool_covers_descriptive_terms(clause, t, vocabulary=vocabulary),
+                    -_tool_intent_match_score(clause, t, vocabulary=vocabulary),
                     _tool_missing_required_args(t, _extract_required_args(clause, t)[0]),
                     t.name,
                 ),
@@ -1735,8 +1762,8 @@ class LegacyPlannerBackend:
                     if clarification:
                         raise PlannerClarificationError(clarification)
                 candidate_required_missing = _tool_missing_required_args(candidate, sanitized_args)
-                candidate_score = _tool_intent_match_score(clause, candidate)
-                selected_score = _tool_intent_match_score(clause, selected)
+                candidate_score = _tool_intent_match_score(clause, candidate, vocabulary=vocabulary)
+                selected_score = _tool_intent_match_score(clause, selected, vocabulary=vocabulary)
                 approval_candidate_is_not_worse = candidate.requires_approval and candidate_score >= selected_score
                 preserve_exact_lookup = (
                     assessment.action == "read"
@@ -1754,8 +1781,8 @@ class LegacyPlannerBackend:
                     and selected.is_read_only
                     and candidate.method == "GET"
                     and candidate.is_read_only
-                    and tool_covers_descriptive_terms(clause, selected)
-                    and not tool_covers_descriptive_terms(clause, candidate)
+                    and tool_covers_descriptive_terms(clause, selected, vocabulary=vocabulary)
+                    and not tool_covers_descriptive_terms(clause, candidate, vocabulary=vocabulary)
                     and selected_score >= candidate_score
                 )
                 if preserve_exact_lookup:

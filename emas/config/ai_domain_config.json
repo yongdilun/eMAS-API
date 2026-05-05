@@ -9,11 +9,14 @@
   "valid_split_strategies": {
     "equal": true,
     "proportional": true,
-    "custom": true
+    "manual": true,
+    "min_time": true,
+    "priority": true
   },
   "valid_objectives": {
-    "time": true,
-    "cost": true,
-    "efficiency": true
+    "minimize_tardiness": true,
+    "minimize_makespan": true,
+    "balance_load": true,
+    "maximize_utilization": true
   }
 }
