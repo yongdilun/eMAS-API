@@ -159,6 +159,129 @@ def _extract_entity_id(intent: str, entity: str) -> str | None:
     return None
 
 
+def _schema_properties(tool: ToolInfo) -> dict[str, Any]:
+    properties = (tool.input_schema or {}).get("properties")
+    return properties if isinstance(properties, dict) else {}
+
+
+def _word_pattern(text: str) -> str:
+    return re.escape(text.strip().lower()).replace(r"\ ", r"[\s_-]+")
+
+
+def _has_word(text: str, word: str) -> bool:
+    if not word:
+        return False
+    return bool(re.search(rf"\b{_word_pattern(word)}\b", text or "", flags=re.IGNORECASE))
+
+
+def _enum_value_in_intent(intent: str, values: list[Any]) -> str | None:
+    lowered = (intent or "").lower()
+    for value in sorted((str(item) for item in values if item not in (None, "")), key=len, reverse=True):
+        if _has_word(lowered, value):
+            return value
+    return None
+
+
+def _collection_entity(tool: ToolInfo) -> str | None:
+    segments = [segment for segment in (tool.endpoint or "").split("/") if segment and not segment.startswith("{")]
+    if len(segments) != 1:
+        return None
+    return _singularize_entity(segments[0])
+
+
+def _is_collection_read_tool(tool: ToolInfo) -> bool:
+    return tool.method == "GET" and not tool.path_params and "{" not in (tool.endpoint or "") and _collection_entity(tool) is not None
+
+
+def _infer_enum_collection_filter(intent: str, scoped_tools: list[ToolInfo]) -> AgentPlanOutput | None:
+    """Infer requests like "maintenance machines" as list(entity, status=value).
+
+    The rule is schema-driven: it only uses collection GET tools that expose an
+    enum argument and only fires when the enum value is used as a filter around
+    the entity name. Feature endpoints such as maintenance alerts keep winning
+    when the user actually asks for alerts/due/overdue records.
+    """
+    lowered = (intent or "").lower()
+    if re.search(r"\b(alerts?|due|overdue|history|records?)\b", lowered):
+        return None
+
+    for tool in scoped_tools:
+        if not _is_collection_read_tool(tool):
+            continue
+        entity = _collection_entity(tool)
+        if not entity or not re.search(rf"\b{re.escape(entity)}s?\b", lowered):
+            continue
+        for field, field_schema in _schema_properties(tool).items():
+            if not isinstance(field_schema, dict):
+                continue
+            enum_values = field_schema.get("enum")
+            if not isinstance(enum_values, list) or not enum_values:
+                continue
+            value = _enum_value_in_intent(intent, enum_values)
+            if not value:
+                continue
+            return AgentPlanOutput(
+                plan_explanation=f"List {entity}s filtered by {field} {value}.",
+                risk_summary="Read-only filtered lookup with no data changes.",
+                steps=[
+                    AgentPlanStep(
+                        tool_name=tool.name,
+                        args={str(field): value},
+                        evidence={str(field): value},
+                        confidence=0.92,
+                    )
+                ],
+            )
+    return None
+
+
+def _infer_enum_status_update(intent: str, scoped_tools: list[ToolInfo]) -> AgentPlanOutput | None:
+    """Infer direct entity status updates from PUT/PATCH schemas.
+
+    This protects "set machine M-1 to maintenance" from being routed to a
+    related create endpoint when an explicit update endpoint with a matching
+    enum field exists.
+    """
+    lowered = (intent or "").lower()
+    if not re.search(r"\b(set|update|change|mark|put)\b", lowered):
+        return None
+
+    for tool in scoped_tools:
+        if tool.method not in {"PUT", "PATCH"} or not tool.path_params:
+            continue
+        path_field = next((field for field in tool.path_params if field in _schema_properties(tool)), tool.path_params[0])
+        entity = _endpoint_entity_before_param(tool.endpoint, path_field)
+        if not entity or not re.search(rf"\b{re.escape(entity)}s?\b", lowered):
+            continue
+        entity_id = _extract_entity_id(intent, entity)
+        if not entity_id:
+            continue
+        for field, field_schema in _schema_properties(tool).items():
+            if field in set(tool.path_params or []):
+                continue
+            if not isinstance(field_schema, dict):
+                continue
+            enum_values = field_schema.get("enum")
+            if not isinstance(enum_values, list) or not enum_values:
+                continue
+            value = _enum_value_in_intent(intent, enum_values)
+            if not value:
+                continue
+            return AgentPlanOutput(
+                plan_explanation=f"Update {entity} {entity_id} by setting {field} to {value}.",
+                risk_summary="Write operation is approval-gated and changes an existing record.",
+                steps=[
+                    AgentPlanStep(
+                        tool_name=tool.name,
+                        args={path_field: entity_id, str(field): value},
+                        evidence={path_field: entity_id, str(field): value},
+                        confidence=0.94,
+                    )
+                ],
+            )
+    return None
+
+
 def _candidate_id_prefixes_for_path_arg(*, tool: ToolInfo, field: str, entity: str) -> list[str]:
     prefixes: list[str] = []
     properties = (tool.input_schema or {}).get("properties")
@@ -185,11 +308,19 @@ def _deterministic_plan_repair(intent: str, scoped_tools: list[ToolInfo]) -> Age
     """Repair narrow, high-signal plans after an LLM attempt.
 
     This is deliberately conservative. It only fires for explicit toolable
-    patterns from the seed smoke suite, and it still goes through the normal
-    validation/provenance guardrails downstream.
+    patterns and it still goes through the normal validation/provenance
+    guardrails downstream.
     """
     lowered = (intent or "").lower()
     tools = {tool.name: tool for tool in scoped_tools}
+
+    inferred = _infer_enum_status_update(intent, scoped_tools)
+    if inferred is not None:
+        return inferred
+
+    inferred = _infer_enum_collection_filter(intent, scoped_tools)
+    if inferred is not None:
+        return inferred
 
     if "network" in lowered and "timeout" in lowered and "get__jobs" in tools:
         return AgentPlanOutput(

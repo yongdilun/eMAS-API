@@ -579,6 +579,103 @@ def test_langgraph_repair_maps_seed_diagnostic_missing_machine_update():
     assert repaired.steps[0].args == {"id": "M-NOT-REAL"}
 
 
+def test_langgraph_repair_infers_enum_collection_filter_over_feature_endpoint():
+    tools = [
+        ToolInfo(
+            name="get__machines",
+            description="List all machines",
+            endpoint="/machines",
+            method="GET",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["idle", "running", "maintenance", "offline"]},
+                },
+            },
+            query_params=["status"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["machine", "list"],
+        ),
+        ToolInfo(
+            name="get__machines_maintenance-alerts",
+            description="Get maintenance alerts",
+            endpoint="/machines/maintenance-alerts",
+            method="GET",
+            input_schema={"type": "object", "properties": {}},
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["machine", "maintenance", "alert"],
+        ),
+    ]
+
+    repaired = _deterministic_plan_repair("show maintenance machines", tools)
+
+    assert repaired is not None
+    assert repaired.steps[0].tool_name == "get__machines"
+    assert repaired.steps[0].args == {"status": "maintenance"}
+
+
+def test_langgraph_repair_keeps_alert_intent_out_of_enum_filter_repair():
+    tool = ToolInfo(
+        name="get__machines",
+        description="List all machines",
+        endpoint="/machines",
+        method="GET",
+        input_schema={
+            "type": "object",
+            "properties": {"status": {"type": "string", "enum": ["idle", "running", "maintenance", "offline"]}},
+        },
+        query_params=["status"],
+        is_read_only=True,
+        requires_approval=False,
+        side_effect_level="NONE",
+        is_concurrency_safe=True,
+        is_strongly_idempotent=False,
+        capability_tags=["machine", "list"],
+    )
+
+    repaired = _deterministic_plan_repair("show maintenance alerts", [tool])
+
+    assert repaired is None
+
+
+def test_langgraph_repair_infers_enum_status_update_from_put_schema():
+    tool = ToolInfo(
+        name="put__machines_{id}",
+        description="Update a machine",
+        endpoint="/machines/{id}",
+        method="PUT",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "id": {"type": "string"},
+                "status": {"type": "string", "enum": ["idle", "running", "maintenance", "offline"]},
+            },
+            "required": ["id"],
+        },
+        path_params=["id"],
+        is_read_only=False,
+        requires_approval=True,
+        side_effect_level="HIGH",
+        is_concurrency_safe=False,
+        is_strongly_idempotent=False,
+        capability_tags=["machine", "update"],
+    )
+
+    repaired = _deterministic_plan_repair("set machine M-LTH-02 to maintenance", [tool])
+
+    assert repaired is not None
+    assert repaired.steps[0].tool_name == "put__machines_{id}"
+    assert repaired.steps[0].args == {"id": "M-LTH-02", "status": "maintenance"}
+
+
 def test_assign_parallel_groups_for_independent_read_steps():
     tools = {
         "get__jobs": _read_tool("get__jobs", "/jobs"),
