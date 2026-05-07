@@ -10,6 +10,7 @@ from typing import Any, Literal
 import httpx
 from jsonschema import Draft202012Validator
 
+from . import guardrails as safety
 from .config import Settings
 from .intent_verifier import verify_clause_against_tool
 from .intent import assess_intent
@@ -31,7 +32,7 @@ from .tool_intent_profile import (
 from .tool_registry import ToolRegistry
 
 
-PlannerBackendName = Literal["legacy", "structured", "langchain"]
+PlannerBackendName = Literal["legacy", "structured", "langchain", "langgraph"]
 
 
 class PlannerBackendError(RuntimeError):
@@ -1413,6 +1414,16 @@ def _clause_refers_to_previous_result(clause: str) -> bool:
     return bool(re.search(r"\b(?:it|that|created|newly created|result)\b", clause or "", re.IGNORECASE))
 
 
+def _clause_requests_parent_lookup_with_child(clause: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(?:and\s+(?:its|their|the)\s+|with\s+(?:its|their|the)\s+)",
+            clause or "",
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def build_planner_visible_tools(scoped_tools: list[ToolInfo]) -> list[dict[str, Any]]:
     wrappers: list[dict[str, Any]] = []
     for tool in scoped_tools:
@@ -1624,9 +1635,9 @@ class LegacyPlannerBackend:
         kwargs: dict[str, Any] = {
             "model": self._settings.summary_model,
             "temperature": 0,
-            "timeout": self._settings.llm_json_timeout_s,
+            "timeout": self._settings.summary_timeout_s,
             "max_retries": 0,
-            "max_tokens": self._settings.llm_json_max_tokens,
+            "max_tokens": self._settings.summary_max_tokens,
             "model_kwargs": {"response_format": {"type": "json_object"}},
         }
         if self._settings.openai_base_url:
@@ -2378,9 +2389,14 @@ class LegacyPlannerBackend:
                     )
 
             parent_lookup = _parent_lookup_tool(selected, scoped_tools)
-            if parent_lookup and _child_requested_by_clause(clause, selected) and not any(
-                step.tool_name == parent_lookup.name and step.args == args
-                for step in step_drafts
+            if (
+                parent_lookup
+                and _child_requested_by_clause(clause, selected)
+                and _clause_requests_parent_lookup_with_child(clause)
+                and not any(
+                    step.tool_name == parent_lookup.name and step.args == args
+                    for step in step_drafts
+                )
             ):
                 parent_args, _ = _extract_required_args(clause, parent_lookup)
                 if not parent_args:
@@ -2453,9 +2469,9 @@ class LangChainPlannerBackend:
         kwargs: dict[str, Any] = {
             "model": self._settings.planner_model,
             "temperature": 0,
-            "timeout": self._settings.llm_json_timeout_s,
+            "timeout": self._settings.planner_timeout_s,
             "max_retries": 0,
-            "max_tokens": self._settings.llm_json_max_tokens,
+            "max_tokens": self._settings.planner_max_tokens,
         }
         if self._settings.openai_base_url:
             kwargs["base_url"] = self._settings.openai_base_url
@@ -2600,9 +2616,9 @@ class StructuredPlannerBackend:
         kwargs: dict[str, Any] = {
             "model": self._settings.planner_model,
             "temperature": 0,
-            "timeout": self._settings.llm_json_timeout_s,
+            "timeout": self._settings.planner_timeout_s,
             "max_retries": 0,
-            "max_tokens": max(self._settings.llm_json_max_tokens, 900),
+            "max_tokens": max(self._settings.planner_max_tokens, 900),
             "model_kwargs": {"response_format": {"type": "json_object"}},
         }
         if self._settings.openai_base_url:
@@ -2729,10 +2745,10 @@ class StructuredPlannerBackend:
     ) -> dict[str, Any]:
         supported: dict[str, Any] = {}
         for field, value in args.items():
-            if _is_placeholder(value):
+            if safety.is_placeholder(value):
                 continue
             evidence_text = str(evidence.get(field) or "")
-            if _value_found_in_text(value, intent, evidence_text):
+            if safety.value_found_in_text(value, intent, evidence_text):
                 supported[field] = value
         return supported
 
@@ -2766,9 +2782,9 @@ class StructuredPlannerBackend:
                 raise PlannerClarificationError(f"I could not safely select a supported tool for step {idx + 1}.")
 
             raw_args = raw_step.get("args") if isinstance(raw_step.get("args"), dict) else {}
-            sanitized_args, dropped_fields = _sanitize_tool_args_against_schema(tool, raw_args)
+            sanitized_args, dropped_fields = safety.sanitize_tool_args_against_schema(tool, raw_args)
             if dropped_fields:
-                clarification_text = _build_unsupported_enum_clarification(
+                clarification_text = safety.build_unsupported_enum_clarification(
                     tool=tool,
                     raw_args=raw_args,
                     sanitized_args=sanitized_args,
@@ -2787,7 +2803,7 @@ class StructuredPlannerBackend:
                     intent=intent,
                 )
 
-            missing = _tool_missing_required_fields(tool, sanitized_args)
+            missing = safety.missing_required_fields(tool, sanitized_args)
             model_missing = raw_step.get("missing_required") if isinstance(raw_step.get("missing_required"), list) else []
             missing = sorted(set(missing) | {str(x) for x in model_missing if str(x)})
             if missing and not tool.requires_approval:
@@ -2799,8 +2815,8 @@ class StructuredPlannerBackend:
             arg_provenance: dict[str, dict[str, Any]] = {}
             for field, value in sanitized_args.items():
                 evidence_text = str(evidence.get(field) or "")
-                if _value_found_in_text(value, intent, evidence_text):
-                    _mark_user_provenance(provenance=arg_provenance, field=field, value=value)
+                if safety.value_found_in_text(value, intent, evidence_text):
+                    safety.mark_user_provenance(provenance=arg_provenance, field=field, value=value)
                 else:
                     arg_provenance[field] = {"value": value, "source": "llm"}
             supported_predicates = self._supported_predicates(
@@ -2808,19 +2824,18 @@ class StructuredPlannerBackend:
                 args=sanitized_args,
                 evidence=evidence,
             )
-            arg_provenance = _promote_user_provenance(
+            arg_provenance = safety.promote_user_provenance(
                 tool=tool,
                 args=sanitized_args,
                 intent=intent,
-                clause=intent,
+                evidence=evidence,
                 arg_provenance=arg_provenance,
                 resolved_predicates=supported_predicates,
             )
-            clean_args, provenance_dropped = _strip_unsupported_optional_args(
+            clean_args, provenance_dropped = safety.strip_unsupported_optional_args(
                 tool=tool,
                 args=sanitized_args,
                 intent=intent,
-                clause=intent,
                 intent_memory=intent_memory,
                 resolved_predicates=supported_predicates,
                 arg_provenance=arg_provenance,
@@ -2924,6 +2939,53 @@ class StructuredPlannerBackend:
         return PlannerResult(draft=draft, backend_used="structured", llm_calls=1, intent_contract=contract)
 
 
+class LangGraphPlannerBackend:
+    """Graph-agent planner runtime.
+
+    This backend replaces the active deterministic planner path with a
+    LangGraph StateGraph. It still returns PlanDraft for UI/runtime
+    compatibility, and Python guardrails remain the final authority.
+    """
+
+    def __init__(self, settings: Settings):
+        self._settings = settings
+
+    async def generate_plan(
+        self,
+        *,
+        intent: str,
+        scoped_tools: list[ToolInfo],
+        context: dict[str, Any] | None = None,
+        tools_markdown: str = "",
+    ) -> PlannerResult:
+        del tools_markdown
+        try:
+            from .graph.planner_graph import (
+                LangGraphPlanner,
+                LangGraphPlannerClarification,
+            )
+        except Exception as exc:
+            raise PlannerBackendError("LangGraph planner backend unavailable.") from exc
+
+        try:
+            draft, contract = await LangGraphPlanner(self._settings).generate(
+                intent=intent,
+                scoped_tools=scoped_tools,
+                context=context,
+            )
+        except LangGraphPlannerClarification as exc:
+            raise PlannerClarificationError(str(exc)) from exc
+        except Exception as exc:
+            raise PlannerBackendError(str(exc)) from exc
+
+        return PlannerResult(
+            draft=draft,
+            backend_used="langgraph",
+            llm_calls=1,
+            intent_contract=contract,
+        )
+
+
 class PlannerAdapter:
     def __init__(self, *, settings: Settings, tool_registry: ToolRegistry):
         self._settings = settings
@@ -2931,6 +2993,7 @@ class PlannerAdapter:
         self._legacy = LegacyPlannerBackend(settings)
         self._langchain = LangChainPlannerBackend(settings)
         self._structured = StructuredPlannerBackend(settings)
+        self._langgraph = LangGraphPlannerBackend(settings)
 
     async def generate_plan(
         self,
@@ -2940,10 +3003,58 @@ class PlannerAdapter:
         context: dict[str, Any] | None = None,
         force_backend: PlannerBackendName | None = None,
     ) -> PlannerResult:
-        backend = (force_backend or self._settings.planner_backend or "legacy").strip().lower()
+        runtime = (getattr(self._settings, "agent_runtime", "legacy_planner") or "legacy_planner").strip().lower()
+        configured_backend = self._settings.planner_backend or "legacy"
+        if force_backend:
+            backend = force_backend
+        elif runtime == "langgraph_agent":
+            backend = "langgraph"
+        elif runtime == "legacy_planner":
+            backend = "legacy"
+        else:
+            backend = configured_backend
+        backend = backend.strip().lower()
         tools_markdown = self._tool_registry.load_tools_markdown()
         result: PlannerResult | None = None
-        if backend == "structured":
+        if backend == "langgraph":
+            try:
+                result = await self._langgraph.generate_plan(
+                    intent=intent,
+                    scoped_tools=scoped_tools,
+                    context=context,
+                    tools_markdown=tools_markdown,
+                )
+            except PlannerBackendError as exc:
+                if not self._settings.planner_fallback_to_legacy:
+                    raise
+                log_event(
+                    "planner_backend_fallback",
+                    level="WARNING",
+                    requested_backend="langgraph",
+                    fallback_backend="structured",
+                    intent=intent,
+                    scoped_tool_count=len(scoped_tools),
+                    error=str(exc),
+                )
+                try:
+                    result = await self._structured.generate_plan(
+                        intent=intent,
+                        scoped_tools=scoped_tools,
+                        context=context,
+                        tools_markdown=tools_markdown,
+                    )
+                except PlannerBackendError as structured_exc:
+                    log_event(
+                        "planner_backend_fallback",
+                        level="WARNING",
+                        requested_backend="structured",
+                        fallback_backend="legacy",
+                        intent=intent,
+                        scoped_tool_count=len(scoped_tools),
+                        error=str(structured_exc),
+                    )
+                    result = None
+        elif backend == "structured":
             try:
                 result = await self._structured.generate_plan(
                     intent=intent,
@@ -2996,9 +3107,9 @@ class PlannerAdapter:
                 (tool := tools_by_name.get(step.tool_name)) is not None and not tool.is_read_only
                 for step in result.draft.steps
             )
-            if backend in {"structured", "langchain"} and len(result.draft.steps) > 1 and has_write_step:
+            if backend in {"structured", "langchain", "langgraph"} and len(result.draft.steps) > 1 and has_write_step:
                 raise PlannerBackendError(
-                    "Structured planner was unavailable and legacy fallback produced a multi-step write plan; "
+                    "Agent planner was unavailable and legacy fallback produced a multi-step write plan; "
                     "refusing unsafe hardcoded compound write planning."
                 )
 

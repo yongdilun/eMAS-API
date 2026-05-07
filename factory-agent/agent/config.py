@@ -1,5 +1,11 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
 
 @dataclass(frozen=True)
@@ -40,7 +46,8 @@ class Settings:
     memory_keep_recent_messages: int = 6
 
     # Planner / summary backend selection
-    planner_backend: str = "structured"  # legacy|structured|langchain
+    agent_runtime: str = "langgraph_agent"  # legacy_planner|langgraph_agent
+    planner_backend: str = "langgraph"  # legacy|structured|langchain|langgraph
     summary_backend: str = "auto"  # auto|legacy|langchain
     tool_result_summary_backend: str = "auto"  # auto|legacy|langchain
     tool_selector_backend: str = "auto"  # auto|retrieval|langchain
@@ -48,7 +55,7 @@ class Settings:
     summary_model: str = "Qwen3.5-9B"
     tool_result_summary_model: str = "Qwen3.5-9B"
     tool_selector_model: str = "Qwen3.5-9B"
-    planner_fallback_to_legacy: bool = True
+    planner_fallback_to_legacy: bool = False
     enforce_tool_registry_health: bool = True
     auto_repair_tool_registry: bool = True
     min_healthy_tool_count: int = 20
@@ -56,11 +63,26 @@ class Settings:
     tool_selector_candidate_pool: int = 24
     tool_selector_max_score_gap: int = 8
     tool_selector_min_confidence: float = 0.35
+    # Multiplier (per overlapping path token) that boosts a tool's retrieval
+    # score when user intent shares whole-word tokens with the tool's URL path
+    # segments. Set to 0 to disable. Higher values make specific multi-segment
+    # endpoints (e.g. /machines/reroute-recommendations) outrank broader
+    # collection endpoints (e.g. /machines) when the user phrase mentions the
+    # specific path tokens.
+    tool_selector_path_token_weight: int = 4
     tool_selector_reranker_enabled: bool = True
     tool_selector_reranker_timeout_s: float = 3.0
     tool_selector_reranker_max_tokens: int = 220
     embedding_backend: str = "disabled"  # sentence-transformers|disabled
     embedding_model: str = "BAAI/bge-small-en-v1.5"
+    llm_default_timeout_s: float = 20.0
+    llm_default_max_tokens: int = 1024
+    planner_timeout_s: float = 20.0
+    planner_max_tokens: int = 1024
+    summary_timeout_s: float = 20.0
+    summary_max_tokens: int = 512
+    tool_selector_timeout_s: float = 8.0
+    tool_selector_max_tokens: int = 256
     llm_json_timeout_s: float = 12.0
     llm_json_max_tokens: int = 320
     tool_result_summary_timeout_s: float = 12.0
@@ -110,7 +132,8 @@ def get_settings() -> Settings:
         jwt_clock_skew_s=int(os.getenv("JWT_CLOCK_SKEW_S", "30")),
         memory_compaction_step_interval=int(os.getenv("MEMORY_COMPACTION_STEP_INTERVAL", "5")),
         memory_keep_recent_messages=int(os.getenv("MEMORY_KEEP_RECENT_MESSAGES", "6")),
-        planner_backend=os.getenv("PLANNER_BACKEND", "structured").strip().lower(),
+        agent_runtime=os.getenv("AGENT_RUNTIME", "langgraph_agent").strip().lower(),
+        planner_backend=os.getenv("PLANNER_BACKEND", "langgraph").strip().lower(),
         summary_backend=os.getenv("SUMMARY_BACKEND", "auto").strip().lower(),
         tool_result_summary_backend=os.getenv("TOOL_RESULT_SUMMARY_BACKEND", "auto").strip().lower(),
         tool_selector_backend=os.getenv("TOOL_SELECTOR_BACKEND", "auto").strip().lower(),
@@ -118,7 +141,7 @@ def get_settings() -> Settings:
         summary_model=os.getenv("SUMMARY_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B")).strip(),
         tool_result_summary_model=os.getenv("TOOL_RESULT_SUMMARY_MODEL", os.getenv("SUMMARY_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B"))).strip(),
         tool_selector_model=os.getenv("TOOL_SELECTOR_MODEL", os.getenv("SMALL_LLM_MODEL", os.getenv("PLANNER_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B")))).strip(),
-        planner_fallback_to_legacy=os.getenv("PLANNER_FALLBACK_TO_LEGACY", "1").strip().lower()
+        planner_fallback_to_legacy=os.getenv("PLANNER_FALLBACK_TO_LEGACY", "0").strip().lower()
         in {"1", "true", "yes"},
         enforce_tool_registry_health=os.getenv("ENFORCE_TOOL_REGISTRY_HEALTH", "1").strip().lower()
         in {"1", "true", "yes"},
@@ -129,19 +152,52 @@ def get_settings() -> Settings:
         tool_selector_candidate_pool=int(os.getenv("TOOL_SELECTOR_CANDIDATE_POOL", "24")),
         tool_selector_max_score_gap=int(os.getenv("TOOL_SELECTOR_MAX_SCORE_GAP", "8")),
         tool_selector_min_confidence=float(os.getenv("TOOL_SELECTOR_MIN_CONFIDENCE", "0.35")),
+        tool_selector_path_token_weight=int(os.getenv("TOOL_SELECTOR_PATH_TOKEN_WEIGHT", "4")),
         tool_selector_reranker_enabled=os.getenv("TOOL_SELECTOR_RERANKER_ENABLED", "1").strip().lower()
         in {"1", "true", "yes"},
         tool_selector_reranker_timeout_s=float(os.getenv("TOOL_SELECTOR_RERANKER_TIMEOUT_S", "3")),
         tool_selector_reranker_max_tokens=int(os.getenv("TOOL_SELECTOR_RERANKER_MAX_TOKENS", "220")),
         embedding_backend=os.getenv("EMBEDDING_BACKEND", "disabled").strip().lower(),
         embedding_model=os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5").strip(),
+        llm_default_timeout_s=float(os.getenv("LLM_DEFAULT_TIMEOUT_S", "20")),
+        llm_default_max_tokens=int(os.getenv("LLM_DEFAULT_MAX_TOKENS", "1024")),
+        planner_timeout_s=float(
+            os.getenv("PLANNER_TIMEOUT_S", os.getenv("LLM_JSON_TIMEOUT_S", os.getenv("LLM_DEFAULT_TIMEOUT_S", "20")))
+        ),
+        planner_max_tokens=int(
+            os.getenv("PLANNER_MAX_TOKENS", os.getenv("LLM_JSON_MAX_TOKENS", os.getenv("LLM_DEFAULT_MAX_TOKENS", "1024")))
+        ),
+        summary_timeout_s=float(
+            os.getenv("SUMMARY_TIMEOUT_S", os.getenv("LLM_DEFAULT_TIMEOUT_S", "20"))
+        ),
+        summary_max_tokens=int(
+            os.getenv("SUMMARY_MAX_TOKENS", os.getenv("LLM_DEFAULT_MAX_TOKENS", "1024"))
+        ),
+        tool_selector_timeout_s=float(
+            os.getenv(
+                "TOOL_SELECTOR_TIMEOUT_S",
+                os.getenv("TOOL_SELECTOR_RERANKER_TIMEOUT_S", os.getenv("LLM_DEFAULT_TIMEOUT_S", "20")),
+            )
+        ),
+        tool_selector_max_tokens=int(
+            os.getenv(
+                "TOOL_SELECTOR_MAX_TOKENS",
+                os.getenv("TOOL_SELECTOR_RERANKER_MAX_TOKENS", os.getenv("LLM_DEFAULT_MAX_TOKENS", "1024")),
+            )
+        ),
         llm_json_timeout_s=float(os.getenv("LLM_JSON_TIMEOUT_S", "12")),
         llm_json_max_tokens=int(os.getenv("LLM_JSON_MAX_TOKENS", "320")),
         tool_result_summary_timeout_s=float(
-            os.getenv("TOOL_RESULT_SUMMARY_TIMEOUT_S", os.getenv("LLM_JSON_TIMEOUT_S", "12"))
+            os.getenv(
+                "TOOL_RESULT_SUMMARY_TIMEOUT_S",
+                os.getenv("SUMMARY_TIMEOUT_S", os.getenv("LLM_JSON_TIMEOUT_S", os.getenv("LLM_DEFAULT_TIMEOUT_S", "20"))),
+            )
         ),
         tool_result_summary_max_tokens=int(
-            os.getenv("TOOL_RESULT_SUMMARY_MAX_TOKENS", os.getenv("LLM_JSON_MAX_TOKENS", "320"))
+            os.getenv(
+                "TOOL_RESULT_SUMMARY_MAX_TOKENS",
+                os.getenv("SUMMARY_MAX_TOKENS", os.getenv("LLM_JSON_MAX_TOKENS", os.getenv("LLM_DEFAULT_MAX_TOKENS", "1024"))),
+            )
         ),
         force_llm_trace_all=os.getenv("FORCE_LLM_TRACE_ALL", "0").strip().lower()
         in {"1", "true", "yes"},

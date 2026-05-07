@@ -16,6 +16,35 @@ from .tool_intent_profile import ToolIntentVocabulary, build_tool_intent_profile
 ToolSelectorBackendName = Literal["retrieval", "langchain"]
 
 
+# Compound-intent separators must mirror ``tool_scope._COMPOUND_SEPARATOR_RE`` so
+# that retrieval here and clause-level scoping in the legacy planner stay in
+# sync. When any of these markers appear, the user is almost always describing
+# multiple sub-tasks, so single-tool diagnostic shortcuts MUST NOT short-circuit
+# the normal retrieval pipeline -- otherwise only the first clause's tool would
+# be returned and later clauses would silently lose their tools.
+_COMPOUND_SEPARATOR_RE = re.compile(
+    r"\b(?:and then|then|next|after that|afterwards|finally)\b|[;\n.]+",
+    re.IGNORECASE,
+)
+
+
+def _is_compound_intent(intent: str) -> bool:
+    """Return True when the intent contains compound-clause separators.
+
+    Mirrors the heuristic used by ``tool_scope._split_intent_clauses`` so that
+    ``ToolSelector`` does not bypass normal retrieval (and therefore drop
+    later clauses' tools) when the user asks for multiple things at once.
+    """
+    if not intent:
+        return False
+    parts = [
+        part.strip(" ,")
+        for part in _COMPOUND_SEPARATOR_RE.split(intent)
+        if part and part.strip(" ,")
+    ]
+    return len(parts) >= 2
+
+
 @dataclass(frozen=True)
 class ToolSelectionResult:
     tool_names: list[str]
@@ -231,6 +260,33 @@ class ToolSelector:
         ]
         return self._tokenize(" ".join(p for p in parts if p))
 
+    def _path_tokens_for_endpoint(self, endpoint: str) -> set[str]:
+        """Return normalized whole-word tokens drawn only from the URL path.
+
+        Path params (``{id}``, ``{job_id}``) and pure numeric segments are
+        ignored. Hyphenated segments (``reroute-recommendations``) are split
+        into their constituent words so that a user phrase like ``"reroute
+        recommendations"`` can overlap with both tokens. All tokens are
+        singularized via ``_normalize_token`` so plural/singular forms match
+        the same set used for intent tokenization.
+        """
+        if not endpoint:
+            return set()
+        tokens: set[str] = set()
+        for segment in re.split(r"[\/\-_]+", endpoint):
+            if not segment:
+                continue
+            if segment.startswith("{") and segment.endswith("}"):
+                continue
+            for match in re.finditer(r"[a-zA-Z0-9]+", segment):
+                raw = match.group(0)
+                if raw.isdigit():
+                    continue
+                normalized = self._normalize_token(raw)
+                if normalized:
+                    tokens.add(normalized)
+        return tokens
+
     def _semantic_document(self, tool: ToolInfo) -> str:
         schema = tool.input_schema or {}
         properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
@@ -364,6 +420,7 @@ class ToolSelector:
             limit=limit,
         )
         assessment = assess_intent(intent)
+        path_token_weight = max(0, int(self._settings.tool_selector_path_token_weight or 0))
         ranked: list[tuple[str, int]] = []
         for name in candidates:
             tool = tools_by_name.get(name)
@@ -372,6 +429,21 @@ class ToolSelector:
             tool_tokens = self._tool_retrieval_tokens(tool)
             overlap = intent_tokens & tool_tokens
             score = len(overlap) * 2 + profile_match_score(intent, tool, vocabulary=vocabulary)
+
+            # Path-segment specificity boost: when user intent words overlap
+            # with whole-word tokens drawn from the tool's URL path, reward
+            # the tool proportionally to the number of matched path tokens.
+            # This is purely data-driven from ``tool.endpoint`` and helps
+            # specific multi-segment endpoints (e.g.
+            # ``/machines/reroute-recommendations``) outrank broader
+            # collection endpoints (``/machines``) when the user explicitly
+            # mentions the specific path tokens.
+            if path_token_weight > 0:
+                path_tokens = self._path_tokens_for_endpoint(tool.endpoint)
+                if path_tokens:
+                    path_overlap = len(intent_tokens & path_tokens)
+                    if path_overlap > 0:
+                        score += path_overlap * path_token_weight
 
             if assessment.action == "create" and tool.method == "POST":
                 score += 6
@@ -466,9 +538,9 @@ class ToolSelector:
         kwargs: dict[str, Any] = {
             "model": self._settings.tool_selector_model,
             "temperature": 0,
-            "timeout": self._settings.tool_selector_reranker_timeout_s,
+            "timeout": self._settings.tool_selector_timeout_s,
             "max_retries": 0,
-            "max_tokens": self._settings.tool_selector_reranker_max_tokens,
+            "max_tokens": self._settings.tool_selector_max_tokens,
             "model_kwargs": {"response_format": {"type": "json_object"}},
         }
         if self._settings.openai_base_url:
@@ -560,11 +632,58 @@ class ToolSelector:
         return ToolSelectionResult(tool_names=ordered, backend_used="langchain", llm_calls=1)
 
     def _diagnostic_tool_names(self, *, intent: str, tools_by_name: dict[str, ToolInfo]) -> list[str]:
+        # Compound-intent guard: when the user asks for multiple things in one
+        # message (e.g. "Check machine M-LTH-02 status and then show slots for
+        # JOB-SEED-001"), every diagnostic shortcut below would only match the
+        # first clause and return a single tool, starving the second clause of
+        # its tool. Skip all single-tool fast-paths so the normal retrieval +
+        # rerank pipeline can score every clause's tools.
+        if _is_compound_intent(intent or ""):
+            return []
         lowered = (intent or "").lower()
+        reference = self._reference_data_tool_names(lowered=lowered, tools_by_name=tools_by_name)
+        if reference:
+            return reference
+        direct_lookup = self._direct_lookup_tool_names(intent=intent, tools_by_name=tools_by_name)
+        if direct_lookup:
+            return direct_lookup
         if "network" in lowered and "timeout" in lowered and "get__jobs" in tools_by_name:
             return ["get__jobs"]
         if "404" in lowered and "read" in lowered and "get__jobs_{id}" in tools_by_name:
             return ["get__jobs_{id}"]
         if "update" in lowered and "missing" in lowered and "machine" in lowered and "put__machines_{id}" in tools_by_name:
             return ["put__machines_{id}"]
+        return []
+
+    def _reference_data_tool_names(self, *, lowered: str, tools_by_name: dict[str, ToolInfo]) -> list[str]:
+        references = [
+            (r"\b(?:list|show|get|view)\s+machine\s+types?\b", "get__reference_machine-types"),
+            (r"\b(?:list|show|get|view)\s+product\s+types?\b", "get__reference_product-types"),
+        ]
+        for pattern, tool_name in references:
+            if tool_name in tools_by_name and re.search(pattern, lowered):
+                return [tool_name]
+        return []
+
+    def _direct_lookup_tool_names(self, *, intent: str, tools_by_name: dict[str, ToolInfo]) -> list[str]:
+        id_value = r"([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+|\d+)"
+        lookup_patterns = [
+            (rf"\b(?:show|get|check|find|view|lookup|read|open)\s+job\s+(?:id\s+)?{id_value}\b", ("get__jobs_{id}",)),
+            (rf"\b(?:show|get|check|find|view|lookup|read|open)\s+machine\s+(?:id\s+)?{id_value}\b", ("get__machines_{id}",)),
+            (
+                rf"\b(?:show|get|check|find|view|lookup|read|open)\s+(?:inventory\s+)?material\s+(?:id\s+)?{id_value}\b",
+                ("get__inventory_materials_{id}",),
+            ),
+            (rf"\b(?:show|get|check|find|view|lookup|read|open)\s+product\s+(?:id\s+)?{id_value}\b", ("get__products_{id}",)),
+            (
+                rf"\b(?:show|get|check|find|view|lookup|read|open)\s+proposal\s+(?:id\s+)?{id_value}\b",
+                ("get__ai_scheduling_proposals_{id}", "get__proposals_{id}"),
+            ),
+        ]
+        for pattern, tool_names in lookup_patterns:
+            if not re.search(pattern, intent or "", flags=re.IGNORECASE):
+                continue
+            for tool_name in tool_names:
+                if tool_name in tools_by_name:
+                    return [tool_name]
         return []

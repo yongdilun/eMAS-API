@@ -63,6 +63,8 @@ class ReasoningPipeline:
         return self._settings.tool_result_summary_model
 
     def _component_timeout(self, component: str) -> float:
+        if component in {"reasoning_tool_selection", "reasoning_semantic_classifier"}:
+            return self._settings.tool_selector_timeout_s
         if component in {
             "reasoning_fact_extraction",
             "reasoning_response_generation",
@@ -72,6 +74,8 @@ class ReasoningPipeline:
         return self._settings.llm_json_timeout_s
 
     def _component_max_tokens(self, component: str) -> int:
+        if component in {"reasoning_tool_selection", "reasoning_semantic_classifier"}:
+            return self._settings.tool_selector_max_tokens
         if component in {
             "reasoning_fact_extraction",
             "reasoning_response_generation",

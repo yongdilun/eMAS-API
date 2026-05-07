@@ -129,6 +129,13 @@ function Import-AgentLLMEnv {
     "TOOL_SELECTOR_MODEL" = $true
     "LLM_MODEL" = $true
     "SMALL_LLM_MODEL" = $true
+    "AGENT_RUNTIME" = $true
+    "PLANNER_BACKEND" = $true
+    "PLANNER_FALLBACK_TO_LEGACY" = $true
+    "LANGSMITH_TRACING" = $true
+    "LANGSMITH_ENDPOINT" = $true
+    "LANGSMITH_API_KEY" = $true
+    "LANGSMITH_PROJECT" = $true
     "LLM_JSON_TIMEOUT_S" = $true
     "LLM_JSON_MAX_TOKENS" = $true
   }
@@ -468,7 +475,9 @@ try {
     Set-RunEnv "ENFORCE_TOOL_REGISTRY_HEALTH" "1"
     Set-RunEnv "AUTO_REPAIR_TOOL_REGISTRY" "1"
     if ($LiveAgent) {
-      Set-RunEnv "PLANNER_BACKEND" "langchain"
+      Set-RunEnv "AGENT_RUNTIME" "langgraph_agent"
+      Set-RunEnv "PLANNER_BACKEND" "langgraph"
+      Set-RunEnv "PLANNER_FALLBACK_TO_LEGACY" "0"
       Set-RunEnv "TOOL_SELECTOR_BACKEND" "langchain"
       Set-RunEnv "SUMMARY_BACKEND" "langchain"
       Set-RunEnv "TOOL_RESULT_SUMMARY_BACKEND" "langchain"

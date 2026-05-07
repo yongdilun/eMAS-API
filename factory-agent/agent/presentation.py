@@ -60,6 +60,38 @@ def _requested_keys_from_intent(intent: str | None, keys: list[str]) -> list[str
     return [key for _pos, key in sorted(matches, key=lambda item: item[0])]
 
 
+def _intent_has_projection_cue(intent: str | None) -> bool:
+    text = str(intent or "").lower()
+    if not text:
+        return False
+    return bool(
+        re.search(
+            r"\b(?:show|display|include|return|select|project|columns?|fields?)\b",
+            text,
+        )
+    )
+
+
+def _is_identifier_key(key: str) -> bool:
+    normalized = str(key or "").strip().lower().replace("-", "_")
+    return normalized == "id" or normalized.endswith("_id") or normalized.endswith("id")
+
+
+def _identifier_keys(rows: list[dict[str, Any]], keys: list[str]) -> list[str]:
+    ranked: list[tuple[int, int, str]] = []
+    key_positions = {key: idx for idx, key in enumerate(keys)}
+    for key in keys:
+        if not _is_identifier_key(key):
+            continue
+        values = [row.get(key) for row in rows if row.get(key) not in (None, "")]
+        if not values:
+            continue
+        normalized = str(key).strip().lower().replace("-", "_")
+        specificity = 0 if normalized == "id" else 1 if normalized.endswith("_id") else 2
+        ranked.append((specificity, key_positions.get(key, len(keys)), key))
+    return [key for _specificity, _position, key in sorted(ranked)]
+
+
 def _analysis_keys(result: dict[str, Any], keys: list[str]) -> list[str]:
     available = set(keys)
     selected: list[str] = []
@@ -90,8 +122,12 @@ def _ordered_table_keys(
 
     requested = _requested_keys_from_intent(intent, seen_keys)
     analysis_fields = _analysis_keys(result, seen_keys)
+    identity_fields = _identifier_keys(rows, seen_keys)
     ordered: list[str] = []
-    source_keys = [*requested, *analysis_fields] if requested else [*analysis_fields, *seen_keys]
+    if requested and _intent_has_projection_cue(intent):
+        source_keys = [*requested, *analysis_fields, *identity_fields]
+    else:
+        source_keys = [*analysis_fields, *identity_fields, *requested, *seen_keys]
     for key in source_keys:
         if key in seen_keys and key not in ordered:
             ordered.append(key)

@@ -30,7 +30,13 @@ class SummaryAdapter:
     def _build_chat_model(self):
         from langchain_openai import ChatOpenAI
 
-        kwargs: dict[str, Any] = {"model": self._settings.summary_model, "temperature": 0}
+        kwargs: dict[str, Any] = {
+            "model": self._settings.summary_model,
+            "temperature": 0,
+            "timeout": self._settings.summary_timeout_s,
+            "max_retries": 0,
+            "max_tokens": self._settings.summary_max_tokens,
+        }
         if self._settings.openai_base_url:
             kwargs["base_url"] = self._settings.openai_base_url
             kwargs["api_key"] = self._settings.openai_api_key or "local"

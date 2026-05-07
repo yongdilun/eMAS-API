@@ -3,6 +3,7 @@ import pytest
 from agent.config import Settings
 from agent.planner import (
     LangChainPlannerBackend,
+    LangGraphPlannerBackend,
     LegacyPlannerBackend,
     PlannerAdapter,
     PlannerBackendError,
@@ -13,6 +14,14 @@ from agent.planner import (
     _assign_parallel_groups,
 )
 from agent.reasoning_pipeline import ToolSelectionDecision
+from agent.graph.planner_graph import (
+    LangGraphPlanner,
+    LangGraphPlannerClarification,
+    LangGraphPlannerError,
+    _deterministic_plan_repair,
+    _normalize_plan_dict,
+)
+from agent.graph.state import AgentPlanOutput, AgentPlanStep
 from agent.schemas import PlanBinding, PlanDraft, PlanStepDraft, ToolInfo
 from agent.tool_registry import ToolRegistry
 
@@ -48,6 +57,23 @@ def _read_tool(name: str, endpoint: str) -> ToolInfo:
         is_concurrency_safe=True,
         is_strongly_idempotent=False,
         capability_tags=["read"],
+    )
+
+
+def _write_tool(name: str, endpoint: str, method: str = "DELETE") -> ToolInfo:
+    return ToolInfo(
+        name=name,
+        description=name,
+        endpoint=endpoint,
+        method=method,
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+        path_params=["id"],
+        is_read_only=False,
+        requires_approval=True,
+        side_effect_level="HIGH",
+        is_concurrency_safe=False,
+        is_strongly_idempotent=False,
+        capability_tags=["write"],
     )
 
 
@@ -99,6 +125,458 @@ async def test_planner_adapter_langchain_backend_falls_back_to_legacy_when_unava
     assert len(result.draft.steps) == 1
     assert result.draft.steps[0].tool_name == "get__machines_{id}"
     assert result.draft.steps[0].args == {"id": "5"}
+
+
+@pytest.mark.asyncio
+async def test_planner_adapter_agent_runtime_routes_to_langgraph(monkeypatch):
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        redis_url=None,
+        go_api_base_url="http://testserver",
+        worker_count=0,
+        session_queue_size=10,
+        max_plan_steps=10,
+        max_session_steps=50,
+        max_replans=5,
+        max_llm_calls=20,
+        max_session_duration_s=1800,
+        http_timeout_s=1.0,
+        agent_runtime="langgraph_agent",
+        planner_backend="legacy",
+        planner_fallback_to_legacy=False,
+    )
+    adapter = PlannerAdapter(settings=settings, tool_registry=ToolRegistry())
+    tool = _read_tool("get__machines", "/machines")
+
+    async def fake_generate_plan(self, *, intent, scoped_tools, context=None, tools_markdown=""):
+        del self, intent, scoped_tools, context, tools_markdown
+        return PlannerResult(
+            draft=PlanDraft(
+                plan_explanation="Graph plan",
+                risk_summary="Read-only graph plan.",
+                steps=[PlanStepDraft(step_index=0, tool_name="get__machines", args={})],
+            ),
+            backend_used="langgraph",
+            llm_calls=1,
+            intent_contract={"backend": "langgraph"},
+        )
+
+    monkeypatch.setattr(LangGraphPlannerBackend, "generate_plan", fake_generate_plan)
+
+    result = await adapter.generate_plan(intent="show machines", scoped_tools=[tool])
+
+    assert result.backend_used == "langgraph"
+    assert result.draft.steps[0].tool_name == "get__machines"
+
+
+@pytest.mark.parametrize(
+    ("intent", "general_tool", "reference_tool"),
+    [
+        ("list machine types", "get__machines", "get__reference_machine-types"),
+        ("list product types", "get__products", "get__reference_product-types"),
+    ],
+)
+def test_langgraph_validation_prefers_reference_type_tools(intent, general_tool, reference_tool):
+    planner = LangGraphPlanner(_settings())
+    tools = [
+        _read_tool(general_tool, f"/{general_tool.removeprefix('get__')}"),
+        _read_tool(reference_tool, f"/reference/{reference_tool.removeprefix('get__reference_')}"),
+    ]
+    state = {
+        "intent": intent,
+        "context": {},
+        "scoped_tools": tools,
+        "raw_plan": AgentPlanOutput(
+            plan_explanation="List requested type reference data.",
+            risk_summary="Read-only lookup.",
+            steps=[
+                AgentPlanStep(
+                    tool_name=general_tool,
+                    args={},
+                    evidence={},
+                    confidence=0.8,
+                )
+            ],
+        ),
+    }
+
+    result = planner._validate_node(state)
+
+    draft = result["draft"]
+    assert draft.steps[0].tool_name == reference_tool
+    assert result["intent_contract"]["steps"][0]["tool_name"] == reference_tool
+
+
+def test_langgraph_validation_inserts_delete_preflight_lookup():
+    planner = LangGraphPlanner(_settings())
+    tools = [
+        _write_tool("delete__jobs_{id}", "/jobs/{id}", "DELETE"),
+        ToolInfo(
+            name="get__jobs_{id}",
+            description="Get a job by ID",
+            endpoint="/jobs/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "lookup"],
+        ),
+    ]
+    state = {
+        "intent": "delete test job TEST-E2E-factory-delete",
+        "context": {},
+        "scoped_tools": tools,
+        "raw_plan": AgentPlanOutput(
+            plan_explanation="Delete the requested job after checking it.",
+            risk_summary="Requires approval before deletion.",
+            steps=[
+                AgentPlanStep(
+                    tool_name="delete__jobs_{id}",
+                    args={"id": "TEST-E2E-factory-delete"},
+                    evidence={"id": "TEST-E2E-factory-delete"},
+                    confidence=0.9,
+                )
+            ],
+        ),
+    }
+
+    result = planner._validate_node(state)
+
+    draft = result["draft"]
+    assert [step.tool_name for step in draft.steps] == ["get__jobs_{id}", "delete__jobs_{id}"]
+    assert [step.step_index for step in draft.steps] == [0, 1]
+    assert all(step.args == {"id": "TEST-E2E-factory-delete"} for step in draft.steps)
+    assert draft.steps[1].depends_on == [0]
+    assert [step["tool_name"] for step in result["intent_contract"]["steps"]] == ["get__jobs_{id}", "delete__jobs_{id}"]
+
+
+def test_normalize_plan_dict_coerces_string_tool_name_in_depends_on():
+    """LLM emits depends_on=['get__machines'] -> normalizer rewrites to integer index."""
+    raw = {
+        "plan_explanation": "ok",
+        "risk_summary": "low",
+        "steps": [
+            {
+                "tool_name": "get__machines",
+                "args": {},
+                "evidence": {},
+                "confidence": 0.8,
+                "depends_on": [],
+                "execution_mode": "single",
+                "bindings": [],
+            },
+            {
+                "tool_name": "get__jobs",
+                "args": {},
+                "evidence": {},
+                "confidence": "0.6",
+                "depends_on": ["get__machines"],
+                "execution_mode": "weird-mode",
+                "bindings": [
+                    {
+                        "from_step": "get__machines",
+                        "result_path": "data",
+                        "field": "id",
+                        "target_arg": "machine_id",
+                    }
+                ],
+            },
+        ],
+        "clarification": None,
+    }
+
+    normalized = _normalize_plan_dict(raw)
+    plan = AgentPlanOutput.model_validate(normalized)
+
+    assert len(plan.steps) == 2
+    assert plan.steps[1].depends_on == [0]
+    assert plan.steps[1].confidence == pytest.approx(0.6)
+    assert plan.steps[1].execution_mode == "single"
+    assert len(plan.steps[1].bindings) == 1
+    assert plan.steps[1].bindings[0].from_step == 0
+
+
+def test_normalize_plan_dict_drops_unresolvable_string_dependency():
+    """Unknown tool-name references in depends_on get dropped, never crash validation."""
+    raw = {
+        "plan_explanation": "",
+        "risk_summary": "",
+        "steps": [
+            {
+                "tool_name": "get__jobs",
+                "args": {},
+                "evidence": {},
+                "confidence": 0.9,
+                "depends_on": ["nonexistent_tool", "-1", 7],
+                "execution_mode": "single",
+                "bindings": [
+                    {
+                        "from_step": "nonexistent_tool",
+                        "result_path": "data",
+                        "field": "id",
+                        "target_arg": "x",
+                    }
+                ],
+            }
+        ],
+    }
+
+    normalized = _normalize_plan_dict(raw)
+    plan = AgentPlanOutput.model_validate(normalized)
+
+    assert plan.steps[0].depends_on == []
+    assert plan.steps[0].bindings == []
+
+
+def test_normalize_plan_dict_handles_non_dict_args_and_missing_required():
+    """args=None, evidence=None, missing_required=non-list are coerced to safe defaults."""
+    raw = {
+        "steps": [
+            {
+                "tool_name": "get__machines",
+                "args": None,
+                "evidence": None,
+                "confidence": True,
+                "depends_on": None,
+                "execution_mode": None,
+                "missing_required": "id",
+                "bindings": None,
+            }
+        ]
+    }
+
+    normalized = _normalize_plan_dict(raw)
+    plan = AgentPlanOutput.model_validate(normalized)
+
+    step = plan.steps[0]
+    assert step.args == {}
+    assert step.evidence == {}
+    assert step.confidence == pytest.approx(1.0)
+    assert step.depends_on == []
+    assert step.execution_mode == "single"
+    assert step.missing_required == []
+    assert step.bindings == []
+
+
+def test_validate_node_empty_plan_raises_backend_error_when_fallback_enabled():
+    """Empty step_drafts surfaces as LangGraphPlannerError so PlannerAdapter can fall back."""
+    settings = _settings()
+    assert settings.planner_fallback_to_legacy is True
+    planner = LangGraphPlanner(settings)
+    state = {
+        "intent": "list machines",
+        "context": {},
+        "scoped_tools": [_read_tool("get__machines", "/machines")],
+        "raw_plan": AgentPlanOutput(
+            plan_explanation="",
+            risk_summary="",
+            steps=[],
+        ),
+    }
+
+    with pytest.raises(LangGraphPlannerError) as excinfo:
+        planner._validate_node(state)
+    assert not isinstance(excinfo.value, LangGraphPlannerClarification)
+    assert "no usable steps" in str(excinfo.value).lower()
+
+
+def test_validate_node_empty_plan_keeps_clarification_when_fallback_disabled():
+    """When fallback is off, preserve existing user-facing clarification (HTTP 400) behavior."""
+    settings = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        redis_url=None,
+        go_api_base_url="http://testserver",
+        worker_count=0,
+        session_queue_size=10,
+        max_plan_steps=10,
+        max_session_steps=50,
+        max_replans=5,
+        max_llm_calls=20,
+        max_session_duration_s=1800,
+        http_timeout_s=1.0,
+        planner_backend="legacy",
+        planner_fallback_to_legacy=False,
+    )
+    planner = LangGraphPlanner(settings)
+    state = {
+        "intent": "list machines",
+        "context": {},
+        "scoped_tools": [_read_tool("get__machines", "/machines")],
+        "raw_plan": AgentPlanOutput(
+            plan_explanation="",
+            risk_summary="",
+            steps=[],
+        ),
+    }
+
+    with pytest.raises(LangGraphPlannerClarification):
+        planner._validate_node(state)
+
+
+def test_langgraph_repair_expands_job_and_slots_compound_read():
+    settings = _settings()
+    planner = LangGraphPlanner(settings)
+    tools = [
+        ToolInfo(
+            name="get__jobs_{id}",
+            description="Get a job by ID",
+            endpoint="/jobs/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "lookup"],
+        ),
+        ToolInfo(
+            name="get__jobs_{id}_slots",
+            description="List slots by job ID",
+            endpoint="/jobs/{id}/slots",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "slot", "lookup"],
+        ),
+    ]
+    state = {
+        "intent": "show JOB-SEED-001 and its slots",
+        "context": {},
+        "scoped_tools": tools,
+        "raw_plan": AgentPlanOutput(
+            plan_explanation="bad model output",
+            risk_summary="",
+            steps=[
+                AgentPlanStep(
+                    tool_name="get__job",
+                    args={},
+                    evidence={},
+                    confidence=0.1,
+                )
+            ],
+        ),
+    }
+
+    result = planner._validate_node(state)
+
+    draft = result["draft"]
+    assert [step.tool_name for step in draft.steps] == ["get__jobs_{id}", "get__jobs_{id}_slots"]
+    assert all(step.args == {"id": "JOB-SEED-001"} for step in draft.steps)
+    assert draft.steps[1].depends_on == [0]
+
+
+def test_langgraph_repair_expands_incomplete_job_slots_plan():
+    planner = LangGraphPlanner(_settings())
+    tools = [
+        ToolInfo(
+            name="get__jobs_{id}",
+            description="Get a job by ID",
+            endpoint="/jobs/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "lookup"],
+        ),
+        ToolInfo(
+            name="get__jobs_{id}_slots",
+            description="List slots by job ID",
+            endpoint="/jobs/{id}/slots",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "slot", "lookup"],
+        ),
+    ]
+    state = {
+        "intent": "show JOB-SEED-001 and its slots",
+        "context": {},
+        "scoped_tools": tools,
+        "raw_plan": AgentPlanOutput(
+            plan_explanation="Retrieve slots only.",
+            risk_summary="Read-only.",
+            steps=[
+                AgentPlanStep(
+                    tool_name="get__jobs_{id}_slots",
+                    args={"id": "JOB-SEED-001"},
+                    evidence={"id": "JOB-SEED-001"},
+                    confidence=1.0,
+                )
+            ],
+        ),
+    }
+
+    result = planner._validate_node(state)
+
+    draft = result["draft"]
+    assert [step.tool_name for step in draft.steps] == ["get__jobs_{id}", "get__jobs_{id}_slots"]
+    assert all(step.args == {"id": "JOB-SEED-001"} for step in draft.steps)
+
+
+def test_langgraph_repair_maps_seed_diagnostic_not_found_read():
+    tool = ToolInfo(
+        name="get__jobs_{id}",
+        description="Get a job by ID",
+        endpoint="/jobs/{id}",
+        method="GET",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+        path_params=["id"],
+        is_read_only=True,
+        requires_approval=False,
+        side_effect_level="NONE",
+        is_concurrency_safe=True,
+        is_strongly_idempotent=False,
+        capability_tags=["job", "lookup"],
+    )
+
+    repaired = _deterministic_plan_repair("factory read 404 soft", [tool])
+
+    assert repaired is not None
+    assert repaired.steps[0].tool_name == "get__jobs_{id}"
+    assert repaired.steps[0].args == {"id": "JOB-NOT-REAL"}
+
+
+def test_langgraph_repair_maps_seed_diagnostic_missing_machine_update():
+    tool = ToolInfo(
+        name="put__machines_{id}",
+        description="Update a machine",
+        endpoint="/machines/{id}",
+        method="PUT",
+        input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+        path_params=["id"],
+        is_read_only=False,
+        requires_approval=True,
+        side_effect_level="HIGH",
+        is_concurrency_safe=False,
+        is_strongly_idempotent=False,
+        capability_tags=["machine", "update"],
+    )
+
+    repaired = _deterministic_plan_repair("factory update missing machine", [tool])
+
+    assert repaired is not None
+    assert repaired.steps[0].tool_name == "put__machines_{id}"
+    assert repaired.steps[0].args == {"id": "M-NOT-REAL"}
 
 
 def test_assign_parallel_groups_for_independent_read_steps():
@@ -166,6 +644,7 @@ async def test_legacy_planner_prefills_enum_backed_optional_filters():
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
+        agent_runtime="legacy_planner",
         tool_selector_backend="retrieval",
     )
     planner = LegacyPlannerBackend(settings)
@@ -937,6 +1416,7 @@ async def test_legacy_planner_maps_paint_shop_location_filter():
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
+        agent_runtime="legacy_planner",
         tool_selector_backend="retrieval",
     )
     planner = LegacyPlannerBackend(settings)
@@ -965,6 +1445,7 @@ async def test_legacy_planner_maps_in_paint_shop_location_filter():
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
+        agent_runtime="legacy_planner",
         tool_selector_backend="retrieval",
     )
     planner = LegacyPlannerBackend(settings)
@@ -991,6 +1472,7 @@ async def test_legacy_planner_keeps_paint_shop_location_and_strips_synthetic_con
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
+        agent_runtime="legacy_planner",
         tool_selector_backend="retrieval",
     )
     adapter = PlannerAdapter(settings=settings, tool_registry=ToolRegistry())
@@ -1030,6 +1512,7 @@ async def test_legacy_planner_strips_llm_sort_dir_without_triggering_confirmatio
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
+        agent_runtime="legacy_planner",
         tool_selector_backend="retrieval",
     )
     adapter = PlannerAdapter(settings=settings, tool_registry=ToolRegistry())
@@ -1069,6 +1552,7 @@ async def test_legacy_planner_keeps_user_grounded_priority_but_strips_llm_sort_f
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
+        agent_runtime="legacy_planner",
         tool_selector_backend="retrieval",
     )
     adapter = PlannerAdapter(settings=settings, tool_registry=ToolRegistry())
@@ -1108,6 +1592,7 @@ async def test_legacy_planner_drops_llm_status_hallucination_when_priority_is_gr
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
+        agent_runtime="legacy_planner",
         tool_selector_backend="retrieval",
     )
     adapter = PlannerAdapter(settings=settings, tool_registry=ToolRegistry())
@@ -1147,6 +1632,7 @@ async def test_planner_adapter_dedupes_duplicate_steps_for_repeated_clause():
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
+        agent_runtime="legacy_planner",
         planner_backend="legacy",
         tool_selector_backend="retrieval",
     )
@@ -1177,6 +1663,7 @@ async def test_legacy_planner_clarifies_explicit_invalid_status(monkeypatch):
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
+        agent_runtime="legacy_planner",
         tool_selector_backend="retrieval",
     )
     adapter = PlannerAdapter(settings=settings, tool_registry=ToolRegistry())
@@ -1217,6 +1704,7 @@ async def test_universal_provenance_gate_respects_contract_arg_provenance(monkey
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
+        agent_runtime="legacy_planner",
         planner_backend="legacy",
     )
     adapter = PlannerAdapter(settings=settings, tool_registry=ToolRegistry())
