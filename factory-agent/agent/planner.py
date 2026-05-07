@@ -2590,14 +2590,7 @@ class LangChainPlannerBackend:
         except Exception:
             pass
 
-        # Last resort: deterministic safe draft so runtime can continue through existing validator and safety gates.
-        fallback = await self._legacy.generate_plan(
-            intent=intent,
-            scoped_tools=scoped_tools,
-            context=context,
-            tools_markdown=tools_markdown,
-        )
-        return PlannerResult(draft=fallback.draft, backend_used="legacy", llm_calls=max(1, llm_calls))
+        raise PlannerBackendError("LangChain planner backend failed to produce a valid plan.")
 
 
 class StructuredPlannerBackend:
@@ -3003,115 +2996,40 @@ class PlannerAdapter:
         context: dict[str, Any] | None = None,
         force_backend: PlannerBackendName | None = None,
     ) -> PlannerResult:
-        runtime = (getattr(self._settings, "agent_runtime", "legacy_planner") or "legacy_planner").strip().lower()
-        configured_backend = self._settings.planner_backend or "legacy"
-        if force_backend:
-            backend = force_backend
-        elif runtime == "langgraph_agent":
-            backend = "langgraph"
-        elif runtime == "legacy_planner":
-            backend = "legacy"
-        else:
-            backend = configured_backend
-        backend = backend.strip().lower()
+        runtime = (getattr(self._settings, "agent_runtime", "langgraph_agent") or "langgraph_agent").strip().lower()
+        configured_backend = (self._settings.planner_backend or "langgraph").strip().lower()
+        backend = (force_backend or ("langgraph" if runtime == "langgraph_agent" else configured_backend)).strip().lower()
         tools_markdown = self._tool_registry.load_tools_markdown()
-        result: PlannerResult | None = None
         if backend == "langgraph":
-            try:
-                result = await self._langgraph.generate_plan(
-                    intent=intent,
-                    scoped_tools=scoped_tools,
-                    context=context,
-                    tools_markdown=tools_markdown,
-                )
-            except PlannerBackendError as exc:
-                if not self._settings.planner_fallback_to_legacy:
-                    raise
-                log_event(
-                    "planner_backend_fallback",
-                    level="WARNING",
-                    requested_backend="langgraph",
-                    fallback_backend="structured",
-                    intent=intent,
-                    scoped_tool_count=len(scoped_tools),
-                    error=str(exc),
-                )
-                try:
-                    result = await self._structured.generate_plan(
-                        intent=intent,
-                        scoped_tools=scoped_tools,
-                        context=context,
-                        tools_markdown=tools_markdown,
-                    )
-                except PlannerBackendError as structured_exc:
-                    log_event(
-                        "planner_backend_fallback",
-                        level="WARNING",
-                        requested_backend="structured",
-                        fallback_backend="legacy",
-                        intent=intent,
-                        scoped_tool_count=len(scoped_tools),
-                        error=str(structured_exc),
-                    )
-                    result = None
+            result = await self._langgraph.generate_plan(
+                intent=intent,
+                scoped_tools=scoped_tools,
+                context=context,
+                tools_markdown=tools_markdown,
+            )
         elif backend == "structured":
-            try:
-                result = await self._structured.generate_plan(
-                    intent=intent,
-                    scoped_tools=scoped_tools,
-                    context=context,
-                    tools_markdown=tools_markdown,
-                )
-            except PlannerBackendError as exc:
-                if not self._settings.planner_fallback_to_legacy:
-                    raise
-                log_event(
-                    "planner_backend_fallback",
-                    level="WARNING",
-                    requested_backend="structured",
-                    fallback_backend="legacy",
-                    intent=intent,
-                    scoped_tool_count=len(scoped_tools),
-                    error=str(exc),
-                )
+            result = await self._structured.generate_plan(
+                intent=intent,
+                scoped_tools=scoped_tools,
+                context=context,
+                tools_markdown=tools_markdown,
+            )
         elif backend == "langchain":
-            try:
-                result = await self._langchain.generate_plan(
-                    intent=intent,
-                    scoped_tools=scoped_tools,
-                    context=context,
-                    tools_markdown=tools_markdown,
-                )
-            except PlannerBackendError as exc:
-                if not self._settings.planner_fallback_to_legacy:
-                    raise
-                log_event(
-                    "planner_backend_fallback",
-                    level="WARNING",
-                    requested_backend="langchain",
-                    fallback_backend="legacy",
-                    intent=intent,
-                    scoped_tool_count=len(scoped_tools),
-                    error=str(exc),
-                )
-        
-        if result is None:
+            result = await self._langchain.generate_plan(
+                intent=intent,
+                scoped_tools=scoped_tools,
+                context=context,
+                tools_markdown=tools_markdown,
+            )
+        elif backend == "legacy":
             result = await self._legacy.generate_plan(
                 intent=intent,
                 scoped_tools=scoped_tools,
                 context=context,
                 tools_markdown=tools_markdown,
             )
-            tools_by_name = {tool.name: tool for tool in scoped_tools}
-            has_write_step = any(
-                (tool := tools_by_name.get(step.tool_name)) is not None and not tool.is_read_only
-                for step in result.draft.steps
-            )
-            if backend in {"structured", "langchain", "langgraph"} and len(result.draft.steps) > 1 and has_write_step:
-                raise PlannerBackendError(
-                    "Agent planner was unavailable and legacy fallback produced a multi-step write plan; "
-                    "refusing unsafe hardcoded compound write planning."
-                )
+        else:
+            raise PlannerBackendError(f"Unsupported planner backend: {backend}")
 
         if result and result.draft and result.draft.steps:
             deduped_draft, dropped_steps = _dedupe_plan_steps(result.draft)

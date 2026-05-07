@@ -1022,15 +1022,6 @@ class LangGraphPlanner:
                 raw_tool_names=[s.tool_name for s in raw_plan.steps or [] if isinstance(getattr(s, "tool_name", None), str)],
                 scoped_tool_count=len(tools_by_name),
             )
-            # When the LangGraph LLM produces an empty plan with no explicit
-            # clarification, keep the default behavior inside LangGraph: return
-            # a user-facing clarification instead of silently swapping to the
-            # legacy planner. Compatibility fallback is only used when explicitly
-            # enabled by configuration.
-            if self._settings.planner_fallback_to_legacy:
-                raise LangGraphPlannerError(
-                    "LangGraph planner produced no usable steps; compatibility fallback requested."
-                )
             raise LangGraphPlannerClarification("I could not map that request to a safe factory tool plan.")
 
         step_drafts, contract_steps, inserted_preflights = _insert_delete_preflights(

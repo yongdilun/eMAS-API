@@ -17,7 +17,6 @@ from agent.reasoning_pipeline import ToolSelectionDecision
 from agent.graph.planner_graph import (
     LangGraphPlanner,
     LangGraphPlannerClarification,
-    LangGraphPlannerError,
     _deterministic_plan_repair,
     _normalize_plan_dict,
 )
@@ -78,7 +77,7 @@ def _write_tool(name: str, endpoint: str, method: str = "DELETE") -> ToolInfo:
 
 
 @pytest.mark.asyncio
-async def test_planner_adapter_langchain_backend_falls_back_to_legacy_when_unavailable(monkeypatch):
+async def test_planner_adapter_langchain_backend_raises_when_unavailable(monkeypatch):
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url=None,
@@ -115,16 +114,12 @@ async def test_planner_adapter_langchain_backend_falls_back_to_legacy_when_unava
 
     monkeypatch.setattr(LangChainPlannerBackend, "generate_plan", failing_generate_plan)
 
-    result = await adapter.generate_plan(
-        intent="Check machine 5 status",
-        scoped_tools=[tool],
-        context=None,
-    )
-
-    assert result.backend_used == "legacy"
-    assert len(result.draft.steps) == 1
-    assert result.draft.steps[0].tool_name == "get__machines_{id}"
-    assert result.draft.steps[0].args == {"id": "5"}
+    with pytest.raises(PlannerBackendError):
+        await adapter.generate_plan(
+            intent="Check machine 5 status",
+            scoped_tools=[tool],
+            context=None,
+        )
 
 
 @pytest.mark.asyncio
@@ -362,30 +357,8 @@ def test_normalize_plan_dict_handles_non_dict_args_and_missing_required():
     assert step.bindings == []
 
 
-def test_validate_node_empty_plan_raises_backend_error_when_fallback_enabled():
-    """Empty step_drafts surfaces as LangGraphPlannerError so PlannerAdapter can fall back."""
-    settings = _settings()
-    assert settings.planner_fallback_to_legacy is True
-    planner = LangGraphPlanner(settings)
-    state = {
-        "intent": "list machines",
-        "context": {},
-        "scoped_tools": [_read_tool("get__machines", "/machines")],
-        "raw_plan": AgentPlanOutput(
-            plan_explanation="",
-            risk_summary="",
-            steps=[],
-        ),
-    }
-
-    with pytest.raises(LangGraphPlannerError) as excinfo:
-        planner._validate_node(state)
-    assert not isinstance(excinfo.value, LangGraphPlannerClarification)
-    assert "no usable steps" in str(excinfo.value).lower()
-
-
-def test_validate_node_empty_plan_keeps_clarification_when_fallback_disabled():
-    """When fallback is off, preserve existing user-facing clarification (HTTP 400) behavior."""
+def test_validate_node_empty_plan_returns_clarification():
+    """Empty step_drafts should always preserve user-facing clarification behavior."""
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url=None,
@@ -398,8 +371,8 @@ def test_validate_node_empty_plan_keeps_clarification_when_fallback_disabled():
         max_llm_calls=20,
         max_session_duration_s=1800,
         http_timeout_s=1.0,
-        planner_backend="legacy",
-        planner_fallback_to_legacy=False,
+        planner_backend="langgraph",
+        planner_fallback_to_legacy=True,
     )
     planner = LangGraphPlanner(settings)
     state = {
@@ -1166,7 +1139,7 @@ async def test_structured_planner_rejects_invalid_enum_args(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_planner_adapter_structured_backend_falls_back_to_legacy(monkeypatch):
+async def test_planner_adapter_structured_backend_raises_when_unavailable(monkeypatch):
     settings = Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url=None,
@@ -1203,15 +1176,12 @@ async def test_planner_adapter_structured_backend_falls_back_to_legacy(monkeypat
 
     monkeypatch.setattr(StructuredPlannerBackend, "generate_plan", failing_generate_plan)
 
-    result = await adapter.generate_plan(
-        intent="Check machine 5 status",
-        scoped_tools=[tool],
-        context=None,
-    )
-
-    assert result.backend_used == "legacy"
-    assert result.draft.steps[0].tool_name == "get__machines_{id}"
-    assert result.draft.steps[0].args == {"id": "5"}
+    with pytest.raises(PlannerBackendError):
+        await adapter.generate_plan(
+            intent="Check machine 5 status",
+            scoped_tools=[tool],
+            context=None,
+        )
 
 
 @pytest.mark.asyncio
