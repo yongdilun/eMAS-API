@@ -66,6 +66,44 @@ def _tool_info_from_generated_tool(tool: Any) -> ToolInfo:
     )
 
 
+def _default_operator_tokens() -> set[str]:
+    return {
+        "a",
+        "about",
+        "all",
+        "an",
+        "and",
+        "any",
+        "by",
+        "can",
+        "check",
+        "create",
+        "delete",
+        "find",
+        "for",
+        "from",
+        "get",
+        "give",
+        "help",
+        "in",
+        "into",
+        "list",
+        "lookup",
+        "me",
+        "new",
+        "of",
+        "please",
+        "read",
+        "remove",
+        "show",
+        "the",
+        "to",
+        "update",
+        "view",
+        "with",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate registry-derived tool intent vocabulary.")
     parser.add_argument(
@@ -92,7 +130,11 @@ def main() -> int:
 
     generated_tools = tools_from_openapi(spec)
     tools = [_tool_info_from_generated_tool(tool) for tool in generated_tools]
-    vocabulary = build_tool_intent_vocabulary(tools, generic_threshold=args.generic_threshold)
+    vocabulary = build_tool_intent_vocabulary(
+        tools,
+        generic_threshold=args.generic_threshold,
+        operator_tokens=_default_operator_tokens(),
+    )
 
     payload = {
         "source": str(swagger_path),
@@ -100,6 +142,7 @@ def main() -> int:
         "generic_threshold": args.generic_threshold,
         "generic_tokens": sorted(vocabulary.generic_tokens),
         "entity_tokens": sorted(vocabulary.entity_tokens),
+        "operator_tokens": sorted(vocabulary.operator_tokens),
         "known_tool_tokens": sorted(vocabulary.known_tool_tokens),
     }
 
@@ -107,7 +150,11 @@ def main() -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Wrote {output_path} ({len(tools)} tools)")
-    print(f"generic_tokens={len(vocabulary.generic_tokens)} entity_tokens={len(vocabulary.entity_tokens)}")
+    print(
+        f"generic_tokens={len(vocabulary.generic_tokens)} "
+        f"entity_tokens={len(vocabulary.entity_tokens)} "
+        f"operator_tokens={len(vocabulary.operator_tokens)}"
+    )
     return 0
 
 

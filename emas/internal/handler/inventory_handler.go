@@ -20,7 +20,7 @@ func NewInventoryHandler(inventoryService *service.InventoryService) *InventoryH
 }
 
 // @Summary Create a material
-// @Description Create a material
+// @Description Create a material. material_id is generated with the MAT- prefix when omitted.
 // @Tags inventory
 // @Accept json
 // @Produce json

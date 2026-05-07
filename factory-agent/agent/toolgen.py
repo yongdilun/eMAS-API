@@ -246,70 +246,163 @@ def _infer_input_schema(
     return input_schema
 
 
+def _apply_known_openapi_repairs(path: str, operation: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Repair documented paths that drift from the mounted router.
+
+    The generated Swagger for the scheduling candidate-machine endpoint omits
+    the step id path segment, while the live router exposes
+    /scheduling/steps/:id/candidate-machines. Keeping the operationId stable
+    preserves the existing tool contract while making generated tools executable.
+    """
+    if path == "/scheduling/candidate-machines" and str(operation.get("summary", "")).lower() == "candidate machines":
+        repaired = dict(operation)
+        params = list(repaired.get("parameters") or [])
+        if not any(isinstance(param, dict) and param.get("name") == "id" and param.get("in") == "path" for param in params):
+            params.insert(
+                0,
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": True,
+                    "type": "string",
+                    "description": "Job step ID",
+                },
+            )
+        repaired["parameters"] = params
+        return "/scheduling/steps/{id}/candidate-machines", repaired
+    return path, operation
+
+
+_ACTION_TAGS_BY_METHOD = {
+    "get": "read",
+    "post": "create",
+    "put": "update",
+    "patch": "update",
+    "delete": "delete",
+}
+
+_LOW_SIGNAL_OPERATION_TOKENS = {
+    "api",
+    "by",
+    "for",
+    "from",
+    "get",
+    "in",
+    "of",
+    "to",
+    "with",
+}
+
+
+def _normalize_token(token: str) -> str:
+    lowered = (token or "").strip().lower()
+    if lowered.endswith("ies") and len(lowered) > 3:
+        return lowered[:-3] + "y"
+    if lowered.endswith("sses") and len(lowered) > 5:
+        return lowered[:-2]
+    if lowered.endswith("ss"):
+        return lowered
+    if lowered.endswith("s") and len(lowered) > 3:
+        return lowered[:-1]
+    return lowered
+
+
+def _split_tokens(value: str) -> list[str]:
+    return [
+        token
+        for token in (_normalize_token(part) for part in re.split(r"[^a-zA-Z0-9]+", value or ""))
+        if token
+    ]
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    return [value for value in values if value and not (value in seen or seen.add(value))]
+
+
+def _path_capability_tokens(path: str) -> list[str]:
+    tokens: list[str] = []
+    parts = [part for part in (path or "").strip("/").split("/") if part]
+    for part in parts:
+        if part.startswith("{") and part.endswith("}"):
+            continue
+        tokens.extend(_split_tokens(part))
+    return tokens
+
+
+def _operation_text_tokens(operation: dict[str, Any]) -> list[str]:
+    raw = " ".join(
+        [
+            str(operation.get("summary", "") or ""),
+            str(operation.get("description", "") or ""),
+            str(operation.get("operationId", "") or ""),
+            " ".join(str(tag) for tag in (operation.get("tags") or []) if str(tag)),
+        ]
+    )
+    return [token for token in _split_tokens(raw) if token not in _LOW_SIGNAL_OPERATION_TOKENS]
+
+
+def _schema_tokens(schema: dict[str, Any] | None) -> list[str]:
+    if not isinstance(schema, dict):
+        return []
+    tokens: list[str] = []
+    for key in ("title", "description"):
+        value = schema.get(key)
+        if isinstance(value, str):
+            tokens.extend(_split_tokens(value))
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for name, subschema in properties.items():
+            tokens.extend(_split_tokens(str(name)))
+            tokens.extend(_schema_tokens(subschema if isinstance(subschema, dict) else {}))
+    items = schema.get("items")
+    if isinstance(items, dict):
+        tokens.extend(_schema_tokens(items))
+    return tokens
+
+
 def _ai_extension_tokens(operation: dict[str, Any]) -> list[str]:
     tokens: list[str] = []
     for key in ("x-ai-entity", "x-ai-intent", "x-ai-action"):
         value = operation.get(key)
         if isinstance(value, str) and value.strip():
-            tokens.extend(part for part in re.split(r"[^a-z0-9]+", value.lower()) if part)
+            tokens.extend(_split_tokens(value))
     for key in ("x-ai-aliases", "x-ai-capability-tags", "x-ai-tags"):
         values = operation.get(key)
         if isinstance(values, list):
             for value in values:
                 if str(value).strip():
-                    tokens.extend(part for part in re.split(r"[^a-z0-9]+", str(value).lower()) if part)
+                    tokens.extend(_split_tokens(str(value)))
     return tokens
 
 
-def _operation_tokens(path: str, method: str, operation: dict[str, Any]) -> list[str]:
-    raw = " ".join(
-        [
-            path.replace("/", " ").replace("{", " ").replace("}", " "),
-            str(operation.get("summary", "") or ""),
-            str(operation.get("description", "") or ""),
-            str(operation.get("operationId", "") or ""),
-            " ".join(str(tag) for tag in (operation.get("tags") or []) if str(tag)),
-            " ".join(_ai_extension_tokens(operation)),
-        ]
-    ).lower()
-    tokens = [token for token in re.split(r"[^a-z0-9]+", raw) if token]
+def _operation_tokens(
+    path: str,
+    method: str,
+    operation: dict[str, Any],
+    *,
+    input_schema: dict[str, Any] | None = None,
+    output_schema: dict[str, Any] | None = None,
+) -> list[str]:
     tags: list[str] = []
-
-    if "machine" in tokens or "machines" in tokens:
-        tags.append("machine")
-    if "job" in tokens or "jobs" in tokens or "schedule" in tokens or "scheduling" in tokens:
-        tags.append("job")
-    if "inventory" in tokens or "material" in tokens or "materials" in tokens or "stock" in tokens:
-        tags.append("inventory")
-    if "approval" in tokens or "approvals" in tokens:
-        tags.append("approval")
-    if "proposal" in tokens or "proposals" in tokens:
-        tags.append("proposal")
-
     lowered_method = method.lower()
+    path_tokens = _path_capability_tokens(path)
+    operation_tokens = _operation_text_tokens(operation)
+    extension_tokens = _ai_extension_tokens(operation)
+    schema_tokens = _schema_tokens(input_schema) + _schema_tokens(output_schema)
+
+    tags.extend(path_tokens)
+    tags.extend(str(tag_token) for tag in operation.get("tags") or [] for tag_token in _split_tokens(str(tag)))
+
     if lowered_method == "get":
-        tags.append("lookup" if "{id}" in path else "list")
-        if any(token in tokens for token in ("status", "state")):
-            tags.append("status")
-        if "pending" in tokens:
-            tags.append("pending")
-    elif lowered_method == "post":
-        tags.append("create")
-    elif lowered_method in {"put", "patch"}:
-        tags.append("update")
-    elif lowered_method == "delete":
-        tags.append("delete")
+        tags.append("lookup" if "{" in path and "}" in path else "list")
+    elif lowered_method in _ACTION_TAGS_BY_METHOD:
+        tags.append(_ACTION_TAGS_BY_METHOD[lowered_method])
 
-    for token in ("pending", "approve", "reject", "maintenance", "utilization", "capability", "downtime", "alerts"):
-        if token in tokens:
-            tags.append(token)
-
-    for token in _ai_extension_tokens(operation):
-        if token:
-            tags.append(token)
-
-    seen: set[str] = set()
-    return [tag for tag in tags if not (tag in seen or seen.add(tag))]
+    tags.extend(extension_tokens)
+    tags.extend(operation_tokens)
+    tags.extend(schema_tokens)
+    return _dedupe(tags)
 
 
 def _build_tool_markdown(tool: Tool) -> str:
@@ -335,6 +428,66 @@ def _build_tool_markdown(tool: Tool) -> str:
 
 def render_tools_md(tools: list[Tool]) -> str:
     return "# Available Tools\n\n" + "".join(_build_tool_markdown(t) for t in tools)
+
+
+def _collect_id_patterns_from_schema(schema: dict[str, Any] | None, catalog: dict[str, dict[str, str]]) -> None:
+    if not isinstance(schema, dict):
+        return
+    field_name = schema.get("x-ai-id-field")
+    entity = schema.get("x-ai-entity")
+    prefix = schema.get("x-ai-id-prefix")
+    pattern = schema.get("pattern")
+    if isinstance(field_name, str) and isinstance(entity, str) and isinstance(prefix, str):
+        catalog[field_name] = {
+            "entity": entity,
+            "prefix": prefix,
+            "pattern": str(pattern or ""),
+        }
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for name, child in properties.items():
+            if isinstance(child, dict):
+                child = dict(child)
+                child.setdefault("x-ai-id-field", str(name))
+            _collect_id_patterns_from_schema(child, catalog)
+    items = schema.get("items")
+    if isinstance(items, dict):
+        _collect_id_patterns_from_schema(items, catalog)
+    for key in ("allOf", "oneOf", "anyOf"):
+        parts = schema.get(key)
+        if isinstance(parts, list):
+            for part in parts:
+                _collect_id_patterns_from_schema(part if isinstance(part, dict) else None, catalog)
+
+
+def build_id_pattern_catalog(tools: list[Tool]) -> dict[str, Any]:
+    catalog: dict[str, dict[str, str]] = {}
+    for tool in tools:
+        _collect_id_patterns_from_schema(tool.input_schema if isinstance(tool.input_schema, dict) else None, catalog)
+        _collect_id_patterns_from_schema(tool.output_schema if isinstance(tool.output_schema, dict) else None, catalog)
+
+    prefixes = sorted(
+        (
+            {
+                "prefix": meta["prefix"],
+                "entity": meta["entity"],
+                "field": field,
+                "pattern": meta.get("pattern", ""),
+            }
+            for field, meta in catalog.items()
+            if meta.get("prefix") and meta.get("entity")
+        ),
+        key=lambda item: len(item["prefix"]),
+        reverse=True,
+    )
+    return {"version": 1, "fields": catalog, "prefixes": prefixes}
+
+
+def write_id_pattern_catalog(tools: list[Tool], *, path: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(build_id_pattern_catalog(tools), f, indent=2, ensure_ascii=False, sort_keys=True)
+        f.write("\n")
 
 
 def fetch_openapi_spec(*, openapi_url: str, local_swagger_json_path: str | None = None, force_local: bool = False) -> dict[str, Any]:
@@ -366,29 +519,35 @@ def tools_from_openapi(spec: dict[str, Any]) -> list[Tool]:
         for method, operation in (path_item or {}).items():
             if method.lower() not in ["get", "post", "put", "patch", "delete"]:
                 continue
+            effective_path, effective_operation = _apply_known_openapi_repairs(path, operation)
 
-            tool_name = operation.get("operationId", f"{method}_{path.replace('/', '_')}").lower()
-            description = operation.get("summary", "") or operation.get("description", "")
+            tool_name = effective_operation.get("operationId", f"{method}_{path.replace('/', '_')}").lower()
+            description = effective_operation.get("summary", "") or effective_operation.get("description", "")
 
-            input_schema = _infer_input_schema(spec, operation, method, path_parameters=shared_parameters)
-            for key, value in operation.items():
+            input_schema = _infer_input_schema(spec, effective_operation, method, path_parameters=shared_parameters)
+            for key, value in effective_operation.items():
                 if isinstance(key, str) and key.startswith("x-ai-"):
                     input_schema[key] = value
             input_schema["x-allowed-roles"] = _allowed_roles_for_operation(method, operation)
-            output_schema = _infer_output_schema(spec, operation)
-
-            capability_tags = _operation_tokens(path, method, operation)
+            output_schema = _infer_output_schema(spec, effective_operation)
 
             is_read_only = method.lower() == "get"
             requires_approval = not is_read_only
             side_effect_level = "NONE" if is_read_only else "HIGH"
+            capability_tags = _operation_tokens(
+                effective_path,
+                method,
+                effective_operation,
+                input_schema=input_schema,
+                output_schema=output_schema,
+            )
 
             tools.append(
                 Tool(
                     tool_id=generate_uuid(),
                     name=tool_name,
                     description=description,
-                    endpoint=path,
+                    endpoint=effective_path,
                     method=method.upper(),
                     version=1,
                     schema_version=1,
@@ -408,6 +567,7 @@ async def write_tools_md_and_meta(
     *,
     tools: list[Tool],
     tools_md_path: str,
+    id_patterns_path: str | None = None,
     replace_db: bool = True,
 ) -> ToolgenResult:
     # DB update (best-effort; same behavior as existing script).
@@ -425,6 +585,8 @@ async def write_tools_md_and_meta(
     content = render_tools_md(tools)
     with open(tools_md_path, "w", encoding="utf-8") as f:
         f.write(content)
+    if id_patterns_path:
+        write_id_pattern_catalog(tools, path=id_patterns_path)
 
     tools_md_hash = _sha256_hex(content.encode("utf-8"))
 

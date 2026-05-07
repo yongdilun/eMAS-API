@@ -1463,7 +1463,7 @@ def build_router(
         draft = req.draft
 
         if assessment.kind != "operations":
-            reply = assessment.reply or "I need a factory operations request before I can create a plan."
+            reply = assessment.reply or "I need an operation request before I can create a plan."
             plan_resp = await _persist_conversation_reply_as_empty_plan(
                 db=db,
                 sess=sess,

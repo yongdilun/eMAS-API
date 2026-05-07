@@ -185,7 +185,7 @@ type SplitStepRequest struct {
 
 // --- Machine DTOs ---
 type CreateMachineRequest struct {
-	MachineID               string `json:"machine_id" binding:"required"`
+	MachineID               string `json:"machine_id"` // Optional; generated with M- prefix when omitted.
 	MachineName             string `json:"machine_name" binding:"required"`
 	MachineType             string `json:"machine_type" binding:"required"`
 	Location                string `json:"location"`
@@ -259,7 +259,7 @@ type RecordDowntimeRequest struct {
 
 // --- Product DTOs ---
 type CreateProductRequest struct {
-	ProductID     string `json:"product_id" binding:"required"`
+	ProductID     string `json:"product_id"` // Optional; generated with P- prefix when omitted.
 	ProductName   string `json:"product_name" binding:"required"`
 	Description   string `json:"description"`
 	UnitOfMeasure string `json:"unit_of_measure"`
@@ -289,7 +289,7 @@ type BOMItem struct {
 
 // --- Inventory DTOs ---
 type CreateMaterialRequest struct {
-	MaterialID      string  `json:"material_id" binding:"required"`
+	MaterialID      string  `json:"material_id"` // Optional; generated with MAT- prefix when omitted.
 	MaterialName    string  `json:"material_name" binding:"required"`
 	Unit            string  `json:"unit"`
 	CurrentStock    float64 `json:"current_stock"`
@@ -356,7 +356,7 @@ type RecordInspectionRequest struct {
 
 // --- Process DTOs ---
 type CreateProcessRequest struct {
-	ProcessID   string `json:"process_id" binding:"required"`
+	ProcessID   string `json:"process_id"` // Optional; generated with PRC- prefix when omitted.
 	ProductID   string `json:"product_id" binding:"required"`
 	ProcessName string `json:"process_name" binding:"required"`
 	Version     int    `json:"version"`
@@ -392,7 +392,7 @@ type CreateProcessStepRequest struct {
 
 // --- Formula DTOs ---
 type CreateFormulaRequest struct {
-	FormulaID    string `json:"formula_id" binding:"required"`
+	FormulaID    string `json:"formula_id"` // Optional; generated with F- prefix when omitted.
 	FormulaName  string `json:"formula_name" binding:"required"`
 	Version      int    `json:"version"`
 	Instructions string `json:"instructions"`

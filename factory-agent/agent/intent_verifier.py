@@ -9,19 +9,26 @@ from jsonschema import Draft202012Validator
 from .schemas import ToolInfo
 from .tool_intent_profile import tool_covers_descriptive_terms
 
-
-import json
-import os
-
-_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "ai_domain_config.json")
-try:
-    with open(_CONFIG_PATH, "r") as f:
-        _AI_CONFIG = json.load(f).get("python", {})
-except Exception:
-    _AI_CONFIG = {}
-
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
-_STOPWORDS = set(_AI_CONFIG.get("stopwords", []))
+_STOPWORDS = {
+    "a",
+    "all",
+    "an",
+    "and",
+    "any",
+    "by",
+    "for",
+    "from",
+    "get",
+    "in",
+    "list",
+    "of",
+    "show",
+    "the",
+    "to",
+    "view",
+    "with",
+}
 
 @dataclass(frozen=True)
 class ClauseVerificationResult:
@@ -34,10 +41,14 @@ class ClauseVerificationResult:
     predicates: list[dict[str, Any]] = field(default_factory=list)
     predicate_coverage_score: float = 1.0
 
-_CONTROL_FIELDS = set(_AI_CONFIG.get("control_fields", []))
-_ACTION_VERBS_FILTER = set(_AI_CONFIG.get("action_verbs", []))
-_VAGUE_FREE_TEXT = set(_AI_CONFIG.get("vague_free_text", []))
-_FIELD_IMPLYING_PREPOSITIONS = {k: set(v) for k, v in _AI_CONFIG.get("field_implying_prepositions", {}).items()}
+_CONTROL_FIELDS = {"fields", "limit", "offset", "page", "page_size", "sort", "sort_by", "sort_dir"}
+_ACTION_VERBS_FILTER = {"check", "find", "get", "inspect", "list", "lookup", "read", "show", "view"}
+_VAGUE_FREE_TEXT = {"all", "any", "close", "everything", "latest", "near", "nearby", "recent", "some"}
+_FIELD_IMPLYING_PREPOSITIONS = {
+    "location": {"at", "in", "inside", "within"},
+    "status": {"with"},
+    "type": {"of", "with"},
+}
 
 
 def _normalize_token(value: str) -> str:
@@ -73,17 +84,13 @@ def _field_aliases(field_name: str) -> list[str]:
 
 
 def _tool_entity(tool: ToolInfo) -> str:
-    token = f"{tool.name} {tool.endpoint} {' '.join(tool.capability_tags or [])}".lower()
-    if "machine" in token or "/machines" in token:
-        return "machine"
-    if "job" in token or "/jobs" in token:
-        return "job"
-    if "inventory" in token or "material" in token or "/inventory" in token:
-        return "inventory"
-    if "approval" in token or "/approvals" in token:
-        return "approval"
-    if "proposal" in token or "/proposals" in token:
-        return "proposal"
+    for raw in (tool.endpoint or "").strip("/").split("/"):
+        if raw and not (raw.startswith("{") and raw.endswith("}")):
+            return _normalize_token(raw)
+    for tag in tool.capability_tags or []:
+        normalized = _normalize_token(str(tag))
+        if normalized:
+            return normalized
     return "record"
 
 
@@ -132,9 +139,11 @@ def _candidate_filter_fields(tool: ToolInfo, clause: str) -> dict[str, dict[str,
 
 
 def _entity_pattern(entity: str) -> str:
-    if entity == "inventory":
-        return r"(?:inventory|inventories|material|materials)"
-    return rf"(?:{re.escape(entity)}|{re.escape(entity)}s)"
+    escaped = re.escape(entity)
+    variants = {escaped, escaped + "s"}
+    if entity.endswith("y"):
+        variants.add(re.escape(entity[:-1] + "ies"))
+    return rf"(?:{'|'.join(sorted(variants, key=len, reverse=True))})"
 
 
 def _enum_field_schemas(tool: ToolInfo) -> dict[str, dict[str, Any]]:
@@ -198,13 +207,14 @@ def _extract_residual_filter_terms(
     entity: str,
     consumed_tokens: set[str],
     filter_field_aliases: set[str],
+    endpoint_evidence_tokens: set[str] | None = None,
 ) -> list[str]:
     """Fallback: extract noun phrases when the entity word is absent from the clause.
 
     Strips action verbs, determiners, stopwords, and the entity word itself,
     then groups remaining tokens into the longest candidate phrases.
-    Used so "find all Coating Station" produces the same predicate candidate
-    as "find all Coating Station machines".
+    Used so a descriptive phrase without a trailing entity word still produces
+    the same predicate candidate as the explicit entity form.
     """
     text = re.sub(r"\s+", " ", clause or "").strip()
     if not text:
@@ -214,6 +224,7 @@ def _extract_residual_filter_terms(
     skip.add(entity.lower() + "s")
     if entity.lower().endswith("y"):
         skip.add(entity.lower()[:-1] + "ies")
+    skip.update(endpoint_evidence_tokens or set())
     raw_tokens = _TOKEN_RE.findall(text)
     kept: list[str] = []
     for tok in raw_tokens:
@@ -238,6 +249,16 @@ def _extract_residual_filter_terms(
                 for j in range(i, i + length):
                     used[j] = True
     return phrases
+
+
+def _endpoint_evidence_tokens(tool: ToolInfo) -> set[str]:
+    tokens: set[str] = set()
+    for segment in (tool.endpoint or "").strip("/").split("/"):
+        segment = segment.strip()
+        if not segment or (segment.startswith("{") and segment.endswith("}")):
+            continue
+        tokens.update(_tokenize(segment))
+    return tokens
 
 
 def _entity_adjacent_term(clause: str, entity: str) -> str | None:
@@ -337,25 +358,20 @@ def _candidate_score(*, clause: str, term: str, field_name: str, field_schema: d
     score = 0.0
     reason = "weak schema signal"
     if field == "location" or "location" in description:
-        if re.search(r"\b(?:shop|line|area|zone|bay|cell|station|warehouse|room|floor)\b", normalized_term):
-            # Deliberately conservative: these words appear in both location names AND
-            # machine-type names (e.g. "Coating Station", "Assembly Line").
-            # Score 0.70 keeps the term in candidate_fields without auto-resolving
-            # above the 0.85 threshold, allowing the post-execution repair loop to
-            # try alternative fields if this one returns empty.
-            return 0.70, "term looks like a factory location"
+        if re.search(r"\b(?:area|bay|building|cell|floor|line|room|section|shop|site|station|warehouse|zone)\b", normalized_term):
+            return 0.70, "term looks like a location"
         score = 0.45
         reason = "location is a supported filter"
-    if field == "machine_name" or "machine name" in description:
+    if field.endswith("_name") or field == "name" or " name" in description:
         if len(normalized_term) >= 3:
             score = max(score, 0.62)
-            reason = "term may match a machine name"
-    if field in {"machine_type", "type"} or "machine type" in description:
+            reason = "term may match a name field"
+    if field.endswith("_type") or field == "type" or " type" in description:
         if re.fullmatch(r"[A-Z0-9]{2,8}", term.strip()):
-            return 0.78, "term looks like a machine type code"
-        if re.search(r"\b(?:cnc|press|mill|lathe|assembly|paint|pack|weld|coating|station)\b", normalized_term):
-            score = max(score, 0.74)
-            reason = "term may be a machine type"
+            return 0.78, "term looks like a type code"
+        if len(normalized_term) >= 3:
+            score = max(score, 0.58)
+            reason = "term may match a type field"
     return score, reason
 
 
@@ -587,6 +603,7 @@ async def verify_clause_against_tool(
     repaired_args = dict(args or {})
     resolved_predicates: dict[str, Any] = {}
     filter_fields = _candidate_filter_fields(tool, clause)
+    endpoint_evidence_tokens = _endpoint_evidence_tokens(tool)
     descriptive_terms_are_tool_evidence = _descriptive_terms_are_tool_evidence(
         clause=clause,
         tool=tool,
@@ -681,7 +698,14 @@ async def verify_clause_against_tool(
             consumed_tokens.update({_normalize_token(a) for a in _field_aliases(field)})
         
         adj_tokens = { _normalize_token(t) for t in _TOKEN_RE.findall(adjacent_phrase) }
-        leftover = adj_tokens - consumed_tokens - {_normalize_token(alias) for field in filter_fields for alias in _field_aliases(field)} - _STOPWORDS - _ACTION_VERBS_FILTER
+        leftover = (
+            adj_tokens
+            - consumed_tokens
+            - {_normalize_token(alias) for field in filter_fields for alias in _field_aliases(field)}
+            - endpoint_evidence_tokens
+            - _STOPWORDS
+            - _ACTION_VERBS_FILTER
+        )
         leftover.discard(entity.lower())
         leftover.discard(entity.lower() + "s")
         if entity.lower().endswith("y"):
@@ -853,7 +877,7 @@ async def verify_clause_against_tool(
     # Residual-phrase fallback
     # Runs when the entity word was absent from the clause so the
     # adjacent-phrase patterns above found nothing (e.g. "find all
-    # Coating Station" with no trailing "machines").
+    # a descriptive phrase with no trailing entity word).
     # Reuses the identical scoring + decision logic as the adjacent path.
     # Key difference: when confidence is 0.30-0.84, the best candidate is
     # committed into args so execution can proceed and the repair loop
@@ -871,7 +895,7 @@ async def verify_clause_against_tool(
             for alias in _field_aliases(field)
         }
         for raw_term in _extract_residual_filter_terms(
-            clause, entity, residual_consumed, field_alias_set
+            clause, entity, residual_consumed, field_alias_set, endpoint_evidence_tokens
         ):
             neg_fields = _negative_memory_fields(memory, entity=entity, term=raw_term)
             mem2 = _memory_lookup(memory, entity=entity, term=raw_term)

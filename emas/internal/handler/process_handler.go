@@ -19,7 +19,7 @@ func NewProcessHandler(processService *service.ProcessService) *ProcessHandler {
 }
 
 // @Summary Create a process
-// @Description Create a process
+// @Description Create a process. process_id is generated with the PRC- prefix when omitted.
 // @Tags process
 // @Accept json
 // @Produce json

@@ -19,7 +19,7 @@ func NewProductHandler(productService *service.ProductService) *ProductHandler {
 }
 
 // @Summary Create a new product
-// @Description Create a new product with the provided details
+// @Description Create a new product with the provided details. product_id is generated with the P- prefix when omitted.
 // @Tags products
 // @Accept json
 // @Produce json

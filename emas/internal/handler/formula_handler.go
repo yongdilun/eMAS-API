@@ -21,7 +21,7 @@ func NewFormulaHandler(formulaService *service.FormulaService) *FormulaHandler {
 }
 
 // @Summary Create a formula
-// @Description Create a formula
+// @Description Create a formula. formula_id is generated with the F- prefix when omitted.
 // @Tags formula
 // @Accept json
 // @Produce json

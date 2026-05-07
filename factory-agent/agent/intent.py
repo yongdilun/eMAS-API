@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import re
 from typing import Literal
 
+from .tool_intent_profile import load_generated_vocabulary
+
 
 IntentKind = Literal["conversation", "unsupported", "operations"]
 IntentAction = Literal["create", "update", "approval", "read", "delete"] | None
@@ -18,15 +20,7 @@ _ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("create", re.compile(r"\b(?:create|new|add|open)\b", re.IGNORECASE)),
     ("update", re.compile(r"\b(?:update|set|change|assign|record|apply|run|reschedule|move)\b", re.IGNORECASE)),
     ("delete", re.compile(r"\b(?:delete|remove)\b", re.IGNORECASE)),
-    ("read", re.compile(r"\b(?:assist|candidate|check|explain|explosion|forecast|get|find|inspect|list|lookup|preview|rank|readiness|report|reports|show|status|suggestion|view)\b", re.IGNORECASE)),
-]
-_ENTITY_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("approval", re.compile(r"\b(?:approval|approvals)\b", re.IGNORECASE)),
-    ("machine", re.compile(r"\b(?:machine|machines)\b", re.IGNORECASE)),
-    ("job", re.compile(r"\b(?:job|jobs|job-step|job-steps|schedule|scheduling|slot|slots|step|steps)\b", re.IGNORECASE)),
-    ("inventory", re.compile(r"\b(?:inventory|material|materials|stock|arrival|arrivals)\b", re.IGNORECASE)),
-    ("product", re.compile(r"\b(?:product|products)\b", re.IGNORECASE)),
-    ("proposal", re.compile(r"\b(?:proposal|proposals)\b", re.IGNORECASE)),
+    ("read", re.compile(r"\b(?:assist|candidate|check|explain|forecast|get|find|inspect|list|lookup|preview|rank|read|report|reports|show|status|suggestion|timeout|view)\b", re.IGNORECASE)),
 ]
 
 
@@ -39,6 +33,29 @@ class IntentAssessment:
     reply: str | None = None
 
 
+def _entity_tokens() -> set[str]:
+    return set(load_generated_vocabulary().entity_tokens)
+
+
+def _plural_variants(token: str) -> set[str]:
+    variants = {token}
+    if token.endswith("y"):
+        variants.add(token[:-1] + "ies")
+    elif token.endswith("ss"):
+        variants.add(token + "es")
+    else:
+        variants.add(token + "s")
+    return variants
+
+
+def _detect_entity(text: str) -> str | None:
+    tokens = {match.group(0).lower() for match in re.finditer(r"[a-zA-Z0-9]+", text or "")}
+    for entity in sorted(_entity_tokens(), key=len, reverse=True):
+        if tokens & _plural_variants(entity):
+            return entity
+    return None
+
+
 def assess_intent(text: str) -> IntentAssessment:
     raw = (text or "").strip()
     lower = raw.lower()
@@ -48,7 +65,7 @@ def assess_intent(text: str) -> IntentAssessment:
             action=None,
             entity=None,
             confidence=0.99,
-            reply="Hi — I can help with machines, jobs, inventory, and approvals.",
+            reply="Hi - tell me what factory operations request you want to run, and I will map it to the available tools.",
         )
 
     if _GREETING_RE.search(raw):
@@ -57,7 +74,7 @@ def assess_intent(text: str) -> IntentAssessment:
             action=None,
             entity=None,
             confidence=0.98,
-            reply="Hi — I can help with factory operations like machine status, job progress, inventory, and approvals.",
+            reply="Hi - tell me what factory operations request you want to run, and I will map it to the available tools.",
         )
 
     action: IntentAction = None
@@ -66,7 +83,7 @@ def assess_intent(text: str) -> IntentAssessment:
             action = candidate  # type: ignore[assignment]
             break
 
-    entity = next((candidate for candidate, pattern in _ENTITY_PATTERNS if pattern.search(raw)), None)
+    entity = _detect_entity(raw)
 
     if action or entity:
         confidence = 0.92 if action and entity else 0.75
@@ -79,7 +96,7 @@ def assess_intent(text: str) -> IntentAssessment:
             action=None,
             entity=None,
             confidence=0.7,
-            reply="I’m here to help with factory operations. Try something like `Check machine 5 status` or `Show pending approvals`.",
+            reply="Tell me the factory operations request you want to run, including the resource and any identifier or filter.",
         )
 
     return IntentAssessment(
@@ -87,5 +104,5 @@ def assess_intent(text: str) -> IntentAssessment:
         action=None,
         entity=None,
         confidence=0.55,
-        reply="I couldn’t map that to a factory operation yet. Try asking about machines, jobs, inventory, or approvals.",
+        reply="I could not map that to an available operation yet. Try naming the resource, action, and any identifier or filter.",
     )

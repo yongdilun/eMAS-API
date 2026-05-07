@@ -1,0 +1,117 @@
+{
+  "fields": {
+    "formula_id": {
+      "entity": "formula",
+      "pattern": "^F-[A-Za-z0-9-]+$",
+      "prefix": "F-"
+    },
+    "job_id": {
+      "entity": "job",
+      "pattern": "^JOB-[A-Za-z0-9-]+$",
+      "prefix": "JOB-"
+    },
+    "job_step_id": {
+      "entity": "step",
+      "pattern": "^JS-[A-Za-z0-9-]+$",
+      "prefix": "JS-"
+    },
+    "machine_id": {
+      "entity": "machine",
+      "pattern": "^M-[A-Za-z0-9-]+$",
+      "prefix": "M-"
+    },
+    "material_id": {
+      "entity": "inventory",
+      "pattern": "^MAT-[A-Za-z0-9-]+$",
+      "prefix": "MAT-"
+    },
+    "process_id": {
+      "entity": "process",
+      "pattern": "^PRC-[A-Za-z0-9-]+$",
+      "prefix": "PRC-"
+    },
+    "product_id": {
+      "entity": "product",
+      "pattern": "^P-[A-Za-z0-9-]+$",
+      "prefix": "P-"
+    },
+    "proposal_id": {
+      "entity": "proposal",
+      "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+      "prefix": "AIPROP-"
+    },
+    "slot_id": {
+      "entity": "slot",
+      "pattern": "^SLOT-[A-Za-z0-9-]+$",
+      "prefix": "SLOT-"
+    },
+    "step_id": {
+      "entity": "step",
+      "pattern": "^STP-[A-Za-z0-9-]+$",
+      "prefix": "STP-"
+    }
+  },
+  "prefixes": [
+    {
+      "entity": "proposal",
+      "field": "proposal_id",
+      "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+      "prefix": "AIPROP-"
+    },
+    {
+      "entity": "slot",
+      "field": "slot_id",
+      "pattern": "^SLOT-[A-Za-z0-9-]+$",
+      "prefix": "SLOT-"
+    },
+    {
+      "entity": "inventory",
+      "field": "material_id",
+      "pattern": "^MAT-[A-Za-z0-9-]+$",
+      "prefix": "MAT-"
+    },
+    {
+      "entity": "job",
+      "field": "job_id",
+      "pattern": "^JOB-[A-Za-z0-9-]+$",
+      "prefix": "JOB-"
+    },
+    {
+      "entity": "step",
+      "field": "step_id",
+      "pattern": "^STP-[A-Za-z0-9-]+$",
+      "prefix": "STP-"
+    },
+    {
+      "entity": "process",
+      "field": "process_id",
+      "pattern": "^PRC-[A-Za-z0-9-]+$",
+      "prefix": "PRC-"
+    },
+    {
+      "entity": "step",
+      "field": "job_step_id",
+      "pattern": "^JS-[A-Za-z0-9-]+$",
+      "prefix": "JS-"
+    },
+    {
+      "entity": "machine",
+      "field": "machine_id",
+      "pattern": "^M-[A-Za-z0-9-]+$",
+      "prefix": "M-"
+    },
+    {
+      "entity": "formula",
+      "field": "formula_id",
+      "pattern": "^F-[A-Za-z0-9-]+$",
+      "prefix": "F-"
+    },
+    {
+      "entity": "product",
+      "field": "product_id",
+      "pattern": "^P-[A-Za-z0-9-]+$",
+      "prefix": "P-"
+    }
+  ],
+  "version": 1
+}

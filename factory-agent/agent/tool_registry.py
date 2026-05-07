@@ -175,15 +175,19 @@ class ToolRegistry:
                 ok=False,
                 message=f"Tool registry is incomplete: expected at least {min_tool_count} tools, found {len(tools_by_name)}.",
             )
-        families = {
-            "machine_read": any("machine" in t.capability_tags and t.method == "GET" for t in tools_by_name.values()),
-            "machine_write": any("machine" in t.capability_tags and t.method in {"POST", "PUT", "PATCH"} for t in tools_by_name.values()),
-            "approval_read": any("approval" in t.capability_tags and t.method == "GET" for t in tools_by_name.values()),
-        }
-        missing = [name for name, present in families.items() if not present]
-        if missing:
+
+        invalid: list[str] = []
+        for name, tool in tools_by_name.items():
+            if not tool.endpoint or not tool.method or not isinstance(tool.input_schema, dict):
+                invalid.append(name)
+                continue
+            if not tool.capability_tags:
+                invalid.append(name)
+        if invalid:
+            sample = ", ".join(invalid[:5])
+            suffix = "" if len(invalid) <= 5 else f", and {len(invalid) - 5} more"
             return RegistryHealthResult(
                 ok=False,
-                message=f"Tool registry is incomplete: missing required tool families {', '.join(missing)}.",
+                message=f"Tool registry contains incomplete tool metadata: {sample}{suffix}.",
             )
         return RegistryHealthResult(ok=True, message=None)

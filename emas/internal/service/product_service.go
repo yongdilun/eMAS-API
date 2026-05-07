@@ -40,8 +40,12 @@ func NewProductService(
 }
 
 func (s *ProductService) Create(req dto.CreateProductRequest) (*domain.Product, error) {
+	productID := req.ProductID
+	if productID == "" {
+		productID = id.NewPrefixed(id.PrefixProduct)
+	}
 	p := &domain.Product{
-		ProductID:     req.ProductID,
+		ProductID:     productID,
 		ProductName:   req.ProductName,
 		Description:   req.Description,
 		UnitOfMeasure: req.UnitOfMeasure,
@@ -59,7 +63,7 @@ func (s *ProductService) Create(req dto.CreateProductRequest) (*domain.Product, 
 	if err := s.productRepo.Create(p); err != nil {
 		return nil, err
 	}
-	return s.productRepo.GetByID(req.ProductID)
+	return s.productRepo.GetByID(productID)
 }
 
 func (s *ProductService) GetByID(id string) (*domain.Product, error) {

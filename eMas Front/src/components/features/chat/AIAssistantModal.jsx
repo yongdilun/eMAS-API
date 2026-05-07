@@ -115,7 +115,7 @@ const AIAssistantModal = ({ isOpen, onClose }) => {
  >
  <div
  ref={containerRef}
- className="pointer-events-auto absolute flex flex-col overflow-hidden rounded-xl border border-hairline bg-surface-1 resize-container"
+ className="pointer-events-auto absolute flex flex-col overflow-hidden rounded-xl border-2 border-hairline-strong bg-surface-1 dark:border-hairline-tertiary resize-container"
  style={{
  left: position.x,
  top: position.y,

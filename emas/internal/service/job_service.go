@@ -47,7 +47,7 @@ func (s *JobService) Create(req dto.CreateJobRequest) (*domain.Job, error) {
 	}
 
 	job := &domain.Job{
-		JobID:         id.NewPrefixed("JOB-"),
+		JobID:         id.NewPrefixed(id.PrefixJob),
 		ProductID:     req.ProductID,
 		QuantityTotal: req.QuantityTotal,
 		Priority:      string(req.Priority),
@@ -78,7 +78,7 @@ func (s *JobService) Create(req dto.CreateJobRequest) (*domain.Job, error) {
 	jobSteps := make([]domain.JobSteps, 0, len(steps))
 	for i, ps := range steps {
 		js := domain.JobSteps{
-			JobStepID:      id.NewPrefixed("JS-"),
+			JobStepID:      id.NewPrefixed(id.PrefixJobStep),
 			JobID:          job.JobID,
 			StepID:         ps.StepID,
 			StepSequence:   i + 1,
@@ -150,7 +150,7 @@ func (s *JobService) createSlotsFromRequest(jobID string, jobSteps []domain.JobS
 			allocationPercent = (float64(rs.Quantity) / float64(jobStep.QuantityTarget)) * 100
 		}
 		slot := &domain.JobStepScheduleSlots{
-			SlotID:                 id.NewPrefixed("SLOT-"),
+			SlotID:                 id.NewPrefixed(id.PrefixSlot),
 			JobStepID:              resolvedJobStepID,
 			ProposalID:             rs.ProposalID,
 			MachineID:              rs.MachineID,
@@ -345,7 +345,7 @@ func (s *JobService) Duplicate(jobID string, newDeadline time.Time, newQty int) 
 		return nil, err
 	}
 	newJob := &domain.Job{
-		JobID:             id.NewPrefixed("JOB-"),
+		JobID:             id.NewPrefixed(id.PrefixJob),
 		ProductID:         job.ProductID,
 		QuantityTotal:     newQty,
 		QuantityCompleted: 0,
@@ -368,7 +368,7 @@ func (s *JobService) Duplicate(jobID string, newDeadline time.Time, newQty int) 
 	steps, _ := s.stepRepo.ListByJobID(jobID)
 	for _, st := range steps {
 		newStep := domain.JobSteps{
-			JobStepID:      id.NewPrefixed("JS-"),
+			JobStepID:      id.NewPrefixed(id.PrefixJobStep),
 			JobID:          newJob.JobID,
 			StepID:         st.StepID,
 			StepSequence:   st.StepSequence,
@@ -379,7 +379,7 @@ func (s *JobService) Duplicate(jobID string, newDeadline time.Time, newQty int) 
 		slots, _ := s.slotRepo.ListByJobStepID(st.JobStepID)
 		for _, sl := range slots {
 			newSlot := domain.JobStepScheduleSlots{
-				SlotID:                 id.NewPrefixed("SLOT-"),
+				SlotID:                 id.NewPrefixed(id.PrefixSlot),
 				JobStepID:              newStep.JobStepID,
 				MachineID:              sl.MachineID,
 				ScheduledStart:         sl.ScheduledStart,

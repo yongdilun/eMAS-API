@@ -106,18 +106,28 @@ def _value_for_sort(value: Any) -> Any | None:
 
 
 def _identifier(row: dict[str, Any]) -> str:
-    for key in ("job_id", "id", "JobID", "JOB_ID", "product_id", "machine_id", "proposal_id"):
+    ranked_keys = sorted(
+        row.keys(),
+        key=lambda key: (
+            0 if str(key).lower() == "id" else 1 if str(key).lower().endswith("id") else 2,
+            str(key).lower(),
+        ),
+    )
+    for key in ranked_keys:
         value = row.get(key)
-        if value not in (None, ""):
-            return str(value)
-    for key, value in row.items():
-        if str(key).lower().endswith("id") and value not in (None, ""):
+        if (str(key).lower() == "id" or str(key).lower().endswith("id")) and value not in (None, ""):
             return str(value)
     return "row"
 
 
 def _result_preview(row: dict[str, Any], *, primary_field: str | None) -> dict[str, Any]:
-    preferred = ["job_id", "id", "product_id", "quantity_total", "quantity", "deadline", "priority", "status"]
+    preferred = [
+        key
+        for key in row.keys()
+        if str(key).lower() == "id"
+        or str(key).lower().endswith("id")
+        or str(key).lower() in {"amount", "deadline", "due_date", "priority", "quantity", "status"}
+    ]
     out: dict[str, Any] = {}
     for key in preferred:
         if key in row and key not in out:
@@ -134,7 +144,16 @@ def _result_preview(row: dict[str, Any], *, primary_field: str | None) -> dict[s
 def _fact_for_result(label: str, row: dict[str, Any], field: str) -> str:
     identifier = _identifier(row)
     parts = [f"{field}={row.get(field)}"]
-    for extra in ("product_id", "quantity_total", "quantity", "priority", "status"):
+    extras = [
+        key
+        for key in row.keys()
+        if key != field
+        and (
+            str(key).lower().endswith("id")
+            or str(key).lower() in {"amount", "deadline", "due_date", "priority", "quantity", "status"}
+        )
+    ]
+    for extra in extras:
         if extra != field and row.get(extra) not in (None, ""):
             parts.append(f"{extra}={row.get(extra)}")
         if len(parts) >= 3:

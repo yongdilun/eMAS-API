@@ -72,7 +72,12 @@ def _extract_write_target(tool: ToolInfo, args: dict[str, Any]) -> str:
     # Treat read-only tools as no-write. For write tools, try to extract a stable target.
     if tool.is_read_only:
         return ""
-    for key in ("id", "machine_id", "job_id", "inventory_id", "resource_id"):
+    id_like_keys = [
+        key
+        for key in args.keys()
+        if str(key).lower() == "id" or str(key).lower().endswith("_id")
+    ]
+    for key in sorted(id_like_keys):
         if key in args:
             return f"{tool.endpoint}:{key}={args.get(key)}"
     return tool.endpoint

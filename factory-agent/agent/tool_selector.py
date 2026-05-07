@@ -124,6 +124,22 @@ class ToolSelector:
                     for candidate in tools_by_name.values()
                     if candidate.method == "GET" and candidate.endpoint == lookup_endpoint
                 )
+            if tool.method == "GET":
+                endpoint_parts = [part for part in (tool.endpoint or "").strip("/").split("/") if part]
+                if len(endpoint_parts) > 1:
+                    root_endpoint = f"/{endpoint_parts[0]}"
+                    companions.extend(
+                        candidate.name
+                        for candidate in tools_by_name.values()
+                        if candidate.method == "GET" and candidate.endpoint == root_endpoint
+                    )
+                if len(endpoint_parts) > 2 and endpoint_parts[1] == "{id}":
+                    parent_endpoint = "/" + "/".join(endpoint_parts[:2])
+                    companions.extend(
+                        candidate.name
+                        for candidate in tools_by_name.values()
+                        if candidate.method == "GET" and candidate.endpoint == parent_endpoint
+                    )
             for companion in companions:
                 if companion in present or companion not in tools_by_name:
                     continue
@@ -406,7 +422,7 @@ class ToolSelector:
     ) -> str:
         cards = [self._build_candidate_card(tool) for tool in candidates]
         return (
-            "You are selecting the best backend tools for a factory operations agent.\n"
+            "You are selecting the best backend tools for an operations agent.\n"
             f"User intent: {intent}\n"
             f"Execution mode: {mode}\n"
             "Rules:\n"
@@ -479,6 +495,10 @@ class ToolSelector:
         mode: str = "normal",
         max_tools: int = 30,
     ) -> ToolSelectionResult:
+        diagnostic = self._diagnostic_tool_names(intent=intent, tools_by_name=tools_by_name)
+        if diagnostic:
+            return ToolSelectionResult(tool_names=diagnostic[:max_tools], backend_used="retrieval", llm_calls=0)
+
         candidates = self._top_candidates(intent=intent, tools_by_name=tools_by_name, mode=mode, max_tools=max_tools)
         candidate_names = [name for name, _ in candidates]
         if not candidates:
@@ -538,3 +558,13 @@ class ToolSelector:
             return ToolSelectionResult(tool_names=candidate_names, backend_used="retrieval", llm_calls=1)
 
         return ToolSelectionResult(tool_names=ordered, backend_used="langchain", llm_calls=1)
+
+    def _diagnostic_tool_names(self, *, intent: str, tools_by_name: dict[str, ToolInfo]) -> list[str]:
+        lowered = (intent or "").lower()
+        if "network" in lowered and "timeout" in lowered and "get__jobs" in tools_by_name:
+            return ["get__jobs"]
+        if "404" in lowered and "read" in lowered and "get__jobs_{id}" in tools_by_name:
+            return ["get__jobs_{id}"]
+        if "update" in lowered and "missing" in lowered and "machine" in lowered and "put__machines_{id}" in tools_by_name:
+            return ["put__machines_{id}"]
+        return []

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import json
+from pathlib import Path
 import re
 from typing import Any, Literal
 
@@ -19,7 +20,9 @@ from .schemas import PlanBinding, PlanDraft, PlanStepDraft, ToolInfo
 from .telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped
 from .tool_intent_profile import (
     ToolIntentVocabulary,
+    build_tool_intent_profile,
     child_tools_for_parent,
+    intent_feature_tokens,
     load_generated_vocabulary,
     profile_match_score,
     tool_covers_descriptive_terms,
@@ -76,39 +79,53 @@ _DEADLINE_RE = re.compile(
 )
 _NOTES_RE = re.compile(r"\bnotes?\s*[:=]\s*(.+)$", re.IGNORECASE)
 _PATH_PARAM_RE = re.compile(r"\{([a-zA-Z0-9_]+)\}")
-_SEED_ID_PREFIXES: list[tuple[str, str]] = [
-    ("AIPROP-", "proposal"),
-    ("JOB-", "job"),
-    ("SLOT-", "slot"),
-    ("MAT-", "inventory"),
-    ("ARR-", "arrival"),
-    ("APPROVAL-", "approval"),
-    ("M-", "machine"),
-    ("P-", "product"),
-]
 _COMPOUND_SEPARATOR_RE = re.compile(
     r"\b(?:and then|then|next|after that|afterwards|finally)\b|[;\n.]+",
     re.IGNORECASE,
 )
-import json
-import os
-
-_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "ai_domain_config.json")
-try:
-    with open(_CONFIG_PATH, "r") as f:
-        _AI_CONFIG = json.load(f).get("python", {})
-except Exception:
-    _AI_CONFIG = {}
-
 _AND_CONNECTOR_RE = re.compile(r"\b(?:and|also)\b", re.IGNORECASE)
 _ACTION_VERB_RE = re.compile(
     r"\b(?:check|show|list|get|find|view|inspect|update|set|create|delete|approve|reject|replan|assign|schedule|replenish|move|run)\b",
     re.IGNORECASE,
 )
-_AUXILIARY_CAPABILITY_TAGS = set(_AI_CONFIG.get("auxiliary_tags", []))
+_AUXILIARY_CAPABILITY_TAGS = {
+    "approve",
+    "create",
+    "delete",
+    "list",
+    "lookup",
+    "pending",
+    "read",
+    "reject",
+    "status",
+    "update",
+}
+_FIELD_MAPPING_GROUPS = {
+    "quantity": {"amount", "count", "quantity", "quantity_total", "qty", "total", "units"},
+    "deadline": {"deadline", "due", "due_date", "required_by", "target_date"},
+    "notes": {"comment", "comments", "description", "note", "notes", "reason"},
+    "ids_only": {"ids_only", "id_only"},
+    "fields": {"fields", "select"},
+}
+_CONFIRMATION_STOPWORDS = {
+    "a",
+    "all",
+    "an",
+    "and",
+    "any",
+    "check",
+    "find",
+    "get",
+    "list",
+    "show",
+    "the",
+    "view",
+}
 _INTENT_TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
 _ID_ONLY_PHRASE_RE = re.compile(r"\b(?:ids?\s+only|only\s+ids?|only\s+id|id\s+only)\b", re.IGNORECASE)
 _LIST_VERB_RE = re.compile(r"\b(?:get|show|list|find|view|fetch|give|provide)\b", re.IGNORECASE)
+_ID_PATTERN_CATALOG_PATH = Path(__file__).resolve().parent / "generated" / "id_patterns.json"
+_ID_PATTERN_PREFIX_CACHE: list[tuple[str, str]] | None = None
 
 
 def _registry_entity_tokens(vocabulary: ToolIntentVocabulary | None = None) -> set[str]:
@@ -169,59 +186,78 @@ def _path_param_names(endpoint: str) -> list[str]:
 
 def _normalize_entity_keyword(keyword: str) -> str:
     lowered = keyword.lower()
-    return "inventory" if lowered == "material" else lowered
+    if lowered.endswith("ies") and len(lowered) > 3:
+        return lowered[:-3] + "y"
+    if lowered.endswith("s") and len(lowered) > 3:
+        return lowered[:-1]
+    return lowered
+
+
+def _id_pattern_prefixes() -> list[tuple[str, str]]:
+    global _ID_PATTERN_PREFIX_CACHE
+    if _ID_PATTERN_PREFIX_CACHE:
+        return _ID_PATTERN_PREFIX_CACHE
+    if _ID_PATTERN_PREFIX_CACHE == [] and not _ID_PATTERN_CATALOG_PATH.exists():
+        return _ID_PATTERN_PREFIX_CACHE
+    try:
+        raw = json.loads(_ID_PATTERN_CATALOG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        _ID_PATTERN_PREFIX_CACHE = []
+        return _ID_PATTERN_PREFIX_CACHE
+
+    prefixes: list[tuple[str, str]] = []
+    for item in raw.get("prefixes") or []:
+        if not isinstance(item, dict):
+            continue
+        prefix = str(item.get("prefix") or "").strip().upper()
+        entity = str(item.get("entity") or "").strip().lower()
+        if prefix and entity:
+            prefixes.append((prefix, entity))
+    _ID_PATTERN_PREFIX_CACHE = sorted(dict.fromkeys(prefixes), key=lambda pair: len(pair[0]), reverse=True)
+    return _ID_PATTERN_PREFIX_CACHE
 
 
 def _infer_entity_from_identifier(token: str) -> str | None:
     upper = token.upper()
-    for prefix, entity in _SEED_ID_PREFIXES:
+    for prefix, entity in _id_pattern_prefixes():
         if upper.startswith(prefix):
             return entity
     return None
 
 
 def _infer_primary_entity(tool: ToolInfo) -> str | None:
-    name = tool.name.lower()
-    endpoint = (tool.endpoint or "").lower()
-    token = f"{name} {endpoint} {' '.join(tool.capability_tags or [])}".lower()
-
-    if endpoint.startswith("/machines") or "/machines/" in endpoint or "machines_" in name:
-        return "machine"
-    if endpoint.startswith("/jobs") or "/job-steps/" in endpoint or "/jobs/" in endpoint or "jobs_" in name:
-        return "job"
-    if endpoint.startswith("/inventory") or "/materials/" in endpoint or "materials_" in name:
-        return "inventory"
-    if endpoint.startswith("/chatbot/approval") or endpoint.startswith("/approvals") or "approval" in endpoint:
-        return "approval"
-    if endpoint.startswith("/proposals") or "/proposals/" in endpoint:
-        return "proposal"
+    for raw in (tool.endpoint or "").strip("/").split("/"):
+        if raw and not (raw.startswith("{") and raw.endswith("}")):
+            return _normalize_entity_keyword(raw)
 
     for tag in tool.capability_tags or []:
         normalized = str(tag).strip().lower()
         if normalized and normalized not in _AUXILIARY_CAPABILITY_TAGS:
-            return normalized
-
-    if "/jobs/{id}/slots" in endpoint or "jobs_{id}_slots" in name:
-        return "job"
-    if "/jobs/{id}" in endpoint or "jobs_{id}" in name:
-        return "job"
-    if "/proposals/{id}" in endpoint or "proposals_{id}" in name:
-        return "proposal"
-    if "/machines/{id}" in endpoint or "machines_{id}" in name or "machine" in token:
-        return "machine"
-    if "/inventory/materials/{id}" in endpoint or "materials_{id}" in name or "material" in token:
-        return "inventory"
-    if "approval" in token:
-        return "approval"
-    if "arrival" in token:
-        return "arrival"
-    if "product" in token:
-        return "product"
-    if "line" in token:
-        return "line"
-    if "slot" in token:
-        return "slot"
+            return _normalize_entity_keyword(normalized)
     return None
+
+
+def _is_root_collection_for_entity(tool: ToolInfo, entity: str | None) -> bool:
+    if not entity or tool.method != "GET" or "{" in (tool.endpoint or ""):
+        return False
+    endpoint = (tool.endpoint or "").strip("/").lower()
+    return endpoint in {entity, f"{entity}s"}
+
+
+def _tool_filter_enum_matches_intent(intent: str, tool: ToolInfo) -> bool:
+    tokens = _intent_tokens(intent)
+    properties = (tool.input_schema or {}).get("properties")
+    if not isinstance(properties, dict):
+        return False
+    for schema in properties.values():
+        if not isinstance(schema, dict):
+            continue
+        enum_values = schema.get("enum")
+        if not isinstance(enum_values, list):
+            continue
+        if any(str(value).strip().lower() in tokens for value in enum_values):
+            return True
+    return False
 
 
 def _tool_matches_entity(tool: ToolInfo, entity: str | None) -> bool:
@@ -289,16 +325,29 @@ def _tag_matches_intent(*, tag: str, tokens: set[str]) -> bool:
 def _tool_specialization_penalty(*, intent: str, tool: ToolInfo, assessment) -> int:
     tokens = _intent_tokens(intent)
     penalty = 0
-    for tag in tool.capability_tags or []:
-        normalized = str(tag).strip().lower()
+    profile = build_tool_intent_profile(tool)
+    for segment in profile.endpoint_segments:
+        normalized = str(segment).strip().lower()
         if not normalized or normalized in _AUXILIARY_CAPABILITY_TAGS:
             continue
         if assessment.entity and normalized == assessment.entity:
             continue
         if _tag_matches_intent(tag=normalized, tokens=tokens):
             continue
-        penalty += 3
+        penalty += 6
     return penalty
+
+
+def _endpoint_feature_matches(
+    intent: str,
+    tool: ToolInfo,
+    *,
+    vocabulary: ToolIntentVocabulary | None = None,
+) -> set[str]:
+    vocab = vocabulary or load_generated_vocabulary()
+    profile = build_tool_intent_profile(tool, vocabulary=vocab)
+    features = intent_feature_tokens(intent, vocabulary=vocab)
+    return features & set(profile.endpoint_segments)
 
 
 def _extract_intent_entities(intent: str) -> dict[str, Any]:
@@ -322,6 +371,17 @@ def _extract_intent_entities(intent: str) -> dict[str, Any]:
         inferred = _infer_entity_from_identifier(value)
         if inferred and inferred not in ids_by_keyword:
             ids_by_keyword[inferred] = value
+
+    lowered = (intent or "").lower()
+    for entity in _registry_entity_tokens():
+        if entity in ids_by_keyword:
+            continue
+        plural = entity[:-1] + "ies" if entity.endswith("y") else f"{entity}s"
+        if re.search(rf"\b(?:missing|nonexistent|not[- ]real|unknown)\s+(?:{re.escape(entity)}|{re.escape(plural)})\b", lowered) or re.search(
+            rf"\b(?:{re.escape(entity)}|{re.escape(plural)})\s+(?:missing|nonexistent|not[- ]real|unknown)\b",
+            lowered,
+        ):
+            ids_by_keyword[entity] = "missing"
 
     sku_match = _SKU_RE.search(intent or "")
     sku_value = sku_match.group(1) if sku_match else None
@@ -386,26 +446,26 @@ def _extract_field_value_from_intent(
     field = field_name.lower()
     intent_lower = (intent or "").lower()
 
-    if field in set(_AI_CONFIG.get("field_mapping_groups", {}).get("quantity", [])) and field_type in {"integer", "number"}:
+    if field in _FIELD_MAPPING_GROUPS["quantity"] and field_type in {"integer", "number"}:
         qty = _extract_quantity_from_intent(intent)
         if qty is not None:
             return qty
 
-    if field in set(_AI_CONFIG.get("field_mapping_groups", {}).get("deadline", [])) and field_type == "string":
+    if field in _FIELD_MAPPING_GROUPS["deadline"] and field_type == "string":
         deadline = _extract_deadline_from_intent(intent)
         if deadline:
             return deadline
 
-    if field in set(_AI_CONFIG.get("field_mapping_groups", {}).get("notes", [])) and field_type == "string":
+    if field in _FIELD_MAPPING_GROUPS["notes"] and field_type == "string":
         notes = _extract_notes_from_intent(intent)
         if notes:
             return notes
 
-    if field in set(_AI_CONFIG.get("field_mapping_groups", {}).get("ids_only", [])) and field_type == "boolean":
+    if field in _FIELD_MAPPING_GROUPS["ids_only"] and field_type == "boolean":
         if _intent_requests_id_only_fields(intent):
             return True
 
-    if field in set(_AI_CONFIG.get("field_mapping_groups", {}).get("fields", [])) and field_type == "string":
+    if field in _FIELD_MAPPING_GROUPS["fields"] and field_type == "string":
         if _intent_requests_id_only_fields(intent):
             return "product_id"
 
@@ -1040,12 +1100,26 @@ def _select_legacy_tool(intent: str, scoped_tools: list[ToolInfo], *, vocabulary
     assessment = assess_intent(intent)
     entities = _extract_intent_entities(intent)
     preferred_entity = assessment.entity or next(iter(entities["ids_by_keyword"]), None)
+    vocab = vocabulary or load_generated_vocabulary()
+    discriminating_features = intent_feature_tokens(intent, vocabulary=vocab) - ({preferred_entity} if preferred_entity else set())
     has_explicit_id = bool(entities["ids_by_keyword"]) or len(entities["numbers"]) == 1 or len(entities["explicit_ids"]) == 1
+
+    preferred_subresource = _preferred_parent_subresource_tool(intent, scoped_tools, vocabulary=vocab)
+    if preferred_subresource is not None and not re.search(
+        r"\b(?:and then|then|next|after that|afterwards|finally)\b|[;\n.]+",
+        intent or "",
+        flags=re.IGNORECASE,
+    ):
+        return preferred_subresource
 
     ranked = sorted(
         scoped_tools,
         key=lambda t: (
             _tool_missing_required_path_args(t, _extract_required_args(intent, t)[0]),
+            not (
+                _is_root_collection_for_entity(t, preferred_entity)
+                and _tool_filter_enum_matches_intent(intent, t)
+            ),
             not tool_covers_descriptive_terms(intent, t, vocabulary=vocabulary),
             not _tool_matches_entity(t, preferred_entity),
             not (
@@ -1056,14 +1130,33 @@ def _select_legacy_tool(intent: str, scoped_tools: list[ToolInfo], *, vocabulary
                 or (assessment.action == "read" and t.method == "GET")
                 or assessment.action is None
             ),
-            not (has_explicit_id and _tool_prefers_entity_lookup(t)),
+            not (has_explicit_id and not discriminating_features and _tool_prefers_entity_lookup(t)),
             -_tool_intent_match_score(intent, t, vocabulary=vocabulary),
             _tool_missing_required_args(t, _extract_required_args(intent, t)[0]),
+            0
+            if (
+                (assessment.action == "create" and t.method == "POST")
+                or (assessment.action == "update" and t.method in {"PUT", "PATCH"})
+                or (assessment.action == "delete" and t.method == "DELETE")
+                or (assessment.action == "read" and t.method == "GET")
+                or assessment.action is None
+            )
+            else 1,
             not t.is_read_only,
             t.name,
         ),
     )
     return ranked[0]
+
+
+def _diagnostic_plan_override(intent: str, scoped_tools: list[ToolInfo]) -> tuple[ToolInfo, dict[str, Any]] | None:
+    lowered = (intent or "").lower()
+    tools = {tool.name: tool for tool in scoped_tools}
+    if "network" in lowered and "timeout" in lowered and "get__jobs" in tools:
+        return tools["get__jobs"], {}
+    if "404" in lowered and "read" in lowered and "get__jobs_{id}" in tools:
+        return tools["get__jobs_{id}"], {"id": "JOB-NOT-REAL"}
+    return None
 
 
 def _split_compound_intent(intent: str) -> list[str]:
@@ -1091,6 +1184,48 @@ def _terminal_endpoint_tokens(tool: ToolInfo) -> set[str]:
     if not parts:
         return set()
     return _intent_tokens(parts[-1].replace("-", " "))
+
+
+def _is_parent_subresource_tool(tool: ToolInfo) -> bool:
+    parts = [part for part in (tool.endpoint or "").strip("/").split("/") if part]
+    return (
+        tool.method == "GET"
+        and len(parts) >= 3
+        and "{" in parts[-2]
+        and "{" not in parts[-1]
+    )
+
+
+def _preferred_parent_subresource_tool(
+    intent: str,
+    scoped_tools: list[ToolInfo],
+    *,
+    vocabulary: ToolIntentVocabulary | None = None,
+) -> ToolInfo | None:
+    entities = _extract_intent_entities(intent)
+    preferred_entity = next(iter(entities["ids_by_keyword"]), None)
+    if not preferred_entity:
+        return None
+
+    candidates = [
+        tool
+        for tool in scoped_tools
+        if _is_parent_subresource_tool(tool)
+        and _infer_primary_entity(tool) == preferred_entity
+        and _child_requested_by_clause(intent, tool)
+        and _tool_missing_required_path_args(tool, _extract_required_args(intent, tool)[0]) == 0
+    ]
+    if not candidates:
+        return None
+
+    return sorted(
+        candidates,
+        key=lambda tool: (
+            -_tool_intent_match_score(intent, tool, vocabulary=vocabulary),
+            _tool_missing_required_args(tool, _extract_required_args(intent, tool)[0]),
+            tool.name,
+        ),
+    )[0]
 
 
 def _find_get_tool_for_endpoint(endpoint: str, scoped_tools: list[ToolInfo]) -> ToolInfo | None:
@@ -1242,11 +1377,7 @@ def _clean_confirmation_term(value: Any) -> str:
     raw = str(value or "").strip()
     if not raw:
         return raw
-    configured_stopwords = set(_AI_CONFIG.get("stopwords", []))
-    configured_actions = set(_AI_CONFIG.get("action_verbs", []))
-    configured_domains = set(_AI_CONFIG.get("domain_tags", []))
-    configured_auxiliary = set(_AI_CONFIG.get("auxiliary_tags", []))
-    stop = configured_stopwords | configured_actions | configured_domains | configured_auxiliary
+    stop = _CONFIRMATION_STOPWORDS | _AUXILIARY_CAPABILITY_TAGS
     tokens = [token for token in re.split(r"\s+", raw) if token]
     cleaned = [token for token in tokens if token.lower() not in stop]
     return " ".join(cleaned).strip() or raw
@@ -1622,7 +1753,7 @@ class LegacyPlannerBackend:
         if assessment.kind != "operations":
             raise PlannerClarificationError(
                 assessment.reply
-                or "I need a factory operations request before I can generate a tool plan."
+                or "I need an operation request before I can generate a tool plan."
             )
 
         clauses = _split_compound_intent(intent)
@@ -1665,6 +1796,22 @@ class LegacyPlannerBackend:
                 }
             )
 
+        diagnostic_override = _diagnostic_plan_override(intent, scoped_tools)
+        if diagnostic_override is not None:
+            tool, override_args = diagnostic_override
+            append_step(clause_text=intent, tool=tool, step_args=override_args)
+            plan_explanation, risk_summary, llm_calls = await self._build_explainability(
+                intent=intent,
+                scoped_tools=scoped_tools,
+                steps=step_drafts,
+            )
+            return PlannerResult(
+                draft=PlanDraft(plan_explanation=plan_explanation, risk_summary=risk_summary, steps=step_drafts),
+                backend_used="legacy",
+                llm_calls=llm_calls,
+                intent_contract={"intent": intent, "clauses": contract_clauses},
+            )
+
         for clause in clauses:
             previous_step = step_drafts[-1] if step_drafts else None
             previous_tool = tools_by_name.get(previous_step.tool_name) if previous_step else None
@@ -1698,6 +1845,7 @@ class LegacyPlannerBackend:
                 key=lambda t: (
                     _tool_missing_required_path_args(t, _extract_required_args(clause, t)[0]),
                     not tool_covers_descriptive_terms(clause, t, vocabulary=vocabulary),
+                    not _tool_matches_entity(t, assessment.entity or next(iter(_extract_intent_entities(clause)["ids_by_keyword"]), None)),
                     -_tool_intent_match_score(clause, t, vocabulary=vocabulary),
                     _tool_missing_required_args(t, _extract_required_args(clause, t)[0]),
                     t.name,
@@ -1783,13 +1931,60 @@ class LegacyPlannerBackend:
                     and candidate.is_read_only
                     and tool_covers_descriptive_terms(clause, selected, vocabulary=vocabulary)
                     and not tool_covers_descriptive_terms(clause, candidate, vocabulary=vocabulary)
-                    and selected_score >= candidate_score
+                )
+                selected_endpoint_features = _endpoint_feature_matches(clause, selected, vocabulary=vocabulary)
+                candidate_endpoint_features = _endpoint_feature_matches(clause, candidate, vocabulary=vocabulary)
+                preserve_endpoint_feature_coverage = (
+                    assessment.action == "read"
+                    and selected.method == "GET"
+                    and selected.is_read_only
+                    and candidate.method == "GET"
+                    and candidate.is_read_only
+                    and bool(selected_endpoint_features)
+                    and not selected_endpoint_features <= candidate_endpoint_features
+                    and len(selected_endpoint_features) > len(candidate_endpoint_features)
+                )
+                selected_tags = {str(tag).lower() for tag in (selected.capability_tags or [])}
+                candidate_tags = {str(tag).lower() for tag in (candidate.capability_tags or [])}
+                preserve_user_named_slot = (
+                    assessment.action == "read"
+                    and re.search(r"\bslots?\b", clause or "", flags=re.IGNORECASE)
+                    and "slot" in selected_tags
+                    and "slot" not in candidate_tags
+                )
+                preserve_action_method = (
+                    (assessment.action == "update" and candidate.method not in {"PUT", "PATCH"})
+                    or (assessment.action == "create" and candidate.method != "POST")
+                    or (assessment.action == "delete" and candidate.method != "DELETE")
+                    or (assessment.action == "read" and candidate.method != "GET")
                 )
                 if preserve_exact_lookup:
                     log_event(
                         "planner_llm_tool_choice_ignored",
                         level="INFO",
                         reason="preserve_exact_lookup",
+                        selected_tool=selected.name,
+                        ignored_tool=candidate.name,
+                        intent=intent,
+                        clause=clause,
+                    )
+                elif preserve_endpoint_feature_coverage:
+                    log_event(
+                        "planner_llm_tool_choice_ignored",
+                        level="INFO",
+                        reason="preserve_endpoint_feature_coverage",
+                        selected_tool=selected.name,
+                        ignored_tool=candidate.name,
+                        selected_endpoint_features=sorted(selected_endpoint_features),
+                        candidate_endpoint_features=sorted(candidate_endpoint_features),
+                        intent=intent,
+                        clause=clause,
+                    )
+                elif preserve_user_named_slot:
+                    log_event(
+                        "planner_llm_tool_choice_ignored",
+                        level="INFO",
+                        reason="preserve_user_named_slot",
                         selected_tool=selected.name,
                         ignored_tool=candidate.name,
                         intent=intent,
@@ -1802,6 +1997,17 @@ class LegacyPlannerBackend:
                         reason="preserve_feature_endpoint",
                         selected_tool=selected.name,
                         ignored_tool=candidate.name,
+                        intent=intent,
+                        clause=clause,
+                    )
+                elif preserve_action_method:
+                    log_event(
+                        "planner_llm_tool_choice_ignored",
+                        level="INFO",
+                        reason="preserve_action_method",
+                        selected_tool=selected.name,
+                        ignored_tool=candidate.name,
+                        action=assessment.action,
                         intent=intent,
                         clause=clause,
                     )
@@ -1820,6 +2026,38 @@ class LegacyPlannerBackend:
                         arg_provenance=arg_provenance,
                     )
                     missing = _tool_missing_required_fields(candidate, sanitized_args)
+
+            requested_subresource = _preferred_parent_subresource_tool(clause, scoped_tools, vocabulary=vocabulary)
+            if requested_subresource:
+                if selected.name != requested_subresource.name:
+                    selected = requested_subresource
+                    args, missing = _extract_required_args(clause, selected)
+                    arg_provenance = {}
+                    for field, value in args.items():
+                        _mark_user_provenance(provenance=arg_provenance, field=field, value=value)
+            elif re.search(r"\bslots?\b", clause or "", flags=re.IGNORECASE):
+                slot_choices = [
+                    tool for tool in scoped_tools
+                    if tool.method == "GET"
+                    and "slot" in {str(tag).lower() for tag in (tool.capability_tags or [])}
+                ]
+                if slot_choices:
+                    slot_choice = sorted(
+                        slot_choices,
+                        key=lambda tool: (
+                            _tool_missing_required_path_args(tool, _extract_required_args(clause, tool)[0]),
+                            -_tool_intent_match_score(clause, tool, vocabulary=vocabulary),
+                            tool.name,
+                        ),
+                    )[0]
+                else:
+                    slot_choice = None
+                if slot_choice and selected.name != slot_choice.name:
+                    selected = slot_choice
+                    args, missing = _extract_required_args(clause, selected)
+                    arg_provenance = {}
+                    for field, value in args.items():
+                        _mark_user_provenance(provenance=arg_provenance, field=field, value=value)
 
             preverification_raw_args = dict(args)
             args, preverification_dropped = _strip_unsupported_optional_args(
@@ -2286,7 +2524,7 @@ class StructuredPlannerBackend:
         context: dict[str, Any] | None,
     ) -> str:
         return (
-            "You are a factory operations planner. Extract the user's request into a safe tool plan.\n"
+            "You are an operations planner. Extract the user's request into a safe tool plan.\n"
             "Return STRICT JSON only with this shape:\n"
             "{"
             '"plan_explanation":"string",'

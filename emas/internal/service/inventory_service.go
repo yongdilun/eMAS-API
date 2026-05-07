@@ -67,6 +67,10 @@ func (s *InventoryService) ReceiveMaterial(req dto.ReceiveMaterialRequest) error
 }
 
 func (s *InventoryService) CreateMaterial(req dto.CreateMaterialRequest) (*domain.InventoryMaterials, error) {
+	materialID := req.MaterialID
+	if materialID == "" {
+		materialID = id.NewPrefixed(id.PrefixInventory)
+	}
 	unit := req.Unit
 	if unit == "" {
 		unit = "pcs"
@@ -79,7 +83,7 @@ func (s *InventoryService) CreateMaterial(req dto.CreateMaterialRequest) (*domai
 		status = domain.InventoryStatusOutOfStock
 	}
 	m := &domain.InventoryMaterials{
-		MaterialID:      req.MaterialID,
+		MaterialID:      materialID,
 		MaterialName:    req.MaterialName,
 		Unit:            unit,
 		CurrentStock:    req.CurrentStock,
@@ -92,7 +96,7 @@ func (s *InventoryService) CreateMaterial(req dto.CreateMaterialRequest) (*domai
 	if err := s.invRepo.CreateMaterial(m); err != nil {
 		return nil, err
 	}
-	return s.invRepo.GetMaterialByID(req.MaterialID)
+	return s.invRepo.GetMaterialByID(materialID)
 }
 
 func (s *InventoryService) GetMaterial(id string) (*domain.InventoryMaterials, error) {
@@ -112,7 +116,7 @@ func (s *InventoryService) ScheduleExpectedArrival(req dto.ScheduleExpectedArriv
 		return nil, err
 	}
 	a := &domain.InventoryExpectedArrival{
-		ArrivalID:        id.NewPrefixed("ARR-"),
+		ArrivalID:        id.NewPrefixed(id.PrefixExpectedArrival),
 		MaterialID:       req.MaterialID,
 		Quantity:         req.Quantity,
 		ExpectedArriveAt: req.ExpectedArriveAt,

@@ -1109,7 +1109,7 @@ func (s *AIPredictiveService) GenerateProposalWithOptions(jobID, generatedBy str
 	if err != nil {
 		return nil, err
 	}
-	proposalID := id.NewPrefixed("AIPROP-")
+	proposalID := id.NewPrefixed(id.PrefixAIProposal)
 	proposal.ProposalID = proposalID
 	proposal.Version = version
 	proposal.Status = domain.AIProposalStatusDraft

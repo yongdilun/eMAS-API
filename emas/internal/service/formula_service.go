@@ -27,8 +27,12 @@ func NewFormulaService(formulaRepo *repository.FormulaRepository, productRepo *r
 }
 
 func (s *FormulaService) Create(req dto.CreateFormulaRequest) (*domain.Formula, error) {
+	formulaID := req.FormulaID
+	if formulaID == "" {
+		formulaID = id.NewPrefixed(id.PrefixFormula)
+	}
 	f := &domain.Formula{
-		FormulaID:    req.FormulaID,
+		FormulaID:    formulaID,
 		FormulaName:  req.FormulaName,
 		Version:      req.Version,
 		Instructions: req.Instructions,
@@ -38,7 +42,7 @@ func (s *FormulaService) Create(req dto.CreateFormulaRequest) (*domain.Formula, 
 	if err := s.formulaRepo.Create(f); err != nil {
 		return nil, err
 	}
-	return s.formulaRepo.GetByID(req.FormulaID)
+	return s.formulaRepo.GetByID(formulaID)
 }
 
 func (s *FormulaService) GetByID(id string) (*domain.Formula, error) {

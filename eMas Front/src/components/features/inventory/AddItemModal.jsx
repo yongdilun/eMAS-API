@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { inventoryApi, referenceApi } from '../../../services/api'
+import { inventoryApi, referenceApi, toData } from '../../../services/api'
 import RefSelect from '../../shared/RefSelect'
 
 const EMPTY = { materialName: '', materialId: '', unit: 'kg', currentStock: '', minStock: '', storageLocation: '' }
@@ -33,14 +33,14 @@ const AddItemModal = ({ isOpen, onClose, onSave, item }) => {
  }
 
  const handleSubmit = async () => {
- if (!formData.materialName || !formData.materialId) {
- setError('Material Name and ID are required.')
+ if (!formData.materialName) {
+ setError('Material Name is required.')
  return
  }
  setLoading(true); setError('')
 
  const payload = {
- material_id: formData.materialId,
+ ...(formData.materialId ? { material_id: formData.materialId } : {}),
  material_name: formData.materialName,
  unit: formData.unit,
  current_stock: parseFloat(formData.currentStock) || 0,
@@ -51,11 +51,14 @@ const AddItemModal = ({ isOpen, onClose, onSave, item }) => {
  try {
  if (isEdit) {
  // Use PUT if available, otherwise re-create
- await inventoryApi.update?.(payload.material_id, payload) ?? await inventoryApi.create(payload)
+ const raw = await inventoryApi.update?.(formData.materialId, payload) ?? await inventoryApi.create(payload)
+ const saved = toData(raw) ?? raw ?? payload
+ if (onSave) onSave(saved)
  } else {
- await inventoryApi.create(payload)
+ const raw = await inventoryApi.create(payload)
+ const saved = toData(raw) ?? raw ?? payload
+ if (onSave) onSave(saved)
  }
- if (onSave) onSave(payload)
  setFormData(EMPTY)
  onClose()
  } catch (err) {
@@ -94,8 +97,8 @@ const AddItemModal = ({ isOpen, onClose, onSave, item }) => {
  <input className={inp} id="materialName" name="materialName" value={formData.materialName} onChange={handleChange} placeholder="e.g., Aluminum Alloy 6061" type="text" />
  </div>
  <div>
- <label className="block text-sm font-medium text-ink-muted mb-2" htmlFor="materialId">Material ID *</label>
- <input className={inp} id="materialId" name="materialId" value={formData.materialId} onChange={handleChange} placeholder="e.g., MTL-00342" type="text" disabled={isEdit} />
+ <label className="block text-sm font-medium text-ink-muted mb-2" htmlFor="materialId">Material ID</label>
+ <input className={inp} id="materialId" name="materialId" value={formData.materialId} onChange={handleChange} placeholder="Generated when blank" type="text" disabled={isEdit} />
  </div>
  <div>
  <label className="block text-sm font-medium text-ink-muted mb-2" htmlFor="unit">Unit</label>

@@ -296,7 +296,7 @@ func (s *AIPredictiveService) ScheduleJobSet(ctx context.Context, jobIDs []strin
 			}
 		}
 
-		proposalID := id.NewPrefixed("AIPROP-")
+		proposalID := id.NewPrefixed(id.PrefixAIProposal)
 		proposal.ProposalID = proposalID
 		proposal.Version = version
 		proposal.Status = domain.AIProposalStatusDraft

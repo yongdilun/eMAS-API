@@ -4,7 +4,7 @@
 **Description**: Parse a command
 **Method**: POST
 **Endpoint**: /ai/command
-**Capability Tags**: ["create"]
+**Capability Tags**: ["ai", "command", "create", "parse", "a", "debug", "execute", "readonly", "query", "data", "action", "ambiguou", "approval", "request", "bdi", "result", "belief", "entity", "resource", "desire", "confidence", "intent", "intention", "executable", "call", "body", "method", "path", "purpose", "require", "clarification", "payload", "executed", "ui", "display", "primary", "secondary", "hidden", "if", "card", "exist", "priority", "high", "normal", "low", "execution", "mode", "form", "guidance", "human", "message", "insight", "kind", "pending", "approve", "id", "reject", "risk", "summary", "side", "effect", "level", "tool", "name", "bullet", "metric", "label", "value", "title", "tone", "source", "description", "read", "only", "statu", "suggested", "turn", "block", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -518,7 +518,7 @@
 **Description**: Metrics
 **Method**: GET
 **Endpoint**: /ai/metrics
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["ai", "metric", "scheduling", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -562,7 +562,7 @@
 **Description**: Apply replenishment batch
 **Method**: POST
 **Endpoint**: /ai/scheduling/apply-replenishment-batch
-**Capability Tags**: ["job", "create"]
+**Capability Tags**: ["ai", "scheduling", "apply", "replenishment", "batch", "create", "arrival", "arrive", "at", "inventory", "snapshot", "computed", "material", "id", "version", "note", "option", "type", "optiontype", "omit", "or", "replenish", "default", "expected", "schedule", "production", "planned", "subproduct", "stock", "product", "in", "quantity", "suggestion", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -595,7 +595,11 @@
                 "type": "string"
               },
               "material_id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^MAT-[A-Za-z0-9-]+$",
+                "x-ai-entity": "inventory",
+                "x-ai-id-prefix": "MAT-",
+                "x-ai-id-field": "material_id"
               },
               "version": {
                 "type": "string"
@@ -603,7 +607,11 @@
             }
           },
           "material_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^MAT-[A-Za-z0-9-]+$",
+            "x-ai-entity": "inventory",
+            "x-ai-id-prefix": "MAT-",
+            "x-ai-id-field": "material_id"
           },
           "notes": {
             "type": "string"
@@ -642,7 +650,11 @@
                 "type": "string"
               },
               "material_id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^MAT-[A-Za-z0-9-]+$",
+                "x-ai-entity": "inventory",
+                "x-ai-id-prefix": "MAT-",
+                "x-ai-id-field": "material_id"
               },
               "version": {
                 "type": "string"
@@ -650,7 +662,11 @@
             }
           },
           "material_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^MAT-[A-Za-z0-9-]+$",
+            "x-ai-entity": "inventory",
+            "x-ai-id-prefix": "MAT-",
+            "x-ai-id-field": "material_id"
           },
           "notes": {
             "type": "string"
@@ -699,7 +715,11 @@
                   "type": "string"
                 },
                 "material_id": {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^MAT-[A-Za-z0-9-]+$",
+                  "x-ai-entity": "inventory",
+                  "x-ai-id-prefix": "MAT-",
+                  "x-ai-id-field": "material_id"
                 },
                 "version": {
                   "type": "string"
@@ -707,7 +727,11 @@
               }
             },
             "material_id": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^MAT-[A-Za-z0-9-]+$",
+              "x-ai-entity": "inventory",
+              "x-ai-id-prefix": "MAT-",
+              "x-ai-id-field": "material_id"
             },
             "notes": {
               "type": "string"
@@ -746,7 +770,11 @@
                   "type": "string"
                 },
                 "material_id": {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^MAT-[A-Za-z0-9-]+$",
+                  "x-ai-entity": "inventory",
+                  "x-ai-id-prefix": "MAT-",
+                  "x-ai-id-field": "material_id"
                 },
                 "version": {
                   "type": "string"
@@ -754,7 +782,11 @@
               }
             },
             "material_id": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^MAT-[A-Za-z0-9-]+$",
+              "x-ai-entity": "inventory",
+              "x-ai-id-prefix": "MAT-",
+              "x-ai-id-field": "material_id"
             },
             "notes": {
               "type": "string"
@@ -807,7 +839,7 @@
 **Description**: Generate batch proposals
 **Method**: POST
 **Endpoint**: /ai/scheduling/batch-proposals
-**Capability Tags**: ["job", "proposal", "create"]
+**Capability Tags**: ["ai", "scheduling", "batch", "proposal", "create", "generate", "include", "inventory", "action", "job", "ids", "explicit", "if", "empty", "and", "scope", "set", "use", "order", "by", "edd", "epo", "fifo", "default", "all", "unscheduled", "with", "statu", "planned", "scheduled", "no", "active", "slot", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -904,7 +936,7 @@
 **Description**: Bottleneck forecast
 **Method**: GET
 **Endpoint**: /ai/scheduling/bottleneck-forecast
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["ai", "scheduling", "bottleneck", "forecast", "list", "day", "ahead", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -959,7 +991,7 @@
 **Description**: Machine ranking
 **Method**: GET
 **Endpoint**: /ai/scheduling/job-steps/{id}/machine-ranking
-**Capability Tags**: ["machine", "job", "lookup"]
+**Capability Tags**: ["ai", "scheduling", "job", "step", "machine", "ranking", "lookup", "id", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -1014,7 +1046,7 @@
 **Description**: Split suggestion
 **Method**: GET
 **Endpoint**: /ai/scheduling/job-steps/{id}/split-suggestion
-**Capability Tags**: ["job", "lookup"]
+**Capability Tags**: ["ai", "scheduling", "job", "step", "split", "suggestion", "lookup", "id", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -1069,7 +1101,7 @@
 **Description**: Apply a proposal
 **Method**: POST
 **Endpoint**: /ai/scheduling/jobs/{id}/apply-proposal
-**Capability Tags**: ["job", "proposal", "create"]
+**Capability Tags**: ["ai", "scheduling", "job", "apply", "proposal", "create", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -1123,7 +1155,7 @@
 **Description**: Apply replenishment
 **Method**: POST
 **Endpoint**: /ai/scheduling/jobs/{id}/apply-replenishment
-**Capability Tags**: ["job", "create"]
+**Capability Tags**: ["ai", "scheduling", "job", "apply", "replenishment", "create", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -1177,7 +1209,7 @@
 **Description**: Assist a job
 **Method**: GET
 **Endpoint**: /ai/scheduling/jobs/{id}/assist
-**Capability Tags**: ["job", "lookup"]
+**Capability Tags**: ["ai", "scheduling", "job", "assist", "lookup", "a", "id", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -1232,7 +1264,7 @@
 **Description**: Delay risk
 **Method**: GET
 **Endpoint**: /ai/scheduling/jobs/{id}/delay-risk
-**Capability Tags**: ["job", "lookup"]
+**Capability Tags**: ["ai", "scheduling", "job", "delay", "risk", "lookup", "id", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -1287,7 +1319,7 @@
 **Description**: Explanation
 **Method**: GET
 **Endpoint**: /ai/scheduling/jobs/{id}/explanation
-**Capability Tags**: ["job", "lookup"]
+**Capability Tags**: ["ai", "scheduling", "job", "explanation", "lookup", "id", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -1342,7 +1374,7 @@
 **Description**: Generate a proposal
 **Method**: GET
 **Endpoint**: /ai/scheduling/jobs/{id}/proposal
-**Capability Tags**: ["job", "proposal", "lookup"]
+**Capability Tags**: ["ai", "scheduling", "job", "proposal", "lookup", "generate", "a", "id", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -1397,7 +1429,7 @@
 **Description**: Generate a proposal
 **Method**: POST
 **Endpoint**: /ai/scheduling/jobs/{id}/proposal
-**Capability Tags**: ["job", "proposal", "create"]
+**Capability Tags**: ["ai", "scheduling", "job", "proposal", "create", "generate", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -1451,7 +1483,7 @@
 **Description**: List proposals
 **Method**: GET
 **Endpoint**: /ai/scheduling/jobs/{id}/proposals
-**Capability Tags**: ["job", "proposal", "lookup"]
+**Capability Tags**: ["ai", "scheduling", "job", "proposal", "lookup", "list", "id", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -1506,7 +1538,7 @@
 **Description**: Replenish and replan
 **Method**: POST
 **Endpoint**: /ai/scheduling/jobs/{id}/replenish-and-replan
-**Capability Tags**: ["job", "create"]
+**Capability Tags**: ["ai", "scheduling", "job", "replenish", "and", "replan", "create", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -1560,7 +1592,7 @@
 **Description**: Shortage analysis
 **Method**: GET
 **Endpoint**: /ai/scheduling/jobs/{id}/shortage-analysis
-**Capability Tags**: ["job", "lookup"]
+**Capability Tags**: ["ai", "scheduling", "job", "shortage", "analysi", "lookup", "id", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -1615,7 +1647,7 @@
 **Description**: Get a proposal
 **Method**: GET
 **Endpoint**: /ai/scheduling/proposals/{id}
-**Capability Tags**: ["job", "proposal", "lookup"]
+**Capability Tags**: ["ai", "scheduling", "proposal", "lookup", "a", "id", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -1670,7 +1702,7 @@
 **Description**: Apply a proposal by ID
 **Method**: POST
 **Endpoint**: /ai/scheduling/proposals/{id}/apply
-**Capability Tags**: ["job", "proposal", "create"]
+**Capability Tags**: ["ai", "scheduling", "proposal", "apply", "create", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -1724,7 +1756,7 @@
 **Description**: Approve a proposal
 **Method**: POST
 **Endpoint**: /ai/scheduling/proposals/{id}/approve
-**Capability Tags**: ["job", "proposal", "create", "approve"]
+**Capability Tags**: ["ai", "scheduling", "proposal", "approve", "create", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -1778,7 +1810,7 @@
 **Description**: Reject a proposal
 **Method**: POST
 **Endpoint**: /ai/scheduling/proposals/{id}/reject
-**Capability Tags**: ["job", "proposal", "create", "reject"]
+**Capability Tags**: ["ai", "scheduling", "proposal", "reject", "create", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -1832,7 +1864,7 @@
 **Description**: Reschedule all
 **Method**: POST
 **Endpoint**: /ai/scheduling/reschedule-all
-**Capability Tags**: ["job", "create"]
+**Capability Tags**: ["ai", "scheduling", "reschedule", "all", "create", "dry", "run", "if", "true", "preview", "only", "no", "cancel", "delete", "persist", "return", "proposal", "without", "side", "effect", "order", "by", "edd", "epo", "fifo", "readiness", "default", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -1905,7 +1937,7 @@
 **Description**: Verify overlaps
 **Method**: POST
 **Endpoint**: /ai/scheduling/verify-overlaps
-**Capability Tags**: ["job", "create"]
+**Capability Tags**: ["ai", "scheduling", "verify", "overlap", "create", "job", "ids", "optional", "when", "scope", "applied", "if", "empty", "check", "all", "with", "active", "slot", "proposal", "fetch", "from", "db", "or", "pass", "inline", "e", "g", "data", "batch", "id", "proposed", "step", "machine", "scheduled", "end", "start", "default", "vs", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -1935,10 +1967,18 @@
         "type": "object",
         "properties": {
           "job_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^JOB-[A-Za-z0-9-]+$",
+            "x-ai-entity": "job",
+            "x-ai-id-prefix": "JOB-",
+            "x-ai-id-field": "job_id"
           },
           "proposal_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+            "x-ai-entity": "proposal",
+            "x-ai-id-prefix": "AIPROP-",
+            "x-ai-id-field": "proposal_id"
           },
           "proposed_slots": {
             "type": "array",
@@ -1946,10 +1986,18 @@
               "type": "object",
               "properties": {
                 "job_step_id": {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^JS-[A-Za-z0-9-]+$",
+                  "x-ai-entity": "step",
+                  "x-ai-id-prefix": "JS-",
+                  "x-ai-id-field": "job_step_id"
                 },
                 "machine_id": {
-                  "type": "string"
+                  "type": "string",
+                  "pattern": "^M-[A-Za-z0-9-]+$",
+                  "x-ai-entity": "machine",
+                  "x-ai-id-prefix": "M-",
+                  "x-ai-id-field": "machine_id"
                 },
                 "scheduled_end": {
                   "type": "string"
@@ -2000,10 +2048,18 @@
           "type": "object",
           "properties": {
             "job_id": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^JOB-[A-Za-z0-9-]+$",
+              "x-ai-entity": "job",
+              "x-ai-id-prefix": "JOB-",
+              "x-ai-id-field": "job_id"
             },
             "proposal_id": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+              "x-ai-entity": "proposal",
+              "x-ai-id-prefix": "AIPROP-",
+              "x-ai-id-field": "proposal_id"
             },
             "proposed_slots": {
               "type": "array",
@@ -2011,10 +2067,18 @@
                 "type": "object",
                 "properties": {
                   "job_step_id": {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^JS-[A-Za-z0-9-]+$",
+                    "x-ai-entity": "step",
+                    "x-ai-id-prefix": "JS-",
+                    "x-ai-id-field": "job_step_id"
                   },
                   "machine_id": {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^M-[A-Za-z0-9-]+$",
+                    "x-ai-entity": "machine",
+                    "x-ai-id-prefix": "M-",
+                    "x-ai-id-field": "machine_id"
                   },
                   "scheduled_end": {
                     "type": "string"
@@ -2072,7 +2136,7 @@
 **Description**: List pending approvals
 **Method**: GET
 **Endpoint**: /chatbot/approval/pending
-**Capability Tags**: ["approval", "list", "pending"]
+**Capability Tags**: ["chatbot", "approval", "pending", "list", "id", "data", "arg", "json", "conversation", "created", "at", "decided", "by", "execution", "error", "idempotency", "key", "method", "path", "request", "requested", "result", "snapshot", "risk", "summary", "side", "effect", "level", "statu", "approved", "rejected", "executed", "expired", "failed", "tool", "name", "turn", "audit", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -2186,7 +2250,7 @@
 **Description**: Get an approval by ID
 **Method**: GET
 **Endpoint**: /chatbot/approval/{id}
-**Capability Tags**: ["approval", "lookup"]
+**Capability Tags**: ["chatbot", "approval", "lookup", "an", "id", "data", "arg", "json", "conversation", "created", "at", "decided", "by", "execution", "error", "idempotency", "key", "method", "path", "request", "requested", "result", "snapshot", "risk", "summary", "side", "effect", "level", "statu", "pending", "approved", "rejected", "executed", "expired", "failed", "tool", "name", "turn", "audit", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -2297,7 +2361,7 @@
 **Description**: Approve an approval
 **Method**: POST
 **Endpoint**: /chatbot/approval/{id}/approve
-**Capability Tags**: ["approval", "create", "approve"]
+**Capability Tags**: ["chatbot", "approval", "approve", "create", "an", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -2351,7 +2415,7 @@
 **Description**: Reject an approval
 **Method**: POST
 **Endpoint**: /chatbot/approval/{id}/reject
-**Capability Tags**: ["approval", "create", "reject"]
+**Capability Tags**: ["chatbot", "approval", "reject", "create", "an", "id", "data", "arg", "json", "conversation", "created", "at", "decided", "by", "execution", "error", "idempotency", "key", "method", "path", "request", "requested", "result", "snapshot", "risk", "summary", "side", "effect", "level", "statu", "pending", "approved", "rejected", "executed", "expired", "failed", "tool", "name", "turn", "audit", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -2461,7 +2525,7 @@
 **Description**: Get alerts
 **Method**: GET
 **Endpoint**: /dashboard/alerts
-**Capability Tags**: ["list", "alerts"]
+**Capability Tags**: ["dashboard", "alert", "list", "statu", "type", "sort", "by", "dir", "limit", "offset", "field", "data", "machine", "id", "time", "title", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -2530,7 +2594,11 @@
         "type": "object",
         "properties": {
           "machine_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^M-[A-Za-z0-9-]+$",
+            "x-ai-entity": "machine",
+            "x-ai-id-prefix": "M-",
+            "x-ai-id-field": "machine_id"
           },
           "time": {
             "type": "string"
@@ -2559,7 +2627,7 @@
 **Description**: Get KPIs
 **Method**: GET
 **Endpoint**: /dashboard/kpis
-**Capability Tags**: ["list"]
+**Capability Tags**: ["dashboard", "kpi", "list", "data", "downtime", "change", "hrs", "oee", "pct", "production", "unit", "utilization", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -2628,7 +2696,7 @@
 **Description**: List all formulas
 **Method**: GET
 **Endpoint**: /formula
-**Capability Tags**: ["list"]
+**Capability Tags**: ["formula", "list", "all", "optional", "filter", "sorting", "and", "pagination", "q", "sort", "by", "dir", "limit", "offset", "field", "data", "createdat", "effectivefrom", "effectiveto", "formulaid", "formulaname", "instruction", "safetynote", "version", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -2733,7 +2801,7 @@
 **Description**: Create a formula
 **Method**: POST
 **Endpoint**: /formula
-**Capability Tags**: ["create"]
+**Capability Tags**: ["formula", "create", "a", "id", "is", "generated", "the", "f", "prefix", "when", "omitted", "optional", "with", "name", "instruction", "safety", "note", "version", "data", "createdat", "effectivefrom", "effectiveto", "formulaid", "formulaname", "safetynote", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -2743,7 +2811,13 @@
   "type": "object",
   "properties": {
     "formula_id": {
-      "type": "string"
+      "description": "Optional; generated with F- prefix when omitted.",
+      "type": "string",
+      "pattern": "^F-[A-Za-z0-9-]+$",
+      "x-ai-entity": "formula",
+      "x-ai-id-prefix": "F-",
+      "x-ai-id-field": "formula_id",
+      "x-ai-generated": true
     },
     "formula_name": {
       "type": "string"
@@ -2759,7 +2833,6 @@
     }
   },
   "required": [
-    "formula_id",
     "formula_name"
   ],
   "x-path-params": [],
@@ -2774,12 +2847,17 @@
   "x-body-schema": {
     "type": "object",
     "required": [
-      "formula_id",
       "formula_name"
     ],
     "properties": {
       "formula_id": {
-        "type": "string"
+        "description": "Optional; generated with F- prefix when omitted.",
+        "type": "string",
+        "pattern": "^F-[A-Za-z0-9-]+$",
+        "x-ai-entity": "formula",
+        "x-ai-id-prefix": "F-",
+        "x-ai-id-field": "formula_id",
+        "x-ai-generated": true
       },
       "formula_name": {
         "type": "string"
@@ -2803,7 +2881,6 @@
     "version"
   ],
   "x-body-required": [
-    "formula_id",
     "formula_name"
   ],
   "x-allowed-roles": [
@@ -2862,7 +2939,7 @@
 **Description**: Get a formula by ID
 **Method**: GET
 **Endpoint**: /formula/{id}
-**Capability Tags**: ["lookup"]
+**Capability Tags**: ["formula", "lookup", "a", "id", "data", "createdat", "effectivefrom", "effectiveto", "formulaid", "formulaname", "instruction", "safetynote", "version", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -2942,7 +3019,7 @@
 **Description**: Delete a formula
 **Method**: DELETE
 **Endpoint**: /formula/{id}
-**Capability Tags**: ["delete"]
+**Capability Tags**: ["formula", "delete", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -2996,7 +3073,7 @@
 **Description**: List ingredients for a formula
 **Method**: GET
 **Endpoint**: /formula/{id}/ingredients
-**Capability Tags**: ["lookup"]
+**Capability Tags**: ["formula", "ingredient", "lookup", "list", "a", "id", "data", "component", "type", "material", "name", "product", "quantity", "per", "unit", "scrap", "rate", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -3041,19 +3118,31 @@
             "type": "string"
           },
           "formula_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^F-[A-Za-z0-9-]+$",
+            "x-ai-entity": "formula",
+            "x-ai-id-prefix": "F-",
+            "x-ai-id-field": "formula_id"
           },
           "ingredient_id": {
             "type": "string"
           },
           "material_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^MAT-[A-Za-z0-9-]+$",
+            "x-ai-entity": "inventory",
+            "x-ai-id-prefix": "MAT-",
+            "x-ai-id-field": "material_id"
           },
           "material_name": {
             "type": "string"
           },
           "product_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^P-[A-Za-z0-9-]+$",
+            "x-ai-entity": "product",
+            "x-ai-id-prefix": "P-",
+            "x-ai-id-field": "product_id"
           },
           "product_name": {
             "type": "string"
@@ -3085,7 +3174,7 @@
 **Description**: Add an ingredient to a formula
 **Method**: POST
 **Endpoint**: /formula/{id}/ingredients
-**Capability Tags**: ["create"]
+**Capability Tags**: ["formula", "ingredient", "create", "add", "an", "a", "id", "material", "required", "if", "product", "not", "set", "percentage", "sub", "quantity", "backward", "compat", "map", "to", "per", "unit", "qty", "1", "of", "parent", "scrap", "rate", "0", "data", "component", "type", "lead", "time", "hour", "instant", "source", "make", "buy", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -3099,14 +3188,22 @@
     },
     "material_id": {
       "description": "required if product_id not set",
-      "type": "string"
+      "type": "string",
+      "pattern": "^MAT-[A-Za-z0-9-]+$",
+      "x-ai-entity": "inventory",
+      "x-ai-id-prefix": "MAT-",
+      "x-ai-id-field": "material_id"
     },
     "percentage": {
       "type": "number"
     },
     "product_id": {
       "description": "required if material_id not set (sub-product)",
-      "type": "string"
+      "type": "string",
+      "pattern": "^P-[A-Za-z0-9-]+$",
+      "x-ai-entity": "product",
+      "x-ai-id-prefix": "P-",
+      "x-ai-id-field": "product_id"
     },
     "quantity": {
       "description": "backward compat, maps to quantity_per_unit",
@@ -3146,14 +3243,22 @@
     "properties": {
       "material_id": {
         "description": "required if product_id not set",
-        "type": "string"
+        "type": "string",
+        "pattern": "^MAT-[A-Za-z0-9-]+$",
+        "x-ai-entity": "inventory",
+        "x-ai-id-prefix": "MAT-",
+        "x-ai-id-field": "material_id"
       },
       "percentage": {
         "type": "number"
       },
       "product_id": {
         "description": "required if material_id not set (sub-product)",
-        "type": "string"
+        "type": "string",
+        "pattern": "^P-[A-Za-z0-9-]+$",
+        "x-ai-entity": "product",
+        "x-ai-id-prefix": "P-",
+        "x-ai-id-field": "product_id"
       },
       "quantity": {
         "description": "backward compat, maps to quantity_per_unit",
@@ -3201,7 +3306,11 @@
           "type": "string"
         },
         "formula_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^F-[A-Za-z0-9-]+$",
+          "x-ai-entity": "formula",
+          "x-ai-id-prefix": "F-",
+          "x-ai-id-field": "formula_id"
         },
         "ingredient_id": {
           "type": "string"
@@ -3211,13 +3320,21 @@
           "type": "integer"
         },
         "material_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^MAT-[A-Za-z0-9-]+$",
+          "x-ai-entity": "inventory",
+          "x-ai-id-prefix": "MAT-",
+          "x-ai-id-field": "material_id"
         },
         "percentage": {
           "type": "number"
         },
         "product_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^P-[A-Za-z0-9-]+$",
+          "x-ai-entity": "product",
+          "x-ai-id-prefix": "P-",
+          "x-ai-id-field": "product_id"
         },
         "quantity_per_unit": {
           "type": "number"
@@ -3249,7 +3366,7 @@
 **Description**: Consume a material
 **Method**: POST
 **Endpoint**: /inventory/consume
-**Capability Tags**: ["inventory", "create"]
+**Capability Tags**: ["inventory", "consume", "create", "a", "material", "id", "quantity", "reference", "job", "slot", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -3259,7 +3376,11 @@
   "type": "object",
   "properties": {
     "material_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^MAT-[A-Za-z0-9-]+$",
+      "x-ai-entity": "inventory",
+      "x-ai-id-prefix": "MAT-",
+      "x-ai-id-field": "material_id"
     },
     "quantity": {
       "type": "number"
@@ -3268,7 +3389,11 @@
       "type": "string"
     },
     "slot_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^SLOT-[A-Za-z0-9-]+$",
+      "x-ai-entity": "slot",
+      "x-ai-id-prefix": "SLOT-",
+      "x-ai-id-field": "slot_id"
     }
   },
   "required": [
@@ -3291,7 +3416,11 @@
     ],
     "properties": {
       "material_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^MAT-[A-Za-z0-9-]+$",
+        "x-ai-entity": "inventory",
+        "x-ai-id-prefix": "MAT-",
+        "x-ai-id-field": "material_id"
       },
       "quantity": {
         "type": "number"
@@ -3300,7 +3429,11 @@
         "type": "string"
       },
       "slot_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^SLOT-[A-Za-z0-9-]+$",
+        "x-ai-entity": "slot",
+        "x-ai-id-prefix": "SLOT-",
+        "x-ai-id-field": "slot_id"
       }
     }
   },
@@ -3345,7 +3478,7 @@
 **Description**: List expected arrivals
 **Method**: GET
 **Endpoint**: /inventory/expected-arrivals
-**Capability Tags**: ["inventory", "list"]
+**Capability Tags**: ["inventory", "expected", "arrival", "list", "material", "id", "statu", "from", "to", "data", "arrivalid", "createdat", "expectedarriveat", "materialid", "note", "quantity", "receivedat", "referencejobid", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -3453,7 +3586,7 @@
 **Description**: Schedule an expected arrival
 **Method**: POST
 **Endpoint**: /inventory/expected-arrivals
-**Capability Tags**: ["job", "inventory", "create"]
+**Capability Tags**: ["inventory", "expected", "arrival", "create", "schedule", "an", "arrive", "at", "material", "id", "note", "quantity", "data", "arrivalid", "createdat", "expectedarriveat", "materialid", "receivedat", "referencejobid", "statu", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -3466,7 +3599,11 @@
       "type": "string"
     },
     "material_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^MAT-[A-Za-z0-9-]+$",
+      "x-ai-entity": "inventory",
+      "x-ai-id-prefix": "MAT-",
+      "x-ai-id-field": "material_id"
     },
     "notes": {
       "type": "string"
@@ -3500,7 +3637,11 @@
         "type": "string"
       },
       "material_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^MAT-[A-Za-z0-9-]+$",
+        "x-ai-entity": "inventory",
+        "x-ai-id-prefix": "MAT-",
+        "x-ai-id-field": "material_id"
       },
       "notes": {
         "type": "string"
@@ -3585,7 +3726,7 @@
 **Description**: List materials
 **Method**: GET
 **Endpoint**: /inventory/materials
-**Capability Tags**: ["inventory", "list"]
+**Capability Tags**: ["inventory", "material", "list", "statu", "q", "sort", "by", "dir", "limit", "offset", "data", "currentstock", "lastupdated", "materialid", "materialname", "minstock", "reorderlevel", "storagelocation", "unit", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -3712,7 +3853,7 @@
 **Description**: Create a material
 **Method**: POST
 **Endpoint**: /inventory/materials
-**Capability Tags**: ["inventory", "create"]
+**Capability Tags**: ["inventory", "material", "create", "a", "id", "is", "generated", "the", "mat", "prefix", "when", "omitted", "current", "stock", "optional", "with", "name", "min", "reorder", "level", "storage", "location", "unit", "data", "currentstock", "lastupdated", "materialid", "materialname", "minstock", "reorderlevel", "statu", "storagelocation", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -3725,7 +3866,13 @@
       "type": "number"
     },
     "material_id": {
-      "type": "string"
+      "description": "Optional; generated with MAT- prefix when omitted.",
+      "type": "string",
+      "pattern": "^MAT-[A-Za-z0-9-]+$",
+      "x-ai-entity": "inventory",
+      "x-ai-id-prefix": "MAT-",
+      "x-ai-id-field": "material_id",
+      "x-ai-generated": true
     },
     "material_name": {
       "type": "string"
@@ -3744,7 +3891,6 @@
     }
   },
   "required": [
-    "material_id",
     "material_name"
   ],
   "x-path-params": [],
@@ -3761,7 +3907,6 @@
   "x-body-schema": {
     "type": "object",
     "required": [
-      "material_id",
       "material_name"
     ],
     "properties": {
@@ -3769,7 +3914,13 @@
         "type": "number"
       },
       "material_id": {
-        "type": "string"
+        "description": "Optional; generated with MAT- prefix when omitted.",
+        "type": "string",
+        "pattern": "^MAT-[A-Za-z0-9-]+$",
+        "x-ai-entity": "inventory",
+        "x-ai-id-prefix": "MAT-",
+        "x-ai-id-field": "material_id",
+        "x-ai-generated": true
       },
       "material_name": {
         "type": "string"
@@ -3798,7 +3949,6 @@
     "unit"
   ],
   "x-body-required": [
-    "material_id",
     "material_name"
   ],
   "x-allowed-roles": [
@@ -3865,7 +4015,7 @@
 **Description**: Get a material by ID
 **Method**: GET
 **Endpoint**: /inventory/materials/{id}
-**Capability Tags**: ["inventory", "lookup"]
+**Capability Tags**: ["inventory", "material", "lookup", "a", "id", "data", "currentstock", "lastupdated", "materialid", "materialname", "minstock", "reorderlevel", "statu", "storagelocation", "unit", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -3953,7 +4103,7 @@
 **Description**: List product inventory
 **Method**: GET
 **Endpoint**: /inventory/product-stock
-**Capability Tags**: ["inventory", "list"]
+**Capability Tags**: ["inventory", "product", "stock", "list", "id", "statu", "sort", "by", "dir", "limit", "offset", "field", "data", "availablefrom", "inventoryid", "lastupdated", "productid", "quantityonhand", "quantityreserved", "storagelocation", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -4079,7 +4229,7 @@
 **Description**: Create a product inventory
 **Method**: POST
 **Endpoint**: /inventory/product-stock
-**Capability Tags**: ["inventory", "create"]
+**Capability Tags**: ["inventory", "product", "stock", "create", "a", "available", "from", "id", "quantity", "on", "hand", "reserved", "statu", "storage", "location", "data", "availablefrom", "inventoryid", "lastupdated", "productid", "quantityonhand", "quantityreserved", "storagelocation", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -4092,7 +4242,11 @@
       "type": "string"
     },
     "product_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^P-[A-Za-z0-9-]+$",
+      "x-ai-entity": "product",
+      "x-ai-id-prefix": "P-",
+      "x-ai-id-field": "product_id"
     },
     "quantity_on_hand": {
       "type": "number",
@@ -4139,7 +4293,11 @@
         "type": "string"
       },
       "product_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^P-[A-Za-z0-9-]+$",
+        "x-ai-entity": "product",
+        "x-ai-id-prefix": "P-",
+        "x-ai-id-field": "product_id"
       },
       "quantity_on_hand": {
         "type": "number",
@@ -4236,7 +4394,7 @@
 **Description**: Receive a material
 **Method**: POST
 **Endpoint**: /inventory/receive
-**Capability Tags**: ["inventory", "create"]
+**Capability Tags**: ["inventory", "receive", "create", "a", "material", "id", "quantity", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -4246,7 +4404,11 @@
   "type": "object",
   "properties": {
     "material_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^MAT-[A-Za-z0-9-]+$",
+      "x-ai-entity": "inventory",
+      "x-ai-id-prefix": "MAT-",
+      "x-ai-id-field": "material_id"
     },
     "quantity": {
       "type": "number"
@@ -4270,7 +4432,11 @@
     ],
     "properties": {
       "material_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^MAT-[A-Za-z0-9-]+$",
+        "x-ai-entity": "inventory",
+        "x-ai-id-prefix": "MAT-",
+        "x-ai-id-field": "material_id"
       },
       "quantity": {
         "type": "number"
@@ -4316,7 +4482,7 @@
 **Description**: Create a reservation
 **Method**: POST
 **Endpoint**: /inventory/reservations
-**Capability Tags**: ["inventory", "create"]
+**Capability Tags**: ["inventory", "reservation", "create", "a", "job", "id", "step", "material", "needed", "at", "reserved", "qty", "data", "createdat", "jobid", "jobstepid", "materialid", "neededat", "reservationid", "reservedqty", "statu", "updatedat", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -4326,13 +4492,25 @@
   "type": "object",
   "properties": {
     "job_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^JOB-[A-Za-z0-9-]+$",
+      "x-ai-entity": "job",
+      "x-ai-id-prefix": "JOB-",
+      "x-ai-id-field": "job_id"
     },
     "job_step_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^JS-[A-Za-z0-9-]+$",
+      "x-ai-entity": "step",
+      "x-ai-id-prefix": "JS-",
+      "x-ai-id-field": "job_step_id"
     },
     "material_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^MAT-[A-Za-z0-9-]+$",
+      "x-ai-entity": "inventory",
+      "x-ai-id-prefix": "MAT-",
+      "x-ai-id-field": "material_id"
     },
     "needed_at": {
       "type": "string"
@@ -4362,13 +4540,25 @@
     ],
     "properties": {
       "job_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^JOB-[A-Za-z0-9-]+$",
+        "x-ai-entity": "job",
+        "x-ai-id-prefix": "JOB-",
+        "x-ai-id-field": "job_id"
       },
       "job_step_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^JS-[A-Za-z0-9-]+$",
+        "x-ai-entity": "step",
+        "x-ai-id-prefix": "JS-",
+        "x-ai-id-field": "job_step_id"
       },
       "material_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^MAT-[A-Za-z0-9-]+$",
+        "x-ai-entity": "inventory",
+        "x-ai-id-prefix": "MAT-",
+        "x-ai-id-field": "material_id"
       },
       "needed_at": {
         "type": "string"
@@ -4453,7 +4643,7 @@
 **Description**: Create job steps from routing
 **Method**: POST
 **Endpoint**: /job-steps
-**Capability Tags**: ["job", "create"]
+**Capability Tags**: ["job", "step", "slot", "create", "routing", "id", "data", "quantity", "completed", "target", "statu", "sequence", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -4463,7 +4653,11 @@
   "type": "object",
   "properties": {
     "job_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^JOB-[A-Za-z0-9-]+$",
+      "x-ai-entity": "job",
+      "x-ai-id-prefix": "JOB-",
+      "x-ai-id-field": "job_id"
     }
   },
   "required": [
@@ -4481,7 +4675,11 @@
     ],
     "properties": {
       "job_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^JOB-[A-Za-z0-9-]+$",
+        "x-ai-entity": "job",
+        "x-ai-id-prefix": "JOB-",
+        "x-ai-id-field": "job_id"
       }
     }
   },
@@ -4509,10 +4707,18 @@
         "type": "object",
         "properties": {
           "job_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^JOB-[A-Za-z0-9-]+$",
+            "x-ai-entity": "job",
+            "x-ai-id-prefix": "JOB-",
+            "x-ai-id-field": "job_id"
           },
           "job_step_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^JS-[A-Za-z0-9-]+$",
+            "x-ai-entity": "step",
+            "x-ai-id-prefix": "JS-",
+            "x-ai-id-field": "job_step_id"
           },
           "quantity_completed": {
             "type": "integer"
@@ -4531,7 +4737,11 @@
             ]
           },
           "step_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^STP-[A-Za-z0-9-]+$",
+            "x-ai-entity": "step",
+            "x-ai-id-prefix": "STP-",
+            "x-ai-id-field": "step_id"
           },
           "step_sequence": {
             "type": "integer"
@@ -4554,7 +4764,7 @@
 **Description**: Split a step
 **Method**: POST
 **Endpoint**: /job-steps/split
-**Capability Tags**: ["job", "create"]
+**Capability Tags**: ["job", "step", "split", "slot", "create", "a", "id", "allocation", "percent", "batch", "sequence", "buffer", "min", "cleaning", "duration", "is", "parallel", "optional", "for", "machine", "prep", "processing", "proposal", "quantity", "group", "start", "time", "rfc3339", "data", "actual", "end", "minute", "changeover", "preparation", "planned", "scheduled", "statu", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -4564,7 +4774,11 @@
   "type": "object",
   "properties": {
     "job_step_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^JS-[A-Za-z0-9-]+$",
+      "x-ai-entity": "step",
+      "x-ai-id-prefix": "JS-",
+      "x-ai-id-field": "job_step_id"
     },
     "splits": {
       "type": "array",
@@ -4597,10 +4811,18 @@
           },
           "job_step_id": {
             "description": "optional, for split",
-            "type": "string"
+            "type": "string",
+            "pattern": "^JS-[A-Za-z0-9-]+$",
+            "x-ai-entity": "step",
+            "x-ai-id-prefix": "JS-",
+            "x-ai-id-field": "job_step_id"
           },
           "machine_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^M-[A-Za-z0-9-]+$",
+            "x-ai-entity": "machine",
+            "x-ai-id-prefix": "M-",
+            "x-ai-id-field": "machine_id"
           },
           "prep_mins": {
             "type": "integer"
@@ -4609,7 +4831,11 @@
             "type": "integer"
           },
           "proposal_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+            "x-ai-entity": "proposal",
+            "x-ai-id-prefix": "AIPROP-",
+            "x-ai-id-field": "proposal_id"
           },
           "quantity": {
             "type": "integer"
@@ -4643,7 +4869,11 @@
     ],
     "properties": {
       "job_step_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^JS-[A-Za-z0-9-]+$",
+        "x-ai-entity": "step",
+        "x-ai-id-prefix": "JS-",
+        "x-ai-id-field": "job_step_id"
       },
       "splits": {
         "type": "array",
@@ -4676,10 +4906,18 @@
             },
             "job_step_id": {
               "description": "optional, for split",
-              "type": "string"
+              "type": "string",
+              "pattern": "^JS-[A-Za-z0-9-]+$",
+              "x-ai-entity": "step",
+              "x-ai-id-prefix": "JS-",
+              "x-ai-id-field": "job_step_id"
             },
             "machine_id": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^M-[A-Za-z0-9-]+$",
+              "x-ai-entity": "machine",
+              "x-ai-id-prefix": "M-",
+              "x-ai-id-field": "machine_id"
             },
             "prep_mins": {
               "type": "integer"
@@ -4688,7 +4926,11 @@
               "type": "integer"
             },
             "proposal_id": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+              "x-ai-entity": "proposal",
+              "x-ai-id-prefix": "AIPROP-",
+              "x-ai-id-field": "proposal_id"
             },
             "quantity": {
               "type": "integer"
@@ -4755,10 +4997,18 @@
             "type": "boolean"
           },
           "job_step_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^JS-[A-Za-z0-9-]+$",
+            "x-ai-entity": "step",
+            "x-ai-id-prefix": "JS-",
+            "x-ai-id-field": "job_step_id"
           },
           "machine_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^M-[A-Za-z0-9-]+$",
+            "x-ai-entity": "machine",
+            "x-ai-id-prefix": "M-",
+            "x-ai-id-field": "machine_id"
           },
           "preparation_time_minutes": {
             "type": "integer"
@@ -4767,7 +5017,11 @@
             "type": "integer"
           },
           "proposal_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+            "x-ai-entity": "proposal",
+            "x-ai-id-prefix": "AIPROP-",
+            "x-ai-id-field": "proposal_id"
           },
           "quantity_planned": {
             "type": "integer"
@@ -4779,7 +5033,11 @@
             "type": "string"
           },
           "slot_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^SLOT-[A-Za-z0-9-]+$",
+            "x-ai-entity": "slot",
+            "x-ai-id-prefix": "SLOT-",
+            "x-ai-id-field": "slot_id"
           },
           "split_group_id": {
             "type": "string"
@@ -4812,7 +5070,7 @@
 **Description**: List slots by job step ID
 **Method**: GET
 **Endpoint**: /job-steps/{id}/slots
-**Capability Tags**: ["job", "lookup"]
+**Capability Tags**: ["job", "step", "slot", "lookup", "list", "id", "data", "actual", "end", "start", "allocation", "percent", "batch", "sequence", "buffer", "time", "minute", "changeover", "cleaning", "is", "parallel", "machine", "preparation", "processing", "proposal", "quantity", "planned", "scheduled", "split", "group", "statu", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -4878,10 +5136,18 @@
             "type": "boolean"
           },
           "job_step_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^JS-[A-Za-z0-9-]+$",
+            "x-ai-entity": "step",
+            "x-ai-id-prefix": "JS-",
+            "x-ai-id-field": "job_step_id"
           },
           "machine_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^M-[A-Za-z0-9-]+$",
+            "x-ai-entity": "machine",
+            "x-ai-id-prefix": "M-",
+            "x-ai-id-field": "machine_id"
           },
           "preparation_time_minutes": {
             "type": "integer"
@@ -4890,7 +5156,11 @@
             "type": "integer"
           },
           "proposal_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+            "x-ai-entity": "proposal",
+            "x-ai-id-prefix": "AIPROP-",
+            "x-ai-id-field": "proposal_id"
           },
           "quantity_planned": {
             "type": "integer"
@@ -4902,7 +5172,11 @@
             "type": "string"
           },
           "slot_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^SLOT-[A-Za-z0-9-]+$",
+            "x-ai-entity": "slot",
+            "x-ai-id-prefix": "SLOT-",
+            "x-ai-id-field": "slot_id"
           },
           "split_group_id": {
             "type": "string"
@@ -4935,7 +5209,7 @@
 **Description**: List jobs
 **Method**: GET
 **Endpoint**: /jobs
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["job", "list", "filter", "product", "id", "statu", "priority", "machine", "start", "end", "sort", "by", "dir", "limit", "offset", "data", "created", "at", "deadline", "is", "late", "human", "readable", "2", "day", "4", "hour", "on", "time", "note", "quantity", "completed", "total", "updated", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -5056,7 +5330,11 @@
             }
           },
           "job_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^JOB-[A-Za-z0-9-]+$",
+            "x-ai-entity": "job",
+            "x-ai-id-prefix": "JOB-",
+            "x-ai-id-field": "job_id"
           },
           "notes": {
             "type": "string"
@@ -5071,7 +5349,11 @@
             ]
           },
           "product_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^P-[A-Za-z0-9-]+$",
+            "x-ai-entity": "product",
+            "x-ai-id-prefix": "P-",
+            "x-ai-id-field": "product_id"
           },
           "quantity_completed": {
             "type": "integer"
@@ -5112,7 +5394,7 @@
 **Description**: Create a job
 **Method**: POST
 **Endpoint**: /jobs
-**Capability Tags**: ["job", "create"]
+**Capability Tags**: ["job", "create", "a", "deadline", "rfc3339", "note", "priority", "product", "id", "quantity", "total", "slot", "optional", "split", "allocation", "percent", "batch", "sequence", "buffer", "min", "cleaning", "duration", "is", "parallel", "step", "for", "machine", "prep", "processing", "proposal", "group", "start", "time", "data", "created", "at", "statu", "late", "by", "human", "readable", "2", "day", "4", "hour", "on", "completed", "updated", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -5138,7 +5420,11 @@
       ]
     },
     "product_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^P-[A-Za-z0-9-]+$",
+      "x-ai-entity": "product",
+      "x-ai-id-prefix": "P-",
+      "x-ai-id-field": "product_id"
     },
     "quantity_total": {
       "type": "integer"
@@ -5175,10 +5461,18 @@
           },
           "job_step_id": {
             "description": "optional, for split",
-            "type": "string"
+            "type": "string",
+            "pattern": "^JS-[A-Za-z0-9-]+$",
+            "x-ai-entity": "step",
+            "x-ai-id-prefix": "JS-",
+            "x-ai-id-field": "job_step_id"
           },
           "machine_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^M-[A-Za-z0-9-]+$",
+            "x-ai-entity": "machine",
+            "x-ai-id-prefix": "M-",
+            "x-ai-id-field": "machine_id"
           },
           "prep_mins": {
             "type": "integer"
@@ -5187,7 +5481,11 @@
             "type": "integer"
           },
           "proposal_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+            "x-ai-entity": "proposal",
+            "x-ai-id-prefix": "AIPROP-",
+            "x-ai-id-field": "proposal_id"
           },
           "quantity": {
             "type": "integer"
@@ -5241,7 +5539,11 @@
         ]
       },
       "product_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^P-[A-Za-z0-9-]+$",
+        "x-ai-entity": "product",
+        "x-ai-id-prefix": "P-",
+        "x-ai-id-field": "product_id"
       },
       "quantity_total": {
         "type": "integer"
@@ -5278,10 +5580,18 @@
             },
             "job_step_id": {
               "description": "optional, for split",
-              "type": "string"
+              "type": "string",
+              "pattern": "^JS-[A-Za-z0-9-]+$",
+              "x-ai-entity": "step",
+              "x-ai-id-prefix": "JS-",
+              "x-ai-id-field": "job_step_id"
             },
             "machine_id": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^M-[A-Za-z0-9-]+$",
+              "x-ai-entity": "machine",
+              "x-ai-id-prefix": "M-",
+              "x-ai-id-field": "machine_id"
             },
             "prep_mins": {
               "type": "integer"
@@ -5290,7 +5600,11 @@
               "type": "integer"
             },
             "proposal_id": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+              "x-ai-entity": "proposal",
+              "x-ai-id-prefix": "AIPROP-",
+              "x-ai-id-field": "proposal_id"
             },
             "quantity": {
               "type": "integer"
@@ -5353,7 +5667,11 @@
           }
         },
         "job_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^JOB-[A-Za-z0-9-]+$",
+          "x-ai-entity": "job",
+          "x-ai-id-prefix": "JOB-",
+          "x-ai-id-field": "job_id"
         },
         "notes": {
           "type": "string"
@@ -5368,7 +5686,11 @@
           ]
         },
         "product_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^P-[A-Za-z0-9-]+$",
+          "x-ai-entity": "product",
+          "x-ai-id-prefix": "P-",
+          "x-ai-id-field": "product_id"
         },
         "quantity_completed": {
           "type": "integer"
@@ -5408,7 +5730,7 @@
 **Description**: Get a job by ID
 **Method**: GET
 **Endpoint**: /jobs/{id}
-**Capability Tags**: ["job", "lookup"]
+**Capability Tags**: ["job", "lookup", "a", "id", "data", "created", "at", "deadline", "statu", "is", "late", "by", "human", "readable", "2", "day", "4", "hour", "on", "time", "note", "priority", "product", "quantity", "completed", "total", "updated", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -5466,7 +5788,11 @@
           }
         },
         "job_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^JOB-[A-Za-z0-9-]+$",
+          "x-ai-entity": "job",
+          "x-ai-id-prefix": "JOB-",
+          "x-ai-id-field": "job_id"
         },
         "notes": {
           "type": "string"
@@ -5481,7 +5807,11 @@
           ]
         },
         "product_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^P-[A-Za-z0-9-]+$",
+          "x-ai-entity": "product",
+          "x-ai-id-prefix": "P-",
+          "x-ai-id-field": "product_id"
         },
         "quantity_completed": {
           "type": "integer"
@@ -5521,7 +5851,7 @@
 **Description**: Update a job
 **Method**: PUT
 **Endpoint**: /jobs/{id}
-**Capability Tags**: ["job", "update"]
+**Capability Tags**: ["job", "update", "a", "mutable", "field", "id", "deadline", "note", "priority", "quantity", "total", "statu", "data", "created", "at", "is", "late", "by", "human", "readable", "2", "day", "4", "hour", "on", "time", "product", "completed", "updated", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -5656,7 +5986,11 @@
           }
         },
         "job_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^JOB-[A-Za-z0-9-]+$",
+          "x-ai-entity": "job",
+          "x-ai-id-prefix": "JOB-",
+          "x-ai-id-field": "job_id"
         },
         "notes": {
           "type": "string"
@@ -5671,7 +6005,11 @@
           ]
         },
         "product_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^P-[A-Za-z0-9-]+$",
+          "x-ai-entity": "product",
+          "x-ai-id-prefix": "P-",
+          "x-ai-id-field": "product_id"
         },
         "quantity_completed": {
           "type": "integer"
@@ -5711,7 +6049,7 @@
 **Description**: Delete a job
 **Method**: DELETE
 **Endpoint**: /jobs/{id}
-**Capability Tags**: ["job", "delete"]
+**Capability Tags**: ["job", "delete", "a", "and", "clear", "all", "slot", "assignment", "tied", "thi", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -5764,7 +6102,7 @@
 **Description**: List slots by job ID
 **Method**: GET
 **Endpoint**: /jobs/{id}/slots
-**Capability Tags**: ["job", "lookup"]
+**Capability Tags**: ["job", "slot", "lookup", "list", "id", "data", "actual", "end", "start", "allocation", "percent", "batch", "sequence", "buffer", "time", "minute", "changeover", "cleaning", "is", "parallel", "step", "machine", "preparation", "processing", "proposal", "quantity", "planned", "scheduled", "split", "group", "statu", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -5830,10 +6168,18 @@
             "type": "boolean"
           },
           "job_step_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^JS-[A-Za-z0-9-]+$",
+            "x-ai-entity": "step",
+            "x-ai-id-prefix": "JS-",
+            "x-ai-id-field": "job_step_id"
           },
           "machine_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^M-[A-Za-z0-9-]+$",
+            "x-ai-entity": "machine",
+            "x-ai-id-prefix": "M-",
+            "x-ai-id-field": "machine_id"
           },
           "preparation_time_minutes": {
             "type": "integer"
@@ -5842,7 +6188,11 @@
             "type": "integer"
           },
           "proposal_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+            "x-ai-entity": "proposal",
+            "x-ai-id-prefix": "AIPROP-",
+            "x-ai-id-field": "proposal_id"
           },
           "quantity_planned": {
             "type": "integer"
@@ -5854,7 +6204,11 @@
             "type": "string"
           },
           "slot_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^SLOT-[A-Za-z0-9-]+$",
+            "x-ai-entity": "slot",
+            "x-ai-id-prefix": "SLOT-",
+            "x-ai-id-field": "slot_id"
           },
           "split_group_id": {
             "type": "string"
@@ -5887,7 +6241,7 @@
 **Description**: List all machines
 **Method**: GET
 **Endpoint**: /machines
-**Capability Tags**: ["machine", "list"]
+**Capability Tags**: ["machine", "list", "all", "retrieve", "a", "optional", "filter", "sorting", "and", "pagination", "statu", "name", "type", "location", "sort", "by", "dir", "limit", "offset", "field", "data", "capacityperhour", "defaultchangeovertime", "defaultcleaningtime", "defaultsetuptime", "lastmaintenancedate", "machineid", "machinename", "machinetype", "cnc", "press", "coating", "etc", "maintenanceintervalday", "utilizationrate", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -6036,7 +6390,7 @@
 **Description**: Create a machine
 **Method**: POST
 **Endpoint**: /machines
-**Capability Tags**: ["machine", "create"]
+**Capability Tags**: ["machine", "create", "a", "new", "the", "factory", "id", "is", "generated", "m", "prefix", "when", "omitted", "capacity", "per", "hour", "default", "changeover", "time", "cleaning", "setup", "location", "optional", "with", "name", "type", "maintenance", "interval", "day", "data", "capacityperhour", "defaultchangeovertime", "defaultcleaningtime", "defaultsetuptime", "lastmaintenancedate", "machineid", "machinename", "machinetype", "cnc", "press", "coating", "etc", "maintenanceintervalday", "statu", "utilizationrate", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -6061,7 +6415,13 @@
       "type": "string"
     },
     "machine_id": {
-      "type": "string"
+      "description": "Optional; generated with M- prefix when omitted.",
+      "type": "string",
+      "pattern": "^M-[A-Za-z0-9-]+$",
+      "x-ai-entity": "machine",
+      "x-ai-id-prefix": "M-",
+      "x-ai-id-field": "machine_id",
+      "x-ai-generated": true
     },
     "machine_name": {
       "type": "string"
@@ -6074,7 +6434,6 @@
     }
   },
   "required": [
-    "machine_id",
     "machine_name",
     "machine_type"
   ],
@@ -6094,7 +6453,6 @@
   "x-body-schema": {
     "type": "object",
     "required": [
-      "machine_id",
       "machine_name",
       "machine_type"
     ],
@@ -6115,7 +6473,13 @@
         "type": "string"
       },
       "machine_id": {
-        "type": "string"
+        "description": "Optional; generated with M- prefix when omitted.",
+        "type": "string",
+        "pattern": "^M-[A-Za-z0-9-]+$",
+        "x-ai-entity": "machine",
+        "x-ai-id-prefix": "M-",
+        "x-ai-id-field": "machine_id",
+        "x-ai-generated": true
       },
       "machine_name": {
         "type": "string"
@@ -6140,7 +6504,6 @@
     "maintenance_interval_days"
   ],
   "x-body-required": [
-    "machine_id",
     "machine_name",
     "machine_type"
   ],
@@ -6219,7 +6582,7 @@
 **Description**: Record downtime
 **Method**: POST
 **Endpoint**: /machines/downtime
-**Capability Tags**: ["machine", "create", "downtime"]
+**Capability Tags**: ["machine", "downtime", "create", "record", "cause", "end", "time", "job", "step", "slot", "id", "start", "data", "downtimeid", "durationminute", "endtime", "jobstepslotid", "machineid", "starttime", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -6238,7 +6601,11 @@
       "type": "string"
     },
     "machine_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^M-[A-Za-z0-9-]+$",
+      "x-ai-entity": "machine",
+      "x-ai-id-prefix": "M-",
+      "x-ai-id-field": "machine_id"
     },
     "start_time": {
       "type": "string"
@@ -6272,7 +6639,11 @@
         "type": "string"
       },
       "machine_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^M-[A-Za-z0-9-]+$",
+        "x-ai-entity": "machine",
+        "x-ai-id-prefix": "M-",
+        "x-ai-id-field": "machine_id"
       },
       "start_time": {
         "type": "string"
@@ -6342,7 +6713,7 @@
 **Description**: Get maintenance alerts
 **Method**: GET
 **Endpoint**: /machines/maintenance-alerts
-**Capability Tags**: ["machine", "list", "maintenance", "alerts"]
+**Capability Tags**: ["machine", "maintenance", "alert", "list", "data", "capacityperhour", "defaultchangeovertime", "defaultcleaningtime", "defaultsetuptime", "lastmaintenancedate", "location", "machineid", "machinename", "machinetype", "cnc", "press", "coating", "etc", "maintenanceintervalday", "statu", "utilizationrate", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -6433,7 +6804,7 @@
 **Description**: Get reroute recommendations
 **Method**: GET
 **Endpoint**: /machines/reroute-recommendations
-**Capability Tags**: ["machine", "list"]
+**Capability Tags**: ["machine", "reroute", "recommendation", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -6482,7 +6853,7 @@
 **Description**: Get utilization
 **Method**: GET
 **Endpoint**: /machines/utilization
-**Capability Tags**: ["machine", "list", "utilization"]
+**Capability Tags**: ["machine", "utilization", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -6526,7 +6897,7 @@
 **Description**: Get machine by ID
 **Method**: GET
 **Endpoint**: /machines/{id}
-**Capability Tags**: ["machine", "lookup"]
+**Capability Tags**: ["machine", "lookup", "id", "retrieve", "detail", "a", "specific", "data", "capacityperhour", "defaultchangeovertime", "defaultcleaningtime", "defaultsetuptime", "lastmaintenancedate", "location", "machineid", "machinename", "machinetype", "cnc", "press", "coating", "etc", "maintenanceintervalday", "statu", "utilizationrate", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -6625,7 +6996,7 @@
 **Description**: Update a machine
 **Method**: PUT
 **Endpoint**: /machines/{id}
-**Capability Tags**: ["machine", "update"]
+**Capability Tags**: ["machine", "update", "a", "an", "existing", "s", "detail", "id", "capacity", "per", "hour", "default", "changeover", "time", "cleaning", "setup", "location", "name", "type", "maintenance", "interval", "day", "statu", "data", "capacityperhour", "defaultchangeovertime", "defaultcleaningtime", "defaultsetuptime", "lastmaintenancedate", "machineid", "machinename", "machinetype", "cnc", "press", "coating", "etc", "maintenanceintervalday", "utilizationrate", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -6815,7 +7186,7 @@
 **Description**: Assign a capability to a machine
 **Method**: POST
 **Endpoint**: /machines/{id}/capabilities
-**Capability Tags**: ["machine", "create", "capability"]
+**Capability Tags**: ["machine", "capability", "create", "assign", "a", "id", "efficiency", "factor", "step", "data", "capabilityid", "efficiencyfactor", "speed", "modifier", "for", "thi", "machineid", "stepid", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -6831,7 +7202,11 @@
       "type": "number"
     },
     "step_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^STP-[A-Za-z0-9-]+$",
+      "x-ai-entity": "step",
+      "x-ai-id-prefix": "STP-",
+      "x-ai-id-field": "step_id"
     }
   },
   "required": [
@@ -6857,7 +7232,11 @@
         "type": "number"
       },
       "step_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^STP-[A-Za-z0-9-]+$",
+        "x-ai-entity": "step",
+        "x-ai-id-prefix": "STP-",
+        "x-ai-id-field": "step_id"
       }
     }
   },
@@ -6913,7 +7292,7 @@
 **Description**: Record maintenance
 **Method**: POST
 **Endpoint**: /maintenance
-**Capability Tags**: ["create", "maintenance"]
+**Capability Tags**: ["maintenance", "create", "record", "description", "end", "time", "machine", "id", "type", "start", "technician", "data", "endtime", "machineid", "maintenanceid", "maintenancetype", "starttime", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -6929,7 +7308,11 @@
       "type": "string"
     },
     "machine_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^M-[A-Za-z0-9-]+$",
+      "x-ai-entity": "machine",
+      "x-ai-id-prefix": "M-",
+      "x-ai-id-field": "machine_id"
     },
     "maintenance_type": {
       "type": "string"
@@ -6967,7 +7350,11 @@
         "type": "string"
       },
       "machine_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^M-[A-Za-z0-9-]+$",
+        "x-ai-entity": "machine",
+        "x-ai-id-prefix": "M-",
+        "x-ai-id-field": "machine_id"
       },
       "maintenance_type": {
         "type": "string"
@@ -7044,7 +7431,7 @@
 **Description**: Confidence
 **Method**: GET
 **Endpoint**: /predictive/confidence
-**Capability Tags**: ["list"]
+**Capability Tags**: ["predictive", "confidence", "list", "data", "pct", "last", "trained", "model", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -7098,7 +7485,7 @@
 **Description**: Forecast
 **Method**: GET
 **Endpoint**: /predictive/forecast
-**Capability Tags**: ["list"]
+**Capability Tags**: ["predictive", "forecast", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -7142,7 +7529,7 @@
 **Description**: List high-risk jobs
 **Method**: GET
 **Endpoint**: /predictive/high-risk-jobs
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["predictive", "high", "risk", "job", "list", "data", "delay", "minute", "issue", "id", "machine", "name", "level", "score", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -7179,7 +7566,11 @@
             "type": "string"
           },
           "job_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^JOB-[A-Za-z0-9-]+$",
+            "x-ai-entity": "job",
+            "x-ai-id-prefix": "JOB-",
+            "x-ai-id-field": "job_id"
           },
           "machine_name": {
             "type": "string"
@@ -7208,7 +7599,7 @@
 **Description**: List recommendations
 **Method**: GET
 **Endpoint**: /predictive/recommendations
-**Capability Tags**: ["list"]
+**Capability Tags**: ["predictive", "recommendation", "list", "data", "action", "icon", "severity", "title", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -7268,7 +7659,7 @@
 **Description**: List materials for a step
 **Method**: GET
 **Endpoint**: /process-steps/{step_id}/materials
-**Capability Tags**: ["inventory", "list"]
+**Capability Tags**: ["process", "step", "material", "lookup", "list", "a", "id", "role", "data", "materialid", "productid", "quantityperunit", "input", "output", "stepid", "unit", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -7356,7 +7747,7 @@
 **Description**: Add a material to a step
 **Method**: POST
 **Endpoint**: /process-steps/{step_id}/materials
-**Capability Tags**: ["inventory", "create"]
+**Capability Tags**: ["process", "step", "material", "create", "add", "a", "id", "required", "if", "product", "not", "set", "quantity", "per", "unit", "role", "input", "or", "output", "data", "materialid", "productid", "quantityperunit", "stepid", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -7370,11 +7761,19 @@
     },
     "material_id": {
       "description": "required if product_id not set",
-      "type": "string"
+      "type": "string",
+      "pattern": "^MAT-[A-Za-z0-9-]+$",
+      "x-ai-entity": "inventory",
+      "x-ai-id-prefix": "MAT-",
+      "x-ai-id-field": "material_id"
     },
     "product_id": {
       "description": "required if material_id not set",
-      "type": "string"
+      "type": "string",
+      "pattern": "^P-[A-Za-z0-9-]+$",
+      "x-ai-entity": "product",
+      "x-ai-id-prefix": "P-",
+      "x-ai-id-field": "product_id"
     },
     "quantity_per_unit": {
       "description": "required",
@@ -7408,11 +7807,19 @@
     "properties": {
       "material_id": {
         "description": "required if product_id not set",
-        "type": "string"
+        "type": "string",
+        "pattern": "^MAT-[A-Za-z0-9-]+$",
+        "x-ai-entity": "inventory",
+        "x-ai-id-prefix": "MAT-",
+        "x-ai-id-field": "material_id"
       },
       "product_id": {
         "description": "required if material_id not set",
-        "type": "string"
+        "type": "string",
+        "pattern": "^P-[A-Za-z0-9-]+$",
+        "x-ai-entity": "product",
+        "x-ai-id-prefix": "P-",
+        "x-ai-id-field": "product_id"
       },
       "quantity_per_unit": {
         "description": "required",
@@ -7489,7 +7896,7 @@
 **Description**: Delete a material from a step
 **Method**: DELETE
 **Endpoint**: /process-steps/{step_id}/materials/{id}
-**Capability Tags**: ["inventory", "delete"]
+**Capability Tags**: ["process", "step", "material", "delete", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -7548,7 +7955,7 @@
 **Description**: List processes
 **Method**: GET
 **Endpoint**: /processes
-**Capability Tags**: ["list"]
+**Capability Tags**: ["process", "list", "optional", "filter", "sorting", "and", "pagination", "product", "id", "sort", "by", "dir", "limit", "offset", "field", "data", "description", "effectivefrom", "effectiveto", "isprimary", "primary", "vs", "alternative", "routing", "processid", "processname", "productid", "sequence", "order", "when", "multiple", "0", "version", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -7658,7 +8065,7 @@
 **Description**: Create a process
 **Method**: POST
 **Endpoint**: /processes
-**Capability Tags**: ["create"]
+**Capability Tags**: ["process", "create", "a", "id", "is", "generated", "the", "prc", "prefix", "when", "omitted", "description", "optional", "with", "name", "product", "version", "data", "effectivefrom", "effectiveto", "isprimary", "primary", "vs", "alternative", "routing", "processid", "processname", "productid", "sequence", "order", "multiple", "0", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -7671,20 +8078,29 @@
       "type": "string"
     },
     "process_id": {
-      "type": "string"
+      "description": "Optional; generated with PRC- prefix when omitted.",
+      "type": "string",
+      "pattern": "^PRC-[A-Za-z0-9-]+$",
+      "x-ai-entity": "process",
+      "x-ai-id-prefix": "PRC-",
+      "x-ai-id-field": "process_id",
+      "x-ai-generated": true
     },
     "process_name": {
       "type": "string"
     },
     "product_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^P-[A-Za-z0-9-]+$",
+      "x-ai-entity": "product",
+      "x-ai-id-prefix": "P-",
+      "x-ai-id-field": "product_id"
     },
     "version": {
       "type": "integer"
     }
   },
   "required": [
-    "process_id",
     "process_name",
     "product_id"
   ],
@@ -7700,7 +8116,6 @@
   "x-body-schema": {
     "type": "object",
     "required": [
-      "process_id",
       "process_name",
       "product_id"
     ],
@@ -7709,13 +8124,23 @@
         "type": "string"
       },
       "process_id": {
-        "type": "string"
+        "description": "Optional; generated with PRC- prefix when omitted.",
+        "type": "string",
+        "pattern": "^PRC-[A-Za-z0-9-]+$",
+        "x-ai-entity": "process",
+        "x-ai-id-prefix": "PRC-",
+        "x-ai-id-field": "process_id",
+        "x-ai-generated": true
       },
       "process_name": {
         "type": "string"
       },
       "product_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^P-[A-Za-z0-9-]+$",
+        "x-ai-entity": "product",
+        "x-ai-id-prefix": "P-",
+        "x-ai-id-field": "product_id"
       },
       "version": {
         "type": "integer"
@@ -7730,7 +8155,6 @@
     "version"
   ],
   "x-body-required": [
-    "process_id",
     "process_name",
     "product_id"
   ],
@@ -7795,7 +8219,7 @@
 **Description**: Get a process by product ID
 **Method**: GET
 **Endpoint**: /processes/product/{id}
-**Capability Tags**: ["lookup"]
+**Capability Tags**: ["process", "product", "lookup", "a", "id", "data", "description", "effectivefrom", "effectiveto", "isprimary", "primary", "vs", "alternative", "routing", "processid", "processname", "productid", "sequence", "order", "when", "multiple", "0", "version", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -7880,7 +8304,7 @@
 **Description**: Get a process by ID
 **Method**: GET
 **Endpoint**: /processes/{id}
-**Capability Tags**: ["lookup"]
+**Capability Tags**: ["process", "lookup", "a", "id", "data", "description", "effectivefrom", "effectiveto", "isprimary", "primary", "vs", "alternative", "routing", "processid", "processname", "productid", "sequence", "order", "when", "multiple", "0", "version", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -7965,7 +8389,7 @@
 **Description**: Delete a process
 **Method**: DELETE
 **Endpoint**: /processes/{id}
-**Capability Tags**: ["delete"]
+**Capability Tags**: ["process", "delete", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -8018,7 +8442,7 @@
 **Description**: List steps by process ID
 **Method**: GET
 **Endpoint**: /processes/{id}/steps
-**Capability Tags**: ["lookup"]
+**Capability Tags**: ["process", "step", "lookup", "list", "id", "data", "allow", "parallel", "execution", "batch", "size", "0", "no", "constraint", "default", "changeover", "time", "minute", "cleaning", "preparation", "processing", "is", "true", "if", "run", "in", "batche", "machine", "type", "required", "max", "min", "minimum", "when", "splitting", "split", "qty", "wait", "e", "g", "cooling", "before", "next", "note", "predecessor", "ids", "json", "array", "of", "empty", "infer", "from", "stepsequence", "quality", "check", "name", "sequence", "matche", "reference", "transfer", "transport", "to", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -8111,13 +8535,21 @@
             "type": "string"
           },
           "process_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^PRC-[A-Za-z0-9-]+$",
+            "x-ai-entity": "process",
+            "x-ai-id-prefix": "PRC-",
+            "x-ai-id-field": "process_id"
           },
           "quality_check_required": {
             "type": "boolean"
           },
           "step_id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^STP-[A-Za-z0-9-]+$",
+            "x-ai-entity": "step",
+            "x-ai-id-prefix": "STP-",
+            "x-ai-id-field": "step_id"
           },
           "step_name": {
             "type": "string"
@@ -8154,7 +8586,7 @@
 **Description**: Add a step to a process
 **Method**: POST
 **Endpoint**: /processes/{id}/steps
-**Capability Tags**: ["create"]
+**Capability Tags**: ["process", "step", "create", "add", "a", "id", "allow", "parallel", "execution", "default", "changeover", "time", "cleaning", "preparation", "processing", "machine", "type", "required", "max", "min", "split", "qty", "note", "quality", "check", "name", "sequence", "transfer", "batch", "size", "data", "0", "no", "constraint", "minute", "is", "true", "if", "run", "in", "batche", "minimum", "when", "splitting", "wait", "e", "g", "cooling", "before", "next", "predecessor", "ids", "json", "array", "of", "empty", "infer", "from", "stepsequence", "matche", "reference", "transport", "to", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -8197,7 +8629,11 @@
       "type": "boolean"
     },
     "step_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^STP-[A-Za-z0-9-]+$",
+      "x-ai-entity": "step",
+      "x-ai-id-prefix": "STP-",
+      "x-ai-id-field": "step_id"
     },
     "step_name": {
       "type": "string"
@@ -8275,7 +8711,11 @@
         "type": "boolean"
       },
       "step_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^STP-[A-Za-z0-9-]+$",
+        "x-ai-entity": "step",
+        "x-ai-id-prefix": "STP-",
+        "x-ai-id-field": "step_id"
       },
       "step_name": {
         "type": "string"
@@ -8378,13 +8818,21 @@
           "type": "string"
         },
         "process_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^PRC-[A-Za-z0-9-]+$",
+          "x-ai-entity": "process",
+          "x-ai-id-prefix": "PRC-",
+          "x-ai-id-field": "process_id"
         },
         "quality_check_required": {
           "type": "boolean"
         },
         "step_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^STP-[A-Za-z0-9-]+$",
+          "x-ai-entity": "step",
+          "x-ai-id-prefix": "STP-",
+          "x-ai-id-field": "step_id"
         },
         "step_name": {
           "type": "string"
@@ -8420,7 +8868,7 @@
 **Description**: Log production
 **Method**: POST
 **Endpoint**: /production-log
-**Capability Tags**: ["create"]
+**Capability Tags**: ["production", "log", "create", "downtime", "minute", "gap", "7", "during", "slot", "for", "oee", "end", "time", "operator", "note", "quantity", "produced", "scrap", "id", "start", "data", "downtimeminute", "endtime", "operatornote", "productionid", "quantityproduced", "quantityscrap", "slotid", "starttime", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -8446,7 +8894,11 @@
       "type": "integer"
     },
     "slot_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^SLOT-[A-Za-z0-9-]+$",
+      "x-ai-entity": "slot",
+      "x-ai-id-prefix": "SLOT-",
+      "x-ai-id-field": "slot_id"
     },
     "start_time": {
       "type": "string"
@@ -8489,7 +8941,11 @@
         "type": "integer"
       },
       "slot_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^SLOT-[A-Za-z0-9-]+$",
+        "x-ai-entity": "slot",
+        "x-ai-id-prefix": "SLOT-",
+        "x-ai-id-field": "slot_id"
       },
       "start_time": {
         "type": "string"
@@ -8565,7 +9021,7 @@
 **Description**: List all products
 **Method**: GET
 **Endpoint**: /products
-**Capability Tags**: ["list"]
+**Capability Tags**: ["product", "list", "all", "optional", "filter", "sorting", "and", "field", "selection", "statu", "type", "sort", "by", "dir", "limit", "offset", "data", "createdat", "description", "formulaid", "linked", "formula", "for", "bom", "recipe", "processid", "active", "routing", "scheduling", "productid", "productname", "producttype", "obsolete", "unitofmeasure", "pcs", "kg", "liter", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -8694,7 +9150,7 @@
 **Description**: Create a new product
 **Method**: POST
 **Endpoint**: /products
-**Capability Tags**: ["create"]
+**Capability Tags**: ["product", "create", "a", "new", "the", "provided", "detail", "id", "is", "generated", "p", "prefix", "when", "omitted", "description", "formula", "process", "optional", "with", "name", "type", "unit", "of", "measure", "data", "createdat", "formulaid", "linked", "for", "bom", "recipe", "processid", "active", "routing", "scheduling", "productid", "productname", "producttype", "statu", "obsolete", "unitofmeasure", "pcs", "kg", "liter", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -8707,13 +9163,27 @@
       "type": "string"
     },
     "formula_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^F-[A-Za-z0-9-]+$",
+      "x-ai-entity": "formula",
+      "x-ai-id-prefix": "F-",
+      "x-ai-id-field": "formula_id"
     },
     "process_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^PRC-[A-Za-z0-9-]+$",
+      "x-ai-entity": "process",
+      "x-ai-id-prefix": "PRC-",
+      "x-ai-id-field": "process_id"
     },
     "product_id": {
-      "type": "string"
+      "description": "Optional; generated with P- prefix when omitted.",
+      "type": "string",
+      "pattern": "^P-[A-Za-z0-9-]+$",
+      "x-ai-entity": "product",
+      "x-ai-id-prefix": "P-",
+      "x-ai-id-field": "product_id",
+      "x-ai-generated": true
     },
     "product_name": {
       "type": "string"
@@ -8726,7 +9196,6 @@
     }
   },
   "required": [
-    "product_id",
     "product_name"
   ],
   "x-path-params": [],
@@ -8743,7 +9212,6 @@
   "x-body-schema": {
     "type": "object",
     "required": [
-      "product_id",
       "product_name"
     ],
     "properties": {
@@ -8751,13 +9219,27 @@
         "type": "string"
       },
       "formula_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^F-[A-Za-z0-9-]+$",
+        "x-ai-entity": "formula",
+        "x-ai-id-prefix": "F-",
+        "x-ai-id-field": "formula_id"
       },
       "process_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^PRC-[A-Za-z0-9-]+$",
+        "x-ai-entity": "process",
+        "x-ai-id-prefix": "PRC-",
+        "x-ai-id-field": "process_id"
       },
       "product_id": {
-        "type": "string"
+        "description": "Optional; generated with P- prefix when omitted.",
+        "type": "string",
+        "pattern": "^P-[A-Za-z0-9-]+$",
+        "x-ai-entity": "product",
+        "x-ai-id-prefix": "P-",
+        "x-ai-id-field": "product_id",
+        "x-ai-generated": true
       },
       "product_name": {
         "type": "string"
@@ -8780,7 +9262,6 @@
     "unit_of_measure"
   ],
   "x-body-required": [
-    "product_id",
     "product_name"
   ],
   "x-allowed-roles": [
@@ -8850,7 +9331,7 @@
 **Description**: Get a product by ID
 **Method**: GET
 **Endpoint**: /products/{id}
-**Capability Tags**: ["lookup"]
+**Capability Tags**: ["product", "lookup", "a", "id", "data", "createdat", "description", "formulaid", "linked", "formula", "for", "bom", "recipe", "processid", "active", "routing", "scheduling", "productid", "productname", "producttype", "statu", "obsolete", "unitofmeasure", "pcs", "kg", "liter", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -8941,7 +9422,7 @@
 **Description**: Link a BOM to a product
 **Method**: PUT
 **Endpoint**: /products/{id}/bom
-**Capability Tags**: ["update"]
+**Capability Tags**: ["product", "bom", "update", "link", "a", "id", "item", "material", "required", "if", "not", "set", "sub", "quantity", "per", "unit", "qty", "1", "of", "parent", "backward", "compat", "scrap", "rate", "formula", "process", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -8960,11 +9441,19 @@
         "properties": {
           "material_id": {
             "description": "required if product_id not set",
-            "type": "string"
+            "type": "string",
+            "pattern": "^MAT-[A-Za-z0-9-]+$",
+            "x-ai-entity": "inventory",
+            "x-ai-id-prefix": "MAT-",
+            "x-ai-id-field": "material_id"
           },
           "product_id": {
             "description": "sub-product, required if material_id not set",
-            "type": "string"
+            "type": "string",
+            "pattern": "^P-[A-Za-z0-9-]+$",
+            "x-ai-entity": "product",
+            "x-ai-id-prefix": "P-",
+            "x-ai-id-field": "product_id"
           },
           "quantity_per_unit": {
             "description": "required; qty per 1 unit of parent",
@@ -8984,10 +9473,18 @@
       }
     },
     "formula_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^F-[A-Za-z0-9-]+$",
+      "x-ai-entity": "formula",
+      "x-ai-id-prefix": "F-",
+      "x-ai-id-field": "formula_id"
     },
     "process_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^PRC-[A-Za-z0-9-]+$",
+      "x-ai-entity": "process",
+      "x-ai-id-prefix": "PRC-",
+      "x-ai-id-field": "process_id"
     }
   },
   "required": [
@@ -9013,11 +9510,19 @@
           "properties": {
             "material_id": {
               "description": "required if product_id not set",
-              "type": "string"
+              "type": "string",
+              "pattern": "^MAT-[A-Za-z0-9-]+$",
+              "x-ai-entity": "inventory",
+              "x-ai-id-prefix": "MAT-",
+              "x-ai-id-field": "material_id"
             },
             "product_id": {
               "description": "sub-product, required if material_id not set",
-              "type": "string"
+              "type": "string",
+              "pattern": "^P-[A-Za-z0-9-]+$",
+              "x-ai-entity": "product",
+              "x-ai-id-prefix": "P-",
+              "x-ai-id-field": "product_id"
             },
             "quantity_per_unit": {
               "description": "required; qty per 1 unit of parent",
@@ -9037,10 +9542,18 @@
         }
       },
       "formula_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^F-[A-Za-z0-9-]+$",
+        "x-ai-entity": "formula",
+        "x-ai-id-prefix": "F-",
+        "x-ai-id-field": "formula_id"
       },
       "process_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^PRC-[A-Za-z0-9-]+$",
+        "x-ai-entity": "process",
+        "x-ai-id-prefix": "PRC-",
+        "x-ai-id-field": "process_id"
       }
     }
   },
@@ -9080,7 +9593,7 @@
 **Description**: Get a scheduling definition by product ID
 **Method**: GET
 **Endpoint**: /products/{id}/scheduling-definition
-**Capability Tags**: ["job", "lookup"]
+**Capability Tags**: ["product", "scheduling", "definition", "lookup", "a", "id", "data", "bom", "item", "bomid", "componenttype", "materialid", "productcomponentid", "sub", "productid", "quantityrequired", "qty", "per", "1", "unit", "of", "parent", "scraprate", "composition", "source", "formula", "createdat", "effectivefrom", "effectiveto", "formulaid", "formulaname", "instruction", "safetynote", "version", "ingredient", "component", "type", "material", "name", "quantity", "scrap", "rate", "process", "description", "isprimary", "primary", "vs", "alternative", "routing", "processid", "processname", "sequence", "order", "when", "multiple", "0", "linked", "for", "recipe", "active", "productname", "producttype", "statu", "obsolete", "unitofmeasure", "pcs", "kg", "liter", "step", "allow", "parallel", "execution", "batch", "size", "no", "constraint", "default", "changeover", "time", "minute", "cleaning", "preparation", "processing", "is", "true", "if", "run", "in", "batche", "machine", "required", "max", "min", "minimum", "splitting", "split", "wait", "e", "g", "cooling", "before", "next", "note", "predecessor", "ids", "json", "array", "empty", "infer", "from", "stepsequence", "quality", "check", "matche", "reference", "transfer", "transport", "to", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -9194,19 +9707,31 @@
                 "type": "string"
               },
               "formula_id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^F-[A-Za-z0-9-]+$",
+                "x-ai-entity": "formula",
+                "x-ai-id-prefix": "F-",
+                "x-ai-id-field": "formula_id"
               },
               "ingredient_id": {
                 "type": "string"
               },
               "material_id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^MAT-[A-Za-z0-9-]+$",
+                "x-ai-entity": "inventory",
+                "x-ai-id-prefix": "MAT-",
+                "x-ai-id-field": "material_id"
               },
               "material_name": {
                 "type": "string"
               },
               "product_id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^P-[A-Za-z0-9-]+$",
+                "x-ai-entity": "product",
+                "x-ai-id-prefix": "P-",
+                "x-ai-id-field": "product_id"
               },
               "product_name": {
                 "type": "string"
@@ -9354,13 +9879,21 @@
                 "type": "string"
               },
               "process_id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^PRC-[A-Za-z0-9-]+$",
+                "x-ai-entity": "process",
+                "x-ai-id-prefix": "PRC-",
+                "x-ai-id-field": "process_id"
               },
               "quality_check_required": {
                 "type": "boolean"
               },
               "step_id": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^STP-[A-Za-z0-9-]+$",
+                "x-ai-entity": "step",
+                "x-ai-id-prefix": "STP-",
+                "x-ai-id-field": "step_id"
               },
               "step_name": {
                 "type": "string"
@@ -9399,7 +9932,7 @@
 **Description**: Record an inspection
 **Method**: POST
 **Endpoint**: /quality/inspections
-**Capability Tags**: ["create"]
+**Capability Tags**: ["quality", "inspection", "create", "record", "an", "defect", "count", "inspector", "name", "job", "step", "id", "note", "result", "pass", "fail", "data", "defectcount", "inspectionid", "inspectiontime", "inspectorname", "jobstepid", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -9415,7 +9948,11 @@
       "type": "string"
     },
     "job_step_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^JS-[A-Za-z0-9-]+$",
+      "x-ai-entity": "step",
+      "x-ai-id-prefix": "JS-",
+      "x-ai-id-field": "job_step_id"
     },
     "notes": {
       "type": "string"
@@ -9450,7 +9987,11 @@
         "type": "string"
       },
       "job_step_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^JS-[A-Za-z0-9-]+$",
+        "x-ai-entity": "step",
+        "x-ai-id-prefix": "JS-",
+        "x-ai-id-field": "job_step_id"
       },
       "notes": {
         "type": "string"
@@ -9525,7 +10066,7 @@
 **Description**: List locations
 **Method**: GET
 **Endpoint**: /reference/locations
-**Capability Tags**: ["list"]
+**Capability Tags**: ["reference", "location", "list", "q", "sort", "by", "dir", "limit", "offset", "field", "data", "bay", "display", "computed", "in", "app", "id", "zone", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -9619,7 +10160,7 @@
 **Description**: Create a location
 **Method**: POST
 **Endpoint**: /reference/locations
-**Capability Tags**: ["create"]
+**Capability Tags**: ["reference", "location", "create", "a", "bay", "zone", "data", "display", "computed", "in", "app", "id", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -9710,7 +10251,7 @@
 **Description**: Delete a location
 **Method**: DELETE
 **Endpoint**: /reference/locations/{id}
-**Capability Tags**: ["delete"]
+**Capability Tags**: ["reference", "location", "delete", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -9763,7 +10304,7 @@
 **Description**: List machine types
 **Method**: GET
 **Endpoint**: /reference/machine-types
-**Capability Tags**: ["machine", "list"]
+**Capability Tags**: ["reference", "machine", "type", "list", "q", "sort", "by", "dir", "limit", "offset", "field", "data", "description", "id", "name", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -9853,7 +10394,7 @@
 **Description**: Create a machine type
 **Method**: POST
 **Endpoint**: /reference/machine-types
-**Capability Tags**: ["machine", "create"]
+**Capability Tags**: ["reference", "machine", "type", "create", "a", "description", "name", "data", "id", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -9940,7 +10481,7 @@
 **Description**: Update a machine type
 **Method**: PUT
 **Endpoint**: /reference/machine-types/{id}
-**Capability Tags**: ["machine", "update"]
+**Capability Tags**: ["reference", "machine", "type", "update", "a", "id", "description", "name", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -10028,7 +10569,7 @@
 **Description**: Delete a machine type
 **Method**: DELETE
 **Endpoint**: /reference/machine-types/{id}
-**Capability Tags**: ["machine", "delete"]
+**Capability Tags**: ["reference", "machine", "type", "delete", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -10081,7 +10622,7 @@
 **Description**: List product types
 **Method**: GET
 **Endpoint**: /reference/product-types
-**Capability Tags**: ["list"]
+**Capability Tags**: ["reference", "product", "type", "list", "q", "sort", "by", "dir", "limit", "offset", "field", "data", "id", "name", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -10168,7 +10709,7 @@
 **Description**: Create a product type
 **Method**: POST
 **Endpoint**: /reference/product-types
-**Capability Tags**: ["create"]
+**Capability Tags**: ["reference", "product", "type", "create", "a", "name", "data", "id", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -10244,7 +10785,7 @@
 **Description**: Delete a product type
 **Method**: DELETE
 **Endpoint**: /reference/product-types/{id}
-**Capability Tags**: ["delete"]
+**Capability Tags**: ["reference", "product", "type", "delete", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -10297,7 +10838,7 @@
 **Description**: Create a step type
 **Method**: POST
 **Endpoint**: /reference/step-types
-**Capability Tags**: ["create"]
+**Capability Tags**: ["reference", "step", "type", "create", "a", "default", "machine", "name", "data", "id", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -10384,7 +10925,7 @@
 **Description**: Delete a step type
 **Method**: DELETE
 **Endpoint**: /reference/step-types/{id}
-**Capability Tags**: ["delete"]
+**Capability Tags**: ["reference", "step", "type", "delete", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -10437,7 +10978,7 @@
 **Description**: List storage locations
 **Method**: GET
 **Endpoint**: /reference/storage-locations
-**Capability Tags**: ["list"]
+**Capability Tags**: ["reference", "storage", "location", "list", "q", "type", "sort", "by", "dir", "limit", "offset", "field", "data", "id", "name", "shelf", "rack", "cold", "hazardou", "floor", "dock", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -10533,7 +11074,7 @@
 **Description**: Create a storage location
 **Method**: POST
 **Endpoint**: /reference/storage-locations
-**Capability Tags**: ["create"]
+**Capability Tags**: ["reference", "storage", "location", "create", "a", "name", "type", "data", "id", "shelf", "rack", "cold", "hazardou", "floor", "dock", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -10621,7 +11162,7 @@
 **Description**: Delete a storage location
 **Method**: DELETE
 **Endpoint**: /reference/storage-locations/{id}
-**Capability Tags**: ["delete"]
+**Capability Tags**: ["reference", "storage", "location", "delete", "a", "id", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -10674,7 +11215,7 @@
 **Description**: Bottleneck forecast
 **Method**: GET
 **Endpoint**: /reports/bottleneck-forecast
-**Capability Tags**: ["list"]
+**Capability Tags**: ["report", "bottleneck", "forecast", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -10717,7 +11258,7 @@
 **Description**: Inventory trends
 **Method**: GET
 **Endpoint**: /reports/inventory-trends
-**Capability Tags**: ["inventory", "list"]
+**Capability Tags**: ["report", "inventory", "trend", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -10760,7 +11301,7 @@
 **Description**: Job completion
 **Method**: GET
 **Endpoint**: /reports/job-completion
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["report", "job", "completion", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -10803,7 +11344,7 @@
 **Description**: Machine utilization
 **Method**: GET
 **Endpoint**: /reports/machine-utilization
-**Capability Tags**: ["machine", "list", "utilization"]
+**Capability Tags**: ["report", "machine", "utilization", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -10846,7 +11387,7 @@
 **Description**: Maintenance efficiency
 **Method**: GET
 **Endpoint**: /reports/maintenance-efficiency
-**Capability Tags**: ["list", "maintenance"]
+**Capability Tags**: ["report", "maintenance", "efficiency", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -10889,7 +11430,7 @@
 **Description**: OEE trends
 **Method**: GET
 **Endpoint**: /reports/oee-trends
-**Capability Tags**: ["list"]
+**Capability Tags**: ["report", "oee", "trend", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -10932,7 +11473,7 @@
 **Description**: Parse date range
 **Method**: GET
 **Endpoint**: /reports/parse-date-range
-**Capability Tags**: ["list"]
+**Capability Tags**: ["report", "parse", "date", "range", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -10975,7 +11516,7 @@
 **Description**: Production output per slot
 **Method**: GET
 **Endpoint**: /reports/production-output-per-slot
-**Capability Tags**: ["list"]
+**Capability Tags**: ["report", "production", "output", "per", "slot", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11018,7 +11559,7 @@
 **Description**: Quality trends
 **Method**: GET
 **Endpoint**: /reports/quality-trends
-**Capability Tags**: ["list"]
+**Capability Tags**: ["report", "quality", "trend", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11061,7 +11602,7 @@
 **Description**: Backfill training dataset
 **Method**: GET
 **Endpoint**: /scheduling/backfill-training-dataset
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "backfill", "training", "dataset", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11103,8 +11644,8 @@
 ## get__scheduling_candidate-machines
 **Description**: Candidate machines
 **Method**: GET
-**Endpoint**: /scheduling/candidate-machines
-**Capability Tags**: ["machine", "job", "list"]
+**Endpoint**: /scheduling/steps/{id}/candidate-machines
+**Capability Tags**: ["scheduling", "step", "candidate", "machine", "lookup", "id", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11112,10 +11653,21 @@
 `json
 {
   "type": "object",
-  "properties": {},
-  "x-path-params": [],
+  "properties": {
+    "id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "x-path-params": [
+    "id"
+  ],
   "x-query-params": [],
-  "x-param-sources": {},
+  "x-param-sources": {
+    "id": "path"
+  },
   "x-allowed-roles": [
     "viewer",
     "planner",
@@ -11147,7 +11699,7 @@
 **Description**: Estimate job completion
 **Method**: GET
 **Endpoint**: /scheduling/estimate-job-completion
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "estimate", "job", "completion", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11190,7 +11742,7 @@
 **Description**: Emit scheduling event
 **Method**: POST
 **Endpoint**: /scheduling/events
-**Capability Tags**: ["job", "create"]
+**Capability Tags**: ["scheduling", "event", "ai", "create", "emit", "payload", "type", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -11270,7 +11822,7 @@
 **Description**: Explode demand
 **Method**: GET
 **Endpoint**: /scheduling/explosion
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "explosion", "list", "explode", "demand", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11313,7 +11865,7 @@
 **Description**: Is time before
 **Method**: GET
 **Endpoint**: /scheduling/is-time-before
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "is", "time", "before", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11356,7 +11908,7 @@
 **Description**: Is valid ISO date
 **Method**: GET
 **Endpoint**: /scheduling/is-valid-iso-date
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "is", "valid", "iso", "date", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11399,7 +11951,7 @@
 **Description**: Check readiness
 **Method**: GET
 **Endpoint**: /scheduling/readiness
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "readiness", "list", "check", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11442,7 +11994,7 @@
 **Description**: Refresh work calendars
 **Method**: GET
 **Endpoint**: /scheduling/refresh-work-calendars
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "refresh", "work", "calendar", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11485,7 +12037,7 @@
 **Description**: Update scheduling settings
 **Method**: PUT
 **Endpoint**: /scheduling/settings
-**Capability Tags**: ["job", "update"]
+**Capability Tags**: ["scheduling", "setting", "update", "auto", "reschedule", "on", "event", "deviation", "penalty", "weight", "lateness", "lock", "in", "window", "minute", "objective", "public", "holiday", "setup", "slack", "split", "strategy", "work", "day", "end", "time", "start", "data", "updated", "at", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -11683,7 +12235,7 @@
 **Description**: Solver preview
 **Method**: GET
 **Endpoint**: /scheduling/solver-preview
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "solver", "preview", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11726,7 +12278,7 @@
 **Description**: Export training dataset
 **Method**: GET
 **Endpoint**: /scheduling/training-dataset
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "training", "dataset", "list", "export", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11769,7 +12321,7 @@
 **Description**: Training dataset stats
 **Method**: GET
 **Endpoint**: /scheduling/training-dataset-stats
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "training", "dataset", "stat", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11812,7 +12364,7 @@
 **Description**: Validate slot
 **Method**: POST
 **Endpoint**: /scheduling/validate-slot
-**Capability Tags**: ["job", "create"]
+**Capability Tags**: ["scheduling", "validate", "slot", "create", "data", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -11854,7 +12406,7 @@
 **Description**: Validate work days
 **Method**: GET
 **Endpoint**: /scheduling/validate-work-days
-**Capability Tags**: ["job", "list"]
+**Capability Tags**: ["scheduling", "validate", "work", "day", "list", "data", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11898,7 +12450,7 @@
 **Description**: Get settings
 **Method**: GET
 **Endpoint**: /settings/get
-**Capability Tags**: ["list"]
+**Capability Tags**: ["setting", "get", "list", "data", "ai", "enabled", "integration", "language", "notification", "theme", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -11961,7 +12513,7 @@
 **Description**: Update settings
 **Method**: PUT
 **Endpoint**: /settings/update
-**Capability Tags**: ["update"]
+**Capability Tags**: ["setting", "update", "data", "ai", "enabled", "integration", "language", "notification", "theme", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -12023,7 +12575,7 @@
 **Description**: Get a slot by ID
 **Method**: GET
 **Endpoint**: /slots/{id}
-**Capability Tags**: ["job", "lookup"]
+**Capability Tags**: ["slot", "job", "lookup", "a", "id", "data", "actual", "end", "start", "allocation", "percent", "batch", "sequence", "buffer", "time", "minute", "changeover", "cleaning", "is", "parallel", "step", "machine", "preparation", "processing", "proposal", "quantity", "planned", "scheduled", "split", "group", "statu", "error", "success"]
 **Requires Approval**: false
 **Side Effect Level**: NONE
 **Read Only**: true
@@ -12087,10 +12639,18 @@
           "type": "boolean"
         },
         "job_step_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^JS-[A-Za-z0-9-]+$",
+          "x-ai-entity": "step",
+          "x-ai-id-prefix": "JS-",
+          "x-ai-id-field": "job_step_id"
         },
         "machine_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^M-[A-Za-z0-9-]+$",
+          "x-ai-entity": "machine",
+          "x-ai-id-prefix": "M-",
+          "x-ai-id-field": "machine_id"
         },
         "preparation_time_minutes": {
           "type": "integer"
@@ -12099,7 +12659,11 @@
           "type": "integer"
         },
         "proposal_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+          "x-ai-entity": "proposal",
+          "x-ai-id-prefix": "AIPROP-",
+          "x-ai-id-field": "proposal_id"
         },
         "quantity_planned": {
           "type": "integer"
@@ -12111,7 +12675,11 @@
           "type": "string"
         },
         "slot_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^SLOT-[A-Za-z0-9-]+$",
+          "x-ai-entity": "slot",
+          "x-ai-id-prefix": "SLOT-",
+          "x-ai-id-field": "slot_id"
         },
         "split_group_id": {
           "type": "string"
@@ -12143,7 +12711,7 @@
 **Description**: Update a slot
 **Method**: PUT
 **Endpoint**: /slots/{id}
-**Capability Tags**: ["job", "update"]
+**Capability Tags**: ["slot", "job", "update", "a", "id", "actual", "end", "start", "production", "execution", "gap", "2", "pause", "resume", "complete", "allocation", "percent", "batch", "sequence", "is", "parallel", "machine", "quantity", "planned", "scheduled", "statu", "data", "buffer", "time", "minute", "changeover", "cleaning", "step", "preparation", "processing", "proposal", "split", "group", "error", "success"]
 **Requires Approval**: true
 **Side Effect Level**: HIGH
 **Read Only**: false
@@ -12172,7 +12740,11 @@
       "type": "boolean"
     },
     "machine_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^M-[A-Za-z0-9-]+$",
+      "x-ai-entity": "machine",
+      "x-ai-id-prefix": "M-",
+      "x-ai-id-field": "machine_id"
     },
     "quantity_planned": {
       "type": "integer"
@@ -12234,7 +12806,11 @@
         "type": "boolean"
       },
       "machine_id": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^M-[A-Za-z0-9-]+$",
+        "x-ai-entity": "machine",
+        "x-ai-id-prefix": "M-",
+        "x-ai-id-field": "machine_id"
       },
       "quantity_planned": {
         "type": "integer"
@@ -12310,10 +12886,18 @@
           "type": "boolean"
         },
         "job_step_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^JS-[A-Za-z0-9-]+$",
+          "x-ai-entity": "step",
+          "x-ai-id-prefix": "JS-",
+          "x-ai-id-field": "job_step_id"
         },
         "machine_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^M-[A-Za-z0-9-]+$",
+          "x-ai-entity": "machine",
+          "x-ai-id-prefix": "M-",
+          "x-ai-id-field": "machine_id"
         },
         "preparation_time_minutes": {
           "type": "integer"
@@ -12322,7 +12906,11 @@
           "type": "integer"
         },
         "proposal_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^AIPROP-[A-Za-z0-9-]+$",
+          "x-ai-entity": "proposal",
+          "x-ai-id-prefix": "AIPROP-",
+          "x-ai-id-field": "proposal_id"
         },
         "quantity_planned": {
           "type": "integer"
@@ -12334,7 +12922,11 @@
           "type": "string"
         },
         "slot_id": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^SLOT-[A-Za-z0-9-]+$",
+          "x-ai-entity": "slot",
+          "x-ai-id-prefix": "SLOT-",
+          "x-ai-id-field": "slot_id"
         },
         "split_group_id": {
           "type": "string"

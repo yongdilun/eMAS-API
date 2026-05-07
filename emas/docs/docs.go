@@ -1781,7 +1781,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Create a formula",
+                "description": "Create a formula. formula_id is generated with the F- prefix when omitted.",
                 "consumes": [
                     "application/json"
                 ],
@@ -2368,7 +2368,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Create a material",
+                "description": "Create a material. material_id is generated with the MAT- prefix when omitted.",
                 "consumes": [
                     "application/json"
                 ],
@@ -3449,7 +3449,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Creates a new machine in the factory",
+                "description": "Creates a new machine in the factory. machine_id is generated with the M- prefix when omitted.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4413,7 +4413,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Create a process",
+                "description": "Create a process. process_id is generated with the PRC- prefix when omitted.",
                 "consumes": [
                     "application/json"
                 ],
@@ -4899,7 +4899,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Create a new product with the provided details",
+                "description": "Create a new product with the provided details. product_id is generated with the P- prefix when omitted.",
                 "consumes": [
                     "application/json"
                 ],
@@ -8620,11 +8620,11 @@ const docTemplate = `{
         "dto.CreateFormulaRequest": {
             "type": "object",
             "required": [
-                "formula_id",
                 "formula_name"
             ],
             "properties": {
                 "formula_id": {
+                    "description": "Optional; generated with F- prefix when omitted.",
                     "type": "string"
                 },
                 "formula_name": {
@@ -8731,7 +8731,6 @@ const docTemplate = `{
         "dto.CreateMachineRequest": {
             "type": "object",
             "required": [
-                "machine_id",
                 "machine_name",
                 "machine_type"
             ],
@@ -8752,6 +8751,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "machine_id": {
+                    "description": "Optional; generated with M- prefix when omitted.",
                     "type": "string"
                 },
                 "machine_name": {
@@ -8782,7 +8782,6 @@ const docTemplate = `{
         "dto.CreateMaterialRequest": {
             "type": "object",
             "required": [
-                "material_id",
                 "material_name"
             ],
             "properties": {
@@ -8790,6 +8789,7 @@ const docTemplate = `{
                     "type": "number"
                 },
                 "material_id": {
+                    "description": "Optional; generated with MAT- prefix when omitted.",
                     "type": "string"
                 },
                 "material_name": {
@@ -8812,7 +8812,6 @@ const docTemplate = `{
         "dto.CreateProcessRequest": {
             "type": "object",
             "required": [
-                "process_id",
                 "process_name",
                 "product_id"
             ],
@@ -8821,6 +8820,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "process_id": {
+                    "description": "Optional; generated with PRC- prefix when omitted.",
                     "type": "string"
                 },
                 "process_name": {
@@ -8924,7 +8924,6 @@ const docTemplate = `{
         "dto.CreateProductRequest": {
             "type": "object",
             "required": [
-                "product_id",
                 "product_name"
             ],
             "properties": {
@@ -8938,6 +8937,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "product_id": {
+                    "description": "Optional; generated with P- prefix when omitted.",
                     "type": "string"
                 },
                 "product_name": {

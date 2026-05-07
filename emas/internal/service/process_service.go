@@ -16,8 +16,12 @@ func NewProcessService(processRepo *repository.ProcessRepository) *ProcessServic
 }
 
 func (s *ProcessService) Create(req dto.CreateProcessRequest) (*domain.ProductProcess, error) {
+	processID := req.ProcessID
+	if processID == "" {
+		processID = id.NewPrefixed(id.PrefixProcess)
+	}
 	p := &domain.ProductProcess{
-		ProcessID:   req.ProcessID,
+		ProcessID:   processID,
 		ProductID:   req.ProductID,
 		ProcessName: req.ProcessName,
 		Version:     req.Version,
@@ -26,7 +30,7 @@ func (s *ProcessService) Create(req dto.CreateProcessRequest) (*domain.ProductPr
 	if err := s.processRepo.Create(p); err != nil {
 		return nil, err
 	}
-	return s.processRepo.GetProcessByID(req.ProcessID)
+	return s.processRepo.GetProcessByID(processID)
 }
 
 func (s *ProcessService) GetByID(id string) (*domain.ProductProcess, error) {
@@ -52,7 +56,7 @@ func (s *ProcessService) ListSteps(processID string) ([]domain.ProcessSteps, err
 func (s *ProcessService) AddStep(processID string, req dto.CreateProcessStepRequest) (*domain.ProcessSteps, error) {
 	stepID := req.StepID
 	if stepID == "" {
-		stepID = id.NewPrefixed("STP-")
+		stepID = id.NewPrefixed(id.PrefixProcessStep)
 	}
 	seq := req.StepSequence
 	if seq <= 0 {

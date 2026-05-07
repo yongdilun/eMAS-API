@@ -34,10 +34,10 @@ const ProductModal = ({ isOpen, onClose, onSave, product }) => {
  const handle = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
 
  const submit = async () => {
- if (!form.productId || !form.productName) { setError('Product ID and Name are required.'); return }
+ if (!form.productName) { setError('Product Name is required.'); return }
  setLoading(true); setError('')
  const payload = {
- product_id: form.productId,
+ ...(form.productId ? { product_id: form.productId } : {}),
  product_name: form.productName,
  product_type: form.productType || undefined,
  unit_of_measure: form.unitOfMeasure || undefined,
@@ -48,7 +48,7 @@ const ProductModal = ({ isOpen, onClose, onSave, product }) => {
  ? (await productsApi.update?.(form.productId, payload)) ?? (await productsApi.create(payload))
  : await productsApi.create(payload)
  const saved = toData(raw) ?? raw ?? payload
- logger.info(isEdit ? 'Product updated' : 'Product created', { productId: form.productId })
+ logger.info(isEdit ? 'Product updated' : 'Product created', { productId: saved?.product_id || form.productId })
  if (onSave) onSave(saved)
  onClose()
  } catch (err) {
@@ -70,8 +70,8 @@ const ProductModal = ({ isOpen, onClose, onSave, product }) => {
  {error && <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
  <div className="grid grid-cols-2 gap-4">
  <div>
- <label className="block text-xs font-medium text-ink-subtle mb-1">Product ID *</label>
- <input name="productId" value={form.productId} onChange={handle} placeholder="P-001" className={inp} disabled={isEdit} />
+ <label className="block text-xs font-medium text-ink-subtle mb-1">Product ID</label>
+ <input name="productId" value={form.productId} onChange={handle} placeholder="Generated when blank" className={inp} disabled={isEdit} />
  </div>
  <div>
  <label className="block text-xs font-medium text-ink-subtle mb-1">Unit of Measure</label>
@@ -392,7 +392,7 @@ const BomModal = ({ isOpen, onClose, product }) => {
  setLoading(true); setMsg('')
  const pid = product.product_id || product.id
  try {
- const proc = await processesApi.create({ process_id: `PRC-${Date.now()}`, product_id: pid, process_name: newProcess.processName })
+ const proc = await processesApi.create({ product_id: pid, process_name: newProcess.processName })
  const created = toData(proc) ?? proc
  const realId = created?.process_id || created?.ProcessID || proc?.process_id
  const validSteps = newProcess.steps.filter(s => s.stepName)
@@ -447,8 +447,10 @@ const BomModal = ({ isOpen, onClose, product }) => {
  )
  setLoading(true); setMsg('')
  try {
- const fid = `F-${Date.now()}`
- await formulasApi.create({ formula_id: fid, formula_name: newFormula.formulaName })
+ const formulaRaw = await formulasApi.create({ formula_name: newFormula.formulaName })
+ const formula = toData(formulaRaw) ?? formulaRaw ?? {}
+ const fid = formula.formula_id || formula.FormulaID || formula.id
+ if (!fid) throw new Error('Created formula response did not include a formula_id.')
  for (const ing of validIngredients) {
  const payload = {
  quantity_per_unit: parseFloat(ing.quantity) || 0,

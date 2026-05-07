@@ -32,7 +32,7 @@ func NewMachineHandler(machineService *service.MachineService, eventEmitter Sche
 
 // Create godoc
 // @Summary Create a machine
-// @Description Creates a new machine in the factory
+// @Description Creates a new machine in the factory. machine_id is generated with the M- prefix when omitted.
 // @Tags machines
 // @Accept json
 // @Produce json

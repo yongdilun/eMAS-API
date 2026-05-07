@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { machinesApi, referenceApi } from '../../../services/api'
+import { machinesApi, referenceApi, toData } from '../../../services/api'
 import logger from '../../../services/logger'
 import RefSelect from '../../shared/RefSelect'
 import { useRefObjects } from '../../../hooks/useRefData'
@@ -48,15 +48,15 @@ const AddMachineModal = ({ isOpen, onClose, onSave, machine }) => {
  }
 
  const handleSubmit = async () => {
- if (!formData.machineId || !formData.machineName || !formData.type) {
- setError('Machine ID, Name, and Type are required.')
+ if (!formData.machineName || !formData.type) {
+ setError('Machine Name and Type are required.')
  return
  }
  setLoading(true)
  setError('')
 
  const payload = {
- machine_id: formData.machineId,
+ ...(formData.machineId ? { machine_id: formData.machineId } : {}),
  machine_name: formData.machineName,
  machine_type: formData.type, // API: machine_type
  status: formData.status,
@@ -67,14 +67,22 @@ const AddMachineModal = ({ isOpen, onClose, onSave, machine }) => {
  }
 
  try {
- const machineId = formData.machineId
+ let machineId = formData.machineId
+ let saved = payload
  if (isEdit) {
- await machinesApi.update(machineId, payload)
+ const raw = await machinesApi.update(machineId, payload)
+ saved = toData(raw) ?? raw ?? payload
  } else {
- await machinesApi.create(payload)
+ const raw = await machinesApi.create(payload)
+ saved = toData(raw) ?? raw ?? payload
+ machineId = saved.machine_id || saved.id || machineId
  }
  for (const cap of capabilities) {
  if (cap.step_id) {
+ if (!machineId) {
+ logger.warn('Could not add capability because the created machine ID was not returned', { step_id: cap.step_id })
+ continue
+ }
  try {
  await machinesApi.addCapability(machineId, {
  step_id: cap.step_id,
@@ -85,7 +93,7 @@ const AddMachineModal = ({ isOpen, onClose, onSave, machine }) => {
  }
  }
  }
- if (onSave) onSave(payload)
+ if (onSave) onSave(saved)
  setFormData(EMPTY_FORM)
  setCapabilities([])
  onClose()
@@ -128,11 +136,11 @@ const AddMachineModal = ({ isOpen, onClose, onSave, machine }) => {
 
  <div className="sm:col-span-2">
  <label className="block text-sm font-medium text-ink-muted dark:text-[#9cb3ba] mb-1">
- Machine ID *
+ Machine ID
  </label>
  <input
  className={inputCls} name="machineId" value={formData.machineId}
- onChange={handleChange} placeholder="e.g., MCH-006" type="text"
+ onChange={handleChange} placeholder="Generated when blank" type="text"
  disabled={isEdit}
  />
  </div>

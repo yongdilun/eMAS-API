@@ -1504,7 +1504,7 @@ func (s *AIPredictiveService) checkAllStepMaterials(step SolverPreviewStep, cons
 
 func newGeneratedJob(productID string, quantity int, deadline time.Time, notes string) *domain.Job {
 	return &domain.Job{
-		JobID:         id.NewPrefixed("JOB-"),
+		JobID:         id.NewPrefixed(id.PrefixJob),
 		ProductID:     productID,
 		QuantityTotal: quantity,
 		Priority:      domain.JobPriorityMedium,

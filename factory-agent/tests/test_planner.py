@@ -165,6 +165,74 @@ async def test_legacy_planner_keeps_no_arg_specialized_endpoint_terms_as_tool_ev
 
 
 @pytest.mark.asyncio
+async def test_legacy_planner_keeps_requested_feature_endpoint_over_id_lookup(monkeypatch):
+    planner = LegacyPlannerBackend(_settings())
+    tools = [
+        ToolInfo(
+            name="get__jobs_{id}",
+            description="Get a job by ID",
+            endpoint="/jobs/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["job", "lookup"],
+        ),
+        ToolInfo(
+            name="get__ai_scheduling_jobs_{id}_proposal",
+            description="Generate a proposal",
+            endpoint="/ai/scheduling/jobs/{id}/proposal",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["ai", "scheduling", "job", "proposal", "lookup"],
+        ),
+    ]
+
+    async def _fake_select_tool(*, intent, clause, candidates):
+        del intent, clause, candidates
+        return ToolSelectionDecision(
+            tool_name="get__jobs_{id}",
+            args={"id": "JOB-SEED-001"},
+            confidence=0.9,
+            missing_args=[],
+            reason="id lookup overfit",
+        )
+
+    monkeypatch.setattr(planner._reasoning, "select_tool", _fake_select_tool)
+
+    result = await planner.generate_plan(intent="show proposal for job JOB-SEED-001", scoped_tools=tools)
+
+    assert result.draft.steps[0].tool_name == "get__ai_scheduling_jobs_{id}_proposal"
+    assert result.draft.steps[0].args == {"id": "JOB-SEED-001"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_does_not_turn_endpoint_terms_into_filters():
+    planner = LegacyPlannerBackend(_settings())
+    tool = ToolInfo(
+        name="get__reference_widget-locations",
+        description="List widget locations",
+        endpoint="/reference/widget-locations",
+        method="GET",
+        input_schema={"type": "object", "properties": {"type": {"type": "string"}}},
+        query_params=["type"],
+        param_sources={"type": "query"},
+        is_read_only=True,
+        requires_approval=False,
+        capability_tags=["reference", "widget", "location", "list"],
+    )
+
+    result = await planner.generate_plan(intent="list widget locations", scoped_tools=[tool])
+
+    assert result.draft.steps[0].tool_name == "get__reference_widget-locations"
+    assert result.draft.steps[0].args == {}
+
+
+@pytest.mark.asyncio
 async def test_legacy_planner_expands_parent_lookup_and_child_resource_read():
     planner = LegacyPlannerBackend(_settings())
     tools = [
@@ -190,12 +258,57 @@ async def test_legacy_planner_expands_parent_lookup_and_child_resource_read():
             requires_approval=False,
             capability_tags=["job", "lookup"],
         ),
+        ToolInfo(
+            name="get__slots_{id}",
+            description="Get a slot by ID",
+            endpoint="/slots/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["slot", "job", "lookup"],
+        ),
     ]
 
     result = await planner.generate_plan(intent="show JOB-SEED-001 and its slots", scoped_tools=tools)
 
     assert [step.tool_name for step in result.draft.steps] == ["get__jobs_{id}", "get__jobs_{id}_slots"]
     assert all(step.args == {"id": "JOB-SEED-001"} for step in result.draft.steps)
+
+
+@pytest.mark.asyncio
+async def test_legacy_planner_keeps_direct_slot_lookup_for_slot_id():
+    planner = LegacyPlannerBackend(_settings())
+    tools = [
+        ToolInfo(
+            name="get__jobs_{id}_slots",
+            description="List slots by job ID",
+            endpoint="/jobs/{id}/slots",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["job", "slot", "lookup"],
+        ),
+        ToolInfo(
+            name="get__slots_{id}",
+            description="Get a slot by ID",
+            endpoint="/slots/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["slot", "job", "lookup"],
+        ),
+    ]
+
+    result = await planner.generate_plan(intent="show slot SLOT-SEED-001", scoped_tools=tools)
+
+    assert [step.tool_name for step in result.draft.steps] == ["get__slots_{id}"]
+    assert result.draft.steps[0].args == {"id": "SLOT-SEED-001"}
 
 
 @pytest.mark.asyncio

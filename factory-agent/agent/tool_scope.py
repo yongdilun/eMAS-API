@@ -12,22 +12,21 @@ from .tool_intent_profile import ToolIntentVocabulary, profile_match_score, voca
 class ScopedTools:
     tool_names: list[str]
 
-
-import json
-import os
-
-_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "ai_domain_config.json")
-try:
-    with open(_CONFIG_PATH, "r") as f:
-        _AI_CONFIG = json.load(f).get("python", {})
-except Exception:
-    _AI_CONFIG = {}
-
 _WORD_RE = re.compile(r"[a-zA-Z0-9_]+")
-_ACTION_TOKENS = {k: set(v) for k, v in _AI_CONFIG.get("action_tokens", {}).items()}
-_METHOD_HINTS = {k: set(v) for k, v in _AI_CONFIG.get("method_hints", {}).items()}
-_AUXILIARY_TAGS = set(_AI_CONFIG.get("auxiliary_tags", []))
-_DOMAIN_TAGS = set(_AI_CONFIG.get("domain_tags", []))
+_ACTION_TOKENS = {
+    "create": {"add", "create", "new", "open"},
+    "update": {"apply", "assign", "change", "move", "record", "reschedule", "run", "set", "update"},
+    "delete": {"delete", "remove"},
+    "read": {"check", "find", "get", "inspect", "list", "lookup", "preview", "read", "report", "show", "view"},
+    "approval": {"approval", "approve", "pending", "reject"},
+}
+_METHOD_HINTS = {
+    "GET": {"read"},
+    "POST": {"create"},
+    "PUT": {"update"},
+    "PATCH": {"update"},
+    "DELETE": {"delete"},
+}
 _COMPOUND_SEPARATOR_RE = re.compile(
     r"\b(?:and then|then|next|after that|afterwards|finally)\b|[;\n.]+",
     re.IGNORECASE,
@@ -119,14 +118,6 @@ def score_tool(intent: str, tool: ToolInfo, *, vocabulary: ToolIntentVocabulary 
 
     if tool.path_params and any(token.isdigit() or "-" in token for token in intent_tokens):
         score += 3
-    if any(tag in tool.capability_tags for tag in _AUXILIARY_TAGS):
-        score += 1
-
-    if assessment.entity:
-        extra_domains = [tag for tag in tool.capability_tags if tag in _DOMAIN_TAGS and tag != assessment.entity]
-        if extra_domains:
-            score -= 6 * len(extra_domains)
-
     return score
 
 

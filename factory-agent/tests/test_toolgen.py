@@ -158,6 +158,28 @@ def test_tools_from_openapi_generates_rich_capability_tags():
     assert {"approval", "pending", "list"} <= tags
 
 
+def test_tools_from_openapi_derives_capability_tags_from_arbitrary_api_shape():
+    spec = {
+        "openapi": "3.0.0",
+        "paths": {
+            "/customers/{id}/invoices": {
+                "get": {
+                    "operationId": "list_customer_invoices",
+                    "summary": "List customer invoices",
+                    "tags": ["Billing"],
+                    "parameters": [
+                        {"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}
+                    ],
+                }
+            }
+        },
+    }
+
+    tools = tools_from_openapi(spec)
+    tags = set(__import__("json").loads(tools[0].capability_tags))
+    assert {"customer", "invoice", "billing", "list"} <= tags
+
+
 def test_tools_from_openapi_merges_path_level_parameters():
     spec = {
         "openapi": "3.0.0",

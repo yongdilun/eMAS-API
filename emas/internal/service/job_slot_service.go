@@ -65,7 +65,7 @@ func (s *JobSlotService) CreateJobStepsFromRouting(jobID string) ([]domain.JobSt
 	jobSteps := make([]domain.JobSteps, 0, len(processSteps))
 	for i, ps := range processSteps {
 		js := domain.JobSteps{
-			JobStepID:      id.NewPrefixed("JS-"),
+			JobStepID:      id.NewPrefixed(id.PrefixJobStep),
 			JobID:          jobID,
 			StepID:         ps.StepID,
 			StepSequence:   i + 1,
@@ -125,7 +125,7 @@ func (s *JobSlotService) SplitStep(jobStepID string, splits []dto.CreateSlotRequ
 			allocationPercent = (float64(rs.Quantity) / float64(jobStep.QuantityTarget)) * 100
 		}
 		slot := &domain.JobStepScheduleSlots{
-			SlotID:                 id.NewPrefixed("SLOT-"),
+			SlotID:                 id.NewPrefixed(id.PrefixSlot),
 			JobStepID:              jobStepID,
 			ProposalID:             rs.ProposalID,
 			MachineID:              rs.MachineID,

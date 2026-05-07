@@ -29,8 +29,12 @@ func NewMachineService(
 }
 
 func (s *MachineService) Create(req dto.CreateMachineRequest) (*domain.Machine, error) {
+	machineID := req.MachineID
+	if machineID == "" {
+		machineID = id.NewPrefixed(id.PrefixMachine)
+	}
 	m := &domain.Machine{
-		MachineID:               req.MachineID,
+		MachineID:               machineID,
 		MachineName:             req.MachineName,
 		MachineType:             req.MachineType,
 		Location:                req.Location,
@@ -44,7 +48,7 @@ func (s *MachineService) Create(req dto.CreateMachineRequest) (*domain.Machine, 
 	if err := s.machineRepo.Create(m); err != nil {
 		return nil, err
 	}
-	return s.machineRepo.GetByID(req.MachineID)
+	return s.machineRepo.GetByID(machineID)
 }
 
 func (s *MachineService) GetByID(id string) (*domain.Machine, error) {

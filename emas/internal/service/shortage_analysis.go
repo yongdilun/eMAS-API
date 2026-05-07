@@ -1784,7 +1784,7 @@ func (s *AIPredictiveService) ApplyReplenishment(ctx context.Context, items []Re
 			continue
 		}
 		rec := domain.InventoryExpectedArrival{
-			ArrivalID:        id.NewPrefixed("ARR-"),
+			ArrivalID:        id.NewPrefixed(id.PrefixExpectedArrival),
 			MaterialID:       item.MaterialID,
 			Quantity:         toCreate,
 			ExpectedArriveAt: normalizeMaterialEventTime(item.ArriveAt),

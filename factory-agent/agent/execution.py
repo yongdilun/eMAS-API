@@ -276,12 +276,15 @@ class ExecutionEngine:
             f"Args: {json.dumps(args or {}, ensure_ascii=False)}\n"
             f"Response: {json.dumps(body or {}, ensure_ascii=False)}\n"
         )
-        return await self._compose_text(
+        generated = await self._compose_text(
             component="not_found_summary",
             prompt=prompt,
             fallback=fallback,
             metadata={"tool_name": tool_name},
         )
+        if "not found" not in generated.lower():
+            return fallback
+        return generated
 
     def _is_soft_not_found(self, *, tool: ToolInfo, http_status: int | None, body: dict[str, Any] | None) -> bool:
         return bool(tool.is_read_only and tool.method == "GET" and http_status == 404 and isinstance(body, dict))

@@ -8,7 +8,7 @@ const FloatingChatButton = ({ onClick }) => {
  onClick={onClick}
  onMouseEnter={() => setIsHovered(true)}
  onMouseLeave={() => setIsHovered(false)}
- className="fixed bottom-6 right-6 z-40 flex items-center gap-2 bg-primary hover:bg-primary-hover text-on-primary rounded-md focus:outline-none focus:ring-2 focus:ring-primary-focus/50 transition-all duration-300 group"
+ className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-md border border-white/40 bg-primary text-on-primary transition-all duration-300 hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary-focus/50 dark:border-hairline-tertiary group"
  style={{
  padding: isHovered ? '8px 14px' : '8px',
  }}

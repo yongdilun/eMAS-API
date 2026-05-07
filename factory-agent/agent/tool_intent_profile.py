@@ -32,12 +32,14 @@ class ToolIntentProfile:
 class ToolIntentVocabulary:
     generic_tokens: frozenset[str]
     entity_tokens: frozenset[str]
+    operator_tokens: frozenset[str]
     known_tool_tokens: frozenset[str]
 
 
 EMPTY_VOCABULARY = ToolIntentVocabulary(
     generic_tokens=frozenset(),
     entity_tokens=frozenset(),
+    operator_tokens=frozenset(),
     known_tool_tokens=frozenset(),
 )
 
@@ -103,32 +105,15 @@ def _collection_entity_tokens(tools: list[ToolInfo]) -> set[str]:
         if has_collection_read and (has_collection_write or has_member_read or has_member_write):
             entities.update(tokenize(parts[0]))
 
-    for tool in tools:
-        for schema in (tool.input_schema, tool.output_schema, tool.body_schema):
-            for token in _schema_entity_tokens(schema):
-                entities.add(token)
-
     return entities
 
 
-def _schema_entity_tokens(schema: dict | None) -> set[str]:
-    if not isinstance(schema, dict):
-        return set()
-    tokens: set[str] = set()
-    properties = schema.get("properties")
-    if isinstance(properties, dict):
-        for name, subschema in properties.items():
-            normalized = str(name).strip().lower()
-            if normalized.endswith("_id") and len(normalized) > 3:
-                tokens.update(tokenize(normalized[:-3]))
-            tokens.update(_schema_entity_tokens(subschema if isinstance(subschema, dict) else {}))
-    items = schema.get("items")
-    if isinstance(items, dict):
-        tokens.update(_schema_entity_tokens(items))
-    return tokens
-
-
-def build_tool_intent_vocabulary(tools: list[ToolInfo], *, generic_threshold: float = 0.60) -> ToolIntentVocabulary:
+def build_tool_intent_vocabulary(
+    tools: list[ToolInfo],
+    *,
+    generic_threshold: float = 0.60,
+    operator_tokens: set[str] | None = None,
+) -> ToolIntentVocabulary:
     tool_count = len(tools)
     if tool_count <= 0:
         return EMPTY_VOCABULARY
@@ -148,15 +133,29 @@ def build_tool_intent_vocabulary(tools: list[ToolInfo], *, generic_threshold: fl
         if count >= min_count and count / tool_count >= generic_threshold
     }
     entity_tokens = _collection_entity_tokens(tools)
+    normalized_operator_tokens = {
+        token
+        for token in tokenize(" ".join(operator_tokens or set()))
+        if token not in entity_tokens
+    }
     return ToolIntentVocabulary(
         generic_tokens=frozenset(generic_tokens),
         entity_tokens=frozenset(entity_tokens),
+        operator_tokens=frozenset(normalized_operator_tokens),
         known_tool_tokens=frozenset(known_tokens),
     )
 
 
 def vocabulary_for_tools(tools: list[ToolInfo]) -> ToolIntentVocabulary:
-    return build_tool_intent_vocabulary(tools)
+    generated = load_generated_vocabulary()
+    scoped = build_tool_intent_vocabulary(tools, operator_tokens=set(generated.operator_tokens))
+    entity_tokens = set(generated.entity_tokens) | set(scoped.entity_tokens)
+    return ToolIntentVocabulary(
+        generic_tokens=frozenset((set(generated.generic_tokens) | set(scoped.generic_tokens)) - entity_tokens),
+        entity_tokens=frozenset(entity_tokens),
+        operator_tokens=frozenset(set(generated.operator_tokens) | set(scoped.operator_tokens)),
+        known_tool_tokens=frozenset(set(generated.known_tool_tokens) | set(scoped.known_tool_tokens)),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -168,6 +167,7 @@ def load_generated_vocabulary() -> ToolIntentVocabulary:
     return ToolIntentVocabulary(
         generic_tokens=frozenset(str(token) for token in payload.get("generic_tokens", []) if str(token)),
         entity_tokens=frozenset(str(token) for token in payload.get("entity_tokens", []) if str(token)),
+        operator_tokens=frozenset(str(token) for token in payload.get("operator_tokens", []) if str(token)),
         known_tool_tokens=frozenset(str(token) for token in payload.get("known_tool_tokens", []) if str(token)),
     )
 
@@ -176,6 +176,10 @@ def _effective_vocabulary(vocabulary: ToolIntentVocabulary | None) -> ToolIntent
     if vocabulary is not None:
         return vocabulary
     return load_generated_vocabulary()
+
+
+def _known_or_soft_known(token: str, known_tokens: frozenset[str]) -> bool:
+    return not known_tokens or token in known_tokens or bool(_soft_overlap({token}, set(known_tokens)))
 
 
 def _has_identifier(text: str) -> bool:
@@ -296,7 +300,7 @@ def build_tool_intent_profile(tool: ToolInfo, *, vocabulary: ToolIntentVocabular
     feature_tokens = frozenset(
         token
         for token in identity_tokens
-        if token not in vocab.generic_tokens and token not in vocab.entity_tokens and not token.isdigit()
+        if token not in vocab.generic_tokens and token not in vocab.operator_tokens and not token.isdigit()
     )
     return ToolIntentProfile(
         name=tool.name,
@@ -318,9 +322,9 @@ def intent_feature_tokens(intent: str, *, vocabulary: ToolIntentVocabulary | Non
         token
         for token in tokens
         if token not in vocab.generic_tokens
-        and token not in vocab.entity_tokens
+        and token not in vocab.operator_tokens
         and not token.isdigit()
-        and (not vocab.known_tool_tokens or token in vocab.known_tool_tokens)
+        and _known_or_soft_known(token, vocab.known_tool_tokens)
     }
 
 
@@ -339,20 +343,41 @@ def profile_match_score(intent: str, tool: ToolInfo, *, vocabulary: ToolIntentVo
     endpoint_overlap = intent_tokens & set(profile.endpoint_segments)
     field_overlap = intent_tokens & set(profile.field_tokens)
     field_feature_overlap = feature_tokens & set(profile.field_tokens)
+    endpoint_feature_overlap = feature_tokens & set(profile.endpoint_segments)
+    non_entity_features = feature_tokens - set(vocab.entity_tokens)
     covered_features = feature_overlap | soft_feature_overlap | field_feature_overlap
+    uncovered_discriminators = feature_tokens - covered_features - set(vocab.entity_tokens)
 
     score += len(identity_overlap) * 3
     score += len(endpoint_overlap) * 5
+    score += len(endpoint_feature_overlap) * 8
     score += len(feature_overlap) * 9
     score += len(soft_feature_overlap) * 7
     score += len(field_overlap) * 2
     score += len(field_feature_overlap) * 6
 
-    if feature_tokens and covered_features == feature_tokens:
+    if feature_tokens and endpoint_feature_overlap == feature_tokens:
+        score += 30
+    elif non_entity_features and non_entity_features <= endpoint_feature_overlap:
+        score += 28
+    elif non_entity_features and not (non_entity_features & set(profile.endpoint_segments)):
+        score -= 24
+
+    unrequested_endpoint_segments = (
+        set(profile.endpoint_segments)
+        - intent_tokens
+        - set(vocab.generic_tokens)
+        - set(vocab.operator_tokens)
+        - {"api"}
+    )
+    if feature_tokens and unrequested_endpoint_segments:
+        score -= min(18, 6 * len(unrequested_endpoint_segments))
+
+    if feature_tokens and not uncovered_discriminators:
         score += 12
     if feature_tokens and not covered_features:
         score -= 12
-    elif feature_tokens and profile.feature_tokens and covered_features != feature_tokens:
+    elif feature_tokens and profile.feature_tokens and uncovered_discriminators:
         score -= min(10, 2 * len(profile.feature_tokens))
 
     root = profile.endpoint_root
@@ -360,13 +385,6 @@ def profile_match_score(intent: str, tool: ToolInfo, *, vocabulary: ToolIntentVo
         score += 8
     if root and root not in intent_tokens and feature_tokens and not feature_overlap and not soft_feature_overlap:
         score -= 3
-
-    # A request for a root entity ID should prefer that entity's endpoint over
-    # secondary endpoints that merely mention the entity in a child segment.
-    if "product" in intent_tokens and root and root != "product" and "process" not in intent_tokens and not feature_overlap and not soft_feature_overlap:
-        score -= 14
-    if "process" in intent_tokens and "process" in profile.identity_tokens:
-        score += 10
 
     if profile.has_path_id:
         if _has_identifier(intent):
@@ -388,7 +406,13 @@ def tool_covers_descriptive_terms(intent: str, tool: ToolInfo, *, vocabulary: To
     if not features:
         return False
     profile = build_tool_intent_profile(tool, vocabulary=vocab)
-    return _soft_overlap(features, set(profile.identity_tokens)) == features
+    covered = _soft_overlap(features, set(profile.identity_tokens))
+    if not covered:
+        return False
+    uncovered = features - covered
+    if not uncovered:
+        return True
+    return bool(covered - set(vocab.entity_tokens)) and uncovered <= set(vocab.entity_tokens)
 
 
 def child_tools_for_parent(parent: ToolInfo, tools: list[ToolInfo]) -> list[ToolInfo]:

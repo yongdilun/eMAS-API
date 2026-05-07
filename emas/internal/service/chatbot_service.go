@@ -221,7 +221,7 @@ func (s *ChatbotService) SendMessage(conversationID, query, requestID string) (*
 			}
 
 			approval := domain.ChatbotApproval{
-				ID:              id.NewPrefixed("CHAPPR-"),
+				ID:              id.NewPrefixed(id.PrefixApproval),
 				ConversationID:  conversationID,
 				TurnAuditID:     audit.ID,
 				RequestID:       requestID,
