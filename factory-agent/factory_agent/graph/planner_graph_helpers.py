@@ -350,24 +350,17 @@ def _deterministic_plan_repair(intent: str, scoped_tools: list[ToolInfo]) -> Age
         )
 
     job_id = _extract_entity_id(intent, "job")
-    if job_id and re.search(r"\bslots?\b", lowered) and "get__jobs_{id}" in tools and "get__jobs_{id}_slots" in tools:
+    if job_id and re.search(r"\bslots?\b", lowered) and "get__jobs_{id}_slots" in tools:
         return AgentPlanOutput(
-            plan_explanation="Fetch the requested job and then fetch its slots.",
-            risk_summary="Read-only compound lookup with no data changes.",
+            plan_explanation="Fetch scheduling slots for the requested job.",
+            risk_summary="Read-only lookup with no data changes.",
             steps=[
-                AgentPlanStep(
-                    tool_name="get__jobs_{id}",
-                    args={"id": job_id},
-                    evidence={"id": job_id},
-                    confidence=0.95,
-                ),
                 AgentPlanStep(
                     tool_name="get__jobs_{id}_slots",
                     args={"id": job_id},
                     evidence={"id": job_id},
                     confidence=0.95,
-                    depends_on=[0],
-                ),
+                )
             ],
         )
 

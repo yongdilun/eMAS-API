@@ -1,4 +1,4 @@
-from agent.toolgen import tools_from_openapi
+from factory_agent.toolgen import tools_from_openapi
 
 
 def test_tools_from_openapi_flattens_swagger2_body_parameter_schema():

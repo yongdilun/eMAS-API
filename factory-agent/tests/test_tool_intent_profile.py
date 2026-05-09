@@ -1,5 +1,5 @@
-from agent.schemas import ToolInfo
-from agent.tool_intent_profile import (
+from factory_agent.schemas import ToolInfo
+from factory_agent.tool_intent_profile import (
     build_tool_intent_profile,
     build_tool_intent_vocabulary,
     intent_feature_tokens,

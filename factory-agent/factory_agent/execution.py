@@ -295,7 +295,7 @@ class ExecutionEngine:
         if backend == "auto":
             if self._settings.tool_result_summary_openai_base_url or self._settings.openai_api_key:
                 return "langchain"
-            return "legacy"
+            return "deterministic"
         return backend
 
     def _summarize_step_result_fallback(self, *, tool_name: str, body: dict[str, Any] | None) -> str:

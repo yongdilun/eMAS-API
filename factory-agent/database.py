@@ -6,7 +6,7 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from agent.metrics import metrics
+from factory_agent.metrics import metrics
 
 load_dotenv()
 

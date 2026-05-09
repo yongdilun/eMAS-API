@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from agent.schemas import PlanDraft, PlanStepDraft
+from factory_agent.schemas import PlanDraft, PlanStepDraft
 
 
 def test_plan_draft_requires_non_empty_plan_explanation():

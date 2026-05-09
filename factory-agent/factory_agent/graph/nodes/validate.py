@@ -2,149 +2,29 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..config import Settings
-from ..guardrails import (
+from ...config import Settings
+from ...guardrails import (
     build_unsupported_enum_clarification,
     missing_required_fields,
     promote_user_provenance,
     sanitize_tool_args_against_schema,
     strip_unsupported_optional_args,
 )
-from ..plan_validator import validate_plan
-from ..schemas import PlanBinding, PlanDraft, PlanStepDraft, ToolInfo
-from ..telemetry import log_event, log_llm_prompt
-from .planner_graph_helpers import (
-    _tool_cards,
-    _build_agent_prompt,
-    _extract_quantity,
-    _extract_prefixed_id,
-    _generated_id_prefixes_by_entity,
-    _generated_id_prefixes_by_field,
-    _extract_entity_id,
-    _schema_properties,
-    _word_pattern,
-    _has_word,
-    _enum_value_in_intent,
-    _collection_entity,
-    _is_collection_read_tool,
-    _infer_enum_collection_filter,
-    _infer_enum_status_update,
-    _candidate_id_prefixes_for_path_arg,
+from ...plan_validator import validate_plan
+from ...schemas import PlanBinding, PlanDraft, PlanStepDraft
+from ...telemetry import log_event
+from ..errors import LangGraphPlannerClarification, LangGraphPlannerError
+from ..planner_graph_helpers import (
     _deterministic_plan_repair,
-    _infer_clear_read_tool,
-    _extract_json_obj,
-    _coerce_non_negative_int,
-    _normalize_plan_dict,
-    _message_content_text,
-    _reference_tool_preference,
-    _find_get_tool_for_endpoint,
-    _same_args,
-    _singularize_entity,
-    _endpoint_entity_before_param,
     _extract_user_supported_path_args,
     _insert_delete_preflights,
+    _reference_tool_preference,
 )
-from .state import AgentPlanOutput, AgentState
+from ..state import AgentState
 
 
-class LangGraphPlannerError(RuntimeError):
-    pass
-
-
-class LangGraphPlannerClarification(LangGraphPlannerError):
-    pass
-
-class LangGraphPlanner:
-    def __init__(self, settings: Settings):
-        self._settings = settings
-
-    def _build_chat_model(self, *, json_mode: bool = False):
-        try:
-            from langchain_openai import ChatOpenAI
-        except Exception as exc:
-            raise LangGraphPlannerError("LangGraph planner requires langchain-openai.") from exc
-
-        kwargs: dict[str, Any] = {
-            "model": self._settings.planner_model,
-            "temperature": 0,
-            "timeout": self._settings.planner_timeout_s,
-            "max_retries": 0,
-            "max_tokens": max(self._settings.planner_max_tokens, 900),
-        }
-        if json_mode:
-            kwargs["model_kwargs"] = {"response_format": {"type": "json_object"}}
-        if self._settings.planner_openai_base_url:
-            kwargs["base_url"] = self._settings.planner_openai_base_url
-            kwargs["api_key"] = self._settings.openai_api_key or "local"
-        elif self._settings.openai_api_key:
-            kwargs["api_key"] = self._settings.openai_api_key
-        return ChatOpenAI(**kwargs)
-
-    def _prepare_node(self, state: AgentState) -> AgentState:
-        scoped_tools = state.get("scoped_tools") or []
-        return {
-            **state,
-            "tool_cards": _tool_cards(scoped_tools),
-            "errors": list(state.get("errors") or []),
-            "tool_results": list(state.get("tool_results") or []),
-        }
-
-    async def _reason_node(self, state: AgentState) -> AgentState:
-        if not (self._settings.planner_openai_base_url or self._settings.openai_api_key):
-            raise LangGraphPlannerError("LangGraph planner requires PLANNER_OPENAI_BASE_URL (or OPENAI_BASE_URL) or OPENAI_API_KEY.")
-
-        intent = state.get("intent") or ""
-        context = state.get("context") or {}
-        tool_cards = state.get("tool_cards") or []
-        prompt = _build_agent_prompt(intent=intent, context=context, tool_cards=tool_cards)
-        log_llm_prompt(
-            component="planner",
-            backend="langgraph",
-            model=self._settings.planner_model,
-            prompt=prompt,
-            metadata={"intent": intent, "scoped_tool_count": len(tool_cards)},
-        )
-        model = self._build_chat_model(json_mode=True)
-        try:
-            raw_resp = await model.ainvoke(prompt)
-        except Exception as exc:
-            raise LangGraphPlannerError(str(exc)) from exc
-        content = _message_content_text(raw_resp)
-        parsed = _extract_json_obj(content)
-        if not isinstance(parsed, dict):
-            log_event(
-                "langgraph_planner_invalid_json",
-                level="WARNING",
-                intent=intent,
-                content_preview=content[:500],
-            )
-            repaired = _deterministic_plan_repair(intent, state.get("scoped_tools") or [])
-            if repaired is not None:
-                log_event(
-                    "langgraph_planner_deterministic_repair",
-                    level="WARNING",
-                    intent=intent,
-                    reason="invalid_json",
-                    tool_names=[step.tool_name for step in repaired.steps],
-                )
-                return {**state, "raw_plan": repaired, "risk_summary": repaired.risk_summary}
-            raise LangGraphPlannerError("LangGraph planner returned invalid JSON.")
-        normalized = _normalize_plan_dict(parsed)
-        try:
-            plan = AgentPlanOutput.model_validate(normalized)
-        except Exception as exc:
-            log_event(
-                "langgraph_planner_invalid_schema",
-                level="WARNING",
-                intent=intent,
-                parsed_keys=sorted(parsed.keys()),
-                normalized_keys=sorted(normalized.keys()) if isinstance(normalized, dict) else [],
-                error=str(exc),
-            )
-            raise LangGraphPlannerError("LangGraph planner returned JSON that does not match AgentPlanOutput.") from exc
-        return {**state, "raw_plan": plan, "risk_summary": plan.risk_summary}
-
-    def _validate_node(self, state: AgentState) -> AgentState:
+def make_validate_node(settings: Settings):
+    def validate_node(state: AgentState) -> AgentState:
         raw_plan = state.get("raw_plan")
         if raw_plan is None:
             raise LangGraphPlannerError("LangGraph planner did not produce a plan.")
@@ -173,7 +53,7 @@ class LangGraphPlanner:
         step_drafts: list[PlanStepDraft] = []
         contract_steps: list[dict[str, Any]] = []
 
-        for idx, raw_step in enumerate(raw_plan.steps[: self._settings.max_plan_steps]):
+        for idx, raw_step in enumerate(raw_plan.steps[: settings.max_plan_steps]):
             tool = tools_by_name.get(raw_step.tool_name)
             if not tool:
                 raise LangGraphPlannerClarification(f"I could not safely select a supported tool for step {idx + 1}.")
@@ -310,7 +190,7 @@ class LangGraphPlanner:
             risk_summary=raw_plan.risk_summary.strip() or "Review the proposed tool calls before execution.",
             steps=step_drafts,
         )
-        validation = validate_plan(draft, tools_by_name, max_steps=self._settings.max_plan_steps)
+        validation = validate_plan(draft, tools_by_name, max_steps=settings.max_plan_steps)
         if not validation.ok:
             raise LangGraphPlannerError("; ".join(validation.errors))
         return {
@@ -324,46 +204,4 @@ class LangGraphPlanner:
             "final_response": draft.plan_explanation,
         }
 
-    def _compile_graph(self):
-        try:
-            from langgraph.graph import END, StateGraph
-        except Exception as exc:
-            raise LangGraphPlannerError("langgraph is required for AGENT_RUNTIME=langgraph_agent.") from exc
-
-        graph = StateGraph(AgentState)
-        graph.add_node("prepare", self._prepare_node)
-        graph.add_node("reason", self._reason_node)
-        graph.add_node("validate", self._validate_node)
-        graph.set_entry_point("prepare")
-        graph.add_edge("prepare", "reason")
-        graph.add_edge("reason", "validate")
-        graph.add_edge("validate", END)
-        return graph.compile()
-
-    async def generate(
-        self,
-        *,
-        intent: str,
-        scoped_tools: list[ToolInfo],
-        context: dict[str, Any] | None = None,
-    ) -> tuple[PlanDraft, dict[str, Any]]:
-        graph = self._compile_graph()
-        state: AgentState = {
-            "session_id": str((context or {}).get("session_id") or "") or None,
-            "intent": intent,
-            "messages": list((context or {}).get("messages") or []),
-            "context": context or {},
-            "scoped_tools": scoped_tools,
-            "pending_tool_call": None,
-            "approved_args": {},
-            "tool_results": [],
-            "errors": [],
-        }
-        result = await graph.ainvoke(state)
-        clarification = result.get("clarification")
-        if clarification:
-            raise LangGraphPlannerClarification(str(clarification))
-        draft = result.get("draft")
-        if not isinstance(draft, PlanDraft):
-            raise LangGraphPlannerError("LangGraph planner did not return a validated PlanDraft.")
-        return draft, result.get("intent_contract") or {"intent": intent, "backend": "langgraph", "steps": []}
+    return validate_node

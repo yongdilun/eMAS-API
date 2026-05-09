@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
-from .config import Settings
-from .guardrails import promote_user_provenance, strip_unsupported_optional_args
-from .schemas import PlanDraft, PlanStepDraft, ToolInfo
-from .telemetry import log_event
-from .tool_registry import ToolRegistry
-
+from ..config import Settings
+from ..guardrails import promote_user_provenance, strip_unsupported_optional_args
+from ..schemas import PlanDraft, PlanStepDraft, ToolInfo
+from ..telemetry import log_event
+from ..tool_registry import ToolRegistry
 
 PlannerBackendName = Literal["langgraph"]
 
@@ -96,9 +96,90 @@ def _dedupe_plan_steps(draft: PlanDraft) -> tuple[PlanDraft, int]:
     )
 
 
+_ACTION_VERB_RE = re.compile(
+    r"\b(?:check|show|list|get|find|view|inspect|update|set|create|delete|approve|reject|replan|assign|schedule|replenish|move|run)\b",
+    re.IGNORECASE,
+)
+
+_CONNECTOR_SPLIT_RE = re.compile(
+    r"(?:^|\s+)(?:"
+    r"\b(?:and then|after that|afterwards|but first|before that|once done|when done|finally)\b"
+    r"|\b(?:then|next)\b"
+    r")\s+",
+    re.IGNORECASE,
+)
+
+_PERIOD_SENTENCE_RE = re.compile(r"(?<!\d)\.\s+(?=[A-Za-z])")
+
+
+def _finalize_clause(text: str) -> str:
+    return text.strip().rstrip(".")
+
+
+def _merge_final(parts: list[str]) -> list[str]:
+    out = [_finalize_clause(p) for p in parts if p.strip()]
+    return out if out else [""]
+
+
+def _try_numbered_steps(normalized: str) -> list[str] | None:
+    if not re.search(r"(?:^|\s)\d+[.)]\s+\S", normalized):
+        return None
+    raw = re.split(r"\s+(?=\d+[.)]\s)", normalized)
+    out: list[str] = []
+    for segment in raw:
+        stripped = re.sub(r"^\d+[.)]\s*", "", segment).strip()
+        if stripped:
+            out.append(stripped)
+    return out if len(out) >= 2 else None
+
+
 def _split_compound_intent(intent: str) -> list[str]:
-    normalized = (intent or "").strip()
-    return [normalized] if normalized else []
+    raw = (intent or "").strip()
+    if not raw:
+        return [""]
+
+    structural = [p.strip() for p in re.split(r"[;\n]+", raw) if p.strip()]
+    if len(structural) > 1:
+        merged: list[str] = []
+        for part in structural:
+            merged.extend(_split_compound_intent(part))
+        return _merge_final(merged)
+
+    normalized = re.sub(r"\s+", " ", raw)
+
+    numbered = _try_numbered_steps(normalized)
+    if numbered:
+        return _merge_final(numbered)
+
+    text = normalized
+
+    conn_parts = [p.strip() for p in _CONNECTOR_SPLIT_RE.split(text) if p.strip()]
+    if len(conn_parts) > 1:
+        merged = []
+        for part in conn_parts:
+            merged.extend(_split_compound_intent(part))
+        return _merge_final(merged)
+
+    period_parts = [p.strip() for p in _PERIOD_SENTENCE_RE.split(text) if p.strip()]
+    if len(period_parts) > 1:
+        merged = []
+        for part in period_parts:
+            merged.extend(_split_compound_intent(part))
+        return _merge_final(merged)
+
+    comma_parts = [p.strip() for p in text.split(",")]
+    if len(comma_parts) >= 2 and all(_ACTION_VERB_RE.search(p) for p in comma_parts):
+        return _merge_final(comma_parts)
+
+    if re.search(r"\s+(?:and|also)\s+", text, re.IGNORECASE):
+        aparts = [p.strip() for p in re.split(r"\s+(?:and|also)\s+", text, flags=re.IGNORECASE) if p.strip()]
+        if len(aparts) > 1 and sum(1 for p in aparts if _ACTION_VERB_RE.search(p)) >= 2:
+            merged = []
+            for part in aparts:
+                merged.extend(_split_compound_intent(part))
+            return _merge_final(merged)
+
+    return [_finalize_clause(text)]
 
 
 def _lookup_contract_clause(
@@ -136,9 +217,14 @@ def _mark_contract_fields_stripped(
     clause["provenance_dropped"] = sorted(set(str(field) for field in provenance_dropped if str(field)))
 
 
-class LangGraphPlannerBackend:
-    def __init__(self, settings: Settings):
+class PlannerService:
+    """LangGraph-backed planning with post-processing (dedupe, provenance gates)."""
+
+    _langgraph_planner_cls: ClassVar[type | None] = None
+
+    def __init__(self, *, settings: Settings, tool_registry: ToolRegistry):
         self._settings = settings
+        self._tool_registry = tool_registry
 
     async def generate_plan(
         self,
@@ -146,102 +232,32 @@ class LangGraphPlannerBackend:
         intent: str,
         scoped_tools: list[ToolInfo],
         context: dict[str, Any] | None = None,
-        tools_markdown: str = "",
     ) -> PlannerResult:
-        del tools_markdown
-        try:
-            from .graph.planner_graph import LangGraphPlanner, LangGraphPlannerClarification
-        except Exception as exc:
-            raise PlannerBackendError("LangGraph planner backend unavailable.") from exc
+        from ..graph.errors import LangGraphPlannerClarification
+
+        planner_cls = PlannerService._langgraph_planner_cls
+        if planner_cls is None:
+            try:
+                from ..graph.planner_graph import LangGraphPlanner as planner_cls  # noqa: PLC0415 — optional heavy deps
+            except Exception as exc:
+                raise PlannerBackendError("LangGraph planner unavailable.") from exc
+
+        self._tool_registry.load_tools_markdown()
 
         try:
-            draft, contract = await LangGraphPlanner(self._settings).generate(
+            draft, contract = await planner_cls(self._settings).generate(
                 intent=intent,
                 scoped_tools=scoped_tools,
                 context=context,
             )
         except LangGraphPlannerClarification as exc:
             raise PlannerClarificationError(str(exc)) from exc
+        except PlannerConfirmationRequired:
+            raise
         except Exception as exc:
             raise PlannerBackendError(str(exc)) from exc
-        return PlannerResult(draft=draft, backend_used="langgraph", llm_calls=1, intent_contract=contract)
 
-
-class LegacyPlannerBackend:
-    def __init__(self, settings: Settings | None = None):
-        self._settings = settings
-
-    async def generate_plan(
-        self,
-        *,
-        intent: str,
-        scoped_tools: list[ToolInfo],
-        context: dict[str, Any] | None = None,
-        tools_markdown: str = "",
-    ) -> PlannerResult:
-        del intent, scoped_tools, context, tools_markdown
-        raise PlannerBackendError("Legacy planner backend is disabled; use langgraph.")
-
-
-class LangChainPlannerBackend:
-    def __init__(self, settings: Settings | None = None):
-        self._settings = settings
-
-    async def generate_plan(
-        self,
-        *,
-        intent: str,
-        scoped_tools: list[ToolInfo],
-        context: dict[str, Any] | None = None,
-        tools_markdown: str = "",
-    ) -> PlannerResult:
-        del intent, scoped_tools, context, tools_markdown
-        raise PlannerBackendError("LangChain planner backend is disabled; use langgraph.")
-
-
-class StructuredPlannerBackend:
-    def __init__(self, settings: Settings | None = None):
-        self._settings = settings
-
-    async def generate_plan(
-        self,
-        *,
-        intent: str,
-        scoped_tools: list[ToolInfo],
-        context: dict[str, Any] | None = None,
-        tools_markdown: str = "",
-    ) -> PlannerResult:
-        del intent, scoped_tools, context, tools_markdown
-        raise PlannerBackendError("Structured planner backend is disabled; use langgraph.")
-
-
-class PlannerAdapter:
-    def __init__(self, *, settings: Settings, tool_registry: ToolRegistry):
-        self._settings = settings
-        self._tool_registry = tool_registry
-        self._langgraph = LangGraphPlannerBackend(settings)
-
-    async def generate_plan(
-        self,
-        *,
-        intent: str,
-        scoped_tools: list[ToolInfo],
-        context: dict[str, Any] | None = None,
-        force_backend: PlannerBackendName | None = None,
-    ) -> PlannerResult:
-        runtime = (getattr(self._settings, "agent_runtime", "langgraph_agent") or "langgraph_agent").strip().lower()
-        configured_backend = (self._settings.planner_backend or "langgraph").strip().lower()
-        backend = (force_backend or ("langgraph" if runtime == "langgraph_agent" else configured_backend)).strip().lower()
-        self._tool_registry.load_tools_markdown()
-
-        if backend != "langgraph":
-            raise PlannerBackendError(f"Unsupported planner backend: {backend}. Only langgraph is enabled.")
-
-        result = await self._langgraph.generate_plan(
-            intent=intent,
-            scoped_tools=scoped_tools,
-            context=context,
-        )
+        result = PlannerResult(draft=draft, backend_used="langgraph", llm_calls=1, intent_contract=contract)
 
         deduped_draft, dropped_steps = _dedupe_plan_steps(result.draft)
         if dropped_steps > 0:

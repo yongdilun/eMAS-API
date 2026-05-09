@@ -1,4 +1,4 @@
-from agent.presentation import extract_table_from_result
+from factory_agent.presentation import extract_table_from_result
 
 
 def test_table_columns_follow_requested_fields_without_domain_hardcoding():

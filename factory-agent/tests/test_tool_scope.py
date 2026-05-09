@@ -1,5 +1,5 @@
-from agent.schemas import ToolInfo
-from agent.tool_scope import filter_tools_for_intent
+from factory_agent.schemas import ToolInfo
+from factory_agent.tool_scope import filter_tools_for_intent
 
 
 def test_tool_scope_prefers_approval_tools_for_approval_intent():

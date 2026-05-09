@@ -1,5 +1,5 @@
-from agent.schemas import ToolInfo
-from agent.tool_registry import ToolRegistry
+from factory_agent.schemas import ToolInfo
+from factory_agent.tool_registry import ToolRegistry
 
 
 def _tool(name: str, endpoint: str, method: str, tags: list[str]) -> ToolInfo:

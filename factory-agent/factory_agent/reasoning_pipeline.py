@@ -100,7 +100,7 @@ class ReasoningPipeline:
         if self._settings.force_llm_trace_all:
             return bool(self._component_base_url(component) or self._settings.openai_api_key)
         backend = self._component_backend(component)
-        if backend in {"legacy", "retrieval", "disabled", "off", "false", "none"}:
+        if backend in {"deterministic", "retrieval", "disabled", "off", "false", "none"}:
             return False
         if backend not in {"auto", "langchain"}:
             return False

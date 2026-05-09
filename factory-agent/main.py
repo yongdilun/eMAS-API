@@ -17,13 +17,13 @@ from models import Session as SessionRow
 from models import Tool as ToolRow
 from models import generate_uuid
 
-from agent.api import build_router
-from agent.config import get_settings
-from agent.events import AgentEvent, EventBus
-from agent.execution import ExecutionEngine
-from agent.metrics import metrics
-from agent.telemetry import log_event, log_step_status_changed, setup_logging
-from agent.tool_registry import ToolRegistry
+from factory_agent.api import build_router
+from factory_agent.config import get_settings
+from factory_agent.events import AgentEvent, EventBus
+from factory_agent.execution import ExecutionEngine
+from factory_agent.metrics import metrics
+from factory_agent.telemetry import log_event, log_step_status_changed, setup_logging
+from factory_agent.tool_registry import ToolRegistry
 
 
 def _ensure_schema_compatibility(sync_conn) -> None:

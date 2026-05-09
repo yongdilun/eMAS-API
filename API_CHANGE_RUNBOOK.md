@@ -1,6 +1,23 @@
-﻿# API Change Runbook
+# API Change Runbook
 
 Use this every time you add/change an API endpoint or Swagger comments.
+
+## 0) Factory-agent package layout (reference)
+
+The Python package lives under `factory-agent/factory_agent/` (matches `pyproject.toml`). High-signal folders:
+
+| Area | Path | Role |
+|------|------|------|
+| HTTP API | `factory_agent/api/` (`routes.py`, `dependencies.py`) | FastAPI router; **`factory_agent.api` imports this package** |
+| Planner graph | `factory_agent/graph/` (`builder.py`, `state.py`, `nodes/`) | LangGraph planning: prepare → reason → validate |
+| LLM helpers | `factory_agent/llm/` | Chat model wiring, structured JSON parsing |
+| Services | `factory_agent/services/` | `planner_service.py` and related orchestration |
+| Tool adapters | `factory_agent/tools/` | LangChain-facing tool helpers |
+| Memory (stubs) | `factory_agent/memory/` | Placeholders for future RAG / checkpoints |
+
+**Flat modules** at `factory_agent/` root (`execution.py`, `tool_registry.py`, `reasoning_pipeline.py`, `schemas.py`, etc.) are normal: they are the runtime “engine” and shared domain logic. You can later group them into `infra/` or `core/` without changing behavior—purely organizational.
+
+HTTP routes live only under **`factory_agent/api/`** (`routes.py`, `dependencies.py`); import via `from factory_agent.api import build_router`.
 
 ## 1) Format changed Go files
 ```powershell
@@ -52,19 +69,24 @@ Backend handler smoke tests:
 $env:GOCACHE='.\.gocache_test'; go test ./emas/internal/handler -count=1
 ```
 
-Factory-agent core tests (quick set):
+Factory-agent core tests (quick set). From repo root, use the factory-agent venv:
 ```powershell
-.\.venv\Scripts\python -m pytest factory-agent/tests/test_api_endpoints.py -q
+.\factory-agent\.venv\Scripts\python.exe -m pytest factory-agent/tests/test_api_endpoints.py -q
 ```
 
 Factory-agent planner contract tests:
 ```powershell
-.\.venv\Scripts\python -m pytest factory-agent/tests/test_planner.py -q
+.\factory-agent\.venv\Scripts\python.exe -m pytest factory-agent/tests/test_planner.py -q
 ```
 
 If you changed enum/query filters, tool schemas, or Swagger parameter annotations, also run:
 ```powershell
-.\.venv\Scripts\python -m pytest factory-agent/tests/test_toolgen.py factory-agent/tests/test_planner.py -q
+.\factory-agent\.venv\Scripts\python.exe -m pytest factory-agent/tests/test_toolgen.py factory-agent/tests/test_planner.py -q
+```
+
+Full factory-agent suite (optional):
+```powershell
+.\factory-agent\.venv\Scripts\python.exe -m pytest factory-agent/tests/ -q
 ```
 
 If you changed scheduling, routing, or any endpoint shape that the live agent calls, run a targeted seeded scenario too:
@@ -81,8 +103,8 @@ You should usually see updates in:
 - `emas/docs/swagger.json`
 - `emas/docs/docs.go`
 - `factory-agent/tools.md`
-- `factory-agent/agent/generated/id_patterns.json`
-- `factory-agent/agent/generated/tool_intent_vocabulary.json`
+- `factory-agent/factory_agent/generated/id_patterns.json`
+- `factory-agent/factory_agent/generated/tool_intent_vocabulary.json`
 
 Then inspect the changed tool entry in `factory-agent/tools.md` and confirm:
 - enum values are present when expected

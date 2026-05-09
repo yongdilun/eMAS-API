@@ -6,10 +6,10 @@ import httpx
 import respx
 from sqlalchemy.exc import SQLAlchemyError
 
-from agent.config import Settings
-from agent.events import AgentEvent
-from agent.execution import ExecutionEngine, compute_idempotency_key
-from agent.schemas import ToolInfo
+from factory_agent.config import Settings
+from factory_agent.events import AgentEvent
+from factory_agent.execution import ExecutionEngine, compute_idempotency_key
+from factory_agent.schemas import ToolInfo
 
 
 class FakeEventBus:

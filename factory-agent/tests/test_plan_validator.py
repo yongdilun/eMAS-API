@@ -1,7 +1,7 @@
 import copy
 
-from agent.plan_validator import validate_plan
-from agent.schemas import PlanDraft, PlanStepDraft, ToolInfo
+from factory_agent.plan_validator import validate_plan
+from factory_agent.schemas import PlanDraft, PlanStepDraft, ToolInfo
 
 
 def _tool(

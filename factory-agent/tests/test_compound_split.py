@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.planner import _split_compound_intent
+from factory_agent.planner import _split_compound_intent
 
 
 # ────────────────────────────────────────────────────────

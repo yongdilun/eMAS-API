@@ -2,8 +2,8 @@ import json
 
 import main  # noqa: F401
 
-from agent.prompting import get_plan_draft_json_schema
-from agent.telemetry import log_llm_prompt, log_llm_prompt_skipped
+from factory_agent.prompting import get_plan_draft_json_schema
+from factory_agent.telemetry import log_llm_prompt, log_llm_prompt_skipped
 
 
 def test_plan_draft_json_schema_has_expected_shape():
@@ -39,15 +39,15 @@ def test_log_llm_prompt_skipped_emits_structured_log(caplog):
     with caplog.at_level("INFO"):
         log_llm_prompt_skipped(
             component="planner",
-            backend="legacy",
-            reason="planner_backend=legacy",
+            backend="deterministic",
+            reason="summary_backend=deterministic",
             metadata={"intent": "Check machine 5 status", "scoped_tool_count": 2},
         )
 
     payload = json.loads(caplog.records[-1].getMessage())
     assert payload["event"] == "llm_prompt_skipped"
     assert payload["component"] == "planner"
-    assert payload["backend"] == "legacy"
-    assert payload["reason"] == "planner_backend=legacy"
+    assert payload["backend"] == "deterministic"
+    assert payload["reason"] == "summary_backend=deterministic"
     assert payload["intent"] == "Check machine 5 status"
     assert payload["scoped_tool_count"] == 2

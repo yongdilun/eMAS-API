@@ -10,11 +10,11 @@ from fastapi import FastAPI
 from sqlalchemy import select
 
 import database
-from agent.api import build_router
-from agent.config import Settings
-from agent.events import AgentEvent, EventBus
-from agent.execution import ExecutionEngine
-from agent.tool_registry import ToolRegistry
+from factory_agent.api import build_router
+from factory_agent.config import Settings
+from factory_agent.events import AgentEvent, EventBus
+from factory_agent.execution import ExecutionEngine
+from factory_agent.tool_registry import ToolRegistry
 from models import Approval as ApprovalRow
 from models import PlanStep as PlanStepRow
 from models import Session as SessionRow

@@ -1,5 +1,5 @@
-from agent.permissions import filter_tools_for_role, role_from_claims
-from agent.schemas import ToolInfo
+from factory_agent.permissions import filter_tools_for_role, role_from_claims
+from factory_agent.schemas import ToolInfo
 
 
 def _tool(name: str, method: str, *, allowed_roles=None) -> ToolInfo:

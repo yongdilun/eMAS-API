@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
 
-from agent.toolgen import fetch_openapi_spec, render_tools_md, tools_from_openapi, write_id_pattern_catalog, write_tools_md_and_meta
+from factory_agent.toolgen import fetch_openapi_spec, render_tools_md, tools_from_openapi, write_id_pattern_catalog, write_tools_md_and_meta
 from database import AsyncSessionLocal
 
 DEFAULT_OPENAPI_URL = 'http://localhost:8080/swagger/doc.json'

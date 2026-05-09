@@ -12,9 +12,9 @@ REPO_ROOT = FACTORY_AGENT_ROOT.parent
 if str(FACTORY_AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(FACTORY_AGENT_ROOT))
 
-from agent.schemas import ToolInfo  # noqa: E402
-from agent.tool_intent_profile import build_tool_intent_vocabulary  # noqa: E402
-from agent.toolgen import tools_from_openapi  # noqa: E402
+from factory_agent.schemas import ToolInfo  # noqa: E402
+from factory_agent.tool_intent_profile import build_tool_intent_vocabulary  # noqa: E402
+from factory_agent.toolgen import tools_from_openapi  # noqa: E402
 
 
 def _json_list(raw: str | None) -> list[str]:

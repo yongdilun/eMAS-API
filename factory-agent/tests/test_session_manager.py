@@ -1,8 +1,8 @@
 import pytest
 from datetime import datetime, timedelta
 
-from agent.config import Settings
-from agent.session_manager import SessionManager, TransitionError, VersionConflictError
+from factory_agent.config import Settings
+from factory_agent.session_manager import SessionManager, TransitionError, VersionConflictError
 
 
 @pytest.mark.asyncio

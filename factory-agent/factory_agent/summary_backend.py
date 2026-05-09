@@ -9,7 +9,7 @@ from .schemas import PlanDraft
 from .telemetry import log_llm_prompt, log_llm_prompt_skipped
 
 
-SummaryBackendName = Literal["legacy", "langchain"]
+SummaryBackendName = Literal["deterministic", "langchain"]
 
 
 @dataclass(frozen=True)
@@ -47,23 +47,23 @@ class SummaryAdapter:
     async def summarize_plan(self, *, intent: str, draft: PlanDraft) -> SummaryResult:
         backend = (self._settings.summary_backend or "auto").strip().lower()
         if backend == "auto":
-            backend = "langchain" if (self._settings.summary_openai_base_url or self._settings.openai_api_key) else "legacy"
+            backend = "langchain" if (self._settings.summary_openai_base_url or self._settings.openai_api_key) else "deterministic"
         if backend == "langchain":
             return await self._summarize_langchain(intent=intent, draft=draft)
-        return self._summarize_legacy(intent=intent, draft=draft)
+        return self._summarize_deterministic(intent=intent, draft=draft)
 
-    def _summarize_legacy(self, *, intent: str, draft: PlanDraft) -> SummaryResult:
+    def _summarize_deterministic(self, *, intent: str, draft: PlanDraft) -> SummaryResult:
         log_llm_prompt_skipped(
             component="summary",
-            backend="legacy",
-            reason="summary_backend=legacy",
+            backend="deterministic",
+            reason="summary_backend=deterministic",
             metadata={"intent": intent, "step_count": len(draft.steps)},
         )
         text = (
             f"Intent: {intent.strip() or 'n/a'}. "
             f"Plan has {len(draft.steps)} step(s). Risk summary: {draft.risk_summary.strip()}."
         )
-        return SummaryResult(text=text, backend_used="legacy", llm_calls=0)
+        return SummaryResult(text=text, backend_used="deterministic", llm_calls=0)
 
     async def _summarize_langchain(self, *, intent: str, draft: PlanDraft) -> SummaryResult:
         try:

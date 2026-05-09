@@ -22,15 +22,16 @@ from models import PlanStep as PlanStepRow
 from models import Session as SessionRow
 from models import generate_uuid
 
-from .config import Settings
-from .events import AgentEvent, EventBus
-from .execution import ExecutionEngine, compute_idempotency_key
-from .intent import assess_intent
-from .metrics import metrics
-from .permissions import filter_tools_for_role, role_from_claims
-from .planner import PlannerAdapter, PlannerBackendError, PlannerClarificationError, PlannerConfirmationRequired
-from .plan_validator import validate_plan
-from .schemas import (
+from ..config import Settings
+from ..events import AgentEvent, EventBus
+from ..execution import ExecutionEngine, compute_idempotency_key
+from ..intent import assess_intent
+from ..metrics import metrics
+from ..permissions import filter_tools_for_role, role_from_claims
+from ..planner import PlannerBackendError, PlannerClarificationError, PlannerConfirmationRequired
+from ..services.planner_service import PlannerService
+from ..plan_validator import validate_plan
+from ..schemas import (
     ApprovalDecisionRequest,
     ApprovalResponse,
     ConfirmationDecisionRequest,
@@ -51,13 +52,13 @@ from .schemas import (
     ToolInfo,
     ValidationErrorResponse,
 )
-from .session_manager import SessionManager, TransitionError, VersionConflictError
-from .security import JwtValidationError, validate_bearer_token
-from .summary_backend import SummaryAdapter, SummaryBackendError
-from .telemetry import log_event, log_step_status_changed
-from .tool_registry import ToolRegistry
-from .tool_selector import ToolSelector
-from .presentation import extract_table_from_result
+from ..session_manager import SessionManager, TransitionError, VersionConflictError
+from ..security import JwtValidationError, validate_bearer_token
+from ..summary_backend import SummaryAdapter, SummaryBackendError
+from ..telemetry import log_event, log_step_status_changed
+from ..tool_registry import ToolRegistry
+from ..tool_selector import ToolSelector
+from ..presentation import extract_table_from_result
 
 
 def _normalize_session_name(name: str | None) -> str | None:
@@ -239,12 +240,12 @@ def build_router(
     tool_registry: ToolRegistry,
     event_bus: EventBus,
     enqueue_session: Any | None = None,
-    planner_adapter: PlannerAdapter | None = None,
+    planner_adapter: PlannerService | None = None,
 ) -> APIRouter:
     router = APIRouter()
     session_mgr = SessionManager(settings)
     executor = ExecutionEngine(settings, event_bus)
-    planner = planner_adapter or PlannerAdapter(settings=settings, tool_registry=tool_registry)
+    planner = planner_adapter or PlannerService(settings=settings, tool_registry=tool_registry)
     tool_selector = ToolSelector(settings)
     summary_adapter = SummaryAdapter(settings)
 
@@ -279,7 +280,7 @@ def build_router(
         intent: str,
         context_to_keep: dict[str, Any] | None = None,
     ) -> PlanResponse:
-        from .schemas import PlanDraft
+        from ..schemas import PlanDraft
 
         db.add(
             MessageRow(
@@ -375,7 +376,7 @@ def build_router(
             )
         )
         await db.commit()
-        from .schemas import PlanDraft
+        from ..schemas import PlanDraft
 
         empty_draft = PlanDraft(
             plan_explanation=reply,
@@ -1465,7 +1466,7 @@ def build_router(
         assessment = assess_intent(intent)
         tools_by_name = await tool_registry.get_tools_by_name(db)
         tools_by_name = filter_tools_for_role(tools_by_name, role=role_from_claims(user))
-        backend_used = "legacy" if req.draft is None else "client"
+        backend_used = "langgraph" if req.draft is None else "client"
         draft = req.draft
 
         if assessment.kind != "operations":
@@ -1514,7 +1515,7 @@ def build_router(
                     sess.llm_call_count += selection.llm_calls
                     sess.llm_call_count += generated.llm_calls
                 else:
-                    from .schemas import PlanDraft
+                    from ..schemas import PlanDraft
 
                     draft = PlanDraft(
                         plan_explanation="No safe discovery steps are required before preparing an execution proposal.",
@@ -1597,7 +1598,7 @@ def build_router(
                                 status="PENDING",
                             )
                         )
-                    await db.commit()
+                await db.commit()
                 raise HTTPException(status_code=400, detail={"errors": validation.errors})
 
         plan_kind = "discovery" if mode == "plan" else "execution"

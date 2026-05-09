@@ -1,7 +1,7 @@
 import pytest
 
-from agent.config import Settings
-from agent.reasoning_pipeline import ReasoningPipeline
+from factory_agent.config import Settings
+from factory_agent.reasoning_pipeline import ReasoningPipeline
 
 
 def _settings(**overrides):
@@ -51,8 +51,8 @@ async def test_select_tool_respects_retrieval_backend(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_extract_facts_respects_legacy_summary_backend(monkeypatch):
-    pipeline = ReasoningPipeline(_settings(tool_result_summary_backend="legacy"))
+async def test_extract_facts_respects_deterministic_summary_backend(monkeypatch):
+    pipeline = ReasoningPipeline(_settings(tool_result_summary_backend="deterministic"))
 
     def _unexpected_build_model(*, component: str):
         raise AssertionError(f"LLM should not be built for {component}")
@@ -194,7 +194,7 @@ def test_fallback_response_for_multi_record_summary_mentions_table():
 
 @pytest.mark.asyncio
 async def test_extract_facts_deterministically_analyzes_deadline_and_quantity_without_llm(monkeypatch):
-    pipeline = ReasoningPipeline(_settings(tool_result_summary_backend="legacy"))
+    pipeline = ReasoningPipeline(_settings(tool_result_summary_backend="deterministic"))
 
     def _unexpected_build_model(*, component: str):
         raise AssertionError(f"LLM should not be built for {component}")

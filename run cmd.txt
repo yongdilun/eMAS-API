@@ -35,7 +35,12 @@ go run .\cmd\seed
 
 ========== TEST COMMANDS ==========
 
+# Layout / pipeline docs: see repo-root API_CHANGE_RUNBOOK.md (factory_agent package paths).
+
 cd "C:\Users\dilun\OneDrive\Documents\eMas APi"
+
+# Full factory-agent pytest suite
+& ".\factory-agent\.venv\Scripts\python.exe" -m pytest factory-agent\tests\ -q
 
 # Fast manifest/category check only
 & ".\factory-agent\.venv\Scripts\python.exe" -m pytest factory-agent\tests\test_seed_pipeline_manifest.py -q

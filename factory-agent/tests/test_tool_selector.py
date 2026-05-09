@@ -1,8 +1,8 @@
 import pytest
 
-from agent.config import Settings
-from agent.schemas import ToolInfo
-from agent.tool_selector import ToolSelector
+from factory_agent.config import Settings
+from factory_agent.schemas import ToolInfo
+from factory_agent.tool_selector import ToolSelector
 
 
 def _settings(**overrides):

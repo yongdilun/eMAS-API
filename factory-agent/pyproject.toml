@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "factory-agent"
+version = "0.1.0"
+description = "Factory agent API and LangGraph planner"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2.0",
+    "langchain-openai>=0.2.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["factory_agent*"]
