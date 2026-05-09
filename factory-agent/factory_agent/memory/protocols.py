@@ -1,4 +1,4 @@
-"""Protocols for future memory / RAG integrations (not wired yet)."""
+"""Protocols for memory / checkpoint integrations."""
 
 from __future__ import annotations
 

@@ -52,6 +52,12 @@ METRIC_DEFS: dict[str, MetricDef] = {
     "db_connection_pool_usage": MetricDef("gauge", "Database connection pool usage ratio."),
     "db_query_total": MetricDef("counter", "Total SQL queries executed."),
     "db_slow_query_total": MetricDef("counter", "Total slow SQL queries executed."),
+    "memory_compaction_total": MetricDef("counter", "Memory compaction runs."),
+    "memory_retrieval_total": MetricDef("counter", "Memory retrieval attempts."),
+    "memory_retrieval_empty_total": MetricDef("counter", "Memory retrievals with no hits."),
+    "checkpoint_save_total": MetricDef("counter", "Checkpoint save attempts."),
+    "checkpoint_load_total": MetricDef("counter", "Checkpoint load attempts."),
+    "checkpoint_error_total": MetricDef("counter", "Checkpoint save/load errors."),
 }
 
 DEFAULT_HIST_BUCKETS = (

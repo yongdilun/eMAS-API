@@ -42,6 +42,11 @@ class Settings:
     jwt_clock_skew_s: int = 30
 
     # Memory compression
+    memory_enabled: bool = True
+    vector_memory_enabled: bool = False
+    checkpoint_enabled: bool = True
+    memory_retention_days: int = 30
+    memory_redact_pii: bool = True
     memory_compaction_step_interval: int = 5
     memory_keep_recent_messages: int = 6
 
@@ -98,7 +103,28 @@ def _normalize_summary_backend(value: str) -> str:
     return "deterministic" if v == "legacy" else v
 
 
+def _normalize_app_mode(value: str | None) -> str:
+    v = (value or "development").strip().lower()
+    if v in {"prod", "production"}:
+        return "production"
+    return "development"
+
+
+def _env_for_mode(app_mode: str, key: str, default: str | None = None) -> str | None:
+    prefix = "PRODUCTION" if app_mode == "production" else "DEVELOPMENT"
+    scoped_key = f"{prefix}_{key}"
+    scoped_value = os.getenv(scoped_key)
+    if scoped_value is not None and scoped_value.strip() != "":
+        return scoped_value
+    shared_value = os.getenv(key)
+    if shared_value is not None and shared_value.strip() != "":
+        return shared_value
+    return default
+
+
 def get_settings() -> Settings:
+    app_mode = _normalize_app_mode(os.getenv("APP_MODE", os.getenv("ENVIRONMENT", "development")))
+    env = lambda key, default=None: _env_for_mode(app_mode, key, default)
     database_url = os.getenv(
         "DATABASE_URL",
         # Prefer SQLite by default for local dev; override in production.
@@ -136,15 +162,26 @@ def get_settings() -> Settings:
         jwt_issuer=os.getenv("JWT_ISSUER") or None,
         jwt_audience=os.getenv("JWT_AUDIENCE") or None,
         jwt_clock_skew_s=int(os.getenv("JWT_CLOCK_SKEW_S", "30")),
+        memory_enabled=os.getenv("MEMORY_ENABLED", "1").strip().lower() in {"1", "true", "yes"},
+        vector_memory_enabled=os.getenv("VECTOR_MEMORY_ENABLED", "0").strip().lower() in {"1", "true", "yes"},
+        checkpoint_enabled=os.getenv("CHECKPOINT_ENABLED", "1").strip().lower() in {"1", "true", "yes"},
+        memory_retention_days=int(os.getenv("MEMORY_RETENTION_DAYS", "30")),
+        memory_redact_pii=os.getenv("MEMORY_REDACT_PII", "1").strip().lower() in {"1", "true", "yes"},
         memory_compaction_step_interval=int(os.getenv("MEMORY_COMPACTION_STEP_INTERVAL", "5")),
         memory_keep_recent_messages=int(os.getenv("MEMORY_KEEP_RECENT_MESSAGES", "6")),
         summary_backend=_normalize_summary_backend(os.getenv("SUMMARY_BACKEND", "auto")),
         tool_result_summary_backend=_normalize_summary_backend(os.getenv("TOOL_RESULT_SUMMARY_BACKEND", "auto")),
         tool_selector_backend=os.getenv("TOOL_SELECTOR_BACKEND", "auto").strip().lower(),
-        planner_model=os.getenv("PLANNER_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B")).strip(),
-        summary_model=os.getenv("SUMMARY_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B")).strip(),
-        tool_result_summary_model=os.getenv("TOOL_RESULT_SUMMARY_MODEL", os.getenv("SUMMARY_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B"))).strip(),
-        tool_selector_model=os.getenv("TOOL_SELECTOR_MODEL", os.getenv("SMALL_LLM_MODEL", os.getenv("PLANNER_MODEL", os.getenv("LLM_MODEL", "Qwen3.5-9B")))).strip(),
+        planner_model=env("PLANNER_MODEL", env("LLM_MODEL", "Qwen3.5-9B")).strip(),
+        summary_model=env("SUMMARY_MODEL", env("LLM_MODEL", "Qwen3.5-9B")).strip(),
+        tool_result_summary_model=env(
+            "TOOL_RESULT_SUMMARY_MODEL",
+            env("SUMMARY_MODEL", env("LLM_MODEL", "Qwen3.5-9B")),
+        ).strip(),
+        tool_selector_model=env(
+            "TOOL_SELECTOR_MODEL",
+            env("SMALL_LLM_MODEL", env("PLANNER_MODEL", env("LLM_MODEL", "Qwen3.5-9B"))),
+        ).strip(),
         enforce_tool_registry_health=os.getenv("ENFORCE_TOOL_REGISTRY_HEALTH", "1").strip().lower()
         in {"1", "true", "yes"},
         auto_repair_tool_registry=os.getenv("AUTO_REPAIR_TOOL_REGISTRY", "1").strip().lower()
@@ -203,30 +240,30 @@ def get_settings() -> Settings:
         ),
         force_llm_trace_all=os.getenv("FORCE_LLM_TRACE_ALL", "0").strip().lower()
         in {"1", "true", "yes"},
-        openai_base_url=(os.getenv("OPENAI_BASE_URL") or os.getenv("LLM_BASE_URL") or None),
-        openai_api_key=(os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY") or None),
+        openai_base_url=(env("OPENAI_BASE_URL") or env("LLM_BASE_URL") or None),
+        openai_api_key=(env("OPENAI_API_KEY") or env("LLM_API_KEY") or None),
         planner_openai_base_url=(
-            os.getenv("PLANNER_OPENAI_BASE_URL")
-            or os.getenv("OPENAI_BASE_URL")
-            or os.getenv("LLM_BASE_URL")
+            env("PLANNER_OPENAI_BASE_URL")
+            or env("OPENAI_BASE_URL")
+            or env("LLM_BASE_URL")
             or None
         ),
         summary_openai_base_url=(
-            os.getenv("SUMMARY_OPENAI_BASE_URL")
-            or os.getenv("OPENAI_BASE_URL")
-            or os.getenv("LLM_BASE_URL")
+            env("SUMMARY_OPENAI_BASE_URL")
+            or env("OPENAI_BASE_URL")
+            or env("LLM_BASE_URL")
             or None
         ),
         tool_result_summary_openai_base_url=(
-            os.getenv("TOOL_RESULT_SUMMARY_OPENAI_BASE_URL")
-            or os.getenv("OPENAI_BASE_URL")
-            or os.getenv("LLM_BASE_URL")
+            env("TOOL_RESULT_SUMMARY_OPENAI_BASE_URL")
+            or env("OPENAI_BASE_URL")
+            or env("LLM_BASE_URL")
             or None
         ),
         tool_selector_openai_base_url=(
-            os.getenv("TOOL_SELECTOR_OPENAI_BASE_URL")
-            or os.getenv("OPENAI_BASE_URL")
-            or os.getenv("LLM_BASE_URL")
+            env("TOOL_SELECTOR_OPENAI_BASE_URL")
+            or env("OPENAI_BASE_URL")
+            or env("LLM_BASE_URL")
             or None
         ),
     )

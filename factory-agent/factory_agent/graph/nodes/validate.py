@@ -32,7 +32,11 @@ def make_validate_node(settings: Settings):
             return {**state, "clarification": raw_plan.clarification, "draft": None}
 
         tools_by_name = {tool.name: tool for tool in state.get("scoped_tools") or []}
-        repaired = _deterministic_plan_repair(state.get("intent") or "", state.get("scoped_tools") or [])
+        repaired = _deterministic_plan_repair(
+            state.get("intent") or "",
+            state.get("scoped_tools") or [],
+            context=state.get("context") or {},
+        )
         repaired_tool_names = {step.tool_name for step in repaired.steps} if repaired is not None else set()
         raw_tool_names = {step.tool_name for step in raw_plan.steps or []}
         incomplete_repairable_plan = bool(repaired_tool_names and not repaired_tool_names <= raw_tool_names)

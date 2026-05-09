@@ -12,7 +12,7 @@ from ..schemas import ToolInfo
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 _PATH_PARAM_RE = re.compile(r"^\{[^}]+\}$")
 _ID_LIKE_RE = re.compile(r"\b[A-Z]{1,10}[-_][A-Z0-9]+(?:[-_][A-Z0-9]+)*\b|\b\d+\b", re.IGNORECASE)
-_GENERATED_VOCAB_PATH = Path(__file__).with_name("generated") / "tool_intent_vocabulary.json"
+_GENERATED_VOCAB_PATH = Path(__file__).resolve().parents[1] / "generated" / "tool_intent_vocabulary.json"
 
 
 @dataclass(frozen=True)

@@ -184,3 +184,45 @@ class DeadLetter(Base):
     dismissed_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
+class WorkflowCheckpoint(Base):
+    __tablename__ = "workflow_checkpoints"
+    __table_args__ = (
+        Index("idx_checkpoints_thread_id", "thread_id", unique=True),
+        Index("idx_checkpoints_session_id", "session_id"),
+        Index("idx_checkpoints_user_id", "user_id"),
+        Index("idx_checkpoints_updated_at", "updated_at"),
+    )
+    checkpoint_id = Column(String(36), primary_key=True, default=generate_uuid)
+    thread_id = Column(String(255), nullable=False)
+    session_id = Column(String(36), nullable=True)
+    user_id = Column(String(255), nullable=True)
+    state = Column(JSON, nullable=False, default={})
+    version = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+
+
+class VectorMemory(Base):
+    __tablename__ = "vector_memories"
+    __table_args__ = (
+        Index("idx_vector_memories_session_id", "session_id"),
+        Index("idx_vector_memories_user_id", "user_id"),
+        Index("idx_vector_memories_created_at", "created_at"),
+        Index("idx_vector_memories_scope", "reusable_scope"),
+        Index("idx_vector_memories_source_message_id", "source_message_id"),
+    )
+    memory_id = Column(String(36), primary_key=True, default=generate_uuid)
+    session_id = Column(String(36), nullable=True)
+    user_id = Column(String(255), nullable=True)
+    memory_type = Column(String(50), nullable=False, default="conversation")
+    content = Column(Text, nullable=False)
+    embedding = Column(JSON, nullable=False, default=[])
+    source_message_id = Column(String(36), nullable=True)
+    memory_metadata = Column(JSON, nullable=False, default={})
+    reusable_scope = Column(String(20), nullable=False, default="session")
+    pii_redacted = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+

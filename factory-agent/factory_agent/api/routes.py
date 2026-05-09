@@ -25,6 +25,7 @@ from factory_agent.persistence.models import generate_uuid
 from ..config import Settings
 from ..observability.events import AgentEvent, EventBus
 from ..orchestration.execution import ExecutionEngine, compute_idempotency_key
+from ..orchestration.memory_manager import MemoryManager
 from ..planning.intent import assess_intent
 from ..observability.metrics import metrics
 from ..security.permissions import filter_tools_for_role, role_from_claims
@@ -244,6 +245,7 @@ def build_router(
 ) -> APIRouter:
     router = APIRouter()
     session_mgr = SessionManager(settings)
+    memory_manager = MemoryManager(settings)
     executor = ExecutionEngine(settings, event_bus)
     planner = planner_adapter or PlannerService(settings=settings, tool_registry=tool_registry)
     tool_selector = ToolSelector(settings)
@@ -602,13 +604,24 @@ def build_router(
         tools_by_name: dict[str, ToolInfo],
     ) -> PlanRow | None:
         intent = sess.current_intent or ""
-        selection = await tool_selector.select_tools(intent=intent, tools_by_name=tools_by_name, mode="normal")
+        selection = await tool_selector.select_tools(
+            intent=intent,
+            tools_by_name=tools_by_name,
+            mode="normal",
+            context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+        )
         scoped_tools = [tools_by_name[name] for name in selection.tool_names if name in tools_by_name]
+        planner_context = await memory_manager.build_planner_context(
+            db,
+            session_id=sess.session_id,
+            intent=intent,
+            base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+        )
         try:
             generated = await planner.generate_plan(
                 intent=intent,
                 scoped_tools=scoped_tools,
-                context=sess.replan_context,
+                context=planner_context,
             )
         except (PlannerClarificationError, PlannerBackendError):
             return None
@@ -1266,6 +1279,13 @@ def build_router(
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
         msg = await session_mgr.add_message(db, session_id=session_id, role=req.role, content=req.content, mode=req.mode)
+        await memory_manager.index_message(
+            db,
+            session_id=session_id,
+            message_id=msg.message_id,
+            role=req.role,
+            content=req.content,
+        )
         if req.role == "user":
             sess.current_intent = req.content[:5000]
             lowered = req.content.strip().lower()
@@ -1487,7 +1507,12 @@ def build_router(
         if not tools_by_name:
             raise HTTPException(status_code=403, detail={"errors": ["No tools are allowed for this user role."]})
 
-        selection = await tool_selector.select_tools(intent=intent, tools_by_name=tools_by_name, mode=mode)
+        selection = await tool_selector.select_tools(
+            intent=intent,
+            tools_by_name=tools_by_name,
+            mode=mode,
+            context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+        )
         scoped_names = set(selection.tool_names)
 
         if draft is None:
@@ -1499,10 +1524,16 @@ def build_router(
             context_to_keep: dict[str, Any] | None = None
             try:
                 if scoped_tools:
+                    planner_context = await memory_manager.build_planner_context(
+                        db,
+                        session_id=sess.session_id,
+                        intent=intent,
+                        base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+                    )
                     generated = await planner.generate_plan(
                         intent=intent,
                         scoped_tools=scoped_tools,
-                        context=sess.replan_context,
+                        context=planner_context,
                     )
                     draft = generated.draft
                     backend_used = generated.backend_used
@@ -1613,6 +1644,20 @@ def build_router(
             status=plan_status,
             intent=intent,
             context_to_keep=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+        )
+        await memory_manager.save_checkpoint(
+            db,
+            session_id=sess.session_id,
+            thread_id=sess.session_id,
+            state={
+                "status": sess.status,
+                "plan_id": sess.plan_id,
+                "plan_version": sess.plan_version,
+                "current_step_index": sess.current_step_index,
+                "step_count": sess.step_count,
+                "replan_count": sess.replan_count,
+                "llm_call_count": sess.llm_call_count,
+            },
         )
         metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
         return response

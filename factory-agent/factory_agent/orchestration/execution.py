@@ -168,6 +168,21 @@ class ExecutionEngine:
             return 0
         return int((datetime.utcnow() - session.session_started_at).total_seconds())
 
+    def _checkpoint_state(self, session: SessionRow) -> dict[str, Any]:
+        return {
+            "status": session.status,
+            "plan_id": session.plan_id,
+            "plan_version": session.plan_version,
+            "plan_hash": session.plan_hash,
+            "current_step_index": session.current_step_index,
+            "step_count": session.step_count,
+            "replan_count": session.replan_count,
+            "retry_count": session.retry_count,
+            "llm_call_count": session.llm_call_count,
+            "error": session.error,
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        }
+
     def _entity_label(self, args: dict[str, Any]) -> str:
         for key in ("id", "machine_id", "job_id", "inventory_id", "approval_id", "proposal_id", "line_id"):
             value = args.get(key)
@@ -591,6 +606,15 @@ class ExecutionEngine:
             tool_name=step.tool_name,
         )
         db.add(msg)
+        await self._memory_manager.index_message(
+            db,
+            session_id=session_id,
+            message_id=msg.message_id,
+            role="tool_result",
+            content=text,
+            tool_name=step.tool_name,
+            commit=False,
+        )
 
     def _log_step_status_change(
         self,
@@ -1693,12 +1717,27 @@ class ExecutionEngine:
         session: SessionRow,
         tools_by_name: dict[str, ToolInfo],
     ) -> ExecuteResult:
-        return await execution_runtime.execute_until_blocked(
+        result = await execution_runtime.execute_until_blocked(
             self,
             db,
             session=session,
             tools_by_name=tools_by_name,
         )
+        try:
+            await self._memory_manager.save_checkpoint(
+                db,
+                session_id=session.session_id,
+                thread_id=session.session_id,
+                state=self._checkpoint_state(session),
+            )
+        except Exception as exc:
+            log_event(
+                "checkpoint_save_failed",
+                level="WARNING",
+                session_id=session.session_id,
+                error=str(exc),
+            )
+        return result
 
 
 

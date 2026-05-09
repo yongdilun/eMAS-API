@@ -32,6 +32,8 @@ _COMPOUND_SEPARATOR_RE = re.compile(
     r"\b(?:and then|then|next|after that|afterwards|finally)\b|[;\n.]+",
     re.IGNORECASE,
 )
+_PRONOUN_FOLLOWUP_RE = re.compile(r"\b(?:its|their|that|those|it)\b", re.IGNORECASE)
+_ID_TOKEN_RE = re.compile(r"\b([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\b")
 
 
 def _is_compound_intent(intent: str) -> bool:
@@ -92,11 +94,21 @@ class ToolSelector:
         tools_by_name: dict[str, ToolInfo],
         mode: str,
         max_tools: int,
+        contextual_binding: tuple[str, str] | None = None,
     ) -> list[tuple[str, int]]:
         candidate_cap = max(1, min(self._settings.tool_selector_candidate_pool, max_tools))
         scoped = filter_tools_for_intent(intent=intent, tools_by_name=tools_by_name, max_tools=max(max_tools, candidate_cap))
         scoped_names = [name for name in scoped.tool_names if name in tools_by_name]
         base_names = scoped_names or sorted(tools_by_name.keys())
+        if contextual_binding:
+            binding_entity = contextual_binding[0]
+            for name, tool in tools_by_name.items():
+                if name in base_names:
+                    continue
+                if tool.method != "GET":
+                    continue
+                if self._tool_supports_context_entity(tool, binding_entity):
+                    base_names.append(name)
         vocabulary = vocabulary_for_tools(list(tools_by_name.values()))
         retrieved = self._retrieve_candidates(
             intent=intent,
@@ -104,6 +116,7 @@ class ToolSelector:
             candidates=base_names,
             limit=candidate_cap,
             vocabulary=vocabulary,
+            contextual_binding=contextual_binding,
         )
 
         if not retrieved:
@@ -131,6 +144,99 @@ class ToolSelector:
         if mode != "plan":
             selected = self._add_planning_companions(selected=selected, tools_by_name=tools_by_name, max_tools=max_tools)
         return selected[:max_tools]
+
+    def _context_intent_contract_steps(self, context: dict[str, Any] | None) -> list[dict[str, Any]]:
+        payload = context if isinstance(context, dict) else {}
+        contract = payload.get("intent_contract")
+        if not isinstance(contract, dict):
+            return []
+        steps = contract.get("steps")
+        return [step for step in steps if isinstance(step, dict)] if isinstance(steps, list) else []
+
+    def _infer_entity_from_tool_name(self, tool_name: str) -> str | None:
+        if not isinstance(tool_name, str) or "__" not in tool_name:
+            return None
+        parts = tool_name.split("__", 1)[1].split("_")
+        for idx, part in enumerate(parts):
+            lowered = part.lower().strip()
+            if lowered.startswith("{") and lowered.endswith("}"):
+                if idx > 0:
+                    prior = parts[idx - 1].lower().strip()
+                    if prior and prior not in {"api", "v1", "v2"} and not prior.startswith("{"):
+                        return prior[:-1] if prior.endswith("s") and len(prior) > 3 else prior
+                continue
+            if lowered in {"id", "api", "v1", "v2"}:
+                continue
+        return None
+
+    def _extract_context_entity_binding(self, context: dict[str, Any] | None) -> tuple[str, str] | None:
+        for step in reversed(self._context_intent_contract_steps(context)):
+            args = step.get("args")
+            if not isinstance(args, dict):
+                continue
+            tool_name = str(step.get("tool_name") or "")
+            for field, value in args.items():
+                if not isinstance(field, str) or value in (None, ""):
+                    continue
+                value_text = str(value).strip()
+                if not value_text:
+                    continue
+                if field.lower().endswith("_id"):
+                    entity = field.lower()[:-3]
+                    if entity:
+                        return entity, value_text
+                if field.lower() == "id":
+                    entity = self._infer_entity_from_tool_name(tool_name)
+                    if entity:
+                        return entity, value_text
+        return None
+
+    def _contextualize_followup_intent(
+        self,
+        *,
+        intent: str,
+        context: dict[str, Any] | None,
+    ) -> tuple[str, tuple[str, str] | None]:
+        raw = (intent or "").strip()
+        if not raw:
+            return raw, None
+        if not _PRONOUN_FOLLOWUP_RE.search(raw):
+            return raw, None
+        if _ID_TOKEN_RE.search(raw):
+            return raw, None
+        binding = self._extract_context_entity_binding(context)
+        if not binding:
+            return raw, None
+        entity, entity_id = binding
+        return f"{raw} {entity} {entity_id}", (entity, entity_id)
+
+    def _tool_supports_context_entity(self, tool: ToolInfo, entity: str) -> bool:
+        normalized_entity = (entity or "").strip().lower()
+        if not normalized_entity:
+            return False
+        names = {
+            str(field).strip().lower()
+            for field in [
+                *(tool.path_params or []),
+                *(tool.query_params or []),
+                *(tool.body_fields or []),
+                *(tool.required_body_fields or []),
+            ]
+            if str(field).strip()
+        }
+        if f"{normalized_entity}_id" in names or f"{normalized_entity}s_id" in names:
+            return True
+        segments = [segment.lower() for segment in (tool.endpoint or "").strip("/").split("/") if segment]
+        for idx, segment in enumerate(segments):
+            if not (segment.startswith("{") and segment.endswith("}")):
+                continue
+            if idx == 0:
+                continue
+            prior = segments[idx - 1]
+            prior_singular = prior[:-1] if prior.endswith("s") and len(prior) > 1 else prior
+            if prior_singular == normalized_entity:
+                return True
+        return False
 
     def _add_planning_companions(
         self,
@@ -450,6 +556,7 @@ class ToolSelector:
         candidates: list[str],
         limit: int,
         vocabulary: ToolIntentVocabulary,
+        contextual_binding: tuple[str, str] | None = None,
     ) -> list[tuple[str, int]]:
         intent_tokens = self._tokenize(intent)
         if not intent_tokens:
@@ -461,6 +568,7 @@ class ToolSelector:
             limit=limit,
         )
         assessment = assess_intent(intent)
+        binding_entity = contextual_binding[0] if contextual_binding else ""
         path_token_weight = max(0, int(self._settings.tool_selector_path_token_weight or 0))
         ranked: list[tuple[str, int]] = []
         for name in candidates:
@@ -503,6 +611,12 @@ class ToolSelector:
                     score += 5
                 if assessment.entity in tool_tokens:
                     score += 3
+
+            if binding_entity:
+                if self._tool_supports_context_entity(tool, binding_entity):
+                    score += 24
+                elif tool.method == "GET" and tool.path_params:
+                    score -= 6
 
             # Prefer canonical root collection endpoints for generic create requests.
             if (
@@ -607,27 +721,35 @@ class ToolSelector:
         tools_by_name: dict[str, ToolInfo],
         mode: str = "normal",
         max_tools: int = 30,
+        context: dict[str, Any] | None = None,
     ) -> ToolSelectionResult:
         diagnostic = self._diagnostic_tool_names(intent=intent, tools_by_name=tools_by_name)
         if diagnostic:
             return ToolSelectionResult(tool_names=diagnostic[:max_tools], backend_used="retrieval", llm_calls=0)
 
-        candidates = self._top_candidates(intent=intent, tools_by_name=tools_by_name, mode=mode, max_tools=max_tools)
+        effective_intent, contextual_binding = self._contextualize_followup_intent(intent=intent, context=context)
+        candidates = self._top_candidates(
+            intent=effective_intent,
+            tools_by_name=tools_by_name,
+            mode=mode,
+            max_tools=max_tools,
+            contextual_binding=contextual_binding,
+        )
         candidate_names = [name for name, _ in candidates]
         if not candidates:
             return ToolSelectionResult(tool_names=[], backend_used="retrieval", llm_calls=0)
 
-        if not self._should_rerank(intent=intent, candidates=candidates, tools_by_name=tools_by_name):
+        if not self._should_rerank(intent=effective_intent, candidates=candidates, tools_by_name=tools_by_name):
             log_llm_prompt_skipped(
                 component="tool_selector",
                 backend=self._backend_mode(),
                 reason="retrieval_only",
-                metadata={"intent": intent, "candidate_count": len(candidates)},
+                metadata={"intent": intent, "effective_intent": effective_intent, "candidate_count": len(candidates)},
             )
             return ToolSelectionResult(tool_names=candidate_names, backend_used="retrieval", llm_calls=0)
 
         prompt = self._build_rerank_prompt(
-            intent=intent,
+            intent=effective_intent,
             mode=mode,
             candidates=[tools_by_name[name] for name in candidate_names if name in tools_by_name],
         )
@@ -692,6 +814,8 @@ class ToolSelector:
             return ["get__jobs"]
         if "404" in lowered and "read" in lowered and "get__jobs_{id}" in tools_by_name:
             return ["get__jobs_{id}"]
+        if re.search(r"\bcreate\b.*\bjob\b", lowered) and "post__jobs" in tools_by_name:
+            return ["post__jobs"]
         if "update" in lowered and "missing" in lowered and "machine" in lowered and "put__machines_{id}" in tools_by_name:
             return ["put__machines_{id}"]
         return []

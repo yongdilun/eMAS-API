@@ -1,7 +1,10 @@
-﻿import pytest
+import pytest
+from dataclasses import replace
 
 from factory_agent.config import Settings
 from factory_agent.graph.errors import LangGraphPlannerClarification
+import factory_agent.graph.nodes.reason as reason_module
+from factory_agent.graph.nodes.reason import make_reason_node
 from factory_agent.graph.nodes.validate import make_validate_node
 from factory_agent.graph.planner_graph_helpers import (
     _deterministic_plan_repair,
@@ -13,6 +16,7 @@ from factory_agent.planner import (
     PlannerBackendError,
     PlannerService,
     _assign_parallel_groups,
+    _dedupe_plan_steps,
 )
 from factory_agent.schemas import PlanBinding, PlanDraft, PlanStepDraft, ToolInfo
 from factory_agent.registry.tool_registry import ToolRegistry
@@ -342,6 +346,79 @@ def test_normalize_plan_dict_handles_non_dict_args_and_missing_required():
     assert step.bindings == []
 
 
+def test_normalize_plan_dict_drops_incomplete_binding_objects():
+    """Bindings with only from_step should be discarded instead of failing schema validation."""
+    raw = {
+        "plan_explanation": "ok",
+        "risk_summary": "low",
+        "steps": [
+            {
+                "tool_name": "get__jobs_{id}",
+                "args": {"id": "JOB-SEED-001"},
+                "evidence": {"id": "JOB-SEED-001"},
+                "confidence": 0.9,
+            },
+            {
+                "tool_name": "get__ai_scheduling_jobs_{id}_proposal",
+                "args": {"id": "JOB-SEED-001"},
+                "evidence": {"id": "JOB-SEED-001"},
+                "confidence": 0.8,
+                "depends_on": [0],
+                "bindings": [{"from_step": 0}],
+            },
+        ],
+    }
+
+    normalized = _normalize_plan_dict(raw)
+    plan = AgentPlanOutput.model_validate(normalized)
+
+    assert len(plan.steps) == 2
+    assert plan.steps[1].depends_on == [0]
+    assert plan.steps[1].bindings == []
+
+
+def test_normalize_plan_dict_repairs_binding_alias_fields():
+    """Common alias keys should be normalized into a valid PlanBinding."""
+    raw = {
+        "plan_explanation": "ok",
+        "risk_summary": "low",
+        "steps": [
+            {
+                "tool_name": "get__jobs",
+                "args": {},
+                "evidence": {},
+                "confidence": 0.9,
+            },
+            {
+                "tool_name": "get__jobs_{id}",
+                "args": {},
+                "evidence": {},
+                "confidence": 0.7,
+                "bindings": [
+                    {
+                        "from_step": "get__jobs",
+                        "result_path": "",
+                        "source_field": "job_id",
+                        "arg": "id",
+                        "mode": "bad-mode",
+                    }
+                ],
+            },
+        ],
+    }
+
+    normalized = _normalize_plan_dict(raw)
+    plan = AgentPlanOutput.model_validate(normalized)
+
+    assert len(plan.steps[1].bindings) == 1
+    binding = plan.steps[1].bindings[0]
+    assert binding.from_step == 0
+    assert binding.result_path == "data"
+    assert binding.field == "job_id"
+    assert binding.target_arg == "id"
+    assert binding.mode == "single"
+
+
 def test_validate_node_empty_plan_returns_clarification():
     """Empty step_drafts should always preserve user-facing clarification behavior."""
     settings = _settings()
@@ -463,8 +540,10 @@ def test_langgraph_repair_expands_job_and_slots_compound_read():
     result = _run_validate(settings, state)
 
     draft = result["draft"]
-    assert [step.tool_name for step in draft.steps] == ["get__jobs_{id}_slots"]
+    assert [step.tool_name for step in draft.steps] == ["get__jobs_{id}", "get__jobs_{id}_slots"]
     assert draft.steps[0].args == {"id": "JOB-SEED-001"}
+    assert draft.steps[1].args == {"id": "JOB-SEED-001"}
+    assert draft.steps[1].depends_on == [0]
 
 
 def test_langgraph_repair_expands_incomplete_job_slots_plan():
@@ -520,8 +599,10 @@ def test_langgraph_repair_expands_incomplete_job_slots_plan():
     result = _run_validate(settings, state)
 
     draft = result["draft"]
-    assert [step.tool_name for step in draft.steps] == ["get__jobs_{id}_slots"]
+    assert [step.tool_name for step in draft.steps] == ["get__jobs_{id}", "get__jobs_{id}_slots"]
     assert draft.steps[0].args == {"id": "JOB-SEED-001"}
+    assert draft.steps[1].args == {"id": "JOB-SEED-001"}
+    assert draft.steps[1].depends_on == [0]
 
 
 def test_langgraph_repair_maps_seed_diagnostic_not_found_read():
@@ -752,6 +833,246 @@ async def test_planner_service_dedupes_duplicate_steps(monkeypatch):
     assert result.draft.steps[0].args == {"priority": "low"}
 
 
+def test_dedupe_plan_steps_handles_nested_and_list_args():
+    draft = PlanDraft(
+        plan_explanation="dup",
+        risk_summary="low",
+        steps=[
+            PlanStepDraft(
+                step_index=0,
+                tool_name="get__jobs",
+                args={"ids": ["JOB-1", "JOB-2"], "filters": {"priority": ["high"]}},
+                depends_on=[],
+            ),
+            PlanStepDraft(
+                step_index=1,
+                tool_name="get__jobs",
+                args={"filters": {"priority": ["high"]}, "ids": ["JOB-1", "JOB-2"]},
+                depends_on=[],
+            ),
+        ],
+    )
+
+    deduped, dropped = _dedupe_plan_steps(draft)
+
+    assert dropped == 1
+    assert len(deduped.steps) == 1
+    assert deduped.steps[0].tool_name == "get__jobs"
+
+
+def test_langgraph_repair_expands_show_job_and_slots_to_two_steps():
+    tools = [
+        ToolInfo(
+            name="get__jobs_{id}",
+            description="Get a job by ID",
+            endpoint="/jobs/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "lookup"],
+        ),
+        ToolInfo(
+            name="get__jobs_{id}_slots",
+            description="Get job slots",
+            endpoint="/jobs/{id}/slots",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "slot", "lookup"],
+        ),
+    ]
+
+    repaired = _deterministic_plan_repair("show JOB-SEED-001 and its slots", tools)
+
+    assert repaired is not None
+    assert [step.tool_name for step in repaired.steps] == ["get__jobs_{id}", "get__jobs_{id}_slots"]
+    assert repaired.steps[0].args == {"id": "JOB-SEED-001"}
+    assert repaired.steps[1].args == {"id": "JOB-SEED-001"}
+    assert repaired.steps[1].depends_on == [0]
+
+
+def test_langgraph_repair_uses_context_for_pronoun_followup_slots():
+    tools = [
+        ToolInfo(
+            name="get__jobs_{id}",
+            description="Get a job by ID",
+            endpoint="/jobs/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "lookup"],
+        ),
+        ToolInfo(
+            name="get__jobs_{id}_slots",
+            description="Get job slots",
+            endpoint="/jobs/{id}/slots",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "slot", "lookup"],
+        ),
+    ]
+    context = {
+        "intent_contract": {
+            "intent": "show job JOB-SEED-001",
+            "backend": "langgraph",
+            "steps": [
+                {
+                    "step_index": 0,
+                    "tool_name": "get__jobs_{id}",
+                    "args": {"id": "JOB-SEED-001"},
+                }
+            ],
+        }
+    }
+
+    repaired = _deterministic_plan_repair("now show its slots", tools, context=context)
+
+    assert repaired is not None
+    assert [step.tool_name for step in repaired.steps] == ["get__jobs_{id}", "get__jobs_{id}_slots"]
+    assert repaired.steps[0].args == {"id": "JOB-SEED-001"}
+    assert repaired.steps[1].args == {"id": "JOB-SEED-001"}
+    assert repaired.steps[1].depends_on == [0]
+
+
+def test_langgraph_repair_keeps_pronoun_followup_unresolved_without_context():
+    tools = [
+        ToolInfo(
+            name="get__jobs_{id}",
+            description="Get a job by ID",
+            endpoint="/jobs/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "lookup"],
+        ),
+        ToolInfo(
+            name="get__jobs_{id}_slots",
+            description="Get job slots",
+            endpoint="/jobs/{id}/slots",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "slot", "lookup"],
+        ),
+    ]
+
+    repaired = _deterministic_plan_repair("now show its slots", tools)
+
+    assert repaired is None
+
+
+def test_langgraph_repair_expands_product_and_followup_read_via_entity_id_field():
+    tools = [
+        ToolInfo(
+            name="get__products_{id}",
+            description="Get product",
+            endpoint="/products/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["product", "lookup"],
+        ),
+        ToolInfo(
+            name="get__scheduling_explosion",
+            description="Explosion for product",
+            endpoint="/scheduling/explosion",
+            method="GET",
+            input_schema={"type": "object", "properties": {"product_id": {"type": "string"}}, "required": ["product_id"]},
+            query_params=["product_id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["scheduling", "explosion", "product"],
+        ),
+    ]
+
+    repaired = _deterministic_plan_repair("show product P-001 and its explosion", tools)
+
+    assert repaired is not None
+    assert [step.tool_name for step in repaired.steps] == ["get__products_{id}", "get__scheduling_explosion"]
+    assert repaired.steps[0].args == {"id": "P-001"}
+    assert repaired.steps[1].args == {"product_id": "P-001"}
+    assert repaired.steps[1].depends_on == [0]
+
+
+def test_langgraph_repair_does_not_force_single_entity_followup_for_multi_entity_compound():
+    tools = [
+        ToolInfo(
+            name="get__machines_{id}",
+            description="Get machine",
+            endpoint="/machines/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["machine", "lookup"],
+        ),
+        ToolInfo(
+            name="get__jobs_{id}_slots",
+            description="Get slots",
+            endpoint="/jobs/{id}/slots",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            side_effect_level="NONE",
+            is_concurrency_safe=True,
+            is_strongly_idempotent=False,
+            capability_tags=["job", "slot"],
+        ),
+    ]
+
+    repaired = _deterministic_plan_repair(
+        "check machine M-LTH-02 status and then show slots for JOB-SEED-001",
+        tools,
+    )
+    assert repaired is not None
+    assert [step.tool_name for step in repaired.steps] == ["get__jobs_{id}_slots"]
+
+
 @pytest.mark.asyncio
 async def test_planner_service_strips_ungrounded_args_via_contract(monkeypatch):
     settings = _settings()
@@ -799,4 +1120,86 @@ async def test_planner_service_strips_ungrounded_args_via_contract(monkeypatch):
     )
 
     assert result.draft.steps[0].args == {"priority": "high"}
+
+
+@pytest.mark.asyncio
+async def test_reason_node_invalid_schema_uses_deterministic_repair(monkeypatch):
+    settings = replace(_settings(), openai_api_key="test-key")
+    reason_node = make_reason_node(settings)
+    scoped_tool = _read_tool("get__jobs_{id}", "/jobs/{id}")
+
+    class _Resp:
+        def __init__(self, content: str):
+            self.content = content
+
+    class _Model:
+        async def ainvoke(self, prompt: str):
+            del prompt
+            return _Resp('{"steps":[{"tool_name":"get__jobs_{id}","args":{"id":"JOB-SEED-001"}}]}')
+
+    monkeypatch.setattr(reason_module, "build_planner_chat_model", lambda settings, json_mode=True: _Model())
+    monkeypatch.setattr(reason_module, "parse_agent_plan_output", lambda parsed: (_ for _ in ()).throw(ValueError("bad schema")))
+    monkeypatch.setattr(
+        reason_module,
+        "_deterministic_plan_repair",
+        lambda intent, scoped_tools, context=None: AgentPlanOutput(
+            plan_explanation="repair",
+            risk_summary="repair-risk",
+            steps=[AgentPlanStep(tool_name="get__jobs_{id}", args={"id": "JOB-SEED-001"})],
+        ),
+    )
+
+    out = await reason_node(
+        {
+            "intent": "show job JOB-SEED-001",
+            "context": {},
+            "tool_cards": [],
+            "scoped_tools": [scoped_tool],
+        }
+    )
+
+    assert out["raw_plan"] is not None
+    assert [step.tool_name for step in out["raw_plan"].steps] == ["get__jobs_{id}"]
+    assert out["risk_summary"] == "repair-risk"
+
+
+@pytest.mark.asyncio
+async def test_reason_node_invalid_schema_salvages_supported_steps_when_repair_unavailable(monkeypatch):
+    settings = replace(_settings(), openai_api_key="test-key")
+    reason_node = make_reason_node(settings)
+    scoped_tool = _read_tool("get__jobs_{id}", "/jobs/{id}")
+
+    class _Resp:
+        def __init__(self, content: str):
+            self.content = content
+
+    class _Model:
+        async def ainvoke(self, prompt: str):
+            del prompt
+            return _Resp(
+                '{"plan_explanation":123,"risk_summary":null,"steps":['
+                '{"tool_name":"get__jobs_{id}","args":{"id":"JOB-SEED-001"},"depends_on":["0","oops"],"confidence":"0.7"},'
+                '{"tool_name":"get__unknown_tool","args":{"id":"X"}}]}'
+            )
+
+    monkeypatch.setattr(reason_module, "build_planner_chat_model", lambda settings, json_mode=True: _Model())
+    monkeypatch.setattr(reason_module, "parse_agent_plan_output", lambda parsed: (_ for _ in ()).throw(ValueError("bad schema")))
+    monkeypatch.setattr(reason_module, "_deterministic_plan_repair", lambda intent, scoped_tools, context=None: None)
+
+    out = await reason_node(
+        {
+            "intent": "show job JOB-SEED-001",
+            "context": {},
+            "tool_cards": [],
+            "scoped_tools": [scoped_tool],
+        }
+    )
+
+    plan = out["raw_plan"]
+    assert plan is not None
+    assert [step.tool_name for step in plan.steps] == ["get__jobs_{id}"]
+    assert plan.steps[0].args == {"id": "JOB-SEED-001"}
+    assert plan.steps[0].depends_on == []
+    assert out["risk_summary"] == "Planner output was partially malformed; unsupported fields were dropped."
+
 

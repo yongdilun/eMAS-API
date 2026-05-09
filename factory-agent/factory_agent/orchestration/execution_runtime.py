@@ -427,6 +427,12 @@ async def execute_until_blocked(
                         session_id=session.session_id,
                         step_count=session.step_count,
                     )
+                await self._memory_manager.save_checkpoint(
+                    db,
+                    session_id=session.session_id,
+                    thread_id=session.session_id,
+                    state=self._checkpoint_state(session),
+                )
                 if session.pending_user_message:
                     return await self._trigger_replan(
                         db,
@@ -879,6 +885,12 @@ async def execute_until_blocked(
                 session_id=session.session_id,
                 step_count=session.step_count,
             )
+        await self._memory_manager.save_checkpoint(
+            db,
+            session_id=session.session_id,
+            thread_id=session.session_id,
+            state=self._checkpoint_state(session),
+        )
 
         if session.pending_user_message:
             return await self._trigger_replan(

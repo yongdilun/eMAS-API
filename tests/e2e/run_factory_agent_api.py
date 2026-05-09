@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -12,6 +13,7 @@ import httpx
 
 
 TERMINAL_STATUSES = {"IDLE", "COMPLETED", "FAILED", "BLOCKED", "WAITING_CONFIRMATION"}
+_METRIC_LINE_RE = re.compile(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?\s+(-?[0-9]+(?:\.[0-9]+)?)$")
 
 
 def load_scenarios(path: Path, ids: set[str] | None) -> list[dict[str, Any]]:
@@ -67,6 +69,21 @@ def grouped_counts(results: list[dict[str, Any]], field: str) -> dict[str, dict[
     return dict(sorted(grouped.items()))
 
 
+def parse_prometheus_metrics(payload: str) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for raw_line in (payload or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = _METRIC_LINE_RE.match(line)
+        if not match:
+            continue
+        name = match.group(1)
+        value = float(match.group(2))
+        values[name] = values.get(name, 0.0) + value
+    return values
+
+
 def poll_health(base_url: str, timeout_s: float) -> None:
     deadline = time.time() + timeout_s
     last_error = ""
@@ -108,89 +125,138 @@ def run_scenario(
     events.append({"phase": "create_session", "http_status": status_code, "response": session})
     sid = session["session_id"]
 
-    status_code, message, _ = request_json(
-        client,
-        "POST",
-        f"/sessions/{sid}/messages",
-        json={"role": "user", "content": scenario["input"], "mode": "normal"},
-        expected_status=200,
-    )
-    events.append({"phase": "add_message", "http_status": status_code, "response": message})
+    metric_baseline: dict[str, float] = {}
+    required_metric_deltas = scenario.get("required_metric_deltas")
+    if isinstance(required_metric_deltas, dict):
+        _, metrics_payload, metrics_text = request_json(client, "GET", "/metrics")
+        payload_text = metrics_text if isinstance(metrics_text, str) else str(metrics_payload)
+        metric_baseline = parse_prometheus_metrics(payload_text)
 
-    status_code, plan, plan_text = request_json(
-        client,
-        "POST",
-        f"/sessions/{sid}/plans",
-        json={},
-    )
-    events.append({"phase": "create_plan", "http_status": status_code, "response": plan})
-    if status_code >= 400:
-        return {
-            "status": "failed",
-            "reason": f"plan creation returned HTTP {status_code}",
-            "session_id": sid,
-            "events": events,
-            "response_body": plan_text,
-        }
+    turns = [scenario["input"]]
+    extra_turns = scenario.get("follow_up_inputs")
+    if isinstance(extra_turns, list):
+        turns.extend(str(value) for value in extra_turns if str(value).strip())
 
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
-        status_code, execution, execution_text = request_json(
+    for turn_index, turn_text in enumerate(turns):
+        status_code, message, _ = request_json(
             client,
             "POST",
-            f"/sessions/{sid}/execute",
+            f"/sessions/{sid}/messages",
+            json={"role": "user", "content": turn_text, "mode": "normal"},
+            expected_status=200,
         )
-        events.append({"phase": "execute", "http_status": status_code, "response": execution})
+        events.append(
+            {
+                "phase": "add_message",
+                "turn_index": turn_index,
+                "input": turn_text,
+                "http_status": status_code,
+                "response": message,
+            }
+        )
+
+        status_code, plan, plan_text = request_json(
+            client,
+            "POST",
+            f"/sessions/{sid}/plans",
+            json={},
+        )
+        events.append(
+            {
+                "phase": "create_plan",
+                "turn_index": turn_index,
+                "http_status": status_code,
+                "response": plan,
+            }
+        )
         if status_code >= 400:
             return {
                 "status": "failed",
-                "reason": f"execute returned HTTP {status_code}",
+                "reason": f"plan creation returned HTTP {status_code} on turn {turn_index}",
                 "session_id": sid,
                 "events": events,
-                "response_body": execution_text,
+                "response_body": plan_text,
             }
 
-        _, snapshot, _ = request_json(client, "GET", f"/sessions/{sid}/snapshot", expected_status=200)
-        pending = snapshot.get("pending_approval")
-        if pending:
-            approvals.append(pending)
-            policy = scenario.get("approval_policy", "none")
-            if policy == "approve":
-                decision_path = f"/approvals/{pending['approval_id']}/approve"
-                _, decision, _ = request_json(
-                    client,
-                    "POST",
-                    decision_path,
-                    json={"decided_by": "seed-pipeline"},
-                    expected_status=200,
-                )
-                events.append({"phase": "approve", "http_status": 200, "response": decision})
-                continue
-            if policy == "reject":
-                decision_path = f"/approvals/{pending['approval_id']}/reject"
-                _, decision, _ = request_json(
-                    client,
-                    "POST",
-                    decision_path,
-                    json={"decided_by": "seed-pipeline", "rejection_reason": "seed pipeline rejection"},
-                    expected_status=200,
-                )
-                events.append({"phase": "reject", "http_status": 200, "response": decision})
-                break
-            break
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            status_code, execution, execution_text = request_json(
+                client,
+                "POST",
+                f"/sessions/{sid}/execute",
+            )
+            events.append(
+                {
+                    "phase": "execute",
+                    "turn_index": turn_index,
+                    "http_status": status_code,
+                    "response": execution,
+                }
+            )
+            if status_code >= 400:
+                return {
+                    "status": "failed",
+                    "reason": f"execute returned HTTP {status_code} on turn {turn_index}",
+                    "session_id": sid,
+                    "events": events,
+                    "response_body": execution_text,
+                }
 
-        session_status = snapshot.get("session", {}).get("status")
-        if session_status in TERMINAL_STATUSES:
-            break
-        time.sleep(0.5)
-    else:
-        return {
-            "status": "failed",
-            "reason": f"scenario timed out after {timeout_s}s",
-            "session_id": sid,
-            "events": events,
-            "snapshot": snapshot,
-        }
+            _, snapshot, _ = request_json(client, "GET", f"/sessions/{sid}/snapshot", expected_status=200)
+            pending = snapshot.get("pending_approval")
+            if pending:
+                approvals.append(pending)
+                policy = scenario.get("approval_policy", "none")
+                if policy == "approve":
+                    decision_path = f"/approvals/{pending['approval_id']}/approve"
+                    _, decision, _ = request_json(
+                        client,
+                        "POST",
+                        decision_path,
+                        json={"decided_by": "seed-pipeline"},
+                        expected_status=200,
+                    )
+                    events.append(
+                        {
+                            "phase": "approve",
+                            "turn_index": turn_index,
+                            "http_status": 200,
+                            "response": decision,
+                        }
+                    )
+                    continue
+                if policy == "reject":
+                    decision_path = f"/approvals/{pending['approval_id']}/reject"
+                    _, decision, _ = request_json(
+                        client,
+                        "POST",
+                        decision_path,
+                        json={"decided_by": "seed-pipeline", "rejection_reason": "seed pipeline rejection"},
+                        expected_status=200,
+                    )
+                    events.append(
+                        {
+                            "phase": "reject",
+                            "turn_index": turn_index,
+                            "http_status": 200,
+                            "response": decision,
+                        }
+                    )
+                    break
+                break
+
+            session_status = snapshot.get("session", {}).get("status")
+            if session_status in TERMINAL_STATUSES:
+                break
+            time.sleep(0.5)
+        else:
+            return {
+                "status": "failed",
+                "reason": f"scenario timed out after {timeout_s}s on turn {turn_index}",
+                "session_id": sid,
+                "events": events,
+                "snapshot": snapshot,
+            }
 
     _, snapshot, _ = request_json(client, "GET", f"/sessions/{sid}/snapshot", expected_status=200)
     _, messages, _ = request_json(client, "GET", f"/sessions/{sid}/messages", expected_status=200)
@@ -211,8 +277,34 @@ def run_scenario(
     llm_calls = int(session_info.get("llm_call_count") or 0)
     plan_created_by = (plan_info or {}).get("created_by") if isinstance(plan_info, dict) else None
     llm_failed = require_llm and (llm_calls <= 0 or plan_created_by in {None, "legacy", "system", "client"})
+    metric_deltas: dict[str, float] = {}
+    metric_failed = False
 
-    passed = not missing_tools and not missing_contains and not llm_failed
+    if isinstance(required_metric_deltas, dict):
+        _, metrics_payload_after, metrics_text_after = request_json(client, "GET", "/metrics")
+        payload_text_after = metrics_text_after if isinstance(metrics_text_after, str) else str(metrics_payload_after)
+        metric_after = parse_prometheus_metrics(payload_text_after)
+        for metric_name, expected_delta in required_metric_deltas.items():
+            base_val = float(metric_baseline.get(metric_name, 0.0))
+            end_val = float(metric_after.get(metric_name, 0.0))
+            delta_val = end_val - base_val
+            metric_deltas[str(metric_name)] = delta_val
+            try:
+                target = float(expected_delta)
+            except Exception:
+                target = 0.0
+            if delta_val < target:
+                metric_failed = True
+
+    non_empty_required = bool(scenario.get("assert_non_empty_memory_retrieval"))
+    non_empty_failed = False
+    if non_empty_required:
+        retrieval = metric_deltas.get("memory_retrieval_total", 0.0)
+        empty = metric_deltas.get("memory_retrieval_empty_total", 0.0)
+        if retrieval <= empty:
+            non_empty_failed = True
+
+    passed = not missing_tools and not missing_contains and not llm_failed and not metric_failed and not non_empty_failed
     reason_parts: list[str] = []
     if missing_tools:
         reason_parts.append("missing expected tools: " + ", ".join(missing_tools))
@@ -221,6 +313,14 @@ def run_scenario(
     if llm_failed:
         reason_parts.append(
             f"LLM planner was required but llm_call_count={llm_calls} and plan_created_by={plan_created_by!r}"
+        )
+    if metric_failed:
+        reason_parts.append(f"required metric delta(s) not met: {metric_deltas}")
+    if non_empty_failed:
+        reason_parts.append(
+            "non-empty memory retrieval assertion failed "
+            f"(memory_retrieval_total={metric_deltas.get('memory_retrieval_total', 0.0)}, "
+            f"memory_retrieval_empty_total={metric_deltas.get('memory_retrieval_empty_total', 0.0)})"
         )
 
     return {
@@ -233,6 +333,7 @@ def run_scenario(
         "expected_tools": scenario.get("expected_tools", []),
         "actual_tools": step_tools,
         "approvals": approvals,
+        "metric_deltas": metric_deltas,
         "events": events,
         "snapshot": snapshot,
         "messages": messages,

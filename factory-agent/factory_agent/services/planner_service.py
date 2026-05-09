@@ -66,11 +66,20 @@ def _assign_parallel_groups(
 
 
 def _dedupe_plan_steps(draft: PlanDraft) -> tuple[PlanDraft, int]:
-    seen: set[tuple[str, tuple[tuple[str, Any], ...]]] = set()
+    def _freeze(value: Any) -> Any:
+        if isinstance(value, dict):
+            return tuple(sorted((str(key), _freeze(val)) for key, val in value.items()))
+        if isinstance(value, list):
+            return tuple(_freeze(item) for item in value)
+        if isinstance(value, set):
+            return tuple(sorted(_freeze(item) for item in value))
+        return value
+
+    seen: set[tuple[str, Any]] = set()
     new_steps: list[PlanStepDraft] = []
     dropped = 0
     for step in draft.steps:
-        key = (step.tool_name, tuple(sorted((step.args or {}).items())))
+        key = (step.tool_name, _freeze(step.args or {}))
         if key in seen:
             dropped += 1
             continue

@@ -3,6 +3,7 @@ from factory_agent.planning.tool_intent_profile import (
     build_tool_intent_profile,
     build_tool_intent_vocabulary,
     intent_feature_tokens,
+    load_generated_vocabulary,
     profile_match_score,
     tool_covers_descriptive_terms,
     vocabulary_for_tools,
@@ -149,4 +150,10 @@ def test_scoped_vocabulary_preserves_generated_entity_tokens():
     assert "proposal" in vocabulary.entity_tokens
     assert "proposal" not in vocabulary.generic_tokens
     assert "proposal" in intent_feature_tokens("show proposal for job JOB-SEED-001", vocabulary=vocabulary)
+
+
+def test_generated_vocabulary_loads_from_package_generated_dir():
+    vocabulary = load_generated_vocabulary()
+    assert "job" in vocabulary.entity_tokens
+    assert "product" in vocabulary.entity_tokens
 

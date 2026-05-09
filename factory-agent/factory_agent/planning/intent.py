@@ -20,7 +20,13 @@ _ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("create", re.compile(r"\b(?:create|new|add|open)\b", re.IGNORECASE)),
     ("update", re.compile(r"\b(?:update|set|change|assign|record|apply|run|reschedule|move)\b", re.IGNORECASE)),
     ("delete", re.compile(r"\b(?:delete|remove)\b", re.IGNORECASE)),
-    ("read", re.compile(r"\b(?:assist|candidate|check|explain|forecast|get|find|inspect|list|lookup|preview|rank|read|report|reports|show|status|suggestion|timeout|view)\b", re.IGNORECASE)),
+    (
+        "read",
+        re.compile(
+            r"\b(?:assist|candidate|check|delay|explain|explosion|forecast|get|find|inspect|list|lookup|preview|rank|read|readiness|report|reports|risk|show|shortage|slots?|status|suggestion|timeout|view)\b",
+            re.IGNORECASE,
+        ),
+    ),
 ]
 
 
@@ -77,11 +83,19 @@ def assess_intent(text: str) -> IntentAssessment:
             reply="Hi - tell me what factory operations request you want to run, and I will map it to the available tools.",
         )
 
+    matched_actions = {candidate for candidate, pattern in _ACTION_PATTERNS if pattern.search(raw)}
     action: IntentAction = None
-    for candidate, pattern in _ACTION_PATTERNS:
-        if pattern.search(raw):
-            action = candidate  # type: ignore[assignment]
-            break
+    if matched_actions:
+        if {"create", "update", "delete"} & matched_actions:
+            for candidate in ("create", "update", "delete", "read"):
+                if candidate in matched_actions:
+                    action = candidate  # type: ignore[assignment]
+                    break
+        else:
+            for candidate in ("approval", "read"):
+                if candidate in matched_actions:
+                    action = candidate  # type: ignore[assignment]
+                    break
 
     entity = _detect_entity(raw)
 

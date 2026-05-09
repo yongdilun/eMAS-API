@@ -19,6 +19,7 @@ from ..observability.telemetry import log_event, log_llm_prompt
 from ..planning.tool_intent_profile import (
     build_tool_intent_profile,
     intent_feature_tokens,
+    profile_match_score,
     tool_covers_descriptive_terms,
     vocabulary_for_tools,
 )
@@ -26,6 +27,7 @@ from .state import AgentPlanOutput, AgentPlanStep, AgentState
 
 
 _TOKEN_ID_RE = re.compile(r"\b([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\b")
+_COMPOUND_CONNECTOR_RE = re.compile(r"\b(?:and|and then|then|next|after that|afterwards|with)\b", re.IGNORECASE)
 _ID_PATTERN_CATALOG_PATH = Path(__file__).resolve().parents[1] / "generated" / "id_patterns.json"
 _ID_PREFIX_CACHE: dict[str, list[str]] | None = None
 _ID_FIELD_PREFIX_CACHE: dict[str, str] | None = None
@@ -303,7 +305,219 @@ def _candidate_id_prefixes_for_path_arg(*, tool: ToolInfo, field: str, entity: s
     return sorted(dict.fromkeys(prefixes), key=len, reverse=True)
 
 
-def _deterministic_plan_repair(intent: str, scoped_tools: list[ToolInfo]) -> AgentPlanOutput | None:
+def _extract_intent_entity_bindings(intent: str) -> list[tuple[str, str]]:
+    bindings: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for entity in sorted(_generated_id_prefixes_by_entity().keys()):
+        value = _extract_entity_id(intent, entity)
+        if not value:
+            continue
+        key = (entity, value)
+        if key in seen:
+            continue
+        seen.add(key)
+        bindings.append(key)
+    return bindings
+
+
+def _context_intent_contract_steps(context: dict[str, Any] | None) -> list[dict[str, Any]]:
+    payload = context if isinstance(context, dict) else {}
+    contract = payload.get("intent_contract")
+    if not isinstance(contract, dict):
+        return []
+    steps = contract.get("steps")
+    return [step for step in steps if isinstance(step, dict)] if isinstance(steps, list) else []
+
+
+def _extract_context_entity_binding(context: dict[str, Any] | None, scoped_tools: list[ToolInfo]) -> tuple[str, str] | None:
+    tools_by_name = {tool.name: tool for tool in scoped_tools}
+    for step in reversed(_context_intent_contract_steps(context)):
+        tool_name = step.get("tool_name")
+        if not isinstance(tool_name, str):
+            continue
+        tool = tools_by_name.get(tool_name)
+        if tool is None:
+            continue
+        args = step.get("args")
+        if not isinstance(args, dict):
+            continue
+        for field, value in args.items():
+            if not isinstance(field, str):
+                continue
+            normalized = field.strip().lower()
+            in_path = field in set(tool.path_params or [])
+            if normalized != "id" and not normalized.endswith("_id") and not in_path:
+                continue
+            if value in (None, ""):
+                continue
+            entity = _endpoint_entity_before_param(tool.endpoint, field)
+            if not entity and normalized.endswith("_id"):
+                entity = _singularize_entity(normalized[:-3])
+            if not entity:
+                continue
+            value_text = str(value).strip()
+            if not value_text:
+                continue
+            return entity, value_text
+    return None
+
+
+def _is_entity_lookup_tool(tool: ToolInfo, *, entity: str) -> bool:
+    if tool.method != "GET" or not tool.is_read_only or tool.requires_approval:
+        return False
+    for field in tool.path_params or []:
+        if _endpoint_entity_before_param(tool.endpoint, field) == entity:
+            return True
+    return False
+
+
+def _inject_entity_id_required_args(
+    *,
+    tool: ToolInfo,
+    entity: str,
+    entity_id: str,
+    args: dict[str, Any],
+    evidence: dict[str, str],
+) -> tuple[dict[str, Any], dict[str, str]]:
+    merged_args = dict(args or {})
+    merged_evidence = dict(evidence or {})
+    required = list((tool.input_schema or {}).get("required") or [])
+    for field in required:
+        if merged_args.get(field) not in (None, ""):
+            continue
+        normalized = str(field).strip().lower()
+        from_endpoint = _endpoint_entity_before_param(tool.endpoint, str(field)) == entity
+        from_name = normalized in {f"{entity}_id", f"{entity}s_id"}
+        if from_endpoint or from_name:
+            merged_args[str(field)] = entity_id
+            merged_evidence[str(field)] = entity_id
+    return merged_args, merged_evidence
+
+
+def _infer_compound_entity_followup_read(
+    intent: str,
+    scoped_tools: list[ToolInfo],
+    *,
+    context: dict[str, Any] | None = None,
+) -> AgentPlanOutput | None:
+    lowered = (intent or "").lower()
+    has_pronoun = bool(re.search(r"\b(?:its|their|that|those)\b", lowered))
+    has_compound_connector = bool(_COMPOUND_CONNECTOR_RE.search(lowered) or " and " in lowered)
+    if not has_pronoun and not has_compound_connector:
+        return None
+
+    bindings = _extract_intent_entity_bindings(intent)
+    if len(bindings) > 1:
+        return None
+    if len(bindings) == 1:
+        entity, entity_id = bindings[0]
+    else:
+        followup = _extract_context_entity_binding(context, scoped_tools)
+        if followup is None:
+            return None
+        entity, entity_id = followup
+
+    lookup_candidates = [tool for tool in scoped_tools if _is_entity_lookup_tool(tool, entity=entity)]
+    if not lookup_candidates:
+        return None
+    lookup_candidates.sort(
+        key=lambda tool: (
+            tool.endpoint.strip("/").lower() != f"{entity}s/{{id}}",
+            tool.endpoint.strip("/").lower() != f"{entity}/{{id}}",
+            len(tool.endpoint or ""),
+        )
+    )
+    anchor_tool = lookup_candidates[0]
+    anchor_args, anchor_evidence = _extract_user_supported_path_args(
+        intent=intent,
+        tool=anchor_tool,
+        existing_args={},
+    )
+    anchor_args, anchor_evidence = _inject_entity_id_required_args(
+        tool=anchor_tool,
+        entity=entity,
+        entity_id=entity_id,
+        args=anchor_args,
+        evidence=anchor_evidence,
+    )
+    if missing_required_fields(anchor_tool, anchor_args):
+        return None
+
+    vocabulary = vocabulary_for_tools(scoped_tools)
+    anchor_prefix = anchor_tool.endpoint.rstrip("/") + "/"
+    best: tuple[int, ToolInfo, dict[str, Any], dict[str, str]] | None = None
+    for candidate in scoped_tools:
+        if candidate.name == anchor_tool.name:
+            continue
+        if candidate.method != "GET" or not candidate.is_read_only or candidate.requires_approval:
+            continue
+
+        path_related = candidate.endpoint.startswith(anchor_prefix)
+        required = [str(field) for field in ((candidate.input_schema or {}).get("required") or [])]
+        supports_entity_id = any(
+            field.lower() in {f"{entity}_id", f"{entity}s_id"}
+            or _endpoint_entity_before_param(candidate.endpoint, field) == entity
+            for field in required
+        )
+        if not path_related and not supports_entity_id:
+            continue
+
+        candidate_args, candidate_evidence = _extract_user_supported_path_args(
+            intent=intent,
+            tool=candidate,
+            existing_args={},
+        )
+        candidate_args, candidate_evidence = _inject_entity_id_required_args(
+            tool=candidate,
+            entity=entity,
+            entity_id=entity_id,
+            args=candidate_args,
+            evidence=candidate_evidence,
+        )
+        if missing_required_fields(candidate, candidate_args):
+            continue
+
+        score = profile_match_score(intent, candidate, vocabulary=vocabulary)
+        if path_related:
+            score += 12
+        if tool_covers_descriptive_terms(intent, candidate, vocabulary=vocabulary):
+            score += 8
+        if "its" in lowered and path_related:
+            score += 5
+        if best is None or score > best[0]:
+            best = (score, candidate, candidate_args, candidate_evidence)
+
+    if best is None:
+        return None
+
+    _, secondary_tool, secondary_args, secondary_evidence = best
+    return AgentPlanOutput(
+        plan_explanation=f"Fetch the requested {entity} and then fetch the related read-only details.",
+        risk_summary="Read-only lookup with no data changes.",
+        steps=[
+            AgentPlanStep(
+                tool_name=anchor_tool.name,
+                args=anchor_args,
+                evidence=anchor_evidence,
+                confidence=0.93,
+            ),
+            AgentPlanStep(
+                tool_name=secondary_tool.name,
+                args=secondary_args,
+                evidence=secondary_evidence,
+                confidence=0.93,
+                depends_on=[0],
+            ),
+        ],
+    )
+
+
+def _deterministic_plan_repair(
+    intent: str,
+    scoped_tools: list[ToolInfo],
+    *,
+    context: dict[str, Any] | None = None,
+) -> AgentPlanOutput | None:
     """Repair narrow, high-signal plans after an LLM attempt.
 
     This is deliberately conservative. It only fires for explicit toolable
@@ -318,6 +532,10 @@ def _deterministic_plan_repair(intent: str, scoped_tools: list[ToolInfo]) -> Age
         return inferred
 
     inferred = _infer_enum_collection_filter(intent, scoped_tools)
+    if inferred is not None:
+        return inferred
+
+    inferred = _infer_compound_entity_followup_read(intent, scoped_tools, context=context)
     if inferred is not None:
         return inferred
 
@@ -616,8 +834,38 @@ def _normalize_plan_dict(parsed: dict[str, Any]) -> dict[str, Any]:
                         coerced_from = target_idx
                 if coerced_from is None or coerced_from < 0 or coerced_from >= idx:
                     continue
-                nb["from_step"] = coerced_from
-                cleaned_bindings.append(nb)
+                field = nb.get("field")
+                if not isinstance(field, str) or not field.strip():
+                    alias = nb.get("source_field")
+                    field = alias if isinstance(alias, str) else ""
+                target_arg = nb.get("target_arg")
+                if not isinstance(target_arg, str) or not target_arg.strip():
+                    for alias_key in ("arg", "to_arg", "target", "target_field"):
+                        alias = nb.get(alias_key)
+                        if isinstance(alias, str) and alias.strip():
+                            target_arg = alias
+                            break
+                if not isinstance(field, str) or not field.strip():
+                    continue
+                if not isinstance(target_arg, str) or not target_arg.strip():
+                    continue
+
+                result_path = nb.get("result_path")
+                if not isinstance(result_path, str) or not result_path.strip():
+                    result_path = "data"
+                mode = nb.get("mode")
+                if mode not in {"single", "foreach"}:
+                    mode = "single"
+
+                cleaned_bindings.append(
+                    {
+                        "from_step": coerced_from,
+                        "result_path": result_path.strip(),
+                        "field": field.strip(),
+                        "target_arg": target_arg.strip(),
+                        "mode": mode,
+                    }
+                )
         new_step["bindings"] = cleaned_bindings
 
         normalized_steps.append(new_step)

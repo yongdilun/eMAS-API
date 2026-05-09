@@ -565,6 +565,141 @@ async def test_compound_intent_bypasses_diagnostic_shortcuts():
 
 
 @pytest.mark.asyncio
+async def test_selector_uses_context_binding_for_pronoun_followup_slots():
+    selector = ToolSelector(
+        _settings(
+            tool_selector_backend="retrieval",
+            tool_selector_top_k=5,
+            tool_selector_candidate_pool=8,
+        )
+    )
+    tools = {
+        "get__slots_{id}": ToolInfo(
+            name="get__slots_{id}",
+            description="Get a slot by ID",
+            endpoint="/slots/{id}",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["slot", "lookup", "id", "job"],
+        ),
+        "get__jobs_{id}_slots": ToolInfo(
+            name="get__jobs_{id}_slots",
+            description="List slots by job ID",
+            endpoint="/jobs/{id}/slots",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["job", "slot", "lookup", "list"],
+        ),
+        "get__reports_production-output-per-slot": ToolInfo(
+            name="get__reports_production-output-per-slot",
+            description="Production output per slot",
+            endpoint="/reports/production-output-per-slot",
+            method="GET",
+            input_schema={"type": "object", "properties": {}},
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["report", "slot", "production"],
+        ),
+    }
+    context = {
+        "intent_contract": {
+            "intent": "show job JOB-SEED-001",
+            "steps": [
+                {
+                    "step_index": 0,
+                    "tool_name": "get__jobs_{id}",
+                    "args": {"id": "JOB-SEED-001"},
+                }
+            ],
+        }
+    }
+
+    result = await selector.select_tools(
+        intent="now show its slots",
+        tools_by_name=tools,
+        mode="normal",
+        max_tools=10,
+        context=context,
+    )
+
+    assert "get__jobs_{id}_slots" in result.tool_names
+
+
+@pytest.mark.asyncio
+async def test_selector_uses_context_binding_for_pronoun_followup_proposal():
+    selector = ToolSelector(
+        _settings(
+            tool_selector_backend="retrieval",
+            tool_selector_top_k=6,
+            tool_selector_candidate_pool=10,
+        )
+    )
+    tools = {
+        "get__ai_scheduling_jobs_{id}_proposal": ToolInfo(
+            name="get__ai_scheduling_jobs_{id}_proposal",
+            description="Generate a proposal",
+            endpoint="/ai/scheduling/jobs/{id}/proposal",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["ai", "scheduling", "job", "proposal", "lookup"],
+        ),
+        "get__ai_scheduling_jobs_{id}_proposals": ToolInfo(
+            name="get__ai_scheduling_jobs_{id}_proposals",
+            description="List proposals",
+            endpoint="/ai/scheduling/jobs/{id}/proposals",
+            method="GET",
+            input_schema={"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+            path_params=["id"],
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["ai", "scheduling", "job", "proposal", "list"],
+        ),
+        "post__ai_scheduling_batch-proposals": ToolInfo(
+            name="post__ai_scheduling_batch-proposals",
+            description="Generate batch proposals",
+            endpoint="/ai/scheduling/batch-proposals",
+            method="POST",
+            input_schema={"type": "object", "properties": {"job_ids": {"type": "array"}}, "required": []},
+            is_read_only=False,
+            requires_approval=True,
+            capability_tags=["ai", "scheduling", "proposal", "create"],
+        ),
+    }
+    context = {
+        "intent_contract": {
+            "intent": "show job JOB-SEED-001",
+            "steps": [
+                {
+                    "step_index": 0,
+                    "tool_name": "get__jobs_{id}",
+                    "args": {"id": "JOB-SEED-001"},
+                }
+            ],
+        }
+    }
+
+    result = await selector.select_tools(
+        intent="now show its proposal",
+        tools_by_name=tools,
+        mode="normal",
+        max_tools=10,
+        context=context,
+    )
+
+    assert result.tool_names[0] == "get__ai_scheduling_jobs_{id}_proposal"
+    assert "get__ai_scheduling_jobs_{id}_proposals" in result.tool_names
+
+
+@pytest.mark.asyncio
 async def test_selector_skips_reranker_when_clear_winner_exists(monkeypatch):
     selector = ToolSelector(
         _settings(
@@ -734,4 +869,46 @@ async def test_selector_prefers_feature_specific_job_explanation_endpoint():
     )
 
     assert result.tool_names[0] == "get__ai_scheduling_jobs_{id}_explanation"
+
+
+@pytest.mark.asyncio
+async def test_selector_prefers_create_job_tool_when_prompt_mentions_reject_after_create():
+    selector = ToolSelector(_settings(tool_selector_backend="retrieval", tool_selector_top_k=5))
+    tools = {
+        "post__jobs": ToolInfo(
+            name="post__jobs",
+            description="Create a job",
+            endpoint="/jobs",
+            method="POST",
+            input_schema={
+                "type": "object",
+                "properties": {"product_id": {"type": "string"}, "quantity": {"type": "integer"}},
+                "required": ["product_id", "quantity"],
+            },
+            body_fields=["product_id", "quantity"],
+            required_body_fields=["product_id", "quantity"],
+            is_read_only=False,
+            requires_approval=True,
+            capability_tags=["job", "create"],
+        ),
+        "get__chatbot_approval_pending": ToolInfo(
+            name="get__chatbot_approval_pending",
+            description="List pending approvals",
+            endpoint="/chatbot/approval/pending",
+            method="GET",
+            input_schema={"type": "object", "properties": {}},
+            is_read_only=True,
+            requires_approval=False,
+            capability_tags=["approval", "pending", "list"],
+        ),
+    }
+
+    result = await selector.select_tools(
+        intent="create job P-005 qty 3 but reject it",
+        tools_by_name=tools,
+        mode="normal",
+        max_tools=10,
+    )
+
+    assert result.tool_names[0] == "post__jobs"
 
