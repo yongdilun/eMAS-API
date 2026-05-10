@@ -80,3 +80,33 @@ $env:GOCACHE='.\.gocache_test'; go test ./emas/internal/handler -count=1
 cd /d "C:\Users\dilun\OneDrive\Documents\eMas APi\emas"
 mysql -h localhost -P 3306 -u root -p emas < scripts\reset_seed.sql
 go run .\cmd\seed
+
+
+========== RAG LIVE EVALUATION ==========
+
+cd "C:\Users\dilun\OneDrive\Documents\eMas APi"
+.\tests\rag_eval\run_rag_eval.ps1 -Ingest
+.\tests\rag_eval\run_rag_eval.ps1
+.\tests\rag_eval\run_rag_eval.ps1 -Filter loto-
+.\tests\rag_eval\run_rag_eval.ps1 -Filter router-
+.\tests\rag_eval\run_rag_eval.ps1 -Filter loto-05-lockout
+.\tests\rag_eval\run_rag_eval.ps1 -RunId baseline-2026-05-10
+.\tests\rag_eval\run_rag_eval.ps1 -Action Pytest
+.\tests\rag_eval\run_rag_eval.ps1 -Action Pytest -Filter loto-
+
+
+========== RAG MAINTENANCE & DIAGNOSTICS ==========
+
+# Trigger full document ingestion (PDFs -> Vector DB + BM25)
+# Run from workspace root
+cd "C:\Users\dilun\OneDrive\Documents\eMas APi"
+& ".\factory-agent\.venv\Scripts\python.exe" ".\factory-agent\factory_agent\rag\ingestion.py"
+
+# Inspect Vector DB contents for specific documents
+& ".\factory-agent\.venv\Scripts\python.exe" ".\scratch\inspect_nist_ingestion.py"
+
+# Test RAG retrieval logic directly (fast check)
+& ".\factory-agent\.venv\Scripts\python.exe" ".\factory-agent\factory_agent\rag\retrieval.py"
+
+# Run RAG ingestion test suite
+& ".\factory-agent\.venv\Scripts\python.exe" -m pytest factory-agent\tests\test_rag_ingestion.py -q

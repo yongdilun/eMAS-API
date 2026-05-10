@@ -60,6 +60,10 @@ class PlanDraft(BaseModel):
     # Steps + structure
     steps: list[PlanStepDraft]
 
+    # RAG metadata
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    safety_content: str | None = None
+
     # Optional precomputed forms (allowed; validator will reconcile)
     dependency_graph: dict[int, list[int]] | None = None
     parallel_groups: list[list[int]] | None = None
@@ -171,6 +175,8 @@ class PlanResponse(BaseModel):
     derived_from_plan_id: str | None = None
     plan_explanation: str | None = None
     risk_summary: str | None = None
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    safety_content: str | None = None
     created_at: datetime
     created_by: str
 

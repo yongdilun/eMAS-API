@@ -15,6 +15,10 @@ _GREETING_RE = re.compile(
     r"^\s*(?:hi|hello|hey|yo|good morning|good afternoon|good evening|thanks|thank you)\b",
     re.IGNORECASE,
 )
+_QUESTION_RE = re.compile(
+    r"\b(?:what|how|why|when|where|which|who|meaning|definition|describe|explain|functions|framework|standard|policy|procedure|sop|loto|csf|ppe)\b",
+    re.IGNORECASE,
+)
 _ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("approval", re.compile(r"\b(?:approve|reject|approval|approvals|pending approval|pending approvals)\b", re.IGNORECASE)),
     ("create", re.compile(r"\b(?:create|new|add|open)\b", re.IGNORECASE)),
@@ -23,7 +27,7 @@ _ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     (
         "read",
         re.compile(
-            r"\b(?:assist|candidate|check|delay|explain|explosion|forecast|get|find|inspect|list|lookup|preview|rank|read|readiness|report|reports|risk|show|shortage|slots?|status|suggestion|timeout|view)\b",
+            r"\b(?:assist|candidate|check|delay|describe|explain|explosion|forecast|get|find|inspect|list|lookup|preview|rank|read|readiness|report|reports|risk|show|shortage|slots?|status|suggestion|timeout|view)\b",
             re.IGNORECASE,
         ),
     ),
@@ -99,8 +103,8 @@ def assess_intent(text: str) -> IntentAssessment:
 
     entity = _detect_entity(raw)
 
-    if action or entity:
-        confidence = 0.92 if action and entity else 0.75
+    if action or entity or _QUESTION_RE.search(raw):
+        confidence = 0.92 if (action and entity) else 0.75
         return IntentAssessment(kind="operations", action=action, entity=entity, confidence=confidence, reply=None)
 
     token_count = len([tok for tok in re.split(r"\s+", lower) if tok])
@@ -114,9 +118,9 @@ def assess_intent(text: str) -> IntentAssessment:
         )
 
     return IntentAssessment(
-        kind="unsupported",
+        kind="operations",
         action=None,
         entity=None,
-        confidence=0.55,
-        reply="I could not map that to an available operation yet. Try naming the resource, action, and any identifier or filter.",
+        confidence=0.5,
+        reply=None,
     )

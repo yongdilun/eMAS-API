@@ -1,0 +1,253 @@
+{
+  "$schema_note": "Live RAG evaluation cases. Derived from NIST and OSHA official guidance documents listed in source_register.json.",
+  "version": 1,
+  "description": "Real evaluation cases focusing on NIST smart manufacturing recommendations, OSHA safety procedures, and NIST cybersecurity framework. All cases are grounded in the official PDFs located in rag_sources/.",
+  "cases": [
+    {
+      "id": "nist-data-obj",
+      "query": "What is the primary objective of NIST AMS 300-11 regarding manufacturing data?",
+      "tags": [
+        "rag",
+        "nist",
+        "data_collection",
+        "objective"
+      ],
+      "routing_expectation": {
+        "preferred": [
+          "RAG_ONLY"
+        ],
+        "acceptable": [
+          "RAG_ONLY",
+          "API_THEN_RAG"
+        ]
+      },
+      "expects_sources": true,
+      "expects_safety_warning": false,
+      "expected_doc_ids": [
+        "nist_ams_300_11"
+      ],
+      "notes": "Tests understanding of the document's core purpose: collecting, curating, and re-using manufacturing data."
+    },
+    {
+      "id": "nist-data-standards",
+      "query": "Which types of standards does NIST AMS 300-11 recommend prioritizing for manufacturing data systems?",
+      "tags": [
+        "rag",
+        "nist",
+        "standards",
+        "interoperability"
+      ],
+      "routing_expectation": {
+        "preferred": [
+          "RAG_ONLY"
+        ],
+        "acceptable": [
+          "RAG_ONLY"
+        ]
+      },
+      "expects_sources": true,
+      "expects_safety_warning": false,
+      "expected_doc_ids": [
+        "nist_ams_300_11"
+      ],
+      "notes": "Focuses on the recommendation for open, international, and consensus-based standards."
+    },
+    {
+      "id": "nist-connectivity-interop",
+      "query": "How does NIST AMS 300-11 suggest achieving interoperability between different manufacturing equipment and management systems?",
+      "tags": [
+        "rag",
+        "nist",
+        "connectivity",
+        "mtconnect",
+        "opc_ua"
+      ],
+      "routing_expectation": {
+        "preferred": [
+          "RAG_ONLY"
+        ],
+        "acceptable": [
+          "RAG_ONLY",
+          "API_THEN_RAG"
+        ]
+      },
+      "expects_sources": true,
+      "expects_safety_warning": false,
+      "expected_doc_ids": [
+        "nist_ams_300_11"
+      ],
+      "notes": "Tests specific technical recommendations for interoperability using open semantic and transport standards."
+    },
+    {
+      "id": "nist-data-lifecycle",
+      "query": "Explain the end-to-end lifecycle of manufacturing data as described in the NIST recommendations.",
+      "tags": [
+        "rag",
+        "nist",
+        "data_lifecycle",
+        "management"
+      ],
+      "routing_expectation": {
+        "preferred": [
+          "RAG_ONLY"
+        ],
+        "acceptable": [
+          "RAG_ONLY"
+        ]
+      },
+      "expects_sources": true,
+      "expects_safety_warning": false,
+      "expected_doc_ids": [
+        "nist_ams_300_11"
+      ],
+      "notes": "Tests the full data management process from shop-floor collection to reuse."
+    },
+    {
+      "id": "nist-ra-functional",
+      "query": "According to the Reference Architecture for Smart Manufacturing (Part 1), what are the main functional models for production systems?",
+      "tags": [
+        "rag",
+        "nist",
+        "architecture",
+        "functional_models"
+      ],
+      "routing_expectation": {
+        "preferred": [
+          "RAG_ONLY"
+        ],
+        "acceptable": [
+          "RAG_ONLY"
+        ]
+      },
+      "expects_sources": true,
+      "expects_safety_warning": false,
+      "expected_doc_ids": [
+        "nist_ams_300_1"
+      ],
+      "notes": "Targets the functional modeling of production activities like scheduling and material management."
+    },
+    {
+      "id": "osha-loto-definition",
+      "query": "What is the purpose of Lockout/Tagout (LOTO) procedures according to OSHA?",
+      "tags": [
+        "rag",
+        "osha",
+        "safety",
+        "loto"
+      ],
+      "routing_expectation": {
+        "preferred": [
+          "RAG_ONLY"
+        ],
+        "acceptable": [
+          "RAG_ONLY",
+          "API_THEN_RAG"
+        ]
+      },
+      "expects_sources": true,
+      "expects_safety_warning": true,
+      "expected_doc_ids": [
+        "osha_3120_lockout_tagout"
+      ],
+      "notes": "Basic safety definition. Should trigger a safety warning due to high risk level."
+    },
+    {
+      "id": "osha-loto-steps",
+      "query": "What are the key steps for energy isolation before servicing a machine according to OSHA?",
+      "tags": [
+        "rag",
+        "osha",
+        "safety",
+        "procedure"
+      ],
+      "routing_expectation": {
+        "preferred": [
+          "RAG_ONLY"
+        ],
+        "acceptable": [
+          "RAG_ONLY"
+        ]
+      },
+      "expects_sources": true,
+      "expects_safety_warning": true,
+      "expected_doc_ids": [
+        "osha_3120_lockout_tagout"
+      ],
+      "notes": "Procedural safety steps. Requires strict citation and safety warning."
+    },
+    {
+      "id": "osha-guarding-checklist",
+      "query": "What should be included in a machine guarding safety inspection checklist?",
+      "tags": [
+        "rag",
+        "osha",
+        "safety",
+        "checklist"
+      ],
+      "routing_expectation": {
+        "preferred": [
+          "RAG_ONLY"
+        ],
+        "acceptable": [
+          "RAG_ONLY"
+        ]
+      },
+      "expects_sources": true,
+      "expects_safety_warning": true,
+      "expected_doc_ids": [
+        "osha_machine_guarding_checklist"
+      ],
+      "notes": "Tests ability to extract checklist items from safety documentation."
+    },
+    {
+      "id": "nist-csf-functions",
+      "query": "What are the six core functions of the NIST Cybersecurity Framework (CSF) 2.0?",
+      "tags": [
+        "rag",
+        "nist",
+        "cybersecurity",
+        "framework"
+      ],
+      "routing_expectation": {
+        "preferred": [
+          "RAG_ONLY"
+        ],
+        "acceptable": [
+          "RAG_ONLY"
+        ]
+      },
+      "expects_sources": true,
+      "expects_safety_warning": false,
+      "expected_doc_ids": [
+        "nist_csf_2_0"
+      ],
+      "notes": "Specifically tests knowledge of CSF 2.0 (Govern, Identify, Protect, Detect, Respond, Recover)."
+    },
+    {
+      "id": "nist-csf-cloud-security",
+      "query": "How can the NIST CSF 2.0 be used to support cloud deployment security for a system like eMAS?",
+      "tags": [
+        "rag",
+        "nist",
+        "cybersecurity",
+        "cloud",
+        "emas"
+      ],
+      "routing_expectation": {
+        "preferred": [
+          "RAG_ONLY"
+        ],
+        "acceptable": [
+          "RAG_ONLY",
+          "API_THEN_RAG"
+        ]
+      },
+      "expects_sources": true,
+      "expects_safety_warning": false,
+      "expected_doc_ids": [
+        "nist_csf_2_0"
+      ],
+      "notes": "Tests the application of general cybersecurity guidance to the specific context of the eMAS system."
+    }
+  ]
+}

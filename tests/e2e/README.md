@@ -75,6 +75,15 @@ go test ./internal/service -run TestAICommandOrchestrator_Fixtures_CISafe -count
 
 The test logs per-action accuracy and fails below the 95% threshold.
 
+## Live RAG Evaluation
+
+For RAG + router evaluation against the real LLM (with structured per-case
+JSON artifacts and manual review placeholders) see
+[`tests/rag_eval/README.md`](../rag_eval/README.md). Artifacts land under
+`test-artifacts/rag-eval/<run_id>/` and the pytest entrypoint is
+[`factory-agent/tests/test_rag_live_llm.py`](../../factory-agent/tests/test_rag_live_llm.py)
+(skipped unless `FACTORY_AGENT_LIVE_RAG=1`).
+
 ## Optional External Tools
 
 - Testcontainers/MySQL should be used for a future CI job that needs exact MySQL behavior instead of SQLite-compatible handler coverage.

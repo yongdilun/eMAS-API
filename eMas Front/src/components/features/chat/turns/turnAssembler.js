@@ -49,6 +49,8 @@ export function assembleFactoryAgentTurns(timeline = []) {
       status: [],
       terminal: null,
       debug: [],
+      sources: [],
+      safetyContent: null,
     }
     turnsById.set(key, next)
     return next
@@ -92,6 +94,8 @@ export function assembleFactoryAgentTurns(timeline = []) {
         created_at: e.created_at,
         details: e.details || null,
       })
+      if (e.details?.sources) turn.sources = e.details.sources
+      if (e.details?.safety_content) turn.safetyContent = e.details.safety_content
       continue
     }
 
@@ -163,13 +167,39 @@ export function assembleFactoryAgentTurns(timeline = []) {
       if (e.event_type === 'session_blocked' || e.event_type === 'session_failed' || e.event_type === 'session_completed') {
         turn.terminal = item
       }
+      // RAG conversation replies surface their citations on the
+      // session_completed event (the underlying no-op plan is filtered out
+      // of the timeline by the backend).
+      if (e.event_type === 'session_completed') {
+        const detailSources = Array.isArray(e.details?.sources) ? e.details.sources : null
+        if (detailSources && detailSources.length && (!turn.sources || turn.sources.length === 0)) {
+          turn.sources = detailSources
+        }
+        if (e.details?.safety_content && !turn.safetyContent) {
+          turn.safetyContent = e.details.safety_content
+        }
+      }
       continue
     }
 
     turn.debug.push(e)
   }
 
-  const turns = Array.from(turnsById.values())
+  const turns = Array.from(turnsById.values()).map(turn => {
+    // Inject legacy-compatible structure for AiChatPanel / mergeLegacyAssistantTurnContent
+    const lastThinking = turn.thinking?.[turn.thinking.length - 1]
+    const content = turn.terminal?.content || lastThinking?.content || ""
+    
+    turn.assistants = [{
+      content: content,
+      sources: turn.sources || [],
+      safetyContent: turn.safetyContent || null,
+      blocks: [],
+      timestamp: turn.terminal?.created_at || lastThinking?.created_at || turn.created_at
+    }]
+    return turn
+  })
+
   turns.sort((a, b) => safeStr(a.user?.created_at || a.created_at).localeCompare(safeStr(b.user?.created_at || b.created_at)))
 
   return turns
@@ -207,6 +237,13 @@ export function computeFactoryAgentTurnSummary(turn) {
     return terminal.content || lastTool?.content || 'Execution stopped.'
   }
   if (terminal?.event_type === 'session_completed') {
+    const lastPlan = Array.isArray(turn.thinking) ? turn.thinking[turn.thinking.length - 1] : null
+    
+    // RAG / Conversation Support: If no tools were executed, the plan explanation IS the answer.
+    if (lastPlan?.content && (!turn.tools || turn.tools.length === 0)) {
+      return lastPlan.content
+    }
+
     // Prefer the last tool result when completion is a generic status line.
     const isGenericComplete = String(terminal.content || '').toLowerCase().includes('execution completed successfully')
     if (isGenericComplete) {
@@ -221,6 +258,12 @@ export function computeFactoryAgentTurnSummary(turn) {
   }
 
   const lastPlan = Array.isArray(turn.thinking) ? turn.thinking[turn.thinking.length - 1] : null
+  
+  // RAG / Conversation Support: If we have a plan but no tool execution, return the plan content
+  if (lastPlan?.content && !lastTool && (!turn.status || turn.status.length === 0)) {
+    return lastPlan.content
+  }
+
   if (lastTool || turn.status?.length) return 'Working...'
   if (lastPlan?.content) return 'Working...'
 
@@ -300,5 +343,10 @@ export function mergeLegacyAssistantTurnContent(turn) {
   }
   if (toolBlocks.length) blocks.push(...toolBlocks)
 
-  return { content: primary.content || '', blocks }
+  return { 
+    content: primary.content || '', 
+    blocks,
+    sources: primary.sources || [],
+    safetyContent: primary.safetyContent || null
+  }
 }

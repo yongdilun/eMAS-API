@@ -60,6 +60,8 @@ class Plan(Base):
     plan_hash = Column(String(255), nullable=False)
     plan_explanation = Column(Text, nullable=True)
     risk_summary = Column(Text, nullable=True)
+    sources = Column(JSON, nullable=True)
+    safety_content = Column(Text, nullable=True)
     approved_plan_hash = Column(String(255), nullable=True)
     derived_from_plan_id = Column(String(36), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

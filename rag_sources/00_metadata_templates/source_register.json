@@ -1,4 +1,5 @@
-[
+{
+  "documents": [
     {
       "doc_id": "nist_ams_300_1",
       "title": "Reference Architecture for Smart Manufacturing Part 1: Functional Models",
@@ -8,6 +9,7 @@
       "domain": "smart_manufacturing",
       "subdomain": "reference_architecture_functional_models",
       "authority_level": "official_public_guidance",
+      "version": "1.0",
       "use_for": [
         "explain smart manufacturing reference architecture",
         "explain manufacturing software integration",
@@ -50,6 +52,7 @@
       "domain": "smart_manufacturing",
       "subdomain": "manufacturing_data_collection",
       "authority_level": "official_public_guidance",
+      "version": "1.0",
       "use_for": [
         "explain manufacturing data collection",
         "explain manufacturing data curation",
@@ -96,6 +99,7 @@
       "domain": "safety_maintenance",
       "subdomain": "lockout_tagout",
       "authority_level": "official_public_guidance",
+      "version": "2002 (Revised)",
       "use_for": [
         "explain lockout tagout",
         "explain hazardous energy control",
@@ -141,6 +145,7 @@
       "domain": "safety_maintenance",
       "subdomain": "machine_guarding",
       "authority_level": "official_public_guidance",
+      "version": "1.0",
       "use_for": [
         "explain machine guarding checklist",
         "explain machine safeguard inspection",
@@ -185,6 +190,7 @@
       "domain": "cybersecurity_cloud",
       "subdomain": "cybersecurity_risk_management",
       "authority_level": "official_public_guidance",
+      "version": "2.0",
       "use_for": [
         "explain cybersecurity risk management",
         "explain cloud deployment security",
@@ -226,3 +232,4 @@
       "notes": "Use this document to support general cybersecurity and cloud deployment explanations for the eMAS prototype. It should guide security discussion, but should not be treated as proof that the deployed system is secure."
     }
   ]
+}

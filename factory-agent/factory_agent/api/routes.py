@@ -62,6 +62,7 @@ from ..observability.telemetry import log_event, log_step_status_changed
 from ..registry.tool_registry import ToolRegistry
 from ..planning.tool_selector import ToolSelector
 from ..analysis.presentation import extract_table_from_result
+from ..rag.pipeline import RAGPipeline
 
 
 def _normalize_session_name(name: str | None) -> str | None:
@@ -107,6 +108,8 @@ def _plan_to_response(plan: PlanRow) -> PlanResponse:
         derived_from_plan_id=plan.derived_from_plan_id,
         plan_explanation=plan.plan_explanation,
         risk_summary=plan.risk_summary,
+        sources=plan.sources or [],
+        safety_content=plan.safety_content,
         created_at=plan.created_at,
         created_by=plan.created_by,
     )
@@ -253,6 +256,7 @@ def build_router(
     tool_selector = ToolSelector(settings)
     summary_adapter = SummaryAdapter(settings)
     query_router = QueryRouter(llm=build_planner_chat_model(settings, json_mode=True))
+    rag_pipeline = RAGPipeline()
 
     def _should_enforce_registry_health() -> bool:
         if not settings.enforce_tool_registry_health:
@@ -284,6 +288,7 @@ def build_router(
         tools_by_name: dict[str, ToolInfo],
         intent: str,
         context_to_keep: dict[str, Any] | None = None,
+        **kwargs: Any,
     ) -> PlanResponse:
         from ..schemas import PlanDraft
 
@@ -298,10 +303,15 @@ def build_router(
             )
         )
         await db.commit()
+        sources = kwargs.get("sources", [])
+        sources_dict = [s.model_dump() if hasattr(s, "model_dump") else s for s in sources]
+        
         empty_draft = PlanDraft(
             plan_explanation=reply,
             risk_summary="No tool execution required.",
             steps=[],
+            sources=sources_dict,
+            safety_content=kwargs.get("safety_content"),
         )
         return await _persist_plan(
             db=db,
@@ -486,6 +496,8 @@ def build_router(
             plan_hash=validation.plan_hash,
             plan_explanation=draft.plan_explanation,
             risk_summary=draft.risk_summary,
+            sources=[s.model_dump() if hasattr(s, "model_dump") else s for s in getattr(draft, "sources", [])],
+            safety_content=getattr(draft, "safety_content", None),
             derived_from_plan_id=derived_from_plan_id,
             created_at=datetime.utcnow(),
             created_by=backend_used,
@@ -880,7 +892,25 @@ def build_router(
                 )
             )
 
+        # Pair each RAG conversation message with its corresponding no-op plan
+        # so that sources/safety_content carried on the plan can be surfaced on
+        # the timeline event the frontend actually consumes for these turns.
+        noop_plans_in_order = [p for p in plan_rows if _is_noop_plan(p)]
+        plan_by_conversation_id: dict[str, PlanRow] = {}
+        for idx_msg, msg in enumerate(conversation_messages):
+            if idx_msg < len(noop_plans_in_order):
+                plan_by_conversation_id[msg.message_id] = noop_plans_in_order[idx_msg]
+
         for msg in conversation_messages:
+            associated_plan = plan_by_conversation_id.get(msg.message_id)
+            convo_details: dict[str, Any] = {}
+            if associated_plan is not None:
+                plan_sources = associated_plan.sources or []
+                if plan_sources:
+                    convo_details["sources"] = plan_sources
+                if associated_plan.safety_content:
+                    convo_details["safety_content"] = associated_plan.safety_content
+                convo_details["plan_id"] = associated_plan.plan_id
             events.append(
                 _timeline_event(
                     event_id=f"conversation:{msg.message_id}",
@@ -892,6 +922,7 @@ def build_router(
                     mode=(getattr(msg, "mode", None) or "normal"),
                     turn_id=_turn_id_for_time(msg.created_at),
                     step_context={**_session_ctx(), "message_id": msg.message_id},
+                    details=(convo_details or None),
                 )
             )
 
@@ -942,6 +973,8 @@ def build_router(
                         "status": plan_row.status,
                         "plan_explanation": plan_row.plan_explanation,
                         "risk_summary": plan_row.risk_summary,
+                        "sources": plan_row.sources,
+                        "safety_content": plan_row.safety_content,
                     },
                 )
             )
@@ -1505,7 +1538,16 @@ def build_router(
             
             if route_type == "RAG_ONLY":
                 tools_by_name = await tool_registry.get_tools_by_name(db)
-                reply = "RAG lookup will be performed for: " + intent
+                sources = []
+                safety_content = None
+                try:
+                    rag_result = await rag_pipeline.run(query=intent, session_id=session_id)
+                    reply = rag_result.answer
+                    sources = rag_result.sources
+                    safety_content = rag_result.safety_content
+                except Exception as exc:
+                    reply = f"I encountered an error while searching for knowledge: {str(exc)}"
+                
                 plan_resp = await _persist_conversation_reply_as_empty_plan(
                     db=db,
                     sess=sess,
@@ -1513,6 +1555,8 @@ def build_router(
                     mode=mode,
                     tools_by_name=tools_by_name,
                     intent=intent,
+                    sources=sources,
+                    safety_content=safety_content,
                 )
                 metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
                 return plan_resp

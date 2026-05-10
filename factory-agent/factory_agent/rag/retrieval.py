@@ -31,6 +31,19 @@ class HybridRetriever:
         "high_risk_safety": 0.10,      # risk_level == "high" for safety queries
     }
 
+    def _clean_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Deserializes JSON strings in metadata back to lists/dicts."""
+        clean = {}
+        for k, v in metadata.items():
+            if isinstance(v, str) and (v.startswith('[') or v.startswith('{')):
+                try:
+                    clean[k] = json.loads(v)
+                except:
+                    clean[k] = v
+            else:
+                clean[k] = v
+        return clean
+
     QUERY_TYPE_TO_DO_NOT_USE = {
         "API_ONLY": [
             "live factory status lookup", "live job scheduling decision",
@@ -91,7 +104,7 @@ class HybridRetriever:
                     chunk = Chunk(
                         chunk_id=results['ids'][0][i],
                         text=results['documents'][0][i],
-                        metadata=results['metadatas'][0][i]
+                        metadata=self._clean_metadata(results['metadatas'][0][i])
                     )
                     # Convert distance to a similarity score (approximate)
                     # ChromaDB cosine distance is 1 - similarity, so 1 - distance = similarity
@@ -168,6 +181,34 @@ class HybridRetriever:
             for cid in sorted_ids
         ]
 
+    def get_neighbor_chunks(self, chunk_id: str, doc_id: str, direction: int = 1) -> Optional[Chunk]:
+        """
+        Fetches the immediate neighbor chunk (direction: -1 for previous, 1 for next).
+        """
+        try:
+            # Parse current index
+            base_id, current_idx_str = chunk_id.rsplit("_c", 1)
+            current_idx = int(current_idx_str)
+            neighbor_idx = current_idx + direction
+            
+            if neighbor_idx < 0:
+                return None
+                
+            neighbor_id = f"{base_id}_c{neighbor_idx:04d}"
+            
+            result = self.collection.get(ids=[neighbor_id], include=["documents", "metadatas"])
+            
+            if result['ids'] and len(result['ids']) > 0:
+                return Chunk(
+                    chunk_id=result['ids'][0],
+                    text=result['documents'][0],
+                    metadata=self._clean_metadata(result['metadatas'][0])
+                )
+            return None
+        except Exception as e:
+            logger.debug(f"Neighbor fetch error for {chunk_id}: {e}")
+            return None
+
     def apply_metadata_filter_and_boost(
         self,
         chunks: List[ScoredChunk],
@@ -181,7 +222,7 @@ class HybridRetriever:
         
         filtered = []
         for sc in chunks:
-            meta = sc.chunk.metadata
+            meta = self._clean_metadata(sc.chunk.metadata)
             doc_do_not_use = [phrase.lower() for phrase in meta.get("do_not_use_for", [])]
             
             # Hard exclusion
@@ -199,7 +240,7 @@ class HybridRetriever:
         # Apply boosts
         for sc in filtered:
             boost = 0.0
-            meta = sc.chunk.metadata
+            meta = self._clean_metadata(sc.chunk.metadata)
             
             # related_entities overlap
             entities = [e.lower().replace("_", " ") for e in meta.get("related_entities", [])]
@@ -240,7 +281,8 @@ class HybridRetriever:
         route: str = "RAG_ONLY",
         vector_top_k: int = 8,
         keyword_top_k: int = 8,
-        fusion_top_k: int = 8
+        fusion_top_k: int = 8,
+        expand_neighbors: bool = True
     ) -> List[ScoredChunk]:
         """Main entry point for hybrid retrieval."""
         v_results = self.vector_search(query, top_k=vector_top_k)
@@ -250,7 +292,34 @@ class HybridRetriever:
         
         final_results = self.apply_metadata_filter_and_boost(f_results, query, route)
         
-        return final_results
+        if not expand_neighbors:
+            return final_results
+            
+        # Expand neighbors for top results to ensure continuity
+        expanded_results = []
+        seen_ids = {res.chunk.chunk_id for res in final_results}
+        
+        for res in final_results:
+            expanded_results.append(res)
+            
+            # For the very top chunks, try to pull previous and next
+            # (Limit expansion to avoid context bloat)
+            if final_results.index(res) < 3: 
+                doc_id = res.chunk.metadata.get("doc_id")
+                if not doc_id: continue
+                
+                for direction in [-1, 1]:
+                    neighbor = self.get_neighbor_chunks(res.chunk.chunk_id, doc_id, direction)
+                    if neighbor and neighbor.chunk_id not in seen_ids:
+                        # Add neighbor as a scored chunk with slightly lower score than parent
+                        expanded_results.append(ScoredChunk(
+                            chunk=neighbor,
+                            boosted_score=(res.boosted_score or 0) * 0.9,
+                            fusion_score=(res.fusion_score or 0) * 0.9
+                        ))
+                        seen_ids.add(neighbor.chunk_id)
+                        
+        return expanded_results
 
 if __name__ == "__main__":
     # Quick test if run directly

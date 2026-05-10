@@ -58,10 +58,10 @@ const ChatSidebar = ({ conversations = [], activeChatId, onSelectChat, onNewConv
  <button
  type="button"
  onClick={() => onSelectChat(c.id)}
- className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors truncate border ${
+ className={`w-full truncate rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
  c.id === activeChatId
- ? 'bg-primary/10 text-primary border-primary/30'
- : 'text-ink-muted hover:bg-surface-2 border-transparent hover:border-hairline'
+ ? 'border-primary/50 bg-primary/[0.14] font-medium text-ink shadow-[inset_4px_0_0_0_#5e6ad2] ring-1 ring-inset ring-primary/20'
+ : 'border-transparent text-ink-muted hover:border-hairline hover:bg-surface-2'
  }`}
  >
  <div className="truncate">{c.title || 'Conversation'}</div>

@@ -9,7 +9,11 @@ const Modal = ({ isOpen, onClose, title, children, size = 'default', zIndex }) =
  : 'bg-surface-1 rounded-xl -none border border-hairline max-w-2xl w-full mx-4 flex flex-col max-h-[90vh] overflow-hidden'
 
  return (
- <div className="fixed inset-0 bg-semantic-overlay flex items-center justify-center p-0" style={{ zIndex: baseZ }} onClick={(e) => e.target === e.currentTarget && onClose?.()}>
+ <div
+ className="fixed inset-0 bg-black/50 backdrop-blur-sm dark:bg-black/55 flex items-center justify-center p-0"
+ style={{ zIndex: baseZ }}
+ onClick={(e) => e.target === e.currentTarget && onClose?.()}
+ >
  <div className={contentClass} style={{ zIndex: contentZ }} onClick={(e) => e.stopPropagation()}>
  <div className="flex items-center justify-between p-lg border-b border-hairline shrink-0">
  <h2 className="text-card-title text-ink">{title}</h2>

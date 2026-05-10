@@ -9,7 +9,8 @@ param(
   [int]$AgentPort = 18081,
   [string]$PythonExe = "",
   [switch]$KeepGoing,
-  [switch]$ShowResponses
+  [switch]$ShowResponses,
+  [switch]$SkipRAG
 )
 
 $ErrorActionPreference = "Stop"
@@ -449,6 +450,18 @@ try {
     Add-LogLine ("agent work dir: " + $agentWorkDir)
     $sqlitePath = (Join-Path $agentWorkDir "factory_agent.db").Replace("\", "/")
     $goSqlitePath = (Join-Path $agentWorkDir "go_seeded_api.db").Replace("\", "/")
+
+    if (-not $SkipRAG) {
+        $ragIngestionScript = Join-Path $RepoRoot "factory-agent\factory_agent\rag\ingestion.py"
+        $registerPath = Join-Path $RepoRoot "rag_sources\00_metadata_templates\source_register.json"
+        if (Test-Path $ragIngestionScript) {
+            Invoke-LoggedCommand `
+                -Name "RAG Knowledge Ingestion" `
+                -WorkingDirectory $RepoRoot `
+                -FilePath $PythonExe `
+                -Arguments @($ragIngestionScript, "--register", $registerPath)
+        }
+    }
 
     Assert-PortsAvailable -Ports @($AgentGoPort, $AgentPort)
 

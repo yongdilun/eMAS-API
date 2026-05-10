@@ -10,6 +10,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 from rank_bm25 import BM25Okapi
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+import fitz  # PyMuPDF
 
 from factory_agent.rag.schemas import DocumentEntry, SourceRegister, Chunk
 
@@ -18,8 +19,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class IngestionEngine:
-    CHUNK_SIZE = 700
-    CHUNK_OVERLAP = 100
+    CHUNK_SIZE = 1000
+    CHUNK_OVERLAP = 200
     
     def __init__(self, db_path: str = "factory_agent/rag/vector_db", bm25_path: str = "factory_agent/rag/bm25_index.pkl"):
         self.db_path = db_path
@@ -86,7 +87,7 @@ class IngestionEngine:
                         "section_title": section_title,
                         "section_path": section_path,
                         "chunk_index": i,
-                        "ingested_at": datetime.utcnow().isoformat()
+                        "ingested_at": datetime.now().isoformat()
                     }
                 ))
         return final_chunks
@@ -97,12 +98,25 @@ class IngestionEngine:
             error_msg = f"File not found: {doc.file_path}"
             logger.warning(error_msg)
             with open("failed_ingestion.log", "a") as log:
-                log.write(f"{datetime.utcnow().isoformat()} - {doc.doc_id} - {error_msg}\n")
+                log.write(f"{datetime.now().isoformat()} - {doc.doc_id} - {error_msg}\n")
             return False
             
         try:
-            with open(doc.file_path, 'r', encoding='utf-8') as f:
-                text = f.read()
+            text = ""
+            file_ext = os.path.splitext(doc.file_path)[1].lower()
+            
+            if file_ext == ".pdf":
+                logger.info(f"Extracting text from PDF: {doc.doc_id}")
+                with fitz.open(doc.file_path) as pdf:
+                    for page in pdf:
+                        text += page.get_text()
+            else:
+                with open(doc.file_path, 'r', encoding='utf-8') as f:
+                    text = f.read()
+            
+            if not text.strip():
+                logger.warning(f"No text extracted from {doc.doc_id}")
+                return False
                 
             # Check version and skip if unchanged
             existing = self.collection.get(where={"doc_id": doc.doc_id}, limit=1)
@@ -115,12 +129,22 @@ class IngestionEngine:
                     logger.info(f"Updating {doc.doc_id} from {stored_version} to {doc.version}")
                     self.collection.delete(where={"doc_id": doc.doc_id})
             
-            chunks = self.section_aware_split(text, doc.dict())
+            chunks = self.section_aware_split(text, doc.model_dump())
             
             # Prepare for ChromaDB
             ids = [c.chunk_id for c in chunks]
             texts = [c.text for c in chunks]
-            metadatas = [c.metadata for c in chunks]
+            metadatas = []
+            for c in chunks:
+                # ChromaDB only supports str, int, float, bool. 
+                # Serialize lists/dicts to JSON strings.
+                clean_meta = {}
+                for k, v in c.metadata.items():
+                    if isinstance(v, (list, dict)):
+                        clean_meta[k] = json.dumps(v)
+                    else:
+                        clean_meta[k] = v
+                metadatas.append(clean_meta)
             
             # ChromaDB upsert
             self.collection.upsert(
@@ -138,7 +162,7 @@ class IngestionEngine:
         except Exception as e:
             logger.error(f"Failed to ingest {doc.doc_id}: {str(e)}")
             with open("failed_ingestion.log", "a") as log:
-                log.write(f"{datetime.utcnow().isoformat()} - {doc.doc_id} - {str(e)}\n")
+                log.write(f"{datetime.now().isoformat()} - {doc.doc_id} - {str(e)}\n")
             return False
 
     def build_bm25_index(self):
@@ -199,4 +223,4 @@ class IngestionEngine:
 
 if __name__ == "__main__":
     engine = IngestionEngine()
-    engine.run_full_ingestion("rag_sources/source_register.json")
+    engine.run_full_ingestion("rag_sources/00_metadata_templates/source_register.json")

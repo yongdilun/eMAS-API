@@ -50,11 +50,14 @@ class AnswerResult(BaseModel):
     answer: str
     sources: List[SourceCitation]
     safety_warning: bool
+    safety_content: Optional[str] = None
     route_used: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 class AgentResponse(BaseModel):
     answer: str
     sources: List[SourceCitation]
     route: str
     safety_warning: bool = False
+    safety_content: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)

@@ -18,8 +18,8 @@ If the context does not contain enough information to answer, say so clearly.
 Rules:
 - Be concise and direct
 - Use numbered steps for procedures
-- Cite source numbers like [SOURCE 1] after each claim
-- If risk_level is "high" in any source, add a safety warning at the end
+- Cite source numbers using superscript format like [^1] after each claim
+- Do not include any safety warnings or "Safety Warning:" text in this answer; a separate advisory block will be handled by the system.
 - Do not speculate beyond the context
 
 Context:
@@ -40,9 +40,10 @@ Use this live data together with the document context to give a complete answer.
 """
 
 SAFETY_WARNING_BLOCK = """
-⚠️ SAFETY WARNING: This topic involves high-risk procedures.
-Always follow your site's approved SOP, obtain required permits,
-and consult your safety officer before proceeding.
+:::safety
+**SAFETY WARNING**: This topic involves high-risk procedures.
+Always follow your site's approved SOP, obtain required permits, and consult your safety officer before proceeding.
+:::
 """
 
 class AnswerGenerator:
@@ -54,6 +55,19 @@ class AnswerGenerator:
     def __init__(self, settings: Optional[Settings] = None):
         self.settings = settings or get_settings()
         self.llm = build_rag_answer_chat_model(self.settings)
+
+    def _clean_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Deserializes JSON strings in metadata back to lists/dicts."""
+        clean = {}
+        for k, v in metadata.items():
+            if isinstance(v, str) and (v.startswith('[') or v.startswith('{')):
+                try:
+                    clean[k] = json.loads(v)
+                except:
+                    clean[k] = v
+            else:
+                clean[k] = v
+        return clean
 
     def generate(
         self, 
@@ -73,9 +87,28 @@ class AnswerGenerator:
                 route_used=route
             )
 
+        # Clean metadata for all chunks
+        for chunk in chunks:
+            chunk.metadata = self._clean_metadata(chunk.metadata)
+
         try:
-            # 1. Build context
-            context = self.build_context(chunks)
+            # Identify unique documents and map each chunk to a document-level source number
+            doc_id_to_num = {}
+            unique_doc_chunks = []
+            chunk_source_numbers = []
+
+            for chunk in chunks:
+                # Use doc_id if available, fallback to title
+                d_id = chunk.metadata.get("doc_id") or chunk.metadata.get("title") or "Unknown"
+                if d_id not in doc_id_to_num:
+                    new_num = len(unique_doc_chunks) + 1
+                    doc_id_to_num[d_id] = new_num
+                    unique_doc_chunks.append(chunk)
+                
+                chunk_source_numbers.append(doc_id_to_num[d_id])
+
+            # 1. Build context with document-level source numbers
+            context = self.build_context(chunks, chunk_source_numbers)
 
             # 2. Build API section
             api_section = ""
@@ -103,17 +136,22 @@ class AnswerGenerator:
             # 5. Check for high risk
             has_high_risk = any(c.metadata.get("risk_level") == "high" for c in chunks)
             
-            # A3: Append safety warning if high risk
-            if has_high_risk and SAFETY_WARNING_BLOCK.strip() not in answer_text:
-                answer_text = answer_text.strip() + "\n\n" + SAFETY_WARNING_BLOCK.strip()
+            safety_text = None
+            if has_high_risk:
+                safety_text = "This topic involves high-risk industrial procedures. Always follow your site's approved SOP, obtain required permits, and consult your safety officer before proceeding."
 
-            # 6. Build citations
-            sources = [self.build_source_citation(c, i + 1) for i, c in enumerate(chunks)]
+            # 6. Build citations (one per unique document)
+            sources = [self.build_source_citation(c, i + 1) for i, c in enumerate(unique_doc_chunks)]
+            
+            logger.info(f"Generated {len(sources)} sources for query. Top source: {sources[0].title if sources else 'None'}")
+            if sources:
+                logger.debug(f"Source 1 details: {sources[0].model_dump()}")
 
             return AnswerResult(
                 answer=answer_text,
                 sources=sources,
                 safety_warning=has_high_risk,
+                safety_content=safety_text,
                 route_used=route
             )
 
@@ -121,27 +159,40 @@ class AnswerGenerator:
             logger.error(f"Answer generation failed: {e}")
             # A9: Fallback message
             fallback_answer = "Unable to generate a detailed answer. Please check the following sources directly."
-            sources = [self.build_source_citation(c, i + 1) for i, c in enumerate(chunks)]
+            
+            # Recalculate unique docs for fallback
+            doc_id_to_num = {}
+            unique_doc_chunks = []
+            for chunk in chunks:
+                d_id = chunk.metadata.get("doc_id") or chunk.metadata.get("title") or "Unknown"
+                if d_id not in doc_id_to_num:
+                    doc_id_to_num[d_id] = len(unique_doc_chunks) + 1
+                    unique_doc_chunks.append(chunk)
+
+            sources = [self.build_source_citation(c, i + 1) for i, c in enumerate(unique_doc_chunks)]
+            has_high_risk = any(c.metadata.get("risk_level") == "high" for c in chunks)
             return AnswerResult(
                 answer=fallback_answer,
                 sources=sources,
-                safety_warning=any(c.metadata.get("risk_level") == "high" for c in chunks),
+                safety_warning=has_high_risk,
+                safety_content="Safety data may be relevant but could not be fully processed." if has_high_risk else None,
                 route_used=route
             )
 
-    def build_context(self, chunks: List[Chunk]) -> str:
+    def build_context(self, chunks: List[Chunk], source_numbers: List[int]) -> str:
         """
         Format selected chunks into a structured context block (6.1).
+        Uses provided source_numbers to ensure chunks from the same doc share a citation ID.
         """
         context_parts = []
-        for i, chunk in enumerate(chunks):
+        for chunk, src_num in zip(chunks, source_numbers):
             meta = chunk.metadata
             license_tag = f" [{meta.get('license', 'internal')}]"
             if meta.get("license") == "restricted":
                 license_tag = " [restricted — internal use only]"
             
             context_parts.append(
-                f"[SOURCE {i+1}: {meta.get('title', 'Unknown')}\n"
+                f"[SOURCE {src_num}: {meta.get('title', 'Unknown')}\n"
                 f" Organization: {meta.get('organization', 'Unknown')}\n"
                 f" Authority: {meta.get('authority_level', 'Unknown')}\n"
                 f" Domain: {meta.get('domain', 'Unknown')} / {meta.get('subdomain', 'Unknown')}\n"

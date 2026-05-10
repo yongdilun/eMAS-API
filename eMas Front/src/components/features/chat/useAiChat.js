@@ -48,6 +48,8 @@ function normalizeMessage(m) {
     execution_mode: m.execution_mode,
     bdi_result: m.bdi_result,
     tool_blocks: m.tool_blocks || m.toolBlocks || [],
+    sources: m.sources || [],
+    safetyContent: m.safety_content || m.safetyContent || null,
   }
 }
 

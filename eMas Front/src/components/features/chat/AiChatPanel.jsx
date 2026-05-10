@@ -166,6 +166,8 @@ const AiChatPanel = ({ onClose, onHeaderMouseDown }) => {
  message={merged.content}
  isUser={false}
  timestamp={primary?.timestamp}
+ sources={merged.sources}
+ safetyContent={merged.safetyContent}
  renderBlocks={() => (
  <>
  <LegacyBlocks blocks={merged.blocks} />

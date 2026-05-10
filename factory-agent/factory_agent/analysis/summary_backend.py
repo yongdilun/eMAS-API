@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
@@ -45,6 +45,11 @@ class SummaryAdapter:
         return ChatOpenAI(**kwargs)
 
     async def summarize_plan(self, *, intent: str, draft: PlanDraft) -> SummaryResult:
+        # If there are no steps, this is a conversational or RAG reply.
+        # We skip re-summarization to preserve citations and avoid "execution plan" mentions.
+        if not draft.steps:
+            return SummaryResult(text=draft.plan_explanation, backend_used="deterministic", llm_calls=0)
+
         backend = (self._settings.summary_backend or "auto").strip().lower()
         if backend == "auto":
             backend = "langchain" if (self._settings.summary_openai_base_url or self._settings.openai_api_key) else "deterministic"

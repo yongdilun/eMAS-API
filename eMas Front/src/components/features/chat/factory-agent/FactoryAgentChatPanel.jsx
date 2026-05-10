@@ -5,6 +5,7 @@ import ApprovalCard from './ApprovalCard'
 import { useFactoryAgentChat } from './useFactoryAgentChat'
 import { FACTORY_AGENT_STATUS } from '../../../../services/factoryAgentApi'
 import { TablePresentation } from '../turns/TurnBlocks'
+import { formatCitationChipLabel } from '../sourceFormatting'
 
 const CHAT_VIEW_MODE = (import.meta.env?.VITE_FACTORY_AGENT_CHAT_MODE || 'user').trim().toLowerCase() === 'dev' ? 'dev' : 'user'
 const STREAM_BUFFER_MS = Number(import.meta.env?.VITE_FACTORY_AGENT_STREAM_BUFFER_MS || 40)
@@ -98,44 +99,96 @@ function buildDeveloperDetailLines(turn) {
  ])
 }
 
-function StreamedAssistantText({ text, streamKey, enabled }) {
- const [displayed, setDisplayed] = useState(enabled ? '' : text)
+function renderCitationsAndBold(text, sources = []) {
+  if (!text) return null
 
- useEffect(() => {
- if (!enabled) {
- setDisplayed(text)
- return undefined
- }
+  // Handle bold
+  const boldParts = text.split(/(\*\*.*?\*\*)/g)
+  return boldParts.map((bPart, j) => {
+    if (bPart.startsWith('**') && bPart.endsWith('**')) {
+      return <strong key={j} className="font-semibold text-ink">{bPart.slice(2, -2)}</strong>
+    }
+    
+    // Handle [^1] citations
+    const citeParts = bPart.split(/(\[\^\d+\])/g)
+    return citeParts.map((cPart, k) => {
+      const match = cPart.match(/\[\^(\d+)\]/)
+      if (match) {
+        const num = parseInt(match[1], 10)
+        const source = (sources || []).find((s) => String(s.source_number) === String(num))
+        const fullTitle = source?.title || source?.doc_id || `Source ${num}`
+        const chipLabel = formatCitationChipLabel(source || { source_number: num }, num)
 
- const tokens = String(text || '').match(/\S+\s*/g) || []
- if (!tokens.length) {
- setDisplayed(text)
- return undefined
- }
+        return (
+          <span key={k} className="group relative mx-0.5 inline-flex items-center align-middle">
+            <span className="inline-flex max-w-[min(100%,19rem)] items-center gap-1.5 rounded-md border border-primary/25 bg-primary/[0.08] px-2 py-1 text-[11px] font-medium leading-tight text-primary shadow-sm transition-colors hover:border-primary/40 hover:bg-primary/[0.12]">
+              <span className="min-w-0 flex-1 truncate text-left" title={fullTitle}>
+                {chipLabel}
+              </span>
+            </span>
+            <span className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-max max-w-[260px] -translate-x-1/2 scale-0 rounded-lg border border-hairline bg-surface-3 p-2.5 text-[11px] font-medium text-ink shadow-2xl transition-all duration-200 group-hover:scale-100">
+              <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+                <span className="material-symbols-outlined text-[12px]">verified_user</span>
+                Cited document
+              </div>
+              <div className="leading-snug font-semibold">{fullTitle}</div>
+              {source?.organization && (
+                <div className="mt-1.5 flex items-center gap-1 text-[10px] text-ink-subtle">
+                  <span className="material-symbols-outlined text-[11px]">corporate_fare</span>
+                  {source.organization}
+                </div>
+              )}
+              {source?.doc_id && (
+                <div className="mt-1 font-mono text-[9px] uppercase text-ink-tertiary">ID: {source.doc_id}</div>
+              )}
+              <span className="absolute left-1/2 top-full -ml-1 border-[6px] border-transparent border-t-surface-3" />
+            </span>
+          </span>
+        )
+      }
+      return cPart
+    })
+  })
+}
 
- let index = 0
- let nextValue = ''
- setDisplayed('')
+function StreamedAssistantText({ text, streamKey, enabled, sources = [] }) {
+  const [displayed, setDisplayed] = useState(enabled ? '' : text)
 
- const timer = window.setInterval(() => {
- if (index >= tokens.length) {
- window.clearInterval(timer)
- return
- }
+  useEffect(() => {
+    if (!enabled) {
+      setDisplayed(text)
+      return undefined
+    }
 
- nextValue += tokens[index]
- index += 1
- setDisplayed(nextValue)
+    const tokens = String(text || '').match(/\S+\s*/g) || []
+    if (!tokens.length) {
+      setDisplayed(text)
+      return undefined
+    }
 
- if (index >= tokens.length) {
- window.clearInterval(timer)
- }
- }, Number.isFinite(STREAM_BUFFER_MS) && STREAM_BUFFER_MS > 0 ? STREAM_BUFFER_MS : 40)
+    let index = 0
+    let nextValue = ''
+    setDisplayed('')
 
- return () => window.clearInterval(timer)
- }, [enabled, streamKey, text])
+    const timer = window.setInterval(() => {
+      if (index >= tokens.length) {
+        window.clearInterval(timer)
+        return
+      }
 
- return <>{displayed || (enabled ? '' : text)}</>
+      nextValue += tokens[index]
+      index += 1
+      setDisplayed(nextValue)
+
+      if (index >= tokens.length) {
+        window.clearInterval(timer)
+      }
+    }, Number.isFinite(STREAM_BUFFER_MS) && STREAM_BUFFER_MS > 0 ? STREAM_BUFFER_MS : 40)
+
+    return () => window.clearInterval(timer)
+  }, [enabled, streamKey, text])
+
+  return <>{renderCitationsAndBold(displayed || (enabled ? '' : text), sources)}</>
 }
 
 function getLatestToolPresentation(turn) {
@@ -255,16 +308,19 @@ function AssistantTurnBubble({
 
  return (
  <ChatMessage
- message=""
- isUser={false}
- timestamp={timestamp}
- renderBlocks={() => (
+  message=""
+  isUser={false}
+  timestamp={timestamp}
+  sources={turn.sources}
+  safetyContent={turn.safetyContent}
+  renderBlocks={() => (
  <>
  <div className="whitespace-pre-wrap break-words text-ink">
  <StreamedAssistantText
  text={summary}
  streamKey={`${turn?.id || 'turn'}:${summary}`}
  enabled={shouldAnimateText && showDetails}
+ sources={turn.sources}
  />
  </div>
  {presentation ? (
@@ -483,7 +539,11 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
  return (
  <div
  key={item.session_id}
- className={`group rounded-md border transition-colors ${isActive ? 'border-primary/40 bg-primary/10' : 'border-transparent bg-transparent hover:border-hairline hover:bg-surface-2'}`}
+ className={`group rounded-lg border transition-colors ${
+ isActive
+ ? 'border-primary/50 bg-primary/[0.14] shadow-[inset_4px_0_0_0_#5e6ad2] ring-1 ring-inset ring-primary/20'
+ : 'border-transparent bg-transparent hover:border-hairline hover:bg-surface-2'
+ }`}
  >
  <button
  type="button"
@@ -513,7 +573,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
  ) : (
  <div className="flex items-start gap-2">
  <div className="min-w-0 flex-1">
- <div className="truncate text-sm font-medium text-ink">
+ <div className={`truncate text-sm text-ink ${isActive ? 'font-semibold' : 'font-medium'}`}>
  {item.name}
  </div>
  <div className="mt-0.5 text-[11px] uppercase tracking-wide text-ink-subtle">

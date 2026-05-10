@@ -33,7 +33,7 @@ class QueryRouter:
     # Static keyword lists (fallbacks/supplemental)
     API_ACTION_VERBS = {"show", "list", "fetch", "get", "display", "create", "update", "set", "add", "change", "delete", "remove"}
     TEMPORAL_MARKERS = {"current", "today", "now", "live", "recent", "latest"}
-    RAG_INTENT_VERBS = {"explain", "procedure", "steps", "definition", "standard", "policy", "guideline", "describe", "meaning", "how to"}
+    RAG_INTENT_VERBS = {"explain", "procedure", "steps", "definition", "standard", "policy", "guideline", "describe", "meaning", "how to", "what", "functions", "framework"}
     DIAGNOSE_SIGNALS = {"why", "is this normal", "recommend", "troubleshoot", "fault", "error", "problem", "issue", "acceptable", "threshold"}
     SAFETY_TERMS = {"loto", "csf", "guarding", "confined", "ppe", "sop"}
     
@@ -262,6 +262,11 @@ class QueryRouter:
         if has_diagnose:
             scores[self.API_THEN_RAG] += w.get("diagnose_signal", 8)
             signals.append("diagnose_signal")
+
+        if has_question and not has_id and not has_api_verb:
+            # "What is X?" -> RAG_ONLY
+            scores[self.RAG_ONLY] += w.get("question_word_only", 5)
+            signals.append("question_word_only")
 
         if has_api_verb and (has_rag_verb or has_safety_term):
             # Hybrid query: "Show me X and explain Y"
