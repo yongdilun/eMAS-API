@@ -31,13 +31,13 @@ except Exception:  # pragma: no cover - defensive for older langgraph versions
 
 def make_validate_node(settings: Settings):
     def validate_node(state: AgentState) -> AgentState:
-        raw_plan = state.get("raw_plan")
-        if raw_plan is None:
+        plan_blueprint = state.get("plan_blueprint")
+        if plan_blueprint is None:
             raise LangGraphPlannerError("LangGraph planner did not produce a plan.")
-        if raw_plan.clarification:
+        if plan_blueprint.clarification:
             return {
-                "clarification": raw_plan.clarification,
-                "draft": None,
+                "clarification": plan_blueprint.clarification,
+                "validated_plan": None,
                 "status": "awaiting_clarification",
             }
 
@@ -48,26 +48,26 @@ def make_validate_node(settings: Settings):
             context=state.get("context") or {},
         )
         repaired_tool_names = {step.tool_name for step in repaired.steps} if repaired is not None else set()
-        raw_tool_names = {step.tool_name for step in raw_plan.steps or []}
-        incomplete_repairable_plan = bool(repaired_tool_names and not repaired_tool_names <= raw_tool_names)
-        if not raw_plan.steps or any(step.tool_name not in tools_by_name for step in raw_plan.steps) or incomplete_repairable_plan:
+        blueprint_tool_names = {step.tool_name for step in plan_blueprint.steps or []}
+        incomplete_repairable_plan = bool(repaired_tool_names and not repaired_tool_names <= blueprint_tool_names)
+        if not plan_blueprint.steps or any(step.tool_name not in tools_by_name for step in plan_blueprint.steps) or incomplete_repairable_plan:
             if repaired is not None:
                 log_event(
                     "langgraph_planner_deterministic_repair",
                     level="WARNING",
                     intent=user_query_text(state),
                     reason="empty_unsupported_or_incomplete_plan",
-                    raw_step_count=len(raw_plan.steps or []),
-                    raw_tool_names=[step.tool_name for step in raw_plan.steps or []],
+                    raw_step_count=len(plan_blueprint.steps or []),
+                    raw_tool_names=[step.tool_name for step in plan_blueprint.steps or []],
                     tool_names=[step.tool_name for step in repaired.steps],
                 )
-                raw_plan = repaired
+                plan_blueprint = repaired
         context = state.get("context") or {}
         intent_memory = context.get("intent_memory") if isinstance(context.get("intent_memory"), dict) else {}
         step_drafts: list[PlanStepDraft] = []
         contract_steps: list[dict[str, Any]] = []
 
-        for idx, raw_step in enumerate(raw_plan.steps[: settings.max_plan_steps]):
+        for idx, raw_step in enumerate(plan_blueprint.steps[: settings.max_plan_steps]):
             tool = tools_by_name.get(raw_step.tool_name)
             if not tool:
                 raise LangGraphPlannerClarification(f"I could not safely select a supported tool for step {idx + 1}.")
@@ -180,8 +180,8 @@ def make_validate_node(settings: Settings):
                 "langgraph_planner_empty_plan",
                 level="WARNING",
                 intent=user_query_text(state),
-                raw_step_count=len(raw_plan.steps or []),
-                raw_tool_names=[s.tool_name for s in raw_plan.steps or [] if isinstance(getattr(s, "tool_name", None), str)],
+                raw_step_count=len(plan_blueprint.steps or []),
+                raw_tool_names=[s.tool_name for s in plan_blueprint.steps or [] if isinstance(getattr(s, "tool_name", None), str)],
                 scoped_tool_count=len(tools_by_name),
             )
             raise LangGraphPlannerClarification("I could not map that request to a safe factory tool plan.")
@@ -200,16 +200,16 @@ def make_validate_node(settings: Settings):
             )
 
         draft = PlanDraft(
-            plan_explanation=raw_plan.plan_explanation.strip()
+            plan_explanation=plan_blueprint.plan_explanation.strip()
             or f"Plan prepared for intent: {user_query_text(state) or 'user request'}.",
-            risk_summary=raw_plan.risk_summary.strip() or "Review the proposed tool calls before execution.",
+            risk_summary=plan_blueprint.risk_summary.strip() or "Review the proposed tool calls before execution.",
             steps=step_drafts,
         )
         validation = validate_plan(draft, tools_by_name, max_steps=settings.max_plan_steps)
         if not validation.ok:
             raise LangGraphPlannerError("; ".join(validation.errors))
         return {
-            "draft": draft,
+            "validated_plan": draft,
             "intent_contract": {
                 "intent": user_query_text(state),
                 "backend": "langgraph",

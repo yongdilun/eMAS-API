@@ -14,7 +14,7 @@ from ..errors import LangGraphPlannerError
 from ..planner_graph_helpers import _deterministic_plan_repair, _message_content_text, _tool_cards
 from ..state import AgentPlanOutput, AgentPlanStep, AgentState, user_query_text
 
-RouteKey = Literal["clarify_end", "continue_planner", "decision_guard", "synthesize_raw_plan"]
+RouteKey = Literal["clarify_end", "continue_planner", "decision_guard", "synthesize_plan"]
 
 
 def _get_by_path(obj: dict[str, Any], path: str) -> Any:
@@ -320,7 +320,7 @@ def make_planner_node(settings: Settings):
             return {
                 "planner_iteration": iteration,
                 "working_intents": working,
-                "next_route": "synthesize_raw_plan",
+                "next_route": "synthesize_plan",
                 "status": "planning",
             }
 
@@ -331,7 +331,7 @@ def make_planner_node(settings: Settings):
                 "planner_iteration": iteration,
                 "working_intents": working,
                 "pending_decision": None,
-                "next_route": "synthesize_raw_plan",
+                "next_route": "synthesize_plan",
                 "status": "validating",
             }
 
@@ -426,7 +426,7 @@ def make_planner_node(settings: Settings):
                 extra["intent_cursor"] = later
                 next_route = "continue_planner"
             else:
-                next_route = "synthesize_raw_plan"
+                next_route = "synthesize_plan"
                 extra["status"] = "validating"
         elif decision.kind == "intent_failed":
             reason = decision.decision_summary
@@ -440,10 +440,10 @@ def make_planner_node(settings: Settings):
                 extra["intent_cursor"] = nxt2
                 next_route = "continue_planner"
             else:
-                next_route = "synthesize_raw_plan"
+                next_route = "synthesize_plan"
                 extra["status"] = "validating"
         elif decision.kind == "halt":
-            next_route = "synthesize_raw_plan"
+            next_route = "synthesize_plan"
             extra["status"] = "validating"
         elif decision.kind in ("domain_tool", "parallel_read_tools", "request_approval"):
             next_route = "decision_guard"
@@ -558,8 +558,8 @@ def decision_guard_node(state: AgentState) -> dict[str, Any]:
     return {"pending_decision": pending, "next_route": "tool_execution"}
 
 
-def synthesize_raw_plan_node(state: AgentState) -> dict[str, Any]:
-    """Build legacy ``AgentPlanOutput`` from execution trace for the existing validate node."""
+def synthesize_plan_node(state: AgentState) -> dict[str, Any]:
+    """Build a structured plan blueprint from the graph execution trace."""
     scoped = state.get("scoped_tools") or []
     tools_by_name = {t.name: t for t in scoped if getattr(t, "name", None)}
     steps: list[AgentPlanStep] = []
@@ -586,10 +586,10 @@ def synthesize_raw_plan_node(state: AgentState) -> dict[str, Any]:
     if not steps:
         rep = _deterministic_plan_repair(user_query_text(state), scoped, context=state.get("context") or {})
         if rep is not None:
-            return {"raw_plan": rep, "risk_summary": rep.risk_summary, "status": "planning"}
+            return {"plan_blueprint": rep, "risk_summary": rep.risk_summary, "status": "planning"}
 
         return {
-            "raw_plan": AgentPlanOutput(
+            "plan_blueprint": AgentPlanOutput(
                 plan_explanation=f"No tool steps recorded; cannot map request: {user_query_text(state)}",
                 risk_summary="Empty planner trace.",
                 steps=[],
@@ -602,7 +602,7 @@ def synthesize_raw_plan_node(state: AgentState) -> dict[str, Any]:
     plan_explanation = " ".join(expl_parts).strip() or f"Planned tool sequence for: {user_query_text(state)}"
     risk = state.get("risk_summary") or "Review tool calls before execution."
     return {
-        "raw_plan": AgentPlanOutput(
+        "plan_blueprint": AgentPlanOutput(
             plan_explanation=plan_explanation,
             risk_summary=str(risk),
             steps=steps,
@@ -618,7 +618,7 @@ def clarify_end_node(state: AgentState) -> dict[str, Any]:
 
 def route_after_planner(state: AgentState) -> str:
     r = state.get("next_route")
-    if r in ("clarify_end", "continue_planner", "decision_guard", "synthesize_raw_plan"):
+    if r in ("clarify_end", "continue_planner", "decision_guard", "synthesize_plan"):
         return str(r)
     return "decision_guard"
 

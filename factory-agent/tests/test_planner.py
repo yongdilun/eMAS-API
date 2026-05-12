@@ -171,7 +171,7 @@ def test_langgraph_validation_prefers_reference_type_tools(intent, general_tool,
     state = stub_agent_state(
         query=intent,
         scoped_tools=tools,
-        raw_plan=AgentPlanOutput(
+        plan_blueprint=AgentPlanOutput(
             plan_explanation="List requested type reference data.",
             risk_summary="Read-only lookup.",
             steps=[
@@ -187,7 +187,7 @@ def test_langgraph_validation_prefers_reference_type_tools(intent, general_tool,
 
     result = _run_validate(settings, state)
 
-    draft = result["draft"]
+    draft = result["validated_plan"]
     assert draft.steps[0].tool_name == reference_tool
     assert result["intent_contract"]["steps"][0]["tool_name"] == reference_tool
 
@@ -214,7 +214,7 @@ def test_langgraph_validation_inserts_delete_preflight_lookup():
     state = stub_agent_state(
         query="delete test job TEST-E2E-factory-delete",
         scoped_tools=tools,
-        raw_plan=AgentPlanOutput(
+        plan_blueprint=AgentPlanOutput(
             plan_explanation="Delete the requested job after checking it.",
             risk_summary="Requires approval before deletion.",
             steps=[
@@ -230,7 +230,7 @@ def test_langgraph_validation_inserts_delete_preflight_lookup():
 
     result = _run_validate(settings, state)
 
-    draft = result["draft"]
+    draft = result["validated_plan"]
     assert [step.tool_name for step in draft.steps] == ["get__jobs_{id}", "delete__jobs_{id}"]
     assert [step.step_index for step in draft.steps] == [0, 1]
     assert all(step.args == {"id": "TEST-E2E-factory-delete"} for step in draft.steps)
@@ -425,7 +425,7 @@ def test_validate_node_empty_plan_returns_clarification():
     state = stub_agent_state(
         query="list machines",
         scoped_tools=[_read_tool("get__machines", "/machines")],
-        raw_plan=AgentPlanOutput(
+        plan_blueprint=AgentPlanOutput(
             plan_explanation="",
             risk_summary="",
             steps=[],
@@ -470,7 +470,7 @@ def test_validate_node_empty_plan_falls_back_to_clear_read_tool_with_supported_p
     state = stub_agent_state(
         query="explosion for product P-001",
         scoped_tools=tools,
-        raw_plan=AgentPlanOutput(
+        plan_blueprint=AgentPlanOutput(
             plan_explanation="",
             risk_summary="",
             steps=[],
@@ -479,7 +479,7 @@ def test_validate_node_empty_plan_falls_back_to_clear_read_tool_with_supported_p
 
     result = _run_validate(settings, state)
 
-    draft = result["draft"]
+    draft = result["validated_plan"]
     assert [step.tool_name for step in draft.steps] == ["get__scheduling_explosion"]
     assert draft.steps[0].args == {"id": "P-001"}
     assert result["intent_contract"]["steps"][0]["tool_name"] == "get__scheduling_explosion"
@@ -520,7 +520,7 @@ def test_langgraph_repair_expands_job_and_slots_compound_read():
     state = stub_agent_state(
         query="show JOB-SEED-001 and its slots",
         scoped_tools=tools,
-        raw_plan=AgentPlanOutput(
+        plan_blueprint=AgentPlanOutput(
             plan_explanation="bad model output",
             risk_summary="",
             steps=[
@@ -536,7 +536,7 @@ def test_langgraph_repair_expands_job_and_slots_compound_read():
 
     result = _run_validate(settings, state)
 
-    draft = result["draft"]
+    draft = result["validated_plan"]
     assert [step.tool_name for step in draft.steps] == ["get__jobs_{id}", "get__jobs_{id}_slots"]
     assert draft.steps[0].args == {"id": "JOB-SEED-001"}
     assert draft.steps[1].args == {"id": "JOB-SEED-001"}
@@ -578,7 +578,7 @@ def test_langgraph_repair_expands_incomplete_job_slots_plan():
     state = stub_agent_state(
         query="show JOB-SEED-001 and its slots",
         scoped_tools=tools,
-        raw_plan=AgentPlanOutput(
+        plan_blueprint=AgentPlanOutput(
             plan_explanation="Retrieve slots only.",
             risk_summary="Read-only.",
             steps=[
@@ -594,7 +594,7 @@ def test_langgraph_repair_expands_incomplete_job_slots_plan():
 
     result = _run_validate(settings, state)
 
-    draft = result["draft"]
+    draft = result["validated_plan"]
     assert [step.tool_name for step in draft.steps] == ["get__jobs_{id}", "get__jobs_{id}_slots"]
     assert draft.steps[0].args == {"id": "JOB-SEED-001"}
     assert draft.steps[1].args == {"id": "JOB-SEED-001"}
@@ -1153,8 +1153,8 @@ async def test_reason_node_invalid_schema_uses_deterministic_repair(monkeypatch)
         )
     )
 
-    assert out["raw_plan"] is not None
-    assert [step.tool_name for step in out["raw_plan"].steps] == ["get__jobs_{id}"]
+    assert out["plan_blueprint"] is not None
+    assert [step.tool_name for step in out["plan_blueprint"].steps] == ["get__jobs_{id}"]
     assert out["risk_summary"] == "repair-risk"
 
 
@@ -1189,11 +1189,10 @@ async def test_reason_node_invalid_schema_salvages_supported_steps_when_repair_u
         )
     )
 
-    plan = out["raw_plan"]
+    plan = out["plan_blueprint"]
     assert plan is not None
     assert [step.tool_name for step in plan.steps] == ["get__jobs_{id}"]
     assert plan.steps[0].args == {"id": "JOB-SEED-001"}
     assert plan.steps[0].depends_on == []
     assert out["risk_summary"] == "Planner output was partially malformed; unsupported fields were dropped."
-
 

@@ -19,7 +19,7 @@ from .planner_loop import (
     make_planner_node,
     route_after_guard,
     route_after_planner,
-    synthesize_raw_plan_node,
+    synthesize_plan_node,
 )
 from .prepare import prepare_node
 from .validate import make_final_validator_node, make_validate_node
@@ -45,5 +45,5 @@ __all__ = [
     "route_after_relevance",
     "route_after_tool",
     "route_after_validate",
-    "synthesize_raw_plan_node",
+    "synthesize_plan_node",
 ]

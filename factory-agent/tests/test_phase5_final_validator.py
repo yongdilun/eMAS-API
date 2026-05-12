@@ -8,8 +8,8 @@ from factory_agent.schemas import PlanDraft, PlanStepDraft
 
 def _validated_state(**overrides):
     state = {
-        "raw_plan": None,
-        "draft": PlanDraft(
+        "plan_blueprint": None,
+        "validated_plan": PlanDraft(
             plan_explanation="Ready.",
             risk_summary="Review writes.",
             steps=[
@@ -98,7 +98,7 @@ def test_write_flow_routes_dry_run_before_commit_or_approval(monkeypatch):
 
     def fake_validate(state):
         return {
-            "draft": state["draft"],
+            "validated_plan": state["validated_plan"],
             "intent_contract": {"backend": "langgraph", "steps": []},
             "status": "completed",
             "validation_results": [{"ok": True}],
@@ -118,7 +118,7 @@ def test_write_flow_approves_only_after_successful_dry_run(monkeypatch):
 
     def fake_validate(state):
         return {
-            "draft": state["draft"],
+            "validated_plan": state["validated_plan"],
             "intent_contract": {"backend": "langgraph", "steps": []},
             "status": "completed",
             "validation_results": [{"ok": True}],

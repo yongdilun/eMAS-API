@@ -118,13 +118,13 @@ class OfflineLangGraphPlanner:
             "failed_strategies": [],
             "errors": [],
             "status": "planning",
-            "raw_plan": raw,
+            "plan_blueprint": raw,
         }
         validated = make_validate_node(self._settings)(state)
         clarification = validated.get("clarification")
         if clarification:
             raise LangGraphPlannerClarification(str(clarification))
-        draft = validated.get("draft")
+        draft = validated.get("validated_plan")
         if draft is None:
             raise LangGraphPlannerError("Offline planner validation returned no draft.")
         contract = validated.get("intent_contract") or {"intent": intent, "backend": "langgraph", "steps": []}
@@ -233,4 +233,3 @@ class OfflineLangGraphPlanner:
             return list(repaired.steps)
 
         return []
-

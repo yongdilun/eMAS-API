@@ -132,6 +132,6 @@ class AgentState(TypedDict, total=False):
     errors: Annotated[list[str], operator.add]
     idempotency_audit: Annotated[list[dict[str, Any]], operator.add]
 
-    # --- Legacy planner bridge (removed in later migration phases) ---
-    raw_plan: AgentPlanOutput | None
-    draft: PlanDraft | None
+    # --- Planner artifacts (LangGraph-native names) ---
+    plan_blueprint: AgentPlanOutput | None
+    validated_plan: PlanDraft | None

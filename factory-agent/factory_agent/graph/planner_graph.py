@@ -82,7 +82,7 @@ class LangGraphPlanner:
         clarification = result.get("clarification")
         if clarification:
             raise LangGraphPlannerClarification(str(clarification))
-        draft = result.get("draft")
+        draft = result.get("validated_plan")
         if not isinstance(draft, PlanDraft):
             raise LangGraphPlannerError("LangGraph planner did not return a validated PlanDraft.")
         return draft, result.get("intent_contract") or {
@@ -111,7 +111,13 @@ class LangGraphPlanner:
         clarification = result.get("clarification")
         if clarification:
             raise LangGraphPlannerClarification(str(clarification))
-        draft = result.get("draft")
+        draft = result.get("validated_plan")
+        if not approved and not isinstance(draft, PlanDraft):
+            draft = PlanDraft(
+                plan_explanation="Approval was rejected; no writes were committed.",
+                risk_summary="Operator rejected the staged write bundle.",
+                steps=[],
+            )
         if not isinstance(draft, PlanDraft):
             raise LangGraphPlannerError("LangGraph planner did not return a validated PlanDraft on resume.")
         return draft, result.get("intent_contract") or {

@@ -55,8 +55,6 @@ from ..schemas import (
     ToolInfo,
     ValidationErrorResponse,
 )
-from ..orchestration.router import QueryRouter
-from ..llm.models import build_planner_chat_model
 from ..orchestration.session_manager import SessionManager, TransitionError, VersionConflictError
 from ..security import JwtValidationError, validate_bearer_token
 from ..analysis.summary_backend import SummaryAdapter, SummaryBackendError
@@ -64,7 +62,6 @@ from ..observability.telemetry import log_event, log_step_status_changed
 from ..registry.tool_registry import ToolRegistry
 from ..planning.tool_selector import ToolSelector
 from ..analysis.presentation import extract_table_from_result
-from ..rag.pipeline import RAGPipeline
 
 
 def _normalize_session_name(name: str | None) -> str | None:
@@ -271,9 +268,6 @@ def build_router(
     planner = planner_adapter or PlannerService(settings=settings, tool_registry=tool_registry)
     tool_selector = ToolSelector(settings)
     summary_adapter = SummaryAdapter(settings)
-    query_router = QueryRouter(llm=build_planner_chat_model(settings, json_mode=True))
-    rag_pipeline = RAGPipeline()
-
     def _should_enforce_registry_health() -> bool:
         if not settings.enforce_tool_registry_health:
             return False
@@ -798,18 +792,18 @@ def build_router(
             state = payload.get("state")
             if not isinstance(state, dict):
                 return {}
-            if "draft" in state or "tool_outputs" in state or "completed_actions" in state:
+            if "validated_plan" in state or "tool_outputs" in state or "completed_actions" in state:
                 return state
             for key in ("values", "channel_values", "agent_state"):
                 candidate = state.get(key)
                 if isinstance(candidate, dict) and (
-                    "draft" in candidate or "tool_outputs" in candidate or "completed_actions" in candidate
+                    "validated_plan" in candidate or "tool_outputs" in candidate or "completed_actions" in candidate
                 ):
                     return candidate
             return state
 
         checkpoint_state = _checkpoint_state_dict(checkpoint_payload if isinstance(checkpoint_payload, dict) else None)
-        checkpoint_draft = checkpoint_state.get("draft") if isinstance(checkpoint_state.get("draft"), dict) else {}
+        checkpoint_draft = checkpoint_state.get("validated_plan") if isinstance(checkpoint_state.get("validated_plan"), dict) else {}
         checkpoint_steps = checkpoint_draft.get("steps") if isinstance(checkpoint_draft.get("steps"), list) else []
         checkpoint_tool_outputs = (
             checkpoint_state.get("tool_outputs") if isinstance(checkpoint_state.get("tool_outputs"), list) else []
@@ -1721,67 +1715,6 @@ def build_router(
         mode = latest_user.mode if latest_user else "normal"
         assessment = assess_intent(intent)
         
-        if assessment.kind == "operations" and intent:
-            route_decision = await query_router.route(intent)
-            route_type = route_decision.get("route", "API_ONLY")
-            route_source = route_decision.get("route_source", "unknown")
-            if not isinstance(sess.replan_context, dict):
-                sess.replan_context = {}
-            sess.replan_context["route_decision"] = route_decision
-            log_event(
-                "query_routed",
-                session_id=session_id,
-                intent=intent,
-                route=route_type,
-                route_source=route_source
-            )
-            
-            if route_type == "RAG_ONLY":
-                tools_by_name = await tool_registry.get_tools_by_name(db)
-                sources = []
-                safety_content = None
-                try:
-                    rag_result = await rag_pipeline.run(query=intent, session_id=session_id)
-                    reply = rag_result.answer
-                    sources = rag_result.sources
-                    safety_content = rag_result.safety_content
-                except Exception as exc:
-                    reply = f"I encountered an error while searching for knowledge: {str(exc)}"
-                
-                plan_resp = await _persist_conversation_reply_as_empty_plan(
-                    db=db,
-                    sess=sess,
-                    reply=reply,
-                    mode=mode,
-                    tools_by_name=tools_by_name,
-                    intent=intent,
-                    sources=sources,
-                    safety_content=safety_content,
-                )
-                metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
-                return plan_resp
-
-            if route_type == "CLARIFY":
-                tools_by_name = await tool_registry.get_tools_by_name(db)
-                clarify_reason = route_decision.get("clarify_reason") or "the request is missing required specifics"
-                reply = f"I need clarification before execution: {clarify_reason}."
-                plan_resp = await _persist_conversation_reply_as_empty_plan(
-                    db=db,
-                    sess=sess,
-                    reply=reply,
-                    mode=mode,
-                    tools_by_name=tools_by_name,
-                    intent=intent,
-                    context_to_keep=sess.replan_context,
-                )
-                metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
-                return plan_resp
-
-            if route_type == "API_THEN_RAG":
-                sess.replan_context["rag_required"] = True
-            if route_type == "RAG_THEN_API":
-                sess.replan_context["rag_context_required"] = True
-
         tools_by_name = await tool_registry.get_tools_by_name(db)
         tools_by_name = filter_tools_for_role(tools_by_name, role=role_from_claims(user))
         backend_used = "langgraph" if req.draft is None else "client"
@@ -1864,44 +1797,19 @@ def build_router(
                 metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
                 return plan_resp
             except PlannerApprovalRequired as e:
-                approval_payload = e.approval if isinstance(e.approval, dict) else {"kind": "approval_required"}
-                summary = str(approval_payload.get("summary") or "Approval is required before continuing.")
-                approval = ApprovalRow(
-                    approval_id=generate_uuid(),
-                    session_id=sess.session_id,
-                    subject_type="graph",
-                    plan_id=None,
-                    step_id=None,
-                    tool_name="__langgraph_commit__",
-                    args=approval_payload,
-                    risk_summary=summary,
-                    side_effect_level="HIGH",
-                    status="PENDING",
-                    expires_at=datetime.utcnow() + timedelta(hours=24),
-                )
-                db.add(approval)
-                context = dict(sess.replan_context or {})
-                context["langgraph_pending_approval"] = {
-                    "approval_id": approval.approval_id,
-                    "thread_id": sess.session_id,
-                    "source": "langgraph_interrupt",
-                }
-                sess.replan_context = context
-                sess.status = "WAITING_APPROVAL"
-                sess.error = summary
-                sess.version += 1
-                await db.commit()
-                plan_resp = await _persist_conversation_reply_as_empty_plan(
+                sess = await _persist_graph_interrupt_approval(
                     db=db,
                     sess=sess,
-                    reply=f"Waiting for approval: {summary}",
+                    approval_payload=e.approval if isinstance(e.approval, dict) else {"kind": "approval_required"},
                     mode=mode,
                     tools_by_name=tools_by_name,
                     intent=intent,
-                    context_to_keep=context,
                 )
                 metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
-                return plan_resp
+                current = await _load_current_plan(db=db, session_id=sess.session_id)
+                if current:
+                    return _plan_to_response(current)
+                raise HTTPException(status_code=409, detail="graph approval was created without a compatibility plan")
             except PlannerClarificationError as e:
                 reply = str(e)
                 if ('could not safely map "' in reply and "Allowed " in reply) or (
@@ -1999,6 +1907,142 @@ def build_router(
         metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
         return response
 
+    async def _persist_graph_interrupt_approval(
+        *,
+        db: AsyncSession,
+        sess: SessionRow,
+        approval_payload: dict[str, Any],
+        mode: str,
+        tools_by_name: dict[str, ToolInfo],
+        intent: str,
+    ) -> SessionRow:
+        summary = str(approval_payload.get("summary") or "Approval is required before continuing.")
+        approval = ApprovalRow(
+            approval_id=generate_uuid(),
+            session_id=sess.session_id,
+            subject_type="graph",
+            plan_id=None,
+            step_id=None,
+            tool_name="__langgraph_commit__",
+            args=approval_payload,
+            risk_summary=summary,
+            side_effect_level="HIGH",
+            status="PENDING",
+            expires_at=datetime.utcnow() + timedelta(hours=24),
+        )
+        db.add(approval)
+        context = dict(sess.replan_context or {})
+        context["langgraph_pending_approval"] = {
+            "approval_id": approval.approval_id,
+            "thread_id": sess.session_id,
+            "source": "langgraph_interrupt",
+        }
+        sess.replan_context = context
+        sess.status = "WAITING_APPROVAL"
+        sess.error = summary
+        sess.version += 1
+        await db.commit()
+        await _persist_conversation_reply_as_empty_plan(
+            db=db,
+            sess=sess,
+            reply=f"Waiting for approval: {summary}",
+            mode=mode,
+            tools_by_name=tools_by_name,
+            intent=intent,
+            context_to_keep=context,
+        )
+        sess = await session_mgr.get_session(db, session_id=sess.session_id) or sess
+        sess.replan_context = context
+        sess.status = "WAITING_APPROVAL"
+        sess.error = summary
+        sess.version += 1
+        await db.commit()
+        return await session_mgr.get_session(db, session_id=sess.session_id) or sess
+
+    async def _run_langgraph_session(
+        *,
+        db: AsyncSession,
+        sess: SessionRow,
+        user: dict[str, Any],
+    ) -> SessionRow:
+        intent = sess.current_intent or ""
+        latest_user = await _latest_user_message(db=db, session_id=sess.session_id)
+        mode = latest_user.mode if latest_user else "normal"
+        if not intent.strip():
+            raise HTTPException(status_code=400, detail={"errors": ["Cannot run LangGraph without a current intent."]})
+
+        tools_by_name = await _ensure_registry_health(db=db)
+        tools_by_name = filter_tools_for_role(tools_by_name, role=role_from_claims(user))
+        if not tools_by_name:
+            raise HTTPException(status_code=403, detail={"errors": ["No tools are allowed for this user role."]})
+        selection = await tool_selector.select_tools(
+            intent=intent,
+            tools_by_name=tools_by_name,
+            mode=mode,
+            context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+        )
+        scoped_tools = [tools_by_name[name] for name in selection.tool_names if name in tools_by_name]
+        if mode == "plan":
+            scoped_tools = [tool for tool in scoped_tools if tool.is_read_only]
+        try:
+            planner_context = await memory_manager.build_planner_context(
+                db,
+                session_id=sess.session_id,
+                intent=intent,
+                base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+            )
+            generated = await planner.generate_plan(
+                intent=intent,
+                scoped_tools=scoped_tools,
+                context=planner_context,
+            )
+        except PlannerApprovalRequired as e:
+            return await _persist_graph_interrupt_approval(
+                db=db,
+                sess=sess,
+                approval_payload=e.approval if isinstance(e.approval, dict) else {"kind": "approval_required"},
+                mode=mode,
+                tools_by_name=tools_by_name,
+                intent=intent,
+            )
+        except PlannerClarificationError as e:
+            sess.status = "BLOCKED"
+            sess.error = str(e)
+            sess.version += 1
+            await db.commit()
+            return sess
+        except PlannerBackendError as e:
+            sess.status = "FAILED"
+            sess.error = str(e)
+            sess.version += 1
+            await db.commit()
+            raise HTTPException(status_code=503, detail={"errors": [str(e)]}) from e
+
+        context = dict(sess.replan_context or {})
+        if generated.intent_contract:
+            context["intent_contract"] = generated.intent_contract
+        context.pop("langgraph_pending_approval", None)
+        sess.replan_context = context
+        sess.llm_call_count += selection.llm_calls + generated.llm_calls
+        await _persist_plan(
+            db=db,
+            sess=sess,
+            draft=generated.draft,
+            tools_by_name=tools_by_name,
+            backend_used=generated.backend_used,
+            kind="execution",
+            status="COMPLETED",
+            intent=intent,
+            context_to_keep=context,
+        )
+        sess = await session_mgr.get_session(db, session_id=sess.session_id) or sess
+        sess.status = "COMPLETED"
+        sess.completed_at = datetime.utcnow()
+        sess.error = None
+        sess.version += 1
+        await db.commit()
+        return sess
+
     @router.post("/sessions/{session_id}/execute", response_model=SessionResponse)
     async def execute(
         session_id: str,
@@ -2013,16 +2057,15 @@ def build_router(
         if expected_version is not None and sess.version != expected_version:
             raise HTTPException(status_code=409, detail=f"version_conflict expected={expected_version} actual={sess.version}")
         current_plan = await _load_current_plan(db=db, session_id=session_id)
-        if current_plan and (current_plan.created_by or "").strip().lower() == "langgraph":
-            # LangGraph execution is already completed during planning/approval-resume flow.
-            # Never route these plans through the legacy ExecutionEngine to avoid duplicate writes.
-            if current_plan.status != "COMPLETED":
-                current_plan.status = "COMPLETED"
-                if sess.status in ("PLANNING", "EXECUTING", "IDLE"):
-                    sess.status = "COMPLETED"
-                sess.error = None
-                sess.version += 1
-                await db.commit()
+        if _is_graph_native_session(sess, current_plan):
+            if sess.status == "WAITING_APPROVAL":
+                return _session_to_response(sess)
+            if current_plan and current_plan.status == "COMPLETED" and sess.status == "COMPLETED":
+                return _session_to_response(sess)
+            sess = await _run_langgraph_session(db=db, sess=sess, user=user)
+            return _session_to_response(sess)
+        if current_plan is None and sess.current_intent:
+            sess = await _run_langgraph_session(db=db, sess=sess, user=user)
             return _session_to_response(sess)
         if current_plan and current_plan.status == "COMPLETED":
             return _session_to_response(sess)
@@ -2319,18 +2362,27 @@ def build_router(
         current_plan = await _load_current_plan(db=db, session_id=row.session_id)
         if (getattr(row, "subject_type", "step") or "step") == "graph":
             sess = await session_mgr.get_session(db, session_id=row.session_id)
+            if not sess:
+                raise HTTPException(status_code=404, detail="session not found")
+            try:
+                await planner.resume_after_approval(session_id=sess.session_id, approved=False)
+            except PlannerBackendError as e:
+                sess.status = "FAILED"
+                sess.error = str(e)
+                sess.version += 1
+                await db.commit()
+                raise HTTPException(status_code=503, detail={"errors": [str(e)]}) from e
             row.status = "REJECTED"
             row.decided_by = req.decided_by
             row.decided_at = datetime.utcnow()
             row.rejection_reason = req.rejection_reason
-            if sess:
-                context = dict(sess.replan_context or {})
-                context.pop("langgraph_pending_approval", None)
-                sess.replan_context = context
-                sess.status = "IDLE"
-                sess.error = req.rejection_reason or f"Approval {row.approval_id} rejected"
-                sess.updated_at = datetime.utcnow()
-                sess.version += 1
+            context = dict(sess.replan_context or {})
+            context.pop("langgraph_pending_approval", None)
+            sess.replan_context = context
+            sess.status = "IDLE"
+            sess.error = req.rejection_reason or f"Approval {row.approval_id} rejected"
+            sess.updated_at = datetime.utcnow()
+            sess.version += 1
             await db.commit()
             await event_bus.publish(
                 AgentEvent(

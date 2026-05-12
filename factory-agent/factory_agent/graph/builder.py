@@ -24,7 +24,7 @@ from .nodes import (
     route_after_relevance,
     route_after_tool,
     route_after_validate,
-    synthesize_raw_plan_node,
+    synthesize_plan_node,
 )
 from .state import AgentState
 
@@ -43,7 +43,7 @@ def compile_planner_graph(settings: Settings):
     graph.add_node("decision_guard", decision_guard_node)
     graph.add_node("tool_execution", make_tool_execution_node(settings))
     graph.add_node("relevance_filter", make_relevance_filter_node(settings))
-    graph.add_node("synthesize_raw_plan", synthesize_raw_plan_node)
+    graph.add_node("synthesize_plan", synthesize_plan_node)
     graph.add_node("final_validator", make_final_validator_node(settings))
     graph.add_node("bundle_dry_run", make_bundle_dry_run_node(settings))
     graph.add_node("commit", make_commit_node(settings))
@@ -62,7 +62,7 @@ def compile_planner_graph(settings: Settings):
             "clarify_end": "clarify_end",
             "continue_planner": "planner",
             "decision_guard": "decision_guard",
-            "synthesize_raw_plan": "synthesize_raw_plan",
+            "synthesize_plan": "synthesize_plan",
         },
     )
     graph.add_conditional_edges(
@@ -89,7 +89,7 @@ def compile_planner_graph(settings: Settings):
             "continue_planner": "planner",
         },
     )
-    graph.add_edge("synthesize_raw_plan", "final_validator")
+    graph.add_edge("synthesize_plan", "final_validator")
     graph.add_conditional_edges(
         "final_validator",
         route_after_validate,

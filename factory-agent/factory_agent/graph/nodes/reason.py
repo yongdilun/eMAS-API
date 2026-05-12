@@ -160,7 +160,7 @@ def make_reason_node(settings: Settings):
                     reason="invalid_json",
                     tool_names=[step.tool_name for step in repaired.steps],
                 )
-                return {"raw_plan": repaired, "risk_summary": repaired.risk_summary, "status": "planning"}
+                return {"plan_blueprint": repaired, "risk_summary": repaired.risk_summary, "status": "planning"}
             raise LangGraphPlannerError("LangGraph planner returned invalid JSON.")
         try:
             plan = parse_agent_plan_output(parsed)
@@ -187,7 +187,7 @@ def make_reason_node(settings: Settings):
                     reason="invalid_schema",
                     tool_names=[step.tool_name for step in repaired.steps],
                 )
-                return {"raw_plan": repaired, "risk_summary": repaired.risk_summary, "status": "planning"}
+                return {"plan_blueprint": repaired, "risk_summary": repaired.risk_summary, "status": "planning"}
             salvaged = _salvage_plan_from_normalized(
                 normalized,
                 scoped_tool_names={tool.name for tool in (state.get("scoped_tools") or []) if getattr(tool, "name", None)},
@@ -200,9 +200,8 @@ def make_reason_node(settings: Settings):
                     step_count=len(salvaged.steps),
                     tool_names=[step.tool_name for step in salvaged.steps],
                 )
-                return {"raw_plan": salvaged, "risk_summary": salvaged.risk_summary, "status": "planning"}
+                return {"plan_blueprint": salvaged, "risk_summary": salvaged.risk_summary, "status": "planning"}
             raise LangGraphPlannerError("LangGraph planner returned JSON that does not match AgentPlanOutput.") from exc
-        return {"raw_plan": plan, "risk_summary": plan.risk_summary, "status": "planning"}
+        return {"plan_blueprint": plan, "risk_summary": plan.risk_summary, "status": "planning"}
 
     return reason_node
-
