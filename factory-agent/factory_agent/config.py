@@ -106,6 +106,9 @@ class Settings:
     tool_selector_openai_base_url: str | None = None
     rag_reranker_openai_base_url: str | None = None
     rag_answer_openai_base_url: str | None = None
+    # Phase 4: unified transaction bundle API (backend contract; paths may 404 until implemented).
+    agent_transaction_bundle_dry_run_path: str = "/agent/transaction/bundle-dry-run"
+    agent_transaction_commit_path: str = "/agent/transaction/commit"
 
 
 def _normalize_summary_backend(value: str) -> str:
@@ -306,5 +309,9 @@ def get_settings() -> Settings:
             or env("LLM_BASE_URL")
             or None
         ),
+        agent_transaction_bundle_dry_run_path=os.getenv(
+            "AGENT_TRANSACTION_BUNDLE_DRY_RUN_PATH", "/agent/transaction/bundle-dry-run"
+        ).strip(),
+        agent_transaction_commit_path=os.getenv("AGENT_TRANSACTION_COMMIT_PATH", "/agent/transaction/commit").strip(),
         bge_reranker_model=os.getenv("BGE_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3").strip(),
     )

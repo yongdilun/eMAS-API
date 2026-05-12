@@ -23,6 +23,10 @@ def intent_splitter_node(state: AgentState) -> dict[str, Any]:
     first: dict[str, Any] | None = payload[0] if payload else None
     return {
         "intents": payload,
+        "working_intents": [dict(x) for x in payload],
+        "intent_cursor": 0,
+        "pending_decision": None,
+        "planner_iteration": 0,
         "current_intent": first,
         "status": "planning",
     }

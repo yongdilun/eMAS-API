@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -53,6 +54,49 @@ class Intent(BaseModel):
     status: IntentLifecycleStatus = "pending"
     failure_reason: str | None = None
     category: IntentCategory = "unknown"
+
+
+PlannerDecisionKind = Literal[
+    "domain_tool",
+    "parallel_read_tools",
+    "request_clarification",
+    "request_approval",
+    "intent_completed",
+    "intent_failed",
+    "halt",
+]
+PlannerRiskLevel = Literal["read", "write_dry_run", "write_commit", "high_risk"]
+ControlActionName = Literal["request_clarification", "mark_intent_completed", "mark_intent_failed"]
+
+
+class ToolCall(BaseModel):
+    """Single tool invocation proposed by the planner (Phase 3)."""
+
+    tool_call_id: str = Field(default_factory=lambda: f"tc-{uuid4().hex[:12]}")
+    tool_name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    # Phase 4: optional stable handle for same-turn dependent write chaining ($ref:...).
+    output_ref: str | None = None
+
+
+class ControlAction(BaseModel):
+    """Structured control payload when the planner chooses a non-domain action."""
+
+    name: ControlActionName
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlannerDecision(BaseModel):
+    """Normalized planner output for routing, guards, and observability (Phase 3)."""
+
+    decision_id: str = Field(default_factory=lambda: f"dec-{uuid4().hex[:12]}")
+    intent_id: str
+    kind: PlannerDecisionKind
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    control_action: ControlAction | None = None
+    decision_summary: str
+    risk_level: PlannerRiskLevel = "read"
+    violates_constraints: bool = False
 
 
 AgentGraphRunStatus = Literal[
@@ -142,6 +186,8 @@ class ToolInfo(BaseModel):
     param_sources: dict[str, str] = Field(default_factory=dict)
 
     is_read_only: bool = False
+    # When true, RelevanceFilterNode must run an LLM usefulness check (Phase 4).
+    requires_semantic_filter: bool = False
     requires_approval: bool = False
     side_effect_level: SideEffectLevel = "NONE"
     is_concurrency_safe: bool = True

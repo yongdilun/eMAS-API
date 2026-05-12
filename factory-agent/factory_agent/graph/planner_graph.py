@@ -28,12 +28,23 @@ def _initial_planner_state(
         "approval_requests": [],
         "validation_results": [],
         "intents": [],
+        "working_intents": [],
+        "intent_cursor": 0,
+        "pending_decision": None,
+        "planner_iteration": 0,
         "tool_outputs": [],
         "completed_actions": [],
         "staged_writes": [],
         "failed_strategies": [],
         "errors": [],
         "status": "init",
+        "next_route": None,
+        "write_generation": 0,
+        "pending_relevance_batch": None,
+        "fatal_system_error": None,
+        "bundle_dry_run_result": None,
+        "last_commit_result": None,
+        "idempotency_audit": [],
     }
 
 
@@ -50,7 +61,7 @@ class LangGraphPlanner:
     ) -> tuple[PlanDraft, dict[str, Any]]:
         graph = compile_planner_graph(self._settings)
         state: AgentState = _initial_planner_state(intent=intent, scoped_tools=scoped_tools, context=context)
-        result = await graph.ainvoke(state)
+        result = await graph.ainvoke(state, config={"recursion_limit": 64})
         clarification = result.get("clarification")
         if clarification:
             raise LangGraphPlannerClarification(str(clarification))

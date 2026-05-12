@@ -78,6 +78,11 @@ class AgentState(TypedDict, total=False):
     context: dict[str, Any]
     scoped_tools: list[ToolInfo]
     tool_cards: list[dict[str, Any]]
+    # Phase 3: mutable copy of split intents (overwrite each tick; ``intents`` stays append-only trace).
+    working_intents: list[dict[str, Any]]
+    intent_cursor: int
+    pending_decision: dict[str, Any] | None
+    planner_iteration: int
     current_intent: dict[str, Any] | str | None
     retrieved_info: dict[str, Any]
     decisions: list[dict[str, Any]]
@@ -88,6 +93,13 @@ class AgentState(TypedDict, total=False):
     clarification: str | None
     final_response: str | None
     risk_summary: str | None
+    next_route: str | None
+    # Phase 4: tool execution / staging / commit
+    write_generation: int
+    pending_relevance_batch: list[dict[str, Any]] | None
+    fatal_system_error: str | None
+    bundle_dry_run_result: dict[str, Any] | None
+    last_commit_result: dict[str, Any] | None
 
     # --- LangGraph message channel ---
     messages: Annotated[list[AnyMessage], add_messages]
@@ -99,6 +111,7 @@ class AgentState(TypedDict, total=False):
     staged_writes: Annotated[list[dict[str, Any]], operator.add]
     failed_strategies: Annotated[list[dict[str, Any]], operator.add]
     errors: Annotated[list[str], operator.add]
+    idempotency_audit: Annotated[list[dict[str, Any]], operator.add]
 
     # --- Legacy planner bridge (removed in later migration phases) ---
     raw_plan: AgentPlanOutput | None
