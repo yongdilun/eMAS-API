@@ -78,3 +78,15 @@ def build_rag_answer_chat_model(settings: Settings):
     elif settings.openai_api_key:
         kwargs["api_key"] = settings.openai_api_key
     return ChatOpenAI(**kwargs)
+
+
+def build_bge_reranker(settings: Settings):
+    try:
+        from FlagEmbedding import FlagReranker
+    except Exception as exc:
+        raise PlannerLLMError("BGE reranker requires FlagEmbedding.") from exc
+
+    return FlagReranker(
+        settings.bge_reranker_model,
+        use_fp16=True
+    )

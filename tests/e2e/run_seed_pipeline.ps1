@@ -388,6 +388,9 @@ try {
   Write-Host "Seed pipeline run: $RunStamp" -ForegroundColor Green
   Write-Host "Log: $LogPath"
 
+  # Ensure Python can find the factory_agent package even if run from the root
+  $env:PYTHONPATH = "$RepoRoot\factory-agent;$env:PYTHONPATH"
+
   if (-not $SkipFast) {
     $exitCodes += Invoke-LoggedCommand `
       -Name "Go fast e2e checks and approval driver" `

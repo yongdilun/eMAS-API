@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import re
@@ -8,6 +8,7 @@ from typing import Any
 
 from ..config import Settings
 from ..schemas import ToolInfo
+from ..llm.models import build_bge_reranker
 from ..analysis.tabular_analysis import analyze_result
 from ..observability.telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped
 
@@ -34,6 +35,7 @@ class FactExtractionResult:
 class ReasoningPipeline:
     def __init__(self, settings: Settings):
         self._settings = settings
+        self._bge_reranker = build_bge_reranker(settings)
 
     _MAX_INLINE_RESULT_CHARS = 3200
     _MAX_PREVIEW_LIST_ITEMS = 8
@@ -474,53 +476,77 @@ class ReasoningPipeline:
         clause: str,
         candidates: list[dict[str, Any]],
     ) -> ToolSelectionDecision | None:
+        if not candidates:
+            return None
+
         try:
+            # 1. Semantic Selection using BGE
+            # We rank candidates based on how well their name, endpoint, and tags match the intent
+            pairs = []
+            for c in candidates:
+                context = f"Tool: {c['name']} Endpoint: {c['endpoint']} Tags: {', '.join(c.get('capability_tags', []))}"
+                pairs.append([intent, context])
+            
+            scores = self._bge_reranker.compute_score(pairs)
+            
+            # Combine BGE score with "Readiness" score (missing args penalty)
+            scored_candidates = []
+            for idx, c in enumerate(candidates):
+                base_score = float(scores[idx])
+                # Penalty for missing required arguments (prefer tools we have data for)
+                arg_penalty = len(c.get("missing_required", [])) * 0.4
+                scored_candidates.append({
+                    "candidate": c,
+                    "score": base_score - arg_penalty
+                })
+            
+            # Sort by combined score
+            scored_candidates.sort(key=lambda x: x["score"], reverse=True)
+            best = scored_candidates[0]
+            candidate = best["candidate"]
+            
+            # 2. Argument Extraction using Focused LLM
+            # Since BGE only selects, we use a small LLM call to bind parameters
             prompt = (
-                "Select one best tool for this user clause and return STRICT JSON.\n"
-                "JSON shape:\n"
-                '{"tool_name":"string","args":{},"confidence":0.0,"missing_args":[],"reason":"string"}\n'
+                "Extract arguments for the selected factory tool and return STRICT JSON.\n"
+                'JSON shape: {"args":{},"confidence":0.0,"missing_args":[],"reason":"string"}\n'
                 "Rules:\n"
-                "- Choose tool_name from candidates only.\n"
-                "- Prefer tools with fewer missing required args for read operations.\n"
-                "- Use candidate prefilled_args as args baseline.\n"
-                "- Do not invent unsupported args.\n"
-                "- Populate optional_args into args if they match the intent.\n\n"
-                f"Intent: {intent}\n"
-                f"Clause: {clause}\n"
-                f"Candidates: {json.dumps(candidates, ensure_ascii=False)}\n"
+                "- Use candidate prefilled_args as baseline.\n"
+                "- Only add values from the intent/clause if they are certain.\n"
+                "- List any required fields that are still missing.\n\n"
+                f"Selected Tool: {candidate['name']}\n"
+                f"Required Fields: {candidate.get('required_fields')}\n"
+                f"Prefilled Args: {json.dumps(candidate.get('prefilled_args'), ensure_ascii=False)}\n"
+                f"User Intent: {intent}\n"
+                f"User Clause: {clause}\n"
             )
+            
             parsed = await self._invoke_json(
                 component="reasoning_tool_selection",
                 prompt=prompt,
-                metadata={"candidate_count": len(candidates)},
+                metadata={"selected_tool": candidate['name'], "bge_score": best['score']},
             )
+            
             if not isinstance(parsed, dict):
-                return None
-            tool_name = parsed.get("tool_name")
-            args = parsed.get("args")
-            confidence = parsed.get("confidence", 0.0)
-            missing_args = parsed.get("missing_args")
-            reason = parsed.get("reason", "")
-            if not isinstance(tool_name, str):
-                return None
-            if not isinstance(args, dict):
-                args = {}
-            if not isinstance(missing_args, list):
-                missing_args = []
-            try:
-                conf = float(confidence)
-            except Exception:
-                conf = 0.0
+                # Fallback: Just use prefilled args if LLM fails
+                return ToolSelectionDecision(
+                    tool_name=candidate['name'],
+                    args=candidate.get("prefilled_args", {}),
+                    confidence=0.8,
+                    missing_args=candidate.get("missing_required", []),
+                    reason="Semantic selection with prefilled args fallback."
+                )
+
             return ToolSelectionDecision(
-                tool_name=tool_name,
-                args=args,
-                confidence=conf,
-                missing_args=[str(x) for x in missing_args],
-                reason=str(reason or ""),
+                tool_name=candidate['name'],
+                args=parsed.get("args", candidate.get("prefilled_args", {})),
+                confidence=parsed.get("confidence", 0.9),
+                missing_args=[str(x) for x in parsed.get("missing_args", candidate.get("missing_required", []))],
+                reason=str(parsed.get("reason", "BGE-assisted selection.")),
             )
         except Exception as exc:
             log_event(
-                "reasoning_tool_selection_guarded_fallback",
+                "reasoning_tool_selection_bge_fallback",
                 level="WARNING",
                 error=str(exc),
             )

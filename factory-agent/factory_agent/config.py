@@ -60,6 +60,7 @@ class Settings:
     tool_selector_model: str = "Qwen3.5-9B"
     rag_reranker_model: str = "Qwen3.5-9B"
     rag_answer_model: str = "Qwen3.5-9B"
+    bge_reranker_model: str = "BAAI/bge-reranker-v2-m3"
     enforce_tool_registry_health: bool = True
     auto_repair_tool_registry: bool = True
     min_healthy_tool_count: int = 20
@@ -305,4 +306,5 @@ def get_settings() -> Settings:
             or env("LLM_BASE_URL")
             or None
         ),
+        bge_reranker_model=os.getenv("BGE_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3").strip(),
     )

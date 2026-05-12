@@ -222,5 +222,10 @@ class IngestionEngine:
         logger.info(f"Full ingestion complete. {success_count}/{len(register.documents)} documents successful.")
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Ingest documents into the RAG system.")
+    parser.add_argument("--register", type=str, default="rag_sources/00_metadata_templates/source_register.json", help="Path to the source register JSON file.")
+    args = parser.parse_args()
+    
     engine = IngestionEngine()
-    engine.run_full_ingestion("rag_sources/00_metadata_templates/source_register.json")
+    engine.run_full_ingestion(args.register)
