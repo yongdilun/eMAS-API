@@ -113,7 +113,7 @@ AgentGraphRunStatus = Literal[
 MessageMode = Literal["normal", "plan"]
 PlanKind = Literal["execution", "discovery"]
 PlanStatus = Literal["DRAFT", "PENDING_APPROVAL", "APPROVED", "REJECTED", "COMPLETED", "INVALIDATED"]
-ApprovalSubjectType = Literal["step", "plan"]
+ApprovalSubjectType = Literal["step", "plan", "graph"]
 
 StepStatus = Literal[
     "NOT_STARTED",

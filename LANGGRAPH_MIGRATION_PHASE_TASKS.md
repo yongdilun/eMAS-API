@@ -4,6 +4,8 @@ This checklist separates the remaining LangGraph migration work into clear phase
 
 ## Phase 0: Audit Baseline And Safety Boundary
 
+Status: AUDITED. Evidence baseline and reference-check pass live in `LANGGRAPH_PHASE0_AUDIT.md`.
+
 ### Tasks
 - Confirm the real runtime entry points for session creation, message submission, plan creation, execution, approval, snapshot, and SSE.
 - Label every active execution path as either graph-native, compatibility, or legacy.
@@ -17,6 +19,8 @@ This checklist separates the remaining LangGraph migration work into clear phase
 - Safe cleanup is documented with reference checks and tests.
 
 ## Phase 1: State Schema And Core Types
+
+Status: COMPLETE. Evidence: `factory-agent/tests/test_agent_state.py` proves `AgentState` passes through a dummy LangGraph graph; reducers append messages/traces, overwrite scalar/map fields, and clear `staged_writes` via `replace_list()`. `factory-agent/factory_agent/schemas.py` now accepts graph-native approval responses with `subject_type="graph"`. Verification run on 2026-05-13: `python -m pytest tests/test_agent_state.py`, `python -m pytest tests/test_agent_state.py tests/test_planner_phase3.py tests/test_tool_pipeline.py tests/test_phase5_final_validator.py`, and `python -m compileall factory_agent`.
 
 ### Tasks
 - Finalize `AgentState` as the LangGraph execution state shape.
@@ -165,4 +169,3 @@ This checklist separates the remaining LangGraph migration work into clear phase
 - A final report states which legacy code remains and why.
 - End-to-end evidence proves read flow, write flow, approval pause/resume, atomic commit, recovery, SSE, and frontend hydration.
 - Migration status can be marked complete only when graph checkpoint state is the internal execution truth and legacy execution paths are no longer active for graph-native sessions.
-
