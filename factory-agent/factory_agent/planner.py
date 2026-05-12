@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .services.planner_service import (
+    PlannerApprovalRequired,
     PlannerBackendError,
     PlannerBackendName,
     PlannerClarificationError,
@@ -21,6 +22,7 @@ PlannerAdapter = PlannerService
 __all__ = [
     "PlannerAdapter",
     "PlannerBackendError",
+    "PlannerApprovalRequired",
     "PlannerBackendName",
     "PlannerClarificationError",
     "PlannerConfirmationRequired",

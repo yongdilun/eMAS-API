@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
-from factory_agent.graph.state import AgentState, normalize_graph_messages, user_query_text
+from factory_agent.graph.state import AgentState, normalize_graph_messages, replace_list, replaceable_list_reducer, user_query_text
 from factory_agent.schemas import ToolInfo
 
 
@@ -39,6 +39,11 @@ def test_user_query_text_prefers_original_query():
     assert user_query_text({"original_query": "  q  ", "intent": "legacy"}) == "q"
     assert user_query_text({"intent": "only"}) == "only"
     assert user_query_text({}) == ""
+
+
+def test_replaceable_list_reducer_can_clear_runtime_buffers():
+    assert replaceable_list_reducer([{"old": True}], [{"new": True}]) == [{"old": True}, {"new": True}]
+    assert replaceable_list_reducer([{"old": True}], replace_list()) == []
 
 
 @pytest.mark.asyncio

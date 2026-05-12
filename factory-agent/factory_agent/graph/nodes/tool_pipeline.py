@@ -438,16 +438,28 @@ def route_after_relevance(state: AgentState) -> str:
 def route_after_validate(state: AgentState) -> str:
     if state.get("fatal_system_error"):
         return "fatal_end"
+    route = state.get("next_route")
+    if route == "continue_planner":
+        return "continue_planner"
+    if route == "fatal_end":
+        return "fatal_end"
+    if route == "commit":
+        return "commit"
+    if route == "end":
+        return "end"
     return "bundle_dry_run"
 
 
 def route_after_bundle(state: AgentState) -> str:
     if state.get("fatal_system_error"):
         return "fatal_end"
-    return "commit"
+    return "final_validator"
 
 
 def route_after_commit(state: AgentState) -> str:
     if state.get("fatal_system_error"):
         return "fatal_end"
+    commit = state.get("last_commit_result")
+    if isinstance(commit, dict) and commit.get("ok") is False:
+        return "final_validator"
     return "end"

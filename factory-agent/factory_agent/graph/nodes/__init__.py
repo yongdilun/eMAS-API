@@ -22,7 +22,7 @@ from .planner_loop import (
     synthesize_raw_plan_node,
 )
 from .prepare import prepare_node
-from .validate import make_validate_node
+from .validate import make_final_validator_node, make_validate_node
 
 __all__ = [
     "clarify_end_node",
@@ -32,6 +32,7 @@ __all__ = [
     "intent_splitter_node",
     "make_bundle_dry_run_node",
     "make_commit_node",
+    "make_final_validator_node",
     "make_planner_node",
     "make_relevance_filter_node",
     "make_tool_execution_node",

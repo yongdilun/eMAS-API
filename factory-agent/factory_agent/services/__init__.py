@@ -1,6 +1,7 @@
 """Application services (use-case orchestration)."""
 
 from .planner_service import (
+    PlannerApprovalRequired,
     PlannerBackendError,
     PlannerClarificationError,
     PlannerConfirmationRequired,
@@ -10,6 +11,7 @@ from .planner_service import (
 
 __all__ = [
     "PlannerBackendError",
+    "PlannerApprovalRequired",
     "PlannerClarificationError",
     "PlannerConfirmationRequired",
     "PlannerResult",

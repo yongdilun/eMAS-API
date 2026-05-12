@@ -109,6 +109,10 @@ class Settings:
     # Phase 4: unified transaction bundle API (backend contract; paths may 404 until implemented).
     agent_transaction_bundle_dry_run_path: str = "/agent/transaction/bundle-dry-run"
     agent_transaction_commit_path: str = "/agent/transaction/commit"
+    # Phase 5: checkpointing + controlled repair loop
+    graph_checkpoint_backend: str = "auto"  # auto|memory|postgres|off
+    graph_checkpoint_postgres_dsn: str | None = None
+    max_repair_attempts: int = 3
 
 
 def _normalize_summary_backend(value: str) -> str:
@@ -313,5 +317,8 @@ def get_settings() -> Settings:
             "AGENT_TRANSACTION_BUNDLE_DRY_RUN_PATH", "/agent/transaction/bundle-dry-run"
         ).strip(),
         agent_transaction_commit_path=os.getenv("AGENT_TRANSACTION_COMMIT_PATH", "/agent/transaction/commit").strip(),
+        graph_checkpoint_backend=os.getenv("GRAPH_CHECKPOINT_BACKEND", "auto").strip().lower(),
+        graph_checkpoint_postgres_dsn=os.getenv("GRAPH_CHECKPOINT_POSTGRES_DSN") or None,
+        max_repair_attempts=int(os.getenv("MAX_REPAIR_ATTEMPTS", "3")),
         bge_reranker_model=os.getenv("BGE_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3").strip(),
     )

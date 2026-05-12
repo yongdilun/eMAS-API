@@ -13,6 +13,10 @@ function buildUrl(path) {
   return `${FACTORY_AGENT_BASE_URL}${path}`
 }
 
+export function factoryAgentStreamUrl(path) {
+  return buildUrl(path)
+}
+
 async function parseErrorBody(res) {
   try {
     const text = await res.text()
@@ -129,6 +133,7 @@ export const factoryAgentApi = {
 
   reject: (approvalId, payload = {}, options) =>
     request('POST', `/approvals/${approvalId}/reject`, payload, options),
+  semanticEventsPath: (sessionId) => `/sessions/${sessionId}/events/semantic`,
 }
 
 export const FACTORY_AGENT_STATUS = {

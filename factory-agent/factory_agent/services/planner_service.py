@@ -36,6 +36,12 @@ class PlannerConfirmationRequired(PlannerBackendError):
         super().__init__(message)
 
 
+class PlannerApprovalRequired(PlannerBackendError):
+    def __init__(self, message: str, *, approval: dict[str, Any]):
+        self.approval = approval
+        super().__init__(message)
+
+
 @dataclass(frozen=True)
 class PlannerResult:
     draft: PlanDraft
@@ -242,7 +248,7 @@ class PlannerService:
         scoped_tools: list[ToolInfo],
         context: dict[str, Any] | None = None,
     ) -> PlannerResult:
-        from ..graph.errors import LangGraphPlannerClarification
+        from ..graph.errors import LangGraphPlannerApprovalRequired, LangGraphPlannerClarification
 
         planner_cls = PlannerService._langgraph_planner_cls
         if planner_cls is None:
@@ -261,6 +267,9 @@ class PlannerService:
             )
         except LangGraphPlannerClarification as exc:
             raise PlannerClarificationError(str(exc)) from exc
+        except LangGraphPlannerApprovalRequired as exc:
+            payload = exc.payload if isinstance(exc.payload, dict) else {"kind": "approval_required"}
+            raise PlannerApprovalRequired(str(exc), approval=payload) from exc
         except PlannerConfirmationRequired:
             raise
         except Exception as exc:
@@ -331,5 +340,33 @@ class PlannerService:
                     intent=intent,
                 )
         return result
+
+    async def resume_after_approval(
+        self,
+        *,
+        session_id: str,
+        approved: bool,
+    ) -> PlannerResult:
+        from ..graph.errors import LangGraphPlannerApprovalRequired, LangGraphPlannerClarification
+
+        planner_cls = PlannerService._langgraph_planner_cls
+        if planner_cls is None:
+            try:
+                from ..graph.planner_graph import LangGraphPlanner as planner_cls  # noqa: PLC0415
+            except Exception as exc:
+                raise PlannerBackendError("LangGraph planner unavailable.") from exc
+        try:
+            draft, contract = await planner_cls(self._settings).resume_after_approval(
+                session_id=session_id,
+                approved=approved,
+            )
+        except LangGraphPlannerClarification as exc:
+            raise PlannerClarificationError(str(exc)) from exc
+        except LangGraphPlannerApprovalRequired as exc:
+            payload = exc.payload if isinstance(exc.payload, dict) else {"kind": "approval_required"}
+            raise PlannerApprovalRequired(str(exc), approval=payload) from exc
+        except Exception as exc:
+            raise PlannerBackendError(str(exc)) from exc
+        return PlannerResult(draft=draft, backend_used="langgraph", llm_calls=1, intent_contract=contract)
 
 

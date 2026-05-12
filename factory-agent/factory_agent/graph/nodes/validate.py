@@ -21,6 +21,12 @@ from ..planner_graph_helpers import (
     _reference_tool_preference,
 )
 from ..state import AgentState, user_query_text
+from ..state import replace_list
+
+try:
+    from langgraph.types import interrupt
+except Exception:  # pragma: no cover - defensive for older langgraph versions
+    interrupt = None  # type: ignore[assignment]
 
 
 def make_validate_node(settings: Settings):
@@ -217,4 +223,212 @@ def make_validate_node(settings: Settings):
     return validate_node
 
 
+def make_final_validator_node(settings: Settings):
+    """Phase 5 final validation + controlled repair loop + approval interrupt."""
 
+    validate_node = make_validate_node(settings)
+
+    def _has_fatal(state: AgentState) -> bool:
+        if state.get("fatal_system_error"):
+            return True
+        errs = state.get("errors") or []
+        return any(isinstance(e, str) and e.startswith("FATAL_SYSTEM_ERROR") for e in errs)
+
+    def _needs_approval(state: AgentState) -> bool:
+        staged = state.get("staged_writes") or []
+        if not staged:
+            return False
+        decisions = state.get("decisions") or []
+        for d in reversed(decisions[-6:]):
+            if not isinstance(d, dict):
+                continue
+            risk = str(d.get("risk_level") or "")
+            if risk in {"write_commit", "high_risk"}:
+                return True
+        return True
+
+    def _approval_payload(state: AgentState) -> dict[str, Any]:
+        staged = [x for x in (state.get("staged_writes") or []) if isinstance(x, dict)]
+        return {
+            "kind": "approval_required",
+            "summary": "High-risk write bundle requires approval before commit.",
+            "count": len(staged),
+            "preview": [
+                {
+                    "tool_name": x.get("tool_name"),
+                    "output_ref": x.get("output_ref"),
+                    "args": x.get("args"),
+                }
+                for x in staged[:5]
+            ],
+        }
+
+    def _hard_constraints_present(state: AgentState) -> bool:
+        cur = state.get("current_intent")
+        if not isinstance(cur, dict):
+            return False
+        constraints = cur.get("explicit_constraints") or []
+        for c in constraints:
+            if isinstance(c, dict) and str(c.get("strength") or "hard") == "hard":
+                return True
+        return False
+
+    def _dry_run_failure(state: AgentState) -> dict[str, Any] | None:
+        staged = [x for x in (state.get("staged_writes") or []) if isinstance(x, dict)]
+        if not staged:
+            return None
+        dry = state.get("bundle_dry_run_result")
+        if not isinstance(dry, dict):
+            return {"ok": False, "reason": "missing_bundle_dry_run"}
+        if dry.get("skipped") and dry.get("reason") != "no_staged_writes":
+            return {"ok": False, "reason": dry.get("reason") or "dry_run_skipped", "detail": dry}
+        if dry.get("ok") is False:
+            return {"ok": False, "reason": "bundle_dry_run_failed", "detail": dry}
+        return None
+
+    def _route_forward_for_repair(
+        state: AgentState,
+        *,
+        phase: str,
+        reason: str,
+        detail: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        attempts = int(state.get("repair_attempts") or 0) + 1
+        if attempts > max(1, int(settings.max_repair_attempts or 3)):
+            return {
+                "status": "failed",
+                "errors": [f"repair_limit_exceeded:{attempts}"],
+                "next_route": "fatal_end",
+            }
+        trunc_at = len(state.get("tool_outputs") or [])
+        return {
+            "repair_attempts": attempts,
+            "failed_strategies": [
+                {
+                    "phase": phase,
+                    "attempt": attempts,
+                    "reason": reason,
+                    "detail": detail or {},
+                }
+            ],
+            "staged_writes": replace_list(),
+            "bundle_dry_run_result": None,
+            "last_commit_result": None,
+            "pending_relevance_batch": None,
+            "pending_decision": None,
+            "tool_outputs_truncated_at": trunc_at,
+            "status": "planning",
+            "next_route": "continue_planner",
+            "completed_actions": [
+                {
+                    "phase": "final_validator",
+                    "kind": "auto_repair",
+                    "summary": f"{phase} failed; routing back to planner.",
+                }
+            ],
+        }
+
+    def node(state: AgentState) -> dict[str, Any]:
+        if _has_fatal(state):
+            return {"status": "failed", "next_route": "fatal_end"}
+
+        # Commit-time business failure: forward-only auto-repair, never state rollback.
+        commit = state.get("last_commit_result")
+        if isinstance(commit, dict) and commit.get("ok") is False:
+            if commit.get("infrastructure") or int(commit.get("http_status") or 0) >= 500:
+                msg = f"FATAL_SYSTEM_ERROR:commit:{commit}"
+                return {"errors": [msg], "fatal_system_error": msg, "status": "failed", "next_route": "fatal_end"}
+            if int(commit.get("http_status") or 0) == 409 and _hard_constraints_present(state):
+                return {
+                    "status": "awaiting_clarification",
+                    "clarification": "A required user constraint conflicts with current backend state. Please clarify or relax the constraint.",
+                    "failed_strategies": [
+                        {
+                            "phase": "commit",
+                            "reason": "hard_constraint_conflict",
+                            "http_status": 409,
+                        }
+                    ],
+                    "next_route": "fatal_end",
+                }
+
+            failed_entry = {
+                "phase": "commit",
+                "reason": "business_validation_failed",
+                "http_status": commit.get("http_status"),
+                "summary": str(commit.get("body") or commit.get("error") or "commit failed"),
+            }
+            return _route_forward_for_repair(
+                state,
+                phase="commit",
+                reason="business_validation_failed",
+                detail=failed_entry,
+            )
+
+        out = validate_node(state)
+        if out.get("status") == "awaiting_clarification":
+            out["next_route"] = "fatal_end"
+            return out
+        if out.get("status") != "completed":
+            return _route_forward_for_repair(state, phase="final_validator", reason="plan_validation_failed")
+
+        staged = [x for x in (state.get("staged_writes") or []) if isinstance(x, dict)]
+        if staged and not isinstance(state.get("bundle_dry_run_result"), dict):
+            out["next_route"] = "bundle_dry_run"
+            out["status"] = "validating"
+            return out
+
+        dry_failure = _dry_run_failure(state)
+        if dry_failure is not None:
+            if _hard_constraints_present(state):
+                return {
+                    "status": "awaiting_clarification",
+                    "clarification": "A required user constraint failed dry-run validation. Please clarify or relax the constraint.",
+                    "failed_strategies": [
+                        {
+                            "phase": "bundle_dry_run",
+                            "reason": "hard_constraint_conflict",
+                            "detail": dry_failure,
+                        }
+                    ],
+                    "next_route": "fatal_end",
+                }
+            return _route_forward_for_repair(
+                state,
+                phase="bundle_dry_run",
+                reason=str(dry_failure.get("reason") or "dry_run_failed"),
+                detail=dry_failure,
+            )
+
+        if _needs_approval(state):
+            payload = _approval_payload(state)
+            approved = True
+            if interrupt is not None:
+                resume_value = interrupt(payload)
+                if isinstance(resume_value, dict):
+                    approved = bool(resume_value.get("approved"))
+                elif isinstance(resume_value, bool):
+                    approved = resume_value
+            if not approved:
+                attempts = int(state.get("repair_attempts") or 0) + 1
+                return {
+                    "repair_attempts": attempts,
+                    "status": "failed",
+                    "failed_strategies": [
+                        {
+                            "phase": "approval",
+                            "attempt": attempts,
+                            "reason": "approval_rejected",
+                        }
+                    ],
+                    "errors": ["approval_rejected"],
+                    "next_route": "fatal_end",
+                }
+            out["approval_requests"] = [{"status": "approved", **payload}]
+
+        out["repair_attempts"] = 0
+        out["next_route"] = "commit" if staged else "end"
+        out["status"] = "completed"
+        return out
+
+    return node

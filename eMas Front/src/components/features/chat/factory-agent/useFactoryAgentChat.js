@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { classifyFactoryAgentError, normalizeFactoryAgentError } from '../../../../services/factoryAgentErrors'
-import { FACTORY_AGENT_STATUS, factoryAgentApi } from '../../../../services/factoryAgentApi'
+import { FACTORY_AGENT_STATUS, factoryAgentApi, factoryAgentStreamUrl } from '../../../../services/factoryAgentApi'
 import { assembleFactoryAgentTurns, computeFactoryAgentTurnSummary } from '../turns/turnAssembler'
 
 const DEFAULT_USER_ID = import.meta.env?.VITE_FACTORY_AGENT_USER_ID || 'frontend-operator'
@@ -100,6 +100,7 @@ export function useFactoryAgentChat() {
   })
 
   const sessionPollTimerRef = useRef(null)
+  const semanticSourceRef = useRef(null)
 
   const mergeSessionSummary = useCallback((summary) => {
     if (!summary?.session_id) return
@@ -220,6 +221,55 @@ export function useFactoryAgentChat() {
   }, [clearSessionPoll, pollSnapshot, session?.session_id, session?.status, sessionPollIntervalMs])
 
   useEffect(() => clearSessionPoll, [clearSessionPoll])
+
+  useEffect(() => {
+    if (semanticSourceRef.current) {
+      semanticSourceRef.current.close()
+      semanticSourceRef.current = null
+    }
+    if (!session?.session_id) return
+
+    const url = factoryAgentStreamUrl(factoryAgentApi.semanticEventsPath(session.session_id))
+    const es = new EventSource(url)
+    semanticSourceRef.current = es
+
+    es.onmessage = async (evt) => {
+      try {
+        const data = JSON.parse(evt.data || '{}')
+        const kind = String(data?.type || '')
+        if (!kind || kind === 'HEARTBEAT' || kind === 'STREAM_READY') return
+        if (
+          kind === 'TOOL_STARTED' ||
+          kind === 'TOOL_RESULT' ||
+          kind === 'APPROVAL_REQUIRED' ||
+          kind === 'APPROVAL_DECIDED' ||
+          kind === 'SESSION_COMPLETED' ||
+          kind === 'SESSION_FAILED' ||
+          kind === 'SESSION_BLOCKED' ||
+          kind === 'PLANNER_THINKING' ||
+          kind === 'REPLAN_REQUESTED' ||
+          kind === 'EXECUTION_STARTED'
+        ) {
+          await safelyRefreshSnapshot(session.session_id)
+        }
+      } catch {
+        // Keep polling fallback active.
+      }
+    }
+
+    es.onerror = () => {
+      // Polling loop remains the fallback; just close this stream.
+      if (semanticSourceRef.current) {
+        semanticSourceRef.current.close()
+        semanticSourceRef.current = null
+      }
+    }
+
+    return () => {
+      es.close()
+      if (semanticSourceRef.current === es) semanticSourceRef.current = null
+    }
+  }, [safelyRefreshSnapshot, session?.session_id])
 
   useEffect(() => {
     const bootstrap = async () => {

@@ -163,7 +163,12 @@ def _risk_for_tools(tool_calls: list[ToolCall], tools_by_name: dict[str, ToolInf
 def _build_planner_decision_prompt(*, state: AgentState, current: dict[str, Any], tools_by_name: dict[str, ToolInfo]) -> str:
     tool_cards = state.get("tool_cards") or _tool_cards(list(tools_by_name.values()))
     recent_outputs = state.get("tool_outputs") or []
-    tail = recent_outputs[-4:] if isinstance(recent_outputs, list) else []
+    truncated_at = int(state.get("tool_outputs_truncated_at") or 0)
+    if isinstance(recent_outputs, list):
+        visible = recent_outputs[max(0, truncated_at) :]
+        tail = visible[-4:]
+    else:
+        tail = []
     failed = state.get("failed_strategies") or []
     return (
         "You are the factory planner brain (Phase 3). Emit ONE strict JSON object only — no markdown.\n"
@@ -625,4 +630,3 @@ def route_after_guard(state: AgentState) -> str:
     if r == "tool_execution":
         return "tool_execution"
     return "tool_execution"
-

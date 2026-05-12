@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import contextlib
+import asyncio
 from datetime import datetime, timedelta
+import json
 import os
 import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from jsonschema import Draft202012Validator
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +31,7 @@ from ..orchestration.memory_manager import MemoryManager
 from ..planning.intent import assess_intent
 from ..observability.metrics import metrics
 from ..security.permissions import filter_tools_for_role, role_from_claims
-from ..planner import PlannerBackendError, PlannerClarificationError, PlannerConfirmationRequired
+from ..planner import PlannerApprovalRequired, PlannerBackendError, PlannerClarificationError, PlannerConfirmationRequired
 from ..services.planner_service import PlannerService
 from ..planning.plan_validator import validate_plan
 from ..schemas import (
@@ -239,6 +241,20 @@ _TIMELINE_EVENT_PRIORITY = {
 
 _APPROVAL_AUX_TAGS = {"list", "lookup", "status", "pending", "create", "update", "delete", "approve", "reject"}
 
+_SEMANTIC_EVENT_MAP: dict[str, str] = {
+    "user_message": "USER_MESSAGE",
+    "plan_created": "PLANNER_THINKING",
+    "execution_started": "EXECUTION_STARTED",
+    "tool_started": "TOOL_STARTED",
+    "tool_result": "TOOL_RESULT",
+    "approval_required": "APPROVAL_REQUIRED",
+    "approval_decided": "APPROVAL_DECIDED",
+    "replan_requested": "REPLAN_REQUESTED",
+    "session_blocked": "SESSION_BLOCKED",
+    "session_failed": "SESSION_FAILED",
+    "session_completed": "SESSION_COMPLETED",
+}
+
 
 def build_router(
     *,
@@ -278,6 +294,19 @@ def build_router(
         if not sess or not sess.plan_id:
             return None
         return (await db.execute(select(PlanRow).where(PlanRow.plan_id == sess.plan_id))).scalars().first()
+
+    def _is_langgraph_plan(plan: PlanRow | None) -> bool:
+        return bool(plan and str(getattr(plan, "created_by", "") or "").strip().lower() == "langgraph")
+
+    def _is_graph_native_session(sess: SessionRow | None, plan: PlanRow | None) -> bool:
+        if sess is None:
+            return False
+        if _is_langgraph_plan(plan):
+            return True
+        context = sess.replan_context if isinstance(sess.replan_context, dict) else {}
+        if bool(context.get("langgraph_pending_approval")):
+            return True
+        return False
 
     async def _persist_conversation_reply_as_empty_plan(
         *,
@@ -506,6 +535,8 @@ def build_router(
         await db.commit()
         await db.refresh(plan_row)
 
+        step_status = "DONE" if status == "COMPLETED" else "NOT_STARTED"
+        step_completed_at = datetime.utcnow() if status == "COMPLETED" else None
         for step in draft.steps:
             tool = tools_by_name.get(step.tool_name)
             step_row = PlanStepRow(
@@ -518,7 +549,7 @@ def build_router(
                 bindings=[binding.model_dump() for binding in (getattr(step, "bindings", []) or [])],
                 execution_mode=getattr(step, "execution_mode", "single") or "single",
                 bulk_state=None,
-                status="NOT_STARTED",
+                status=step_status,
                 idempotency_key=compute_idempotency_key(
                     session_id=sess.session_id,
                     step_index=step.step_index,
@@ -528,6 +559,7 @@ def build_router(
                 requires_approval=bool(tool.requires_approval) if tool else False,
                 retry_count=0,
                 max_retries=3,
+                completed_at=step_completed_at,
             )
             db.add(step_row)
         await db.commit()
@@ -540,7 +572,12 @@ def build_router(
         sess.replan_context = context_to_keep if context_to_keep else None
         sess.error = None
         sess.version += 1
-        sess.status = "PLANNING" if draft.steps else "IDLE"
+        if status == "COMPLETED":
+            sess.status = "COMPLETED"
+        elif status == "PENDING_APPROVAL":
+            sess.status = "WAITING_APPROVAL"
+        else:
+            sess.status = "PLANNING" if draft.steps else "IDLE"
         if not sess.name:
             sess.name = "New chat"
         await db.commit()
@@ -718,6 +755,7 @@ def build_router(
         if not sess:
             return None
         tools_by_name = await tool_registry.get_tools_by_name(db)
+        checkpoint_payload = await memory_manager.load_checkpoint(db, session_id=session_id)
 
         current_plan = None
         if sess.plan_id:
@@ -753,6 +791,29 @@ def build_router(
                 .order_by(ApprovalRow.created_at.asc())
             )
         ).scalars().all()
+
+        def _checkpoint_state_dict(payload: dict[str, Any] | None) -> dict[str, Any]:
+            if not isinstance(payload, dict):
+                return {}
+            state = payload.get("state")
+            if not isinstance(state, dict):
+                return {}
+            if "draft" in state or "tool_outputs" in state or "completed_actions" in state:
+                return state
+            for key in ("values", "channel_values", "agent_state"):
+                candidate = state.get(key)
+                if isinstance(candidate, dict) and (
+                    "draft" in candidate or "tool_outputs" in candidate or "completed_actions" in candidate
+                ):
+                    return candidate
+            return state
+
+        checkpoint_state = _checkpoint_state_dict(checkpoint_payload if isinstance(checkpoint_payload, dict) else None)
+        checkpoint_draft = checkpoint_state.get("draft") if isinstance(checkpoint_state.get("draft"), dict) else {}
+        checkpoint_steps = checkpoint_draft.get("steps") if isinstance(checkpoint_draft.get("steps"), list) else []
+        checkpoint_tool_outputs = (
+            checkpoint_state.get("tool_outputs") if isinstance(checkpoint_state.get("tool_outputs"), list) else []
+        )
 
         pending_approval = next((row for row in reversed(approval_rows) if row.status == "PENDING"), None)
         tool_result_messages = [row for row in message_rows if row.role == "tool_result"]
@@ -1195,10 +1256,56 @@ def build_router(
                 event.event_id,
             )
         )
+
+        checkpoint_step_responses: list[PlanStepResponse] = []
+        if _is_langgraph_plan(current_plan) and checkpoint_steps:
+            outputs_by_tool: dict[str, dict[str, Any]] = {}
+            for out in checkpoint_tool_outputs:
+                if not isinstance(out, dict):
+                    continue
+                key = str(out.get("tool_name") or out.get("tool") or "").strip()
+                if key and key not in outputs_by_tool:
+                    outputs_by_tool[key] = out
+            for idx_cp, raw_step in enumerate(checkpoint_steps):
+                if not isinstance(raw_step, dict):
+                    continue
+                tool_name = str(raw_step.get("tool_name") or "")
+                args = raw_step.get("args") if isinstance(raw_step.get("args"), dict) else {}
+                output = outputs_by_tool.get(tool_name, {})
+                output_result = output.get("result") if isinstance(output.get("result"), dict) else None
+                output_error = str(output.get("error") or output.get("last_error") or "") or None
+                output_summary = str(output.get("summary") or output.get("result_summary") or "")
+                cp_status = str(output.get("status") or ("FAILED" if output_error else "NOT_STARTED"))
+                if cp_status == "NOT_STARTED" and output_result:
+                    cp_status = "DONE"
+                checkpoint_step_responses.append(
+                    PlanStepResponse(
+                        step_id=f"lg-step-{idx_cp}",
+                        plan_id=(current_plan.plan_id if current_plan else (sess.plan_id or "langgraph")),
+                        session_id=sess.session_id,
+                        step_index=idx_cp,
+                        tool_name=tool_name,
+                        args=args,
+                        execution_mode=str(raw_step.get("execution_mode") or "single"),
+                        bindings=raw_step.get("bindings") if isinstance(raw_step.get("bindings"), list) else [],
+                        bulk_state=None,
+                        status=cp_status,
+                        idempotency_key=None,
+                        requires_approval=bool(raw_step.get("requires_approval")),
+                        approval_id=None,
+                        retry_count=0,
+                        max_retries=0,
+                        last_error=output_error,
+                        result=output_result,
+                        result_summary=(output_summary or None),
+                        started_at=None,
+                        completed_at=None,
+                    )
+                )
         return SessionSnapshotResponse(
             session=_session_to_response(sess),
             plan=_plan_to_response(current_plan) if current_plan and not _is_noop_plan(current_plan) else None,
-            steps=[_step_to_response(step) for step in step_rows],
+            steps=(checkpoint_step_responses or [_step_to_response(step) for step in step_rows]),
             pending_approval=_approval_to_response(pending_approval) if pending_approval else None,
             timeline=events,
         )
@@ -1289,6 +1396,69 @@ def build_router(
             raise HTTPException(status_code=404, detail="session not found")
         return snapshot
 
+    @router.get("/sessions/{session_id}/events/semantic")
+    async def stream_semantic_events(
+        session_id: str,
+        db: AsyncSession = Depends(get_db),
+    ):
+        """
+        Phase 6 semantic SSE adapter:
+        - frontend hydrates from snapshot first
+        - this stream emits semantic events derived from snapshot timeline diffs
+        """
+
+        async def _event_gen():
+            heartbeat_s = 12
+            poll_s = 1.0
+            seen_event_ids: set[str] = set()
+            idle_heartbeats = 0
+            # Initial ready frame so client confirms stream attachment.
+            init_payload = {"type": "STREAM_READY", "session_id": session_id}
+            yield f"event: semantic\ndata: {json.dumps(init_payload, ensure_ascii=False)}\n\n"
+            while True:
+                snapshot = await load_session_snapshot(db=db, session_id=session_id)
+                if snapshot is None:
+                    gone = {"type": "SESSION_NOT_FOUND", "session_id": session_id}
+                    yield f"event: semantic\ndata: {json.dumps(gone, ensure_ascii=False)}\n\n"
+                    return
+                emitted = False
+                for ev in snapshot.timeline:
+                    if ev.event_id in seen_event_ids:
+                        continue
+                    seen_event_ids.add(ev.event_id)
+                    payload = {
+                        "type": _SEMANTIC_EVENT_MAP.get(ev.event_type, str(ev.event_type).upper()),
+                        "event_id": ev.event_id,
+                        "session_id": session_id,
+                        "created_at": ev.created_at.isoformat(),
+                        "content": ev.content,
+                        "details": ev.details or {},
+                        "tool_name": ev.tool_name,
+                        "approval_id": ev.approval_id,
+                        "status": ev.status,
+                    }
+                    emitted = True
+                    yield f"id: {ev.event_id}\nevent: semantic\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                if emitted:
+                    idle_heartbeats = 0
+                else:
+                    idle_heartbeats += 1
+                    if idle_heartbeats * poll_s >= heartbeat_s:
+                        hb = {"type": "HEARTBEAT", "session_id": session_id, "ts": datetime.utcnow().isoformat() + "Z"}
+                        yield f"event: semantic\ndata: {json.dumps(hb, ensure_ascii=False)}\n\n"
+                        idle_heartbeats = 0
+                await asyncio.sleep(poll_s)
+
+        return StreamingResponse(
+            _event_gen(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     @router.get("/tools", response_model=list[ToolInfo])
     async def list_tools(
         intent: str | None = Query(None, description="Optional user intent to scope tools."),
@@ -1325,22 +1495,39 @@ def build_router(
         if req.role == "user":
             sess.current_intent = req.content[:5000]
             lowered = req.content.strip().lower()
+            current_plan = await _load_current_plan(db=db, session_id=session_id)
+            is_langgraph = _is_langgraph_plan(current_plan)
             if any(token in lowered for token in ("stop", "cancel", "don't do this", "do not do this")):
-                step_rows = (
-                    await db.execute(
-                        select(PlanStepRow)
-                        .where(PlanStepRow.session_id == session_id)
-                        .order_by(PlanStepRow.step_index.asc())
-                    )
-                ).scalars().all()
-                for step in step_rows:
-                    if step.status == "DONE":
-                        continue
-                    if step.status not in ("SKIPPED", "FAILED", "AMBIGUOUS"):
-                        step.status = "SKIPPED"
-                        step.completed_at = step.completed_at or datetime.utcnow()
-                        step.last_error = step.last_error or "Cancelled by user message"
-                        _log_step_status(sess, step, step.status)
+                if not is_langgraph:
+                    step_rows = (
+                        await db.execute(
+                            select(PlanStepRow)
+                            .where(PlanStepRow.session_id == session_id)
+                            .order_by(PlanStepRow.step_index.asc())
+                        )
+                    ).scalars().all()
+                    for step in step_rows:
+                        if step.status == "DONE":
+                            continue
+                        if step.status not in ("SKIPPED", "FAILED", "AMBIGUOUS"):
+                            step.status = "SKIPPED"
+                            step.completed_at = step.completed_at or datetime.utcnow()
+                            step.last_error = step.last_error or "Cancelled by user message"
+                            _log_step_status(sess, step, step.status)
+                else:
+                    pending_graph_approvals = (
+                        await db.execute(
+                            select(ApprovalRow)
+                            .where(ApprovalRow.session_id == session_id)
+                            .where(ApprovalRow.subject_type == "graph")
+                            .where(ApprovalRow.status == "PENDING")
+                        )
+                    ).scalars().all()
+                    for ap in pending_graph_approvals:
+                        ap.status = "REJECTED"
+                        ap.decided_by = "system"
+                        ap.decided_at = datetime.utcnow()
+                        ap.rejection_reason = "Cancelled by user message"
                 sess.status = "IDLE"
                 sess.error = "Cancelled by user message"
                 sess.pending_user_message = None
@@ -1354,24 +1541,37 @@ def build_router(
                     )
                 )
             elif sess.status == "WAITING_APPROVAL":
-                current_plan = (
-                    await db.execute(select(PlanRow).where(PlanRow.plan_id == sess.plan_id))
-                ).scalars().first()
-                steps = (
-                    await db.execute(
-                        select(PlanStepRow)
-                        .where(PlanStepRow.plan_id == sess.plan_id)
-                        .order_by(PlanStepRow.step_index.asc())
-                    )
-                ).scalars().all()
                 if current_plan and not current_plan.invalidated_at:
                     current_plan.invalidated_at = datetime.utcnow()
                     current_plan.invalidated_reason = "mid_execution_user_message"
-                completed_steps = [
-                    {"step_index": s.step_index, "tool_name": s.tool_name, "args": s.args, "result": s.result}
-                    for s in steps
-                    if s.status == "DONE"
-                ]
+                completed_steps: list[dict[str, Any]] = []
+                if not is_langgraph:
+                    steps = (
+                        await db.execute(
+                            select(PlanStepRow)
+                            .where(PlanStepRow.plan_id == sess.plan_id)
+                            .order_by(PlanStepRow.step_index.asc())
+                        )
+                    ).scalars().all()
+                    completed_steps = [
+                        {"step_index": s.step_index, "tool_name": s.tool_name, "args": s.args, "result": s.result}
+                        for s in steps
+                        if s.status == "DONE"
+                    ]
+                else:
+                    pending_graph_approvals = (
+                        await db.execute(
+                            select(ApprovalRow)
+                            .where(ApprovalRow.session_id == session_id)
+                            .where(ApprovalRow.subject_type == "graph")
+                            .where(ApprovalRow.status == "PENDING")
+                        )
+                    ).scalars().all()
+                    for ap in pending_graph_approvals:
+                        ap.status = "REJECTED"
+                        ap.decided_by = "system"
+                        ap.decided_at = datetime.utcnow()
+                        ap.rejection_reason = "Superseded by user message"
                 sess.replan_count += 1
                 sess.plan_version = (sess.plan_version or 0) + 1
                 sess.replan_context = {
@@ -1663,6 +1863,45 @@ def build_router(
                 )
                 metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
                 return plan_resp
+            except PlannerApprovalRequired as e:
+                approval_payload = e.approval if isinstance(e.approval, dict) else {"kind": "approval_required"}
+                summary = str(approval_payload.get("summary") or "Approval is required before continuing.")
+                approval = ApprovalRow(
+                    approval_id=generate_uuid(),
+                    session_id=sess.session_id,
+                    subject_type="graph",
+                    plan_id=None,
+                    step_id=None,
+                    tool_name="__langgraph_commit__",
+                    args=approval_payload,
+                    risk_summary=summary,
+                    side_effect_level="HIGH",
+                    status="PENDING",
+                    expires_at=datetime.utcnow() + timedelta(hours=24),
+                )
+                db.add(approval)
+                context = dict(sess.replan_context or {})
+                context["langgraph_pending_approval"] = {
+                    "approval_id": approval.approval_id,
+                    "thread_id": sess.session_id,
+                    "source": "langgraph_interrupt",
+                }
+                sess.replan_context = context
+                sess.status = "WAITING_APPROVAL"
+                sess.error = summary
+                sess.version += 1
+                await db.commit()
+                plan_resp = await _persist_conversation_reply_as_empty_plan(
+                    db=db,
+                    sess=sess,
+                    reply=f"Waiting for approval: {summary}",
+                    mode=mode,
+                    tools_by_name=tools_by_name,
+                    intent=intent,
+                    context_to_keep=context,
+                )
+                metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
+                return plan_resp
             except PlannerClarificationError as e:
                 reply = str(e)
                 if ('could not safely map "' in reply and "Allowed " in reply) or (
@@ -1731,7 +1970,7 @@ def build_router(
                 raise HTTPException(status_code=400, detail={"errors": validation.errors})
 
         plan_kind = "discovery" if mode == "plan" else "execution"
-        plan_status = "DRAFT"
+        plan_status = "COMPLETED" if (backend_used == "langgraph" and plan_kind == "execution") else "DRAFT"
         response = await _persist_plan(
             db=db,
             sess=sess,
@@ -1774,6 +2013,17 @@ def build_router(
         if expected_version is not None and sess.version != expected_version:
             raise HTTPException(status_code=409, detail=f"version_conflict expected={expected_version} actual={sess.version}")
         current_plan = await _load_current_plan(db=db, session_id=session_id)
+        if current_plan and (current_plan.created_by or "").strip().lower() == "langgraph":
+            # LangGraph execution is already completed during planning/approval-resume flow.
+            # Never route these plans through the legacy ExecutionEngine to avoid duplicate writes.
+            if current_plan.status != "COMPLETED":
+                current_plan.status = "COMPLETED"
+                if sess.status in ("PLANNING", "EXECUTING", "IDLE"):
+                    sess.status = "COMPLETED"
+                sess.error = None
+                sess.version += 1
+                await db.commit()
+            return _session_to_response(sess)
         if current_plan and current_plan.status == "COMPLETED":
             return _session_to_response(sess)
         if current_plan and current_plan.status == "PENDING_APPROVAL":
@@ -1840,21 +2090,39 @@ def build_router(
         sess = await session_mgr.get_session(db, session_id=session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
-        step_rows = (
-            await db.execute(
-                select(PlanStepRow)
-                .where(PlanStepRow.session_id == session_id)
-                .order_by(PlanStepRow.step_index.asc())
-            )
-        ).scalars().all()
-        for step in step_rows:
-            if step.status == "DONE":
-                continue
-            if step.status not in ("SKIPPED", "FAILED", "AMBIGUOUS"):
-                step.status = "SKIPPED"
-                step.completed_at = step.completed_at or datetime.utcnow()
-                step.last_error = step.last_error or "Cancelled"
-                _log_step_status(sess, step, step.status)
+        current_plan = await _load_current_plan(db=db, session_id=session_id)
+        if _is_graph_native_session(sess, current_plan):
+            pending_graph_approvals = (
+                await db.execute(
+                    select(ApprovalRow)
+                    .where(ApprovalRow.session_id == session_id)
+                    .where(ApprovalRow.status == "PENDING")
+                )
+            ).scalars().all()
+            for ap in pending_graph_approvals:
+                ap.status = "REJECTED"
+                ap.decided_by = "system"
+                ap.decided_at = datetime.utcnow()
+                ap.rejection_reason = "Cancelled"
+            context = dict(sess.replan_context or {})
+            context.pop("langgraph_pending_approval", None)
+            sess.replan_context = context
+        else:
+            step_rows = (
+                await db.execute(
+                    select(PlanStepRow)
+                    .where(PlanStepRow.session_id == session_id)
+                    .order_by(PlanStepRow.step_index.asc())
+                )
+            ).scalars().all()
+            for step in step_rows:
+                if step.status == "DONE":
+                    continue
+                if step.status not in ("SKIPPED", "FAILED", "AMBIGUOUS"):
+                    step.status = "SKIPPED"
+                    step.completed_at = step.completed_at or datetime.utcnow()
+                    step.last_error = step.last_error or "Cancelled"
+                    _log_step_status(sess, step, step.status)
         sess.status = "IDLE"
         sess.error = "Cancelled"
         sess.updated_at = datetime.utcnow()
@@ -1905,6 +2173,67 @@ def build_router(
         row = (await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == approval_id))).scalars().first()
         if not row:
             raise HTTPException(status_code=404, detail="approval not found")
+        sess_for_mode = await session_mgr.get_session(db, session_id=row.session_id)
+        current_plan = await _load_current_plan(db=db, session_id=row.session_id)
+
+        if (getattr(row, "subject_type", "step") or "step") == "graph":
+            row.status = "APPROVED"
+            row.decided_by = req.decided_by
+            row.decided_at = datetime.utcnow()
+            sess = await session_mgr.get_session(db, session_id=row.session_id)
+            if not sess:
+                raise HTTPException(status_code=404, detail="session not found")
+            intent = str(sess.current_intent or "")
+            mode = "normal"
+            latest_user = await _latest_user_message(db=db, session_id=sess.session_id)
+            if latest_user and isinstance(latest_user.mode, str):
+                mode = latest_user.mode
+            tools_by_name = await _ensure_registry_health(db=db)
+            try:
+                resumed = await planner.resume_after_approval(session_id=sess.session_id, approved=True)
+                draft = resumed.draft
+                backend_used = resumed.backend_used
+                context = dict(sess.replan_context or {})
+                if resumed.intent_contract:
+                    context["intent_contract"] = resumed.intent_contract
+                context.pop("langgraph_pending_approval", None)
+                sess.replan_context = context
+                sess.error = None
+                sess.status = "COMPLETED"
+                sess.version += 1
+                await db.commit()
+                await _persist_plan(
+                    db=db,
+                    sess=sess,
+                    draft=draft,
+                    tools_by_name=tools_by_name,
+                    backend_used=backend_used,
+                    kind="execution",
+                    status="COMPLETED",
+                    intent=intent,
+                    context_to_keep=context,
+                )
+                await db.commit()
+            except PlannerClarificationError as e:
+                sess.status = "BLOCKED"
+                sess.error = str(e)
+                sess.version += 1
+                await db.commit()
+            except PlannerBackendError as e:
+                sess.status = "FAILED"
+                sess.error = str(e)
+                sess.version += 1
+                await db.commit()
+                raise HTTPException(status_code=503, detail={"errors": [str(e)]}) from e
+            await event_bus.publish(
+                AgentEvent(
+                    event_type="approval_decided",
+                    session_id=row.session_id,
+                    payload={"approval_id": row.approval_id, "status": "APPROVED", "subject_type": "graph"},
+                    published_at=datetime.utcnow(),
+                )
+            )
+            return _approval_to_response(row)
 
         if (getattr(row, "subject_type", "step") or "step") == "plan":
             plan_row = None
@@ -1931,6 +2260,12 @@ def build_router(
                 )
             )
             return _approval_to_response(row)
+
+        if _is_graph_native_session(sess_for_mode, current_plan):
+            raise HTTPException(
+                status_code=409,
+                detail="graph-native approvals must use subject_type=graph/plan paths; legacy step approval is disabled",
+            )
 
         if req.args is not None:
             if not isinstance(req.args, dict):
@@ -1981,8 +2316,53 @@ def build_router(
         row = (await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == approval_id))).scalars().first()
         if not row:
             raise HTTPException(status_code=404, detail="approval not found")
-        if (getattr(row, "subject_type", "step") or "step") == "plan":
+        current_plan = await _load_current_plan(db=db, session_id=row.session_id)
+        if (getattr(row, "subject_type", "step") or "step") == "graph":
             sess = await session_mgr.get_session(db, session_id=row.session_id)
+            row.status = "REJECTED"
+            row.decided_by = req.decided_by
+            row.decided_at = datetime.utcnow()
+            row.rejection_reason = req.rejection_reason
+            if sess:
+                context = dict(sess.replan_context or {})
+                context.pop("langgraph_pending_approval", None)
+                sess.replan_context = context
+                sess.status = "IDLE"
+                sess.error = req.rejection_reason or f"Approval {row.approval_id} rejected"
+                sess.updated_at = datetime.utcnow()
+                sess.version += 1
+            await db.commit()
+            await event_bus.publish(
+                AgentEvent(
+                    event_type="approval_decided",
+                    session_id=row.session_id,
+                    payload={"approval_id": row.approval_id, "status": "REJECTED", "subject_type": "graph"},
+                    published_at=datetime.utcnow(),
+                )
+            )
+            return _approval_to_response(row)
+        sess = await session_mgr.get_session(db, session_id=row.session_id)
+        if _is_graph_native_session(sess, current_plan) and (getattr(row, "subject_type", "step") or "step") == "step":
+            row.status = "REJECTED"
+            row.decided_by = req.decided_by
+            row.decided_at = datetime.utcnow()
+            row.rejection_reason = req.rejection_reason or "Rejected by operator"
+            if sess:
+                sess.status = "IDLE"
+                sess.error = row.rejection_reason
+                sess.updated_at = datetime.utcnow()
+                sess.version += 1
+            await db.commit()
+            await event_bus.publish(
+                AgentEvent(
+                    event_type="approval_decided",
+                    session_id=row.session_id,
+                    payload={"approval_id": row.approval_id, "status": "REJECTED", "subject_type": "graph_native"},
+                    published_at=datetime.utcnow(),
+                )
+            )
+            return _approval_to_response(row)
+        if (getattr(row, "subject_type", "step") or "step") == "plan":
             row.status = "REJECTED"
             row.decided_by = req.decided_by
             row.decided_at = datetime.utcnow()
@@ -2006,7 +2386,7 @@ def build_router(
                 )
             )
             return _approval_to_response(row)
-        sess = await session_mgr.get_session(db, session_id=row.session_id)
+
         row.status = "REJECTED"
         row.decided_by = req.decided_by
         row.decided_at = datetime.utcnow()
@@ -2112,6 +2492,12 @@ def build_router(
         if not row:
             raise HTTPException(status_code=404, detail="dlq entry not found")
         sess = await session_mgr.get_session(db, session_id=row.session_id)
+        current_plan = await _load_current_plan(db=db, session_id=row.session_id)
+        if _is_graph_native_session(sess, current_plan):
+            raise HTTPException(
+                status_code=409,
+                detail="DLQ replay is legacy step-based and disabled for graph-native sessions; rerun with /sessions/{session_id}/execute",
+            )
         if row.step_id:
             step = (await db.execute(select(PlanStepRow).where(PlanStepRow.step_id == row.step_id))).scalars().first()
             if step:

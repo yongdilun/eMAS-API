@@ -12,10 +12,10 @@ from .nodes import (
     intent_splitter_node,
     make_bundle_dry_run_node,
     make_commit_node,
+    make_final_validator_node,
     make_planner_node,
     make_relevance_filter_node,
     make_tool_execution_node,
-    make_validate_node,
     prepare_node,
     route_after_bundle,
     route_after_commit,
@@ -44,7 +44,7 @@ def compile_planner_graph(settings: Settings):
     graph.add_node("tool_execution", make_tool_execution_node(settings))
     graph.add_node("relevance_filter", make_relevance_filter_node(settings))
     graph.add_node("synthesize_raw_plan", synthesize_raw_plan_node)
-    graph.add_node("legacy_validate", make_validate_node(settings))
+    graph.add_node("final_validator", make_final_validator_node(settings))
     graph.add_node("bundle_dry_run", make_bundle_dry_run_node(settings))
     graph.add_node("commit", make_commit_node(settings))
     graph.add_node("fatal_end", fatal_end_node)
@@ -89,13 +89,16 @@ def compile_planner_graph(settings: Settings):
             "continue_planner": "planner",
         },
     )
-    graph.add_edge("synthesize_raw_plan", "legacy_validate")
+    graph.add_edge("synthesize_raw_plan", "final_validator")
     graph.add_conditional_edges(
-        "legacy_validate",
+        "final_validator",
         route_after_validate,
         {
+            "continue_planner": "planner",
             "fatal_end": "fatal_end",
             "bundle_dry_run": "bundle_dry_run",
+            "commit": "commit",
+            "end": END,
         },
     )
     graph.add_conditional_edges(
@@ -103,7 +106,7 @@ def compile_planner_graph(settings: Settings):
         route_after_bundle,
         {
             "fatal_end": "fatal_end",
-            "commit": "commit",
+            "final_validator": "final_validator",
         },
     )
     graph.add_conditional_edges(
@@ -111,9 +114,15 @@ def compile_planner_graph(settings: Settings):
         route_after_commit,
         {
             "fatal_end": "fatal_end",
+            "final_validator": "final_validator",
             "end": END,
         },
     )
     graph.add_edge("fatal_end", END)
     graph.add_edge("clarify_end", END)
+    from .checkpointing import build_graph_checkpointer
+
+    checkpointer = build_graph_checkpointer(settings)
+    if checkpointer is not None:
+        return graph.compile(checkpointer=checkpointer)
     return graph.compile()

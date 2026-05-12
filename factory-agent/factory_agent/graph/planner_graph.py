@@ -5,8 +5,13 @@ from typing import Any
 from ..config import Settings
 from ..schemas import PlanDraft, ToolInfo
 from .builder import compile_planner_graph
-from .errors import LangGraphPlannerClarification, LangGraphPlannerError
+from .errors import LangGraphPlannerApprovalRequired, LangGraphPlannerClarification, LangGraphPlannerError
 from .state import AgentState, normalize_graph_messages
+
+try:
+    from langgraph.types import Command
+except Exception:  # pragma: no cover
+    Command = None  # type: ignore[assignment]
 
 
 def _initial_planner_state(
@@ -45,6 +50,8 @@ def _initial_planner_state(
         "bundle_dry_run_result": None,
         "last_commit_result": None,
         "idempotency_audit": [],
+        "repair_attempts": 0,
+        "tool_outputs_truncated_at": 0,
     }
 
 
@@ -61,7 +68,17 @@ class LangGraphPlanner:
     ) -> tuple[PlanDraft, dict[str, Any]]:
         graph = compile_planner_graph(self._settings)
         state: AgentState = _initial_planner_state(intent=intent, scoped_tools=scoped_tools, context=context)
-        result = await graph.ainvoke(state, config={"recursion_limit": 64})
+        thread_id = str(state.get("session_id") or "langgraph-local-thread")
+        result = await graph.ainvoke(
+            state,
+            config={"recursion_limit": 64, "configurable": {"thread_id": thread_id}},
+        )
+        interrupts = result.get("__interrupt__")
+        if isinstance(interrupts, list) and interrupts:
+            payload = getattr(interrupts[0], "value", None)
+            if isinstance(payload, dict):
+                raise LangGraphPlannerApprovalRequired(payload)
+            raise LangGraphPlannerApprovalRequired({"kind": "approval_required"})
         clarification = result.get("clarification")
         if clarification:
             raise LangGraphPlannerClarification(str(clarification))
@@ -70,6 +87,35 @@ class LangGraphPlanner:
             raise LangGraphPlannerError("LangGraph planner did not return a validated PlanDraft.")
         return draft, result.get("intent_contract") or {
             "intent": intent,
+            "backend": "langgraph",
+            "steps": [],
+        }
+
+    async def resume_after_approval(
+        self,
+        *,
+        session_id: str,
+        approved: bool,
+    ) -> tuple[PlanDraft, dict[str, Any]]:
+        graph = compile_planner_graph(self._settings)
+        if Command is None:
+            raise LangGraphPlannerError("LangGraph Command resume is unavailable in this runtime.")
+        result = await graph.ainvoke(
+            Command(resume={"approved": approved}),
+            config={"recursion_limit": 64, "configurable": {"thread_id": session_id}},
+        )
+        interrupts = result.get("__interrupt__")
+        if isinstance(interrupts, list) and interrupts:
+            payload = getattr(interrupts[0], "value", None)
+            raise LangGraphPlannerApprovalRequired(payload if isinstance(payload, dict) else {"kind": "approval_required"})
+        clarification = result.get("clarification")
+        if clarification:
+            raise LangGraphPlannerClarification(str(clarification))
+        draft = result.get("draft")
+        if not isinstance(draft, PlanDraft):
+            raise LangGraphPlannerError("LangGraph planner did not return a validated PlanDraft on resume.")
+        return draft, result.get("intent_contract") or {
+            "intent": "",
             "backend": "langgraph",
             "steps": [],
         }

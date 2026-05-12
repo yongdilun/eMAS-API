@@ -1,4 +1,4 @@
-"""Phase 4: transaction refs, idempotency key, relevance filter, staging."""
+"""Tests for graph.nodes.tool_pipeline: refs, idempotency, relevance, staging."""
 
 from __future__ import annotations
 

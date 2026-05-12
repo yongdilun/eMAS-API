@@ -10,6 +10,23 @@ from pydantic import BaseModel, Field
 from ..schemas import AgentGraphRunStatus, PlanBinding, PlanDraft, ToolInfo
 
 
+def replaceable_list_reducer(left: list[Any] | None, right: list[Any] | None) -> list[Any]:
+    """Append reducer with an explicit replacement escape hatch.
+
+    Most graph list fields are traces and should append. A few runtime buffers
+    such as staged writes must also be clearable during forward-only repair; a
+    plain ``operator.add`` reducer would silently keep stale writes alive.
+    """
+    if right and len(right) == 1 and isinstance(right[0], dict) and right[0].get("__replace__") is True:
+        value = right[0].get("value", [])
+        return list(value) if isinstance(value, list) else []
+    return list(left or []) + list(right or [])
+
+
+def replace_list(value: list[Any] | None = None) -> list[dict[str, Any]]:
+    return [{"__replace__": True, "value": list(value or [])}]
+
+
 class AgentPlanStep(BaseModel):
     tool_name: str
     args: dict[str, Any] = Field(default_factory=dict)
@@ -100,6 +117,8 @@ class AgentState(TypedDict, total=False):
     fatal_system_error: str | None
     bundle_dry_run_result: dict[str, Any] | None
     last_commit_result: dict[str, Any] | None
+    repair_attempts: int
+    tool_outputs_truncated_at: int
 
     # --- LangGraph message channel ---
     messages: Annotated[list[AnyMessage], add_messages]
@@ -108,7 +127,7 @@ class AgentState(TypedDict, total=False):
     intents: Annotated[list[dict[str, Any]], operator.add]
     tool_outputs: Annotated[list[dict[str, Any]], operator.add]
     completed_actions: Annotated[list[dict[str, Any]], operator.add]
-    staged_writes: Annotated[list[dict[str, Any]], operator.add]
+    staged_writes: Annotated[list[dict[str, Any]], replaceable_list_reducer]
     failed_strategies: Annotated[list[dict[str, Any]], operator.add]
     errors: Annotated[list[str], operator.add]
     idempotency_audit: Annotated[list[dict[str, Any]], operator.add]

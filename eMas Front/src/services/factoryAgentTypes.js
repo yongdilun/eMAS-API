@@ -73,7 +73,7 @@
 /**
  * @typedef {Object} TimelineEventResponse
  * @property {string} event_id
- * @property {'user_message'|'plan_created'|'execution_started'|'tool_result'|'approval_required'|'approval_decided'|'replan_requested'|'session_blocked'|'session_failed'|'session_completed'} event_type
+ * @property {'user_message'|'plan_created'|'execution_started'|'tool_started'|'tool_result'|'approval_required'|'approval_decided'|'confirmation_required'|'confirmation_decided'|'replan_requested'|'session_blocked'|'session_failed'|'session_completed'} event_type
  * @property {string} content
  * @property {string} created_at
  * @property {'user'|'assistant'|'system'} role
