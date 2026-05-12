@@ -517,6 +517,15 @@ def decision_guard_node(state: AgentState) -> dict[str, Any]:
         return {
             "pending_decision": pending2,
             "next_route": "continue_planner",
+            "failed_strategies": [
+                {
+                    "phase": "decision_guard",
+                    "intent_id": pending2.get("intent_id"),
+                    "reason": "transaction_ref_violation",
+                    "detail": ref_err,
+                    "repair_instruction": "Revise the decision without forward, missing, duplicate, or self references.",
+                }
+            ],
             "completed_actions": [
                 {
                     "phase": "decision_guard",
@@ -546,6 +555,15 @@ def decision_guard_node(state: AgentState) -> dict[str, Any]:
         return {
             "pending_decision": pending,
             "next_route": "continue_planner",
+            "failed_strategies": [
+                {
+                    "phase": "decision_guard",
+                    "intent_id": pending.get("intent_id"),
+                    "reason": "constraint_violation",
+                    "constraints": constraints,
+                    "repair_instruction": "Revise tool args so every hard explicit user constraint is preserved.",
+                }
+            ],
             "completed_actions": [
                 {
                     "phase": "decision_guard",

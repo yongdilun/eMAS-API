@@ -2,7 +2,7 @@
 
 Date: 2026-05-12
 
-Updated: 2026-05-13 reference-check pass; 2026-05-13 Phase 1 schema evidence update; 2026-05-13 Phase 2 intent evidence update
+Updated: 2026-05-13 reference-check pass; 2026-05-13 Phase 1 schema evidence update; 2026-05-13 Phase 2 intent evidence update; 2026-05-13 Phase 3 planner-loop evidence update
 
 Scope: evidence-only audit of active runtime paths for session creation, message submission, plan creation, execution, approval, snapshot, SSE, checkpointing, and legacy replay. No behavior-changing fixes were made in this pass.
 
@@ -52,6 +52,16 @@ Phase 2 confirmed that graph-native runtime intent understanding is isolated in 
 `assess_intent` remains active in compatibility call sites documented in Phase 0, but it is compatibility-only and delegates to `split_user_intents`. No Phase 0 legacy retirement behavior was changed. `QueryRouter` remains deprecated compatibility code in `factory-agent/factory_agent/orchestration/router.py`, and Phase 2 verification confirmed graph-native code under `factory_agent/graph` does not import `QueryRouter` or route-score fields.
 
 Verification for this Phase 2 update: `python -m pytest tests/test_intent_splitter.py`, `python -m pytest tests/test_intent.py tests/test_intent_splitter.py tests/test_planner_phase3.py tests/test_agent_state.py`, and `python -m compileall factory_agent`.
+
+## Phase 3 Evidence Update
+
+Phase 3 confirmed the graph-native planner loop is active as the execution brain inside the compiled graph for native runs: `Planner -> DecisionGuard -> ToolExecution -> RelevanceFilter -> Planner`, ending in plan synthesis and validation from graph trace state. `factory-agent/tests/test_planner_phase3.py` runs a compiled graph for a multi-intent request and verifies the first guard-blocked tool call is not executed, the repaired call is executed, the second intent proceeds only after the first completes, planner decisions are retained, and `completed_actions` contains planner, guard, tool execution, and relevance trace entries used for final plan synthesis.
+
+Phase 3 also confirmed dependency cancellation behavior in `make_planner_node`: when an upstream intent returns `intent_failed`, pending dependent intents are marked `cancelled_due_to_dependency_failure` with the upstream failure reason. Guard violations now append `failed_strategies` repair entries in addition to `completed_actions`, giving the next planner turn a concrete repair signal without retiring legacy API or frontend plan compatibility paths.
+
+A runtime-path parsing fact discovered during Phase 3 testing updated the Phase 2 evidence: plural `jobs` was being parsed as a hard `job_id="S"` constraint, which caused correct guard behavior to block a normal `list jobs` read. `factory-agent/factory_agent/planning/intent.py` now requires a word boundary after singular `job` before extracting a job ID, and `factory-agent/tests/test_intent_splitter.py` covers that plural-list case. This is a graph-input correctness fix, not a Phase 0 legacy retirement.
+
+Verification for this Phase 3 update: `python -m pytest tests/test_planner_phase3.py tests/test_intent_splitter.py`, `python -m pytest tests/test_agent_state.py tests/test_intent.py tests/test_intent_splitter.py tests/test_planner_phase3.py tests/test_tool_pipeline.py tests/test_phase5_final_validator.py`, and `python -m compileall factory_agent`.
 
 ## Runtime Path Classification
 

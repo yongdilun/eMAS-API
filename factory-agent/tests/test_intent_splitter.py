@@ -52,6 +52,12 @@ def test_explicit_machine_constraint_from_use_machine_phrase():
     assert any(c.field == "machine_id" and re.search(r"M-001", str(c.value), re.I) for c in flat)
 
 
+def test_plural_jobs_does_not_create_job_id_constraint():
+    intents = split_user_intents("list jobs")
+    flat = [c for i in intents for c in i.explicit_constraints]
+    assert not any(c.field == "job_id" for c in flat)
+
+
 def test_explicit_constraints_preserve_machine_job_product_date_and_operator():
     q = "Prefer machine M-001, schedule job J-101 for product P-200 by 2026-05-15 with operator Alice"
     intents = split_user_intents(q)

@@ -2,8 +2,41 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import replace
+
+import pytest
+from langchain_core.messages import AIMessage
+
+from factory_agent.config import get_settings
+from factory_agent.graph.builder import compile_planner_graph
+from factory_agent.graph.nodes.planner_loop import make_planner_node
 from factory_agent.graph.nodes.planner_loop import decision_guard_node
+from factory_agent.graph.planner_graph import _initial_planner_state
 from factory_agent.graph.state import AgentState
+from factory_agent.schemas import ToolInfo
+
+
+def _settings():
+    return replace(
+        get_settings(),
+        openai_api_key="test-key",
+        planner_openai_base_url=None,
+        enable_parallel_execution=False,
+        graph_checkpoint_backend="off",
+        max_plan_steps=8,
+    )
+
+
+def _tool(name: str, endpoint: str = "/test") -> ToolInfo:
+    return ToolInfo(
+        name=name,
+        description=name,
+        endpoint=endpoint,
+        method="GET",
+        input_schema={"type": "object"},
+        is_read_only=True,
+    )
 
 
 def test_decision_guard_blocks_hard_constraint_mismatch():
@@ -34,6 +67,7 @@ def test_decision_guard_blocks_hard_constraint_mismatch():
     assert isinstance(pd, dict)
     assert pd.get("violates_constraints") is True
     assert pd.get("tool_calls") == []
+    assert out["failed_strategies"][0]["reason"] == "constraint_violation"
 
 
 def test_decision_guard_passes_matching_constraint():
@@ -60,3 +94,151 @@ def test_decision_guard_passes_matching_constraint():
     }
     out = decision_guard_node(state)
     assert out["next_route"] == "tool_execution"
+
+
+@pytest.mark.asyncio
+async def test_graph_processes_multi_intent_through_planner_loop(monkeypatch):
+    tools = [_tool("get__machines", "/machines"), _tool("get__jobs", "/jobs")]
+    calls: list[dict[str, object]] = []
+    responses = [
+        {
+            "kind": "domain_tool",
+            "tool_calls": [{"tool_name": "get__machines", "args": {"machine_id": "M-002"}}],
+            "decision_summary": "Try the wrong machine first.",
+        },
+        {
+            "kind": "domain_tool",
+            "tool_calls": [{"tool_name": "get__machines", "args": {"machine_id": "M-001"}}],
+            "decision_summary": "Use the constrained machine.",
+        },
+        {
+            "kind": "intent_completed",
+            "tool_calls": [],
+            "decision_summary": "Machine check complete.",
+        },
+        {
+            "kind": "domain_tool",
+            "tool_calls": [{"tool_name": "get__jobs", "args": {}}],
+            "decision_summary": "List jobs after the machine check.",
+        },
+        {
+            "kind": "intent_completed",
+            "tool_calls": [],
+            "decision_summary": "Job list complete.",
+        },
+    ]
+
+    class FakeModel:
+        async def ainvoke(self, prompt: str):
+            marker = "Current intent JSON: "
+            start = prompt.index(marker) + len(marker)
+            end = prompt.index("\nUser query:", start)
+            intent_id = json.loads(prompt[start:end])["intent_id"]
+            payload = dict(responses.pop(0))
+            payload["intent_id"] = intent_id
+            return AIMessage(content=json.dumps(payload))
+
+    async def fake_execute_tool_http(settings, tool, args, *, idempotency_key):
+        calls.append({"tool_name": tool.name, "args": dict(args)})
+        return {
+            "ok": True,
+            "http_status": 200,
+            "body": {"data": [{"tool": tool.name, "args": args}]},
+            "latency_ms": 1,
+        }
+
+    monkeypatch.setattr(
+        "factory_agent.graph.nodes.planner_loop.build_planner_chat_model",
+        lambda settings, json_mode=True: FakeModel(),
+    )
+    monkeypatch.setattr(
+        "factory_agent.graph.nodes.tool_pipeline.execute_tool_http",
+        fake_execute_tool_http,
+    )
+
+    state = _initial_planner_state(
+        intent="Find available machine M-001 and then list jobs",
+        scoped_tools=tools,
+        context={"session_id": "phase3-multi-intent"},
+    )
+    graph = compile_planner_graph(_settings())
+    result = await graph.ainvoke(
+        state,
+        config={"recursion_limit": 64, "configurable": {"thread_id": "phase3-multi-intent"}},
+    )
+
+    assert result["status"] == "completed"
+    assert [c["tool_name"] for c in calls] == ["get__machines", "get__jobs"]
+    assert calls[0]["args"] == {"machine_id": "M-001"}
+    assert all(c["args"] != {"machine_id": "M-002"} for c in calls)
+    assert result["validated_plan"].steps[0].tool_name == "get__machines"
+    assert result["validated_plan"].steps[1].tool_name == "get__jobs"
+    guard_entries = [a for a in result["completed_actions"] if a.get("phase") == "decision_guard"]
+    assert guard_entries and guard_entries[0]["kind"] == "constraint_violation"
+    assert any(d["kind"] == "intent_completed" for d in result["decisions"])
+    assert all(it["status"] == "completed" for it in result["working_intents"])
+
+
+@pytest.mark.asyncio
+async def test_planner_cancels_dependent_intents_when_upstream_fails(monkeypatch):
+    class FakeModel:
+        async def ainvoke(self, prompt: str):
+            marker = "Current intent JSON: "
+            start = prompt.index(marker) + len(marker)
+            end = prompt.index("\nUser query:", start)
+            intent_id = json.loads(prompt[start:end])["intent_id"]
+            return AIMessage(
+                content=json.dumps(
+                    {
+                        "intent_id": intent_id,
+                        "kind": "intent_failed",
+                        "tool_calls": [],
+                        "decision_summary": "Upstream intent cannot be completed.",
+                    }
+                )
+            )
+
+    monkeypatch.setattr(
+        "factory_agent.graph.nodes.planner_loop.build_planner_chat_model",
+        lambda settings, json_mode=True: FakeModel(),
+    )
+    node = make_planner_node(_settings())
+    state: AgentState = {
+        "original_query": "Find available machine M-001 and then list jobs",
+        "intent": "Find available machine M-001 and then list jobs",
+        "messages": [],
+        "scoped_tools": [_tool("get__machines"), _tool("get__jobs")],
+        "context": {},
+        "working_intents": [
+            {
+                "intent_id": "intent-a",
+                "description": "Find available machine M-001",
+                "depends_on": [],
+                "explicit_constraints": [],
+                "status": "pending",
+                "category": "machine",
+            },
+            {
+                "intent_id": "intent-b",
+                "description": "list jobs",
+                "depends_on": ["intent-a"],
+                "explicit_constraints": [],
+                "status": "pending",
+                "category": "job",
+            },
+        ],
+        "intent_cursor": 0,
+        "planner_iteration": 0,
+        "tool_outputs": [],
+        "completed_actions": [],
+        "failed_strategies": [],
+        "decisions": [],
+    }
+
+    out = await node(state)
+
+    assert out["next_route"] == "synthesize_plan"
+    assert out["working_intents"][0]["status"] == "failed"
+    assert out["working_intents"][1]["status"] == "cancelled_due_to_dependency_failure"
+    assert out["working_intents"][1]["failure_reason"] == "Upstream intent cannot be completed."
+    assert out["completed_actions"][0]["kind"] == "intent_failed"

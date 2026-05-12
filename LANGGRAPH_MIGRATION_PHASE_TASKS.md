@@ -55,6 +55,8 @@ Status: COMPLETE. Evidence: `factory-agent/factory_agent/planning/intent.py` now
 
 ## Phase 3: Planner Loop And Graph Rewiring
 
+Status: COMPLETE. Evidence: `factory-agent/factory_agent/graph/nodes/planner_loop.py` now records guard violations as `failed_strategies` repair signals while routing back to the planner, preserving the `completed_actions` trace. `factory-agent/tests/test_planner_phase3.py` proves a compiled LangGraph run handles `Find available machine M-001 and then list jobs` through `Planner -> DecisionGuard -> ToolExecution -> RelevanceFilter -> Planner`, blocks the first constraint-violating machine call without HTTP execution, repairs it, completes both intents, and derives the final validated plan from graph `completed_actions`. The same test module proves upstream intent failure cancels dependent intents with `cancelled_due_to_dependency_failure`. Phase 3 also fixed a discovered splitter/runtime mismatch where plural `jobs` was incorrectly parsed as `job_id="S"`; `factory-agent/tests/test_intent_splitter.py` now covers that case. Verification run on 2026-05-13: `python -m pytest tests/test_planner_phase3.py tests/test_intent_splitter.py`, `python -m pytest tests/test_agent_state.py tests/test_intent.py tests/test_intent_splitter.py tests/test_planner_phase3.py tests/test_tool_pipeline.py tests/test_phase5_final_validator.py`, and `python -m compileall factory_agent`.
+
 ### Tasks
 - Use the LangGraph loop as the execution brain: `Planner -> DecisionGuard -> ToolExecution -> RelevanceFilter -> Planner`.
 - Normalize model output into strict `PlannerDecision` envelopes.
