@@ -37,6 +37,8 @@ Status: COMPLETE. Evidence: `factory-agent/tests/test_agent_state.py` proves `Ag
 
 ## Phase 2: Intent Understanding Layer
 
+Status: COMPLETE. Evidence: `factory-agent/factory_agent/planning/intent.py` now makes `split_user_intents` the canonical deterministic decomposition layer with stable intent IDs, dependency references, incomplete-query parsing, and structured machine/job/product/date/operator constraints with hard/soft strength preservation. `factory-agent/factory_agent/graph/nodes/intent_split.py` feeds splitter output into `intents`, `working_intents`, `intent_cursor`, and `current_intent` before planner execution. `assess_intent` remains a legacy compatibility API that delegates to `split_user_intents`, and graph-native code under `factory_agent/graph` has no `QueryRouter` or route-score dependency. Verification run on 2026-05-13: `python -m pytest tests/test_intent_splitter.py`, `python -m pytest tests/test_intent.py tests/test_intent_splitter.py tests/test_planner_phase3.py tests/test_agent_state.py`, and `python -m compileall factory_agent`.
+
 ### Tasks
 - Make the intent splitter the canonical query decomposition layer.
 - Ensure incomplete queries are parsed, not rejected.

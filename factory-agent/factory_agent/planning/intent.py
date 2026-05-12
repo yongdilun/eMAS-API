@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from hashlib import sha1
 from typing import Any, Literal, Sequence
-from uuid import uuid4
 
 from ..schemas import ExplicitConstraint, Intent, IntentCategory
 
@@ -20,7 +20,7 @@ _QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 _CLAUSE_SPLIT_RE = re.compile(
-    r"\s+\band\s+|\s+;\s*|\n+|(?<=[.!?])\s+(?=[A-Z])|\b(?:and then|then|next|after that|afterwards|finally)\b",
+    r"\s*\b(?:and then|then|next|after that|afterwards|finally)\b\s*|\s+\band\s+|\s+;\s*|\n+|(?<=[.!?])\s+(?=[A-Z])",
     re.IGNORECASE,
 )
 _MACHINE_ID_RE = re.compile(r"\b([A-Z]{1,3}-\d{2,})\b")
@@ -34,6 +34,21 @@ _USE_MACHINE_RE = re.compile(
 )
 _MACHINE_NAME_RE = re.compile(r"\bmachine\s+([A-Z0-9][A-Z0-9-]*)\b", re.IGNORECASE)
 _PRODUCT_RE = re.compile(r"\bproduct\s+([A-Z0-9][A-Z0-9-]*)\b", re.IGNORECASE)
+_DATE_WITH_PREPOSITION_RE = re.compile(
+    r"\b(?P<op>on|for|by|before|after|from|until|date)\s+"
+    r"(?P<value>\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b",
+    re.IGNORECASE,
+)
+_NATURAL_DATE_RE = re.compile(
+    r"\b(today|tomorrow|tonight|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week)|"
+    r"this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|week))\b",
+    re.IGNORECASE,
+)
+_OPERATOR_RE = re.compile(
+    r"(?i:\b(?:operator|op)\s*(?:id|#|name)?\s*)"
+    r"(?P<value>[A-Z][A-Za-z0-9-]{1,31}(?:\s+[A-Z][A-Za-z0-9-]{1,31})?)\b",
+)
+_SOFT_CONSTRAINT_HINT_RE = re.compile(r"\b(?:prefer|preferably|ideally|if possible|nice to have|try to)\b", re.IGNORECASE)
 
 _ACTION_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("approval", re.compile(r"\b(?:approve|reject|approval|approvals|pending approval|pending approvals)\b", re.IGNORECASE)),
@@ -72,7 +87,12 @@ class IntentAssessment:
 
 
 def _intent_id(idx: int) -> str:
-    return f"intent-{idx:03d}-{uuid4().hex[:8]}"
+    return f"intent-{idx:03d}"
+
+
+def _stable_intent_id(idx: int, clause: str) -> str:
+    digest = sha1(clause.strip().lower().encode("utf-8")).hexdigest()[:8]
+    return f"{_intent_id(idx)}-{digest}"
 
 
 def _split_clauses(text: str) -> list[str]:
@@ -83,16 +103,33 @@ def _split_clauses(text: str) -> list[str]:
     return parts or [raw]
 
 
+def _constraint_strength(clause: str, match: re.Match[str]) -> Literal["hard", "soft"]:
+    prefix = clause[max(0, match.start() - 32) : match.start()]
+    return "soft" if _SOFT_CONSTRAINT_HINT_RE.search(prefix) else "hard"
+
+
+def _date_operator(token: str) -> Literal["=", "before", "after"]:
+    op = token.lower()
+    if op in {"by", "before", "until"}:
+        return "before"
+    if op in {"after", "from"}:
+        return "after"
+    return "="
+
+
 def _extract_constraints(clause: str) -> list[ExplicitConstraint]:
     out: list[ExplicitConstraint] = []
     for m in _MACHINE_ID_RE.finditer(clause):
+        local_prefix = clause[max(0, m.start() - 16) : m.start()].lower()
+        if re.search(r"\b(?:job|product|operator|op)\s*(?:id|#)?\s*$", local_prefix):
+            continue
         out.append(
             ExplicitConstraint(
                 field="machine_id",
                 operator="=",
                 value=m.group(1).upper(),
                 source_text=m.group(0),
-                strength="hard",
+                strength=_constraint_strength(clause, m),
                 mutable=False,
             )
         )
@@ -103,7 +140,7 @@ def _extract_constraints(clause: str) -> list[ExplicitConstraint]:
                 operator="=",
                 value=m.group(1).upper(),
                 source_text=m.group(0),
-                strength="hard",
+                strength=_constraint_strength(clause, m),
                 mutable=False,
             )
         )
@@ -115,7 +152,7 @@ def _extract_constraints(clause: str) -> list[ExplicitConstraint]:
                     operator="=",
                     value=m.group(1),
                     source_text=m.group(0),
-                    strength="hard",
+                    strength=_constraint_strength(clause, m),
                     mutable=False,
                 )
             )
@@ -126,7 +163,7 @@ def _extract_constraints(clause: str) -> list[ExplicitConstraint]:
                 operator="=",
                 value=str(m.group(1)).upper() if m.group(1) else m.group(0),
                 source_text=m.group(0),
-                strength="hard",
+                strength=_constraint_strength(clause, m),
                 mutable=False,
             )
         )
@@ -137,7 +174,40 @@ def _extract_constraints(clause: str) -> list[ExplicitConstraint]:
                 operator="=",
                 value=m.group(1).upper(),
                 source_text=m.group(0),
-                strength="hard",
+                strength=_constraint_strength(clause, m),
+                mutable=False,
+            )
+        )
+    for m in _DATE_WITH_PREPOSITION_RE.finditer(clause):
+        out.append(
+            ExplicitConstraint(
+                field="date",
+                operator=_date_operator(m.group("op")),
+                value=m.group("value"),
+                source_text=m.group(0),
+                strength=_constraint_strength(clause, m),
+                mutable=False,
+            )
+        )
+    for m in _NATURAL_DATE_RE.finditer(clause):
+        out.append(
+            ExplicitConstraint(
+                field="date",
+                operator="=",
+                value=m.group(1).lower(),
+                source_text=m.group(0),
+                strength=_constraint_strength(clause, m),
+                mutable=False,
+            )
+        )
+    for m in _OPERATOR_RE.finditer(clause):
+        out.append(
+            ExplicitConstraint(
+                field="operator",
+                operator="=",
+                value=m.group("value").strip(),
+                source_text=m.group(0),
+                strength=_constraint_strength(clause, m),
                 mutable=False,
             )
         )
@@ -214,7 +284,7 @@ def split_user_intents(query: str, *, llm: Any | None = None) -> list[Intent]:
         cat = _classify_clause(clause)
         intents.append(
             Intent(
-                intent_id=_intent_id(idx),
+                intent_id=_stable_intent_id(idx, clause),
                 description=clause.strip(),
                 explicit_constraints=_extract_constraints(clause),
                 category=cat,
@@ -224,7 +294,7 @@ def split_user_intents(query: str, *, llm: Any | None = None) -> list[Intent]:
     if not intents:
         return [
             Intent(
-                intent_id=_intent_id(0),
+                intent_id=_stable_intent_id(0, raw),
                 description=raw,
                 explicit_constraints=_extract_constraints(raw),
                 category=_classify_clause(raw),

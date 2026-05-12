@@ -2,7 +2,7 @@
 
 Date: 2026-05-12
 
-Updated: 2026-05-13 reference-check pass; 2026-05-13 Phase 1 schema evidence update
+Updated: 2026-05-13 reference-check pass; 2026-05-13 Phase 1 schema evidence update; 2026-05-13 Phase 2 intent evidence update
 
 Scope: evidence-only audit of active runtime paths for session creation, message submission, plan creation, execution, approval, snapshot, SSE, checkpointing, and legacy replay. No behavior-changing fixes were made in this pass.
 
@@ -44,6 +44,14 @@ Phase 1 confirmed a runtime API schema mismatch from the Phase 0 approval path e
 Phase 1 also confirmed that `AgentState` reducer annotations can initialize and pass through a dummy `StateGraph(AgentState)`. Evidence lives in `factory-agent/tests/test_agent_state.py`, covering `add_messages`, append-only trace reducers, overwrite fields, and the `replace_list()` clear sentinel for clearable buffers.
 
 Verification for this Phase 1 update: `python -m pytest tests/test_agent_state.py`, `python -m pytest tests/test_agent_state.py tests/test_planner_phase3.py tests/test_tool_pipeline.py tests/test_phase5_final_validator.py`, and `python -m compileall factory_agent`.
+
+## Phase 2 Evidence Update
+
+Phase 2 confirmed that graph-native runtime intent understanding is isolated in `factory-agent/factory_agent/graph/nodes/intent_split.py`: `intent_splitter_node` calls `split_user_intents`, then writes the serialized output to `intents`, `working_intents`, `intent_cursor`, and `current_intent` before planner execution. `split_user_intents` in `factory-agent/factory_agent/planning/intent.py` now emits deterministic intent IDs, preserves order-based dependency references for multi-part requests, parses incomplete requests into pending intents, and captures explicit machine, job, product, date, and operator constraints with hard/soft strength.
+
+`assess_intent` remains active in compatibility call sites documented in Phase 0, but it is compatibility-only and delegates to `split_user_intents`. No Phase 0 legacy retirement behavior was changed. `QueryRouter` remains deprecated compatibility code in `factory-agent/factory_agent/orchestration/router.py`, and Phase 2 verification confirmed graph-native code under `factory_agent/graph` does not import `QueryRouter` or route-score fields.
+
+Verification for this Phase 2 update: `python -m pytest tests/test_intent_splitter.py`, `python -m pytest tests/test_intent.py tests/test_intent_splitter.py tests/test_planner_phase3.py tests/test_agent_state.py`, and `python -m compileall factory_agent`.
 
 ## Runtime Path Classification
 
