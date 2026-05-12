@@ -73,6 +73,8 @@ Status: COMPLETE. Evidence: `factory-agent/factory_agent/graph/nodes/planner_loo
 
 ## Phase 4: Tool Execution, Staging, And Relevance
 
+Status: COMPLETE. Evidence: `factory-agent/factory_agent/graph/nodes/tool_pipeline.py` now keeps write tool decisions in `staged_writes` without emitting synthetic `tool_outputs` or calling mutating backend endpoints during the planning loop; only read HTTP envelopes flow through `pending_relevance_batch` into relevance-filtered `tool_outputs` and `retrieved_info`. `factory-agent/tests/test_tool_pipeline.py` proves read execution, write staging with HTTP blocked, unknown `$ref:` validation, hard constraint blocking via Phase 3 guard coverage, semantic filtering only when `ToolInfo.requires_semantic_filter` is set, and infrastructure failure routing through `FATAL_SYSTEM_ERROR` to `fatal_end`. Verification run on 2026-05-13: `python -m pytest tests/test_tool_pipeline.py -q`, `python -m pytest tests/test_agent_state.py tests/test_intent.py tests/test_intent_splitter.py tests/test_planner_phase3.py tests/test_tool_pipeline.py tests/test_phase5_final_validator.py -q`, and `python -m compileall factory_agent`.
+
 ### Tasks
 - Keep read tools as deterministic graph tool nodes.
 - Ensure read outputs update only `tool_outputs` and `retrieved_info`.

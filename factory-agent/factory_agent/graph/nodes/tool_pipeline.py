@@ -37,7 +37,9 @@ def _is_write_tool(tool: ToolInfo | None) -> bool:
     return not tool.is_read_only
 
 
-def _bulk_item_count(body: dict[str, Any] | None) -> int:
+def _bulk_item_count(body: Any) -> int:
+    if isinstance(body, list):
+        return len(body)
     if not isinstance(body, dict):
         return 0
     for key in ("data", "items", "results"):
@@ -51,7 +53,7 @@ def _deterministic_useful(
     *,
     tool: ToolInfo | None,
     http_status: int | None,
-    body: dict[str, Any] | None,
+    body: Any,
     infrastructure_error: bool,
 ) -> tuple[bool, str]:
     if infrastructure_error or (http_status is not None and http_status >= 500):
@@ -63,7 +65,7 @@ def _deterministic_useful(
     if isinstance(body, dict):
         if body.get("not_found"):
             return False, "soft_not_found"
-        for key in ("data", "items", "results"):
+        for key in ("data", "items", "results", "value"):
             v = body.get(key)
             if v == []:
                 return False, "empty_list"
@@ -180,17 +182,6 @@ def make_tool_execution_node(settings: Settings):
                         "write_generation": new_wg,
                         "idempotency_key": idem,
                         "status": "staged",
-                    }
-                )
-                outs.append(
-                    {
-                        "tool_name": name,
-                        "tool_call_id": tcid,
-                        "args": args,
-                        "result": {"staged": True, "output_ref": out_ref, "dry_run": True},
-                        "http_status": None,
-                        "useful": True,
-                        "relevance_reason": "staged_write_no_physical_execution",
                     }
                 )
                 done.append(

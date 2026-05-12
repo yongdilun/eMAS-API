@@ -2,7 +2,7 @@
 
 Date: 2026-05-12
 
-Updated: 2026-05-13 reference-check pass; 2026-05-13 Phase 1 schema evidence update; 2026-05-13 Phase 2 intent evidence update; 2026-05-13 Phase 3 planner-loop evidence update
+Updated: 2026-05-13 reference-check pass; 2026-05-13 Phase 1 schema evidence update; 2026-05-13 Phase 2 intent evidence update; 2026-05-13 Phase 3 planner-loop evidence update; 2026-05-13 Phase 4 tool execution evidence update
 
 Scope: evidence-only audit of active runtime paths for session creation, message submission, plan creation, execution, approval, snapshot, SSE, checkpointing, and legacy replay. No behavior-changing fixes were made in this pass.
 
@@ -62,6 +62,16 @@ Phase 3 also confirmed dependency cancellation behavior in `make_planner_node`: 
 A runtime-path parsing fact discovered during Phase 3 testing updated the Phase 2 evidence: plural `jobs` was being parsed as a hard `job_id="S"` constraint, which caused correct guard behavior to block a normal `list jobs` read. `factory-agent/factory_agent/planning/intent.py` now requires a word boundary after singular `job` before extracting a job ID, and `factory-agent/tests/test_intent_splitter.py` covers that plural-list case. This is a graph-input correctness fix, not a Phase 0 legacy retirement.
 
 Verification for this Phase 3 update: `python -m pytest tests/test_planner_phase3.py tests/test_intent_splitter.py`, `python -m pytest tests/test_agent_state.py tests/test_intent.py tests/test_intent_splitter.py tests/test_planner_phase3.py tests/test_tool_pipeline.py tests/test_phase5_final_validator.py`, and `python -m compileall factory_agent`.
+
+## Phase 4 Evidence Update
+
+Phase 4 confirmed the graph-native tool lane in `factory-agent/factory_agent/graph/nodes/tool_pipeline.py`: read tools execute through `execute_tool_http`, normalize HTTP response envelopes into a relevance batch, and only become appended `tool_outputs` after `RelevanceFilterNode` has marked usefulness. Read execution also updates `retrieved_info` with stable read keys and relevance trace metadata.
+
+Phase 4 also tightened a runtime-path fact: graph write tool calls now append staged operations to `staged_writes` without adding synthetic staged-write rows to `tool_outputs` and without calling mutating backend endpoints during planning. Transaction-scoped `$ref:` dependencies and hard explicit constraints are blocked in `decision_guard_node` before `ToolExecutionNode`; invalid refs append repair signals to `failed_strategies` and route back to the planner. Infrastructure read failures set `fatal_system_error` with a `FATAL_SYSTEM_ERROR:...` value and route to `fatal_end`.
+
+No Phase 0 legacy retirement behavior was changed. Legacy `ExecutionEngine`, relational plan/step compatibility projection, graph approval shims, and DLQ safeguards remain in the same active/compatibility categories documented above.
+
+Verification for this Phase 4 update: `python -m pytest tests/test_tool_pipeline.py -q`, `python -m pytest tests/test_agent_state.py tests/test_intent.py tests/test_intent_splitter.py tests/test_planner_phase3.py tests/test_tool_pipeline.py tests/test_phase5_final_validator.py -q`, and `python -m compileall factory_agent`.
 
 ## Runtime Path Classification
 

@@ -6,7 +6,12 @@ import pytest
 
 from factory_agent.config import get_settings
 from factory_agent.graph.http_tool_client import compute_planner_write_idempotency_key
-from factory_agent.graph.nodes.tool_pipeline import make_relevance_filter_node, make_tool_execution_node
+from factory_agent.graph.nodes.tool_pipeline import (
+    fatal_end_node,
+    make_relevance_filter_node,
+    make_tool_execution_node,
+    route_after_tool,
+)
 from factory_agent.graph.nodes.planner_loop import decision_guard_node
 from factory_agent.graph.state import AgentState
 from factory_agent.schemas import ToolInfo
@@ -73,8 +78,114 @@ def test_decision_guard_rejects_forward_ref():
     assert pd.get("tool_calls") == []
 
 
+def test_decision_guard_rejects_unknown_read_ref():
+    read_tool = ToolInfo(
+        name="get__jobs",
+        description="jobs",
+        endpoint="/jobs/{id}",
+        method="GET",
+        input_schema={"type": "object"},
+        path_params=["id"],
+        is_read_only=True,
+    )
+    state: AgentState = {
+        "original_query": "q",
+        "intent": "q",
+        "messages": [],
+        "scoped_tools": [read_tool],
+        "context": {},
+        "current_intent": {"intent_id": "i1", "explicit_constraints": [], "status": "in_progress"},
+        "pending_decision": {
+            "intent_id": "i1",
+            "decision_id": "d1",
+            "kind": "domain_tool",
+            "tool_calls": [
+                {"tool_name": "get__jobs", "args": {"id": "$ref:missing_job"}},
+            ],
+        },
+    }
+    out = decision_guard_node(state)
+    assert out["next_route"] == "continue_planner"
+    assert out["failed_strategies"][0]["reason"] == "transaction_ref_violation"
+    assert out["failed_strategies"][0]["detail"] == "unknown_ref:$ref:missing_job"
+    assert out["pending_decision"]["tool_calls"] == []
+
+
 @pytest.mark.asyncio
-async def test_tool_execution_stages_writes_without_http():
+async def test_tool_execution_runs_read_and_relevance_appends_normalized_output(monkeypatch):
+    settings = get_settings()
+    read_tool = ToolInfo(
+        name="get__machines",
+        description="machines",
+        endpoint="/machines",
+        method="GET",
+        input_schema={"type": "object"},
+        is_read_only=True,
+    )
+    calls: list[dict[str, object]] = []
+
+    async def fake_execute_tool_http(settings, tool, args, *, idempotency_key):
+        calls.append({"tool_name": tool.name, "args": dict(args), "idempotency_key": idempotency_key})
+        return {
+            "ok": True,
+            "http_status": 200,
+            "body": {"data": [{"machine_id": "M-001", "status": "available"}]},
+            "latency_ms": 3,
+            "infrastructure_error": False,
+        }
+
+    monkeypatch.setattr(
+        "factory_agent.graph.nodes.tool_pipeline.execute_tool_http",
+        fake_execute_tool_http,
+    )
+
+    execute = make_tool_execution_node(settings)
+    state: AgentState = {
+        "session_id": "sess-read",
+        "original_query": "find available machines",
+        "intent": "find available machines",
+        "messages": [],
+        "scoped_tools": [read_tool],
+        "context": {},
+        "write_generation": 0,
+        "retrieved_info": {},
+        "pending_decision": {
+            "intent_id": "i1",
+            "decision_id": "d1",
+            "kind": "domain_tool",
+            "tool_calls": [
+                {"tool_name": "get__machines", "args": {"status": "available"}, "tool_call_id": "tc-read"}
+            ],
+        },
+    }
+    after_execute = await execute(state)
+
+    assert len(calls) == 1
+    assert calls[0]["tool_name"] == "get__machines"
+    assert calls[0]["args"] == {"status": "available"}
+    assert calls[0]["idempotency_key"]
+    assert after_execute["staged_writes"] == []
+    assert after_execute["next_route"] == "relevance_filter"
+    assert "read:get__machines:tc-read" in after_execute["retrieved_info"]
+
+    relevance = make_relevance_filter_node(settings)
+    after_relevance = await relevance(
+        {
+            **state,
+            "pending_relevance_batch": after_execute["pending_relevance_batch"],
+            "retrieved_info": after_execute["retrieved_info"],
+        }
+    )
+    outputs = after_relevance["tool_outputs"]
+    assert len(outputs) == 1
+    assert outputs[0]["tool_name"] == "get__machines"
+    assert outputs[0]["result"]["data"][0]["machine_id"] == "M-001"
+    assert outputs[0]["useful"] is True
+    assert after_relevance["retrieved_info"]["relevance_trace"][0]["tool_name"] == "get__machines"
+
+
+@pytest.mark.asyncio
+async def test_tool_execution_stages_writes_without_http(monkeypatch):
     settings = get_settings()
     write_tool = ToolInfo(
         name="post__jobs",
@@ -84,6 +195,15 @@ async def test_tool_execution_stages_writes_without_http():
         input_schema={"type": "object"},
         is_read_only=False,
     )
+
+    async def fail_if_http_called(settings, tool, args, *, idempotency_key):
+        raise AssertionError("write tools must not call backend HTTP during graph planning")
+
+    monkeypatch.setattr(
+        "factory_agent.graph.nodes.tool_pipeline.execute_tool_http",
+        fail_if_http_called,
+    )
+
     node = make_tool_execution_node(settings)
     state: AgentState = {
         "session_id": "sess-1",
@@ -109,7 +229,7 @@ async def test_tool_execution_stages_writes_without_http():
     assert staged[0].get("tool_name") == "post__jobs"
     assert staged[0].get("idempotency_key")
     assert staged[0].get("output_ref", "").startswith("$ref:")
-    assert out.get("pending_relevance_batch")
+    assert out.get("pending_relevance_batch") == []
 
 
 @pytest.mark.asyncio
@@ -148,3 +268,118 @@ async def test_relevance_filter_empty_and_404():
     assert out["next_route"] == "continue_planner"
     to = out.get("tool_outputs") or []
     assert to and to[0].get("useful") is False
+
+
+@pytest.mark.asyncio
+async def test_relevance_filter_uses_semantic_only_when_tool_requires_it(monkeypatch):
+    settings = get_settings()
+    calls: list[str] = []
+
+    async def fake_semantic(settings, *, tool_name: str, user_query: str, body: dict):
+        calls.append(tool_name)
+        return True, "semantic_pass"
+
+    monkeypatch.setattr(
+        "factory_agent.graph.nodes.tool_pipeline._semantic_useful",
+        fake_semantic,
+    )
+
+    normal = ToolInfo(
+        name="get__machines",
+        description="machines",
+        endpoint="/machines",
+        method="GET",
+        input_schema={"type": "object"},
+        is_read_only=True,
+    )
+    semantic = ToolInfo(
+        name="get__reports",
+        description="report",
+        endpoint="/reports",
+        method="GET",
+        input_schema={"type": "object"},
+        is_read_only=True,
+        requires_semantic_filter=True,
+    )
+    rf = make_relevance_filter_node(settings)
+    out = await rf(
+        {
+            "original_query": "which report matters",
+            "intent": "which report matters",
+            "scoped_tools": [normal, semantic],
+            "retrieved_info": {},
+            "pending_relevance_batch": [
+                {
+                    "tool_name": "get__machines",
+                    "tool_call_id": "t1",
+                    "args": {},
+                    "result": {"data": [{"machine_id": "M-001"}]},
+                    "http_status": 200,
+                },
+                {
+                    "tool_name": "get__reports",
+                    "tool_call_id": "t2",
+                    "args": {},
+                    "result": {"data": [{"report_id": "R-001"}]},
+                    "http_status": 200,
+                },
+            ],
+        }
+    )
+    assert calls == ["get__reports"]
+    assert [row["relevance_reason"] for row in out["tool_outputs"]] == [
+        "direct_lookup_pass_through",
+        "semantic_pass",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tool_execution_infrastructure_failure_sets_fatal_and_routes_to_halt(monkeypatch):
+    settings = get_settings()
+    read_tool = ToolInfo(
+        name="get__machines",
+        description="machines",
+        endpoint="/machines",
+        method="GET",
+        input_schema={"type": "object"},
+        is_read_only=True,
+    )
+
+    async def fake_execute_tool_http(settings, tool, args, *, idempotency_key):
+        return {
+            "ok": False,
+            "http_status": None,
+            "body": {"error_type": "network", "message": "connection refused"},
+            "latency_ms": 1,
+            "infrastructure_error": True,
+        }
+
+    monkeypatch.setattr(
+        "factory_agent.graph.nodes.tool_pipeline.execute_tool_http",
+        fake_execute_tool_http,
+    )
+
+    node = make_tool_execution_node(settings)
+    out = await node(
+        {
+            "session_id": "sess-fatal",
+            "original_query": "find machines",
+            "intent": "find machines",
+            "messages": [],
+            "scoped_tools": [read_tool],
+            "context": {},
+            "write_generation": 0,
+            "retrieved_info": {},
+            "pending_decision": {
+                "intent_id": "i1",
+                "decision_id": "d1",
+                "kind": "domain_tool",
+                "tool_calls": [{"tool_name": "get__machines", "args": {}, "tool_call_id": "tc-fatal"}],
+            },
+        }
+    )
+
+    assert str(out["fatal_system_error"]).startswith("FATAL_SYSTEM_ERROR:get__machines")
+    assert out["next_route"] == "fatal_end"
+    assert route_after_tool(out) == "fatal_end"
+    assert fatal_end_node(out)["status"] == "failed"
