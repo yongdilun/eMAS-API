@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -14,7 +14,7 @@ from ..planner_graph_helpers import (
     _message_content_text,
     _normalize_plan_dict,
 )
-from ..state import AgentPlanOutput, AgentPlanStep, AgentState
+from ..state import AgentPlanOutput, AgentPlanStep, AgentState, user_query_text
 
 
 def _coerce_confidence(value: Any) -> float:
@@ -122,7 +122,7 @@ def make_reason_node(settings: Settings):
                 "LangGraph planner requires PLANNER_OPENAI_BASE_URL (or OPENAI_BASE_URL) or OPENAI_API_KEY."
             )
 
-        intent = state.get("intent") or ""
+        intent = user_query_text(state)
         context = state.get("context") or {}
         tool_cards = state.get("tool_cards") or []
         prompt = _build_agent_prompt(intent=intent, context=context, tool_cards=tool_cards)
@@ -160,7 +160,7 @@ def make_reason_node(settings: Settings):
                     reason="invalid_json",
                     tool_names=[step.tool_name for step in repaired.steps],
                 )
-                return {**state, "raw_plan": repaired, "risk_summary": repaired.risk_summary}
+                return {"raw_plan": repaired, "risk_summary": repaired.risk_summary, "status": "planning"}
             raise LangGraphPlannerError("LangGraph planner returned invalid JSON.")
         try:
             plan = parse_agent_plan_output(parsed)
@@ -187,7 +187,7 @@ def make_reason_node(settings: Settings):
                     reason="invalid_schema",
                     tool_names=[step.tool_name for step in repaired.steps],
                 )
-                return {**state, "raw_plan": repaired, "risk_summary": repaired.risk_summary}
+                return {"raw_plan": repaired, "risk_summary": repaired.risk_summary, "status": "planning"}
             salvaged = _salvage_plan_from_normalized(
                 normalized,
                 scoped_tool_names={tool.name for tool in (state.get("scoped_tools") or []) if getattr(tool, "name", None)},
@@ -200,9 +200,9 @@ def make_reason_node(settings: Settings):
                     step_count=len(salvaged.steps),
                     tool_names=[step.tool_name for step in salvaged.steps],
                 )
-                return {**state, "raw_plan": salvaged, "risk_summary": salvaged.risk_summary}
+                return {"raw_plan": salvaged, "risk_summary": salvaged.risk_summary, "status": "planning"}
             raise LangGraphPlannerError("LangGraph planner returned JSON that does not match AgentPlanOutput.") from exc
-        return {**state, "raw_plan": plan, "risk_summary": plan.risk_summary}
+        return {"raw_plan": plan, "risk_summary": plan.risk_summary, "status": "planning"}
 
     return reason_node
 

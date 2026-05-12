@@ -1,8 +1,10 @@
-import re
 import json
-from pathlib import Path
+import re
+import warnings
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
+
 from langchain_core.messages import HumanMessage, SystemMessage
 
 @dataclass
@@ -19,8 +21,13 @@ class RouteDecision:
 
 class QueryRouter:
     """
-    Enterprise-grade Query Router that classifies queries using a weighted 
+    Enterprise-grade Query Router that classifies queries using a weighted
     multi-signal scoring system based on project metadata.
+
+    .. deprecated::
+        LangGraph Phase 2+ replaces this with the intent splitter and planner
+        loop. Call sites should migrate to ``planning.intent.split_user_intents``
+        (and downstream graph nodes) instead of route scores.
     """
 
     # Routes
@@ -54,6 +61,11 @@ class QueryRouter:
         :param llm: A LangChain chat model for fallback classification.
         :param tool_registry: Optional ToolRegistry or snapshot for tool matching.
         """
+        warnings.warn(
+            "QueryRouter is deprecated in favor of the LangGraph intent splitter (Phase 2+).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.llm = llm
         self.tool_registry = tool_registry
         

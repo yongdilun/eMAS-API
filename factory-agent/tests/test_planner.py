@@ -21,6 +21,8 @@ from factory_agent.planner import (
 from factory_agent.schemas import PlanBinding, PlanDraft, PlanStepDraft, ToolInfo
 from factory_agent.registry.tool_registry import ToolRegistry
 
+from tests.graph_state_fixtures import stub_agent_state
+
 
 def _settings() -> Settings:
     return Settings(
@@ -166,11 +168,10 @@ def test_langgraph_validation_prefers_reference_type_tools(intent, general_tool,
         _read_tool(general_tool, f"/{general_tool.removeprefix('get__')}"),
         _read_tool(reference_tool, f"/reference/{reference_tool.removeprefix('get__reference_')}"),
     ]
-    state = {
-        "intent": intent,
-        "context": {},
-        "scoped_tools": tools,
-        "raw_plan": AgentPlanOutput(
+    state = stub_agent_state(
+        query=intent,
+        scoped_tools=tools,
+        raw_plan=AgentPlanOutput(
             plan_explanation="List requested type reference data.",
             risk_summary="Read-only lookup.",
             steps=[
@@ -182,7 +183,7 @@ def test_langgraph_validation_prefers_reference_type_tools(intent, general_tool,
                 )
             ],
         ),
-    }
+    )
 
     result = _run_validate(settings, state)
 
@@ -210,11 +211,10 @@ def test_langgraph_validation_inserts_delete_preflight_lookup():
             capability_tags=["job", "lookup"],
         ),
     ]
-    state = {
-        "intent": "delete test job TEST-E2E-factory-delete",
-        "context": {},
-        "scoped_tools": tools,
-        "raw_plan": AgentPlanOutput(
+    state = stub_agent_state(
+        query="delete test job TEST-E2E-factory-delete",
+        scoped_tools=tools,
+        raw_plan=AgentPlanOutput(
             plan_explanation="Delete the requested job after checking it.",
             risk_summary="Requires approval before deletion.",
             steps=[
@@ -226,7 +226,7 @@ def test_langgraph_validation_inserts_delete_preflight_lookup():
                 )
             ],
         ),
-    }
+    )
 
     result = _run_validate(settings, state)
 
@@ -422,16 +422,15 @@ def test_normalize_plan_dict_repairs_binding_alias_fields():
 def test_validate_node_empty_plan_returns_clarification():
     """Empty step_drafts should always preserve user-facing clarification behavior."""
     settings = _settings()
-    state = {
-        "intent": "list machines",
-        "context": {},
-        "scoped_tools": [_read_tool("get__machines", "/machines")],
-        "raw_plan": AgentPlanOutput(
+    state = stub_agent_state(
+        query="list machines",
+        scoped_tools=[_read_tool("get__machines", "/machines")],
+        raw_plan=AgentPlanOutput(
             plan_explanation="",
             risk_summary="",
             steps=[],
         ),
-    }
+    )
 
     with pytest.raises(LangGraphPlannerClarification):
         _run_validate(settings, state)
@@ -468,16 +467,15 @@ def test_validate_node_empty_plan_falls_back_to_clear_read_tool_with_supported_p
             capability_tags=["product", "create"],
         ),
     ]
-    state = {
-        "intent": "explosion for product P-001",
-        "context": {},
-        "scoped_tools": tools,
-        "raw_plan": AgentPlanOutput(
+    state = stub_agent_state(
+        query="explosion for product P-001",
+        scoped_tools=tools,
+        raw_plan=AgentPlanOutput(
             plan_explanation="",
             risk_summary="",
             steps=[],
         ),
-    }
+    )
 
     result = _run_validate(settings, state)
 
@@ -519,11 +517,10 @@ def test_langgraph_repair_expands_job_and_slots_compound_read():
             capability_tags=["job", "slot", "lookup"],
         ),
     ]
-    state = {
-        "intent": "show JOB-SEED-001 and its slots",
-        "context": {},
-        "scoped_tools": tools,
-        "raw_plan": AgentPlanOutput(
+    state = stub_agent_state(
+        query="show JOB-SEED-001 and its slots",
+        scoped_tools=tools,
+        raw_plan=AgentPlanOutput(
             plan_explanation="bad model output",
             risk_summary="",
             steps=[
@@ -535,7 +532,7 @@ def test_langgraph_repair_expands_job_and_slots_compound_read():
                 )
             ],
         ),
-    }
+    )
 
     result = _run_validate(settings, state)
 
@@ -578,11 +575,10 @@ def test_langgraph_repair_expands_incomplete_job_slots_plan():
             capability_tags=["job", "slot", "lookup"],
         ),
     ]
-    state = {
-        "intent": "show JOB-SEED-001 and its slots",
-        "context": {},
-        "scoped_tools": tools,
-        "raw_plan": AgentPlanOutput(
+    state = stub_agent_state(
+        query="show JOB-SEED-001 and its slots",
+        scoped_tools=tools,
+        raw_plan=AgentPlanOutput(
             plan_explanation="Retrieve slots only.",
             risk_summary="Read-only.",
             steps=[
@@ -594,7 +590,7 @@ def test_langgraph_repair_expands_incomplete_job_slots_plan():
                 )
             ],
         ),
-    }
+    )
 
     result = _run_validate(settings, state)
 
@@ -1150,12 +1146,11 @@ async def test_reason_node_invalid_schema_uses_deterministic_repair(monkeypatch)
     )
 
     out = await reason_node(
-        {
-            "intent": "show job JOB-SEED-001",
-            "context": {},
-            "tool_cards": [],
-            "scoped_tools": [scoped_tool],
-        }
+        stub_agent_state(
+            query="show job JOB-SEED-001",
+            scoped_tools=[scoped_tool],
+            tool_cards=[],
+        )
     )
 
     assert out["raw_plan"] is not None
@@ -1187,12 +1182,11 @@ async def test_reason_node_invalid_schema_salvages_supported_steps_when_repair_u
     monkeypatch.setattr(reason_module, "_deterministic_plan_repair", lambda intent, scoped_tools, context=None: None)
 
     out = await reason_node(
-        {
-            "intent": "show job JOB-SEED-001",
-            "context": {},
-            "tool_cards": [],
-            "scoped_tools": [scoped_tool],
-        }
+        stub_agent_state(
+            query="show job JOB-SEED-001",
+            scoped_tools=[scoped_tool],
+            tool_cards=[],
+        )
     )
 
     plan = out["raw_plan"]

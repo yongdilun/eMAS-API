@@ -1,4 +1,4 @@
-﻿"""Test-only planner that mimics LangGraphPlanner output without LLM or langgraph imports."""
+"""Test-only planner that mimics LangGraphPlanner output without LLM or langgraph imports."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from factory_agent.graph.planner_graph_helpers import (
     _extract_user_supported_path_args,
     _tool_cards,
 )
-from factory_agent.graph.state import AgentPlanOutput, AgentPlanStep, AgentState
+from factory_agent.graph.state import AgentPlanOutput, AgentPlanStep, AgentState, normalize_graph_messages
 from factory_agent.security.guardrails import missing_required_fields
 from factory_agent.schemas import ToolInfo
 from factory_agent.services.planner_service import PlannerConfirmationRequired, _split_compound_intent
@@ -98,17 +98,26 @@ class OfflineLangGraphPlanner:
             risk_summary="Deterministic offline test planner with normal validation.",
             steps=steps,
         )
+        ctx = context or {}
         state: AgentState = {
-            "session_id": str((context or {}).get("session_id") or "") or None,
+            "session_id": str(ctx.get("session_id") or "") or None,
+            "original_query": intent,
             "intent": intent,
-            "messages": list((context or {}).get("messages") or []),
-            "context": context or {},
+            "messages": normalize_graph_messages(ctx.get("messages")),
+            "context": ctx,
             "scoped_tools": scoped_tools,
             "tool_cards": _tool_cards(scoped_tools),
-            "pending_tool_call": None,
-            "approved_args": {},
-            "tool_results": [],
+            "retrieved_info": {},
+            "decisions": [],
+            "approval_requests": [],
+            "validation_results": [],
+            "intents": [],
+            "tool_outputs": [],
+            "completed_actions": [],
+            "staged_writes": [],
+            "failed_strategies": [],
             "errors": [],
+            "status": "planning",
             "raw_plan": raw,
         }
         validated = make_validate_node(self._settings)(state)

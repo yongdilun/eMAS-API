@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, TypedDict
+import operator
+from typing import Annotated, Any, TypedDict
 
+from langchain_core.messages import AIMessage, AnyMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-from ..schemas import PlanBinding, PlanDraft, ToolInfo
+from ..schemas import AgentGraphRunStatus, PlanBinding, PlanDraft, ToolInfo
 
 
 class AgentPlanStep(BaseModel):
@@ -25,20 +28,78 @@ class AgentPlanOutput(BaseModel):
     clarification: str | None = None
 
 
+def normalize_graph_messages(raw: Any) -> list[AnyMessage]:
+    """Turn mixed context payloads into LangChain messages for ``add_messages`` state."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out: list[AnyMessage] = []
+    for item in raw:
+        if isinstance(item, BaseMessage):
+            out.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "user").strip().lower()
+        content = item.get("content")
+        text = content if isinstance(content, str) else str(content or "")
+        if role == "system":
+            out.append(SystemMessage(content=text))
+        elif role == "assistant":
+            out.append(AIMessage(content=text))
+        elif role == "tool_result":
+            out.append(ToolMessage(content=text, tool_call_id=str(item.get("tool_call_id") or "context")))
+        else:
+            out.append(HumanMessage(content=text))
+    return out
+
+
+def user_query_text(state: dict[str, Any]) -> str:
+    """Resolve the primary user request from canonical or legacy keys."""
+    q = state.get("original_query")
+    if isinstance(q, str) and q.strip():
+        return q.strip()
+    legacy = state.get("intent")
+    return legacy.strip() if isinstance(legacy, str) else ""
+
+
 class AgentState(TypedDict, total=False):
+    """LangGraph single source of truth (Phase 1 schema + reducers).
+
+    List fields marked with ``operator.add`` or ``add_messages`` must only be
+    updated via deltas in node returns (never echo the full accumulated list).
+    """
+
+    # --- Session / routing (overwrite) ---
     session_id: str | None
+    original_query: str
     intent: str
-    messages: list[dict[str, Any]]
     context: dict[str, Any]
     scoped_tools: list[ToolInfo]
     tool_cards: list[dict[str, Any]]
-    pending_tool_call: dict[str, Any] | None
-    approved_args: dict[str, Any]
-    tool_results: list[dict[str, Any]]
-    raw_plan: AgentPlanOutput | None
-    draft: PlanDraft | None
+    current_intent: dict[str, Any] | str | None
+    retrieved_info: dict[str, Any]
+    decisions: list[dict[str, Any]]
+    approval_requests: list[dict[str, Any]]
+    validation_results: list[dict[str, Any]]
+    status: AgentGraphRunStatus | None
     intent_contract: dict[str, Any] | None
-    risk_summary: str | None
     clarification: str | None
     final_response: str | None
-    errors: list[str]
+    risk_summary: str | None
+
+    # --- LangGraph message channel ---
+    messages: Annotated[list[AnyMessage], add_messages]
+
+    # --- Append-only traces (reducers) ---
+    intents: Annotated[list[dict[str, Any]], operator.add]
+    tool_outputs: Annotated[list[dict[str, Any]], operator.add]
+    completed_actions: Annotated[list[dict[str, Any]], operator.add]
+    staged_writes: Annotated[list[dict[str, Any]], operator.add]
+    failed_strategies: Annotated[list[dict[str, Any]], operator.add]
+    errors: Annotated[list[str], operator.add]
+
+    # --- Legacy planner bridge (removed in later migration phases) ---
+    raw_plan: AgentPlanOutput | None
+    draft: PlanDraft | None

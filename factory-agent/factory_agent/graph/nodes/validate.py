@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -20,7 +20,7 @@ from ..planner_graph_helpers import (
     _insert_delete_preflights,
     _reference_tool_preference,
 )
-from ..state import AgentState
+from ..state import AgentState, user_query_text
 
 
 def make_validate_node(settings: Settings):
@@ -29,11 +29,15 @@ def make_validate_node(settings: Settings):
         if raw_plan is None:
             raise LangGraphPlannerError("LangGraph planner did not produce a plan.")
         if raw_plan.clarification:
-            return {**state, "clarification": raw_plan.clarification, "draft": None}
+            return {
+                "clarification": raw_plan.clarification,
+                "draft": None,
+                "status": "awaiting_clarification",
+            }
 
         tools_by_name = {tool.name: tool for tool in state.get("scoped_tools") or []}
         repaired = _deterministic_plan_repair(
-            state.get("intent") or "",
+            user_query_text(state),
             state.get("scoped_tools") or [],
             context=state.get("context") or {},
         )
@@ -45,7 +49,7 @@ def make_validate_node(settings: Settings):
                 log_event(
                     "langgraph_planner_deterministic_repair",
                     level="WARNING",
-                    intent=state.get("intent"),
+                    intent=user_query_text(state),
                     reason="empty_unsupported_or_incomplete_plan",
                     raw_step_count=len(raw_plan.steps or []),
                     raw_tool_names=[step.tool_name for step in raw_plan.steps or []],
@@ -61,12 +65,12 @@ def make_validate_node(settings: Settings):
             tool = tools_by_name.get(raw_step.tool_name)
             if not tool:
                 raise LangGraphPlannerClarification(f"I could not safely select a supported tool for step {idx + 1}.")
-            preferred_tool = _reference_tool_preference(state.get("intent") or "", tool, tools_by_name)
+            preferred_tool = _reference_tool_preference(user_query_text(state), tool, tools_by_name)
             if preferred_tool.name != tool.name:
                 log_event(
                     "langgraph_planner_tool_preference_applied",
                     level="INFO",
-                    intent=state.get("intent"),
+                    intent=user_query_text(state),
                     original_tool_name=tool.name,
                     preferred_tool_name=preferred_tool.name,
                     reason="reference_data_preference",
@@ -76,7 +80,7 @@ def make_validate_node(settings: Settings):
             raw_args = dict(raw_step.args or {})
             raw_evidence = dict(raw_step.evidence or {})
             supported_args, supported_evidence = _extract_user_supported_path_args(
-                intent=state.get("intent") or "",
+                intent=user_query_text(state),
                 tool=tool,
                 existing_args=raw_args,
             )
@@ -92,8 +96,8 @@ def make_validate_node(settings: Settings):
                     raw_args=raw_args,
                     sanitized_args=sanitized_args,
                     dropped_fields=dropped_fields,
-                    intent=state.get("intent") or "",
-                    clause=state.get("intent") or "",
+                    intent=user_query_text(state),
+                    clause=user_query_text(state),
                 )
                 if clarification:
                     raise LangGraphPlannerClarification(clarification)
@@ -103,7 +107,7 @@ def make_validate_node(settings: Settings):
                     tool_name=tool.name,
                     dropped_fields=dropped_fields,
                     raw_args=raw_args,
-                    intent=state.get("intent"),
+                    intent=user_query_text(state),
                 )
 
             missing = sorted(
@@ -118,13 +122,13 @@ def make_validate_node(settings: Settings):
             provenance = promote_user_provenance(
                 tool=tool,
                 args=sanitized_args,
-                intent=state.get("intent") or "",
+                intent=user_query_text(state),
                 evidence=raw_evidence,
             )
             clean_args, provenance_dropped = strip_unsupported_optional_args(
                 tool=tool,
                 args=sanitized_args,
-                intent=state.get("intent") or "",
+                intent=user_query_text(state),
                 intent_memory=intent_memory,
                 arg_provenance=provenance,
             )
@@ -169,7 +173,7 @@ def make_validate_node(settings: Settings):
             log_event(
                 "langgraph_planner_empty_plan",
                 level="WARNING",
-                intent=state.get("intent"),
+                intent=user_query_text(state),
                 raw_step_count=len(raw_plan.steps or []),
                 raw_tool_names=[s.tool_name for s in raw_plan.steps or [] if isinstance(getattr(s, "tool_name", None), str)],
                 scoped_tool_count=len(tools_by_name),
@@ -185,12 +189,13 @@ def make_validate_node(settings: Settings):
             log_event(
                 "langgraph_planner_delete_preflight_inserted",
                 level="INFO",
-                intent=state.get("intent"),
+                intent=user_query_text(state),
                 inserted_steps=inserted_preflights,
             )
 
         draft = PlanDraft(
-            plan_explanation=raw_plan.plan_explanation.strip() or f"Plan prepared for intent: {state.get('intent') or 'user request'}.",
+            plan_explanation=raw_plan.plan_explanation.strip()
+            or f"Plan prepared for intent: {user_query_text(state) or 'user request'}.",
             risk_summary=raw_plan.risk_summary.strip() or "Review the proposed tool calls before execution.",
             steps=step_drafts,
         )
@@ -198,14 +203,15 @@ def make_validate_node(settings: Settings):
         if not validation.ok:
             raise LangGraphPlannerError("; ".join(validation.errors))
         return {
-            **state,
             "draft": draft,
             "intent_contract": {
-                "intent": state.get("intent") or "",
+                "intent": user_query_text(state),
                 "backend": "langgraph",
                 "steps": contract_steps,
             },
             "final_response": draft.plan_explanation,
+            "status": "completed",
+            "validation_results": [{"ok": True, "phase": "plan_validator"}],
         }
 
     return validate_node

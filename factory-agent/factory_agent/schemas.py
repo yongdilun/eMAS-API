@@ -16,6 +16,56 @@ SessionStatus = Literal[
     "FAILED",
     "COMPLETED",
 ]
+
+IntentOperator = Literal["=", "!=", "<", "<=", ">", ">=", "in", "not_in", "before", "after", "prefer"]
+IntentConstraintStrength = Literal["hard", "soft"]
+IntentLifecycleStatus = Literal[
+    "pending",
+    "in_progress",
+    "waiting_clarification",
+    "waiting_approval",
+    "completed",
+    "failed",
+    "cancelled",
+    "cancelled_due_to_dependency_failure",
+]
+IntentCategory = Literal["scheduling", "inventory", "machine", "job", "reporting", "general", "unknown"]
+
+
+class ExplicitConstraint(BaseModel):
+    """User-demanded parameter captured at split time (no validation — Phase 2 dumb splitter)."""
+
+    field: str
+    operator: IntentOperator = "="
+    value: Any = None
+    source_text: str | None = None
+    strength: IntentConstraintStrength = "hard"
+    mutable: bool = False
+
+
+class Intent(BaseModel):
+    """Structured work unit extracted from natural language (Phase 2)."""
+
+    intent_id: str
+    description: str
+    depends_on: list[str] = Field(default_factory=list)
+    explicit_constraints: list[ExplicitConstraint] = Field(default_factory=list)
+    status: IntentLifecycleStatus = "pending"
+    failure_reason: str | None = None
+    category: IntentCategory = "unknown"
+
+
+AgentGraphRunStatus = Literal[
+    "init",
+    "intent_split_pending",
+    "planning",
+    "awaiting_clarification",
+    "awaiting_approval",
+    "tool_running",
+    "validating",
+    "completed",
+    "failed",
+]
 MessageMode = Literal["normal", "plan"]
 PlanKind = Literal["execution", "discovery"]
 PlanStatus = Literal["DRAFT", "PENDING_APPROVAL", "APPROVED", "REJECTED", "COMPLETED", "INVALIDATED"]
