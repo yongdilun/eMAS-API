@@ -31,6 +31,7 @@ class Session(Base):
     pending_user_message = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
     version = Column(Integer, default=1)
+    event_seq = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)

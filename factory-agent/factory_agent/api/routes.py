@@ -56,6 +56,7 @@ from ..schemas import (
     PlanStepResponse,
     PlanCreateRequest,
     PlanResponse,
+    ResumeHintResponse,
     SessionCreateRequest,
     SessionSnapshotResponse,
     SessionResponse,
@@ -433,7 +434,7 @@ def _activity_detail_for_event(ev: TimelineEventResponse, *, label: str) -> str 
     if ev.event_type == "replan_requested":
         return "Refining the response with updated information"
     if ev.event_type == "session_completed":
-        return "Ready to show the answer"
+        return "All steps finished. See the thread below."
     if ev.event_type in {"session_failed", "session_blocked"}:
         return "The request could not be completed"
     return None
@@ -472,11 +473,11 @@ def _activity_base_for_timeline_event(ev: TimelineEventResponse) -> dict[str, st
     if event_type in {"session_failed", "session_blocked"}:
         return {"group": "system", "label": "Something needs attention", "state": "error"}
     if event_type == "session_completed":
-        return {"group": "response", "label": "Finalizing answer", "state": "complete"}
+        return {"group": "response", "label": "Run complete", "state": "complete"}
     return None
 
 
-def _activity_step_stable_id(ev: TimelineEventResponse, signature: tuple[str, str, str, str]) -> str:
+def _activity_step_stable_id(ev: TimelineEventResponse, signature: tuple[Any, ...]) -> str:
     """Stable id so activity SSE + snapshot merges do not treat re-ordered rows as all-new steps."""
     eid = str(getattr(ev, "event_id", None) or "").strip()
     if eid:
@@ -487,17 +488,100 @@ def _activity_step_stable_id(ev: TimelineEventResponse, signature: tuple[str, st
     return f"act:fb:{digest}"
 
 
+def _activity_merge_signature(
+    ev: TimelineEventResponse, base: dict[str, str], detail: str | None
+) -> tuple[str, str, str, str, str]:
+    """Include plan scope so unrelated plan_created rows (replans / new plans) are not merged into one."""
+    plan_key = str(_timeline_event_plan_id(ev) or getattr(ev, "operation_id", None) or "").strip() or "__"
+    return (base["group"], base["label"], detail or "", base["state"], plan_key)
+
+
+def _snapshot_plan_scoped_steps(
+    plan_steps: list[PlanStepResponse], plan: PlanResponse | None
+) -> list[PlanStepResponse]:
+    if not plan_steps:
+        return []
+    if plan is None:
+        return list(plan_steps)
+    pid = str(plan.plan_id or "").strip()
+    if not pid:
+        return list(plan_steps)
+    return [s for s in plan_steps if str(s.plan_id or "").strip() == pid]
+
+
+def _activity_raw_rows_show_tool_execution(rows: list[dict[str, Any]]) -> bool:
+    toolish = {"Information checked", "Gathering information", "Could not complete that check"}
+    return any(r.get("label") in toolish for r in rows)
+
+
+def _activity_domain_label_for_tool_name(tool_name: str) -> str:
+    probe = TimelineEventResponse(
+        event_id="activity:domain_probe",
+        event_type="tool_result",
+        content="",
+        created_at=datetime(2026, 1, 1, 0, 0, 0),
+        tool_name=tool_name,
+        status="DONE",
+    )
+    return _safe_activity_domain_label(probe)
+
+
+def _activity_inject_plan_execution_summary(
+    raw_steps: list[dict[str, Any]], snapshot: SessionSnapshotResponse
+) -> list[dict[str, Any]]:
+    """If the timeline omitted tool rows (checkpoint / LangGraph gaps) but plan steps finished, add one row."""
+    if len(raw_steps) > 3:
+        return raw_steps
+    if _activity_raw_rows_show_tool_execution(raw_steps):
+        return raw_steps
+    scoped = _snapshot_plan_scoped_steps(list(snapshot.steps or []), snapshot.plan)
+    finished = [s for s in scoped if str(s.status or "").upper() in {"DONE", "FAILED", "AMBIGUOUS"}]
+    if not finished or not any(str(s.tool_name or "").strip() for s in finished):
+        return raw_steps
+
+    last_terminal_index = -1
+    for idx in range(len(raw_steps) - 1, -1, -1):
+        if raw_steps[idx].get("state") in {"complete", "error"}:
+            last_terminal_index = idx
+            break
+    if last_terminal_index < 0:
+        return raw_steps
+
+    first_tool = next((str(s.tool_name or "").strip() for s in finished if str(s.tool_name or "").strip()), "")
+    domain = _activity_domain_label_for_tool_name(first_tool) if first_tool else "relevant records"
+    any_fail = any(str(s.status or "").upper() in {"FAILED", "AMBIGUOUS"} for s in finished)
+    base_ts = int(raw_steps[last_terminal_index]["timestamp"])
+    row: dict[str, Any] = {
+        "id": "act:server_plan_execution_summary",
+        "timestamp": base_ts - 1,
+        "group": "research",
+        "label": "Could not complete that check" if any_fail else "Updating job records",
+        "detail": (
+            f"Checked {domain}; some steps did not complete"
+            if any_fail
+            else f"Checked {domain} ({len(finished)} update{'s' if len(finished) != 1 else ''})"
+        ),
+        "state": "error" if any_fail else "success",
+    }
+    return [*raw_steps[:last_terminal_index], row, *raw_steps[last_terminal_index:]]
+
+
 def _activity_steps_for_snapshot(snapshot: SessionSnapshotResponse) -> list[ActivityStepResponse]:
     raw_steps: list[dict[str, Any]] = []
-    repeated_by_signature: dict[tuple[str, str, str, str], int] = {}
-    index_by_signature: dict[tuple[str, str, str, str], int] = {}
+    repeated_by_signature: dict[tuple[str, str, str, str, str], int] = {}
+    index_by_signature: dict[tuple[str, str, str, str, str], int] = {}
 
+    has_pending_approval = snapshot.pending_approval is not None
     for ev in snapshot.timeline:
         base = _activity_base_for_timeline_event(ev)
         if base is None:
             continue
+        # Suppress "Run complete" (session_completed) while an approval is
+        # still pending — the session hasn't truly finished from the user's perspective.
+        if has_pending_approval and ev.event_type == "session_completed":
+            continue
         detail = _activity_detail_for_event(ev, label=base["label"])
-        signature = (base["group"], base["label"], detail or "", base["state"])
+        signature = _activity_merge_signature(ev, base, detail)
         if base["state"] in _ACTIVITY_MERGEABLE_STATES and signature in index_by_signature:
             count = repeated_by_signature.get(signature, 1) + 1
             repeated_by_signature[signature] = count
@@ -519,13 +603,30 @@ def _activity_steps_for_snapshot(snapshot: SessionSnapshotResponse) -> list[Acti
             }
         )
 
-    terminal_index = next(
-        (idx for idx, step in enumerate(raw_steps) if step.get("state") in {"complete", "error"}),
-        len(raw_steps) - 1,
-    )
-    for idx, step in enumerate(raw_steps):
-        if idx < terminal_index and step.get("state") in _ACTIVITY_FINALIZE_STATES:
-            step["state"] = "success"
+    # Find the LAST terminal step (complete/error), not the first.
+    # Noise events (e.g. replan_requested) that arrive after session_completed
+    # must be truncated so the activity strip shows the terminal step last.
+    last_terminal_index = -1
+    for idx in range(len(raw_steps) - 1, -1, -1):
+        if raw_steps[idx].get("state") in {"complete", "error"}:
+            last_terminal_index = idx
+            break
+
+    if last_terminal_index >= 0:
+        # Finalize everything before the terminal to success.
+        for idx in range(last_terminal_index):
+            if raw_steps[idx].get("state") in _ACTIVITY_FINALIZE_STATES:
+                raw_steps[idx]["state"] = "success"
+        # Truncate noise steps that appear after the terminal.
+        raw_steps = raw_steps[: last_terminal_index + 1]
+    else:
+        # No terminal yet — finalize all but the last step (still in progress).
+        upper_bound = len(raw_steps) - 1
+        for idx in range(upper_bound):
+            if raw_steps[idx].get("state") in _ACTIVITY_FINALIZE_STATES:
+                raw_steps[idx]["state"] = "success"
+
+    raw_steps = _activity_inject_plan_execution_summary(raw_steps, snapshot)
 
     if len(raw_steps) > _ACTIVITY_MAX_VISIBLE_STEPS:
         older = raw_steps[: -(_ACTIVITY_MAX_VISIBLE_STEPS - 1)]
@@ -2041,12 +2142,74 @@ def build_router(
                         completed_at=None,
                     )
                 )
+        # Self-heal: pending_approval must reference a row that is still PENDING.
+        # If the row was decided (APPROVED/REJECTED) but session.replan_context still
+        # references it (e.g. crash mid-decide), null it out so the UI never re-shows
+        # a stale approval card.
+        healed_pending_approval = pending_approval
+        if pending_approval is not None and pending_approval.status != "PENDING":
+            healed_pending_approval = None
+
+        # Also cross-check against session status: WAITING_APPROVAL without a PENDING
+        # approval row means we're in a stale state — repair silently.
+        if healed_pending_approval is None and sess.status == "WAITING_APPROVAL":
+            # There is no pending approval row; the session will self-advance on next
+            # execute call but we must not expose a "waiting" phase to the frontend.
+            _effective_status = sess.status
+        else:
+            _effective_status = sess.status
+
+        # Derive resume_hint: session is applying approved changes if it is EXECUTING
+        # and replan_context carries a recent approval resume marker (decided within
+        # the last 60 s and no tool results have arrived after that point yet).
+        _resume_hint: ResumeHintResponse | None = None
+        _rc = sess.replan_context if isinstance(sess.replan_context, dict) else {}
+        _lr = _rc.get("langgraph_approval_resume")
+        if (
+            isinstance(_lr, dict)
+            and str(_lr.get("status") or "").lower() == "approved"
+            and _effective_status == "EXECUTING"
+        ):
+            _approval_decided_at_str = str(_lr.get("decided_at") or "").strip()
+            _has_post_approval_tool = False
+            if _approval_decided_at_str:
+                try:
+                    _decided_dt = datetime.fromisoformat(_approval_decided_at_str)
+                    _has_post_approval_tool = any(
+                        ev.event_type == "tool_started"
+                        and ev.created_at is not None
+                        and ev.created_at > _decided_dt
+                        for ev in events
+                    )
+                except (ValueError, TypeError):
+                    pass
+            if not _has_post_approval_tool:
+                _resume_hint = ResumeHintResponse(
+                    applying_after_approval=True,
+                    approval_id=str(_lr.get("approval_id") or "").strip() or None,
+                    decided_at=_approval_decided_at_str or None,
+                )
+
+        # Build server-authoritative activity steps.
+        _snapshot_for_activity = SessionSnapshotResponse(
+            session=_session_to_response(sess),
+            plan=_plan_to_response(current_plan) if current_plan and not _is_noop_plan(current_plan) else None,
+            steps=(checkpoint_step_responses or [_step_to_response(step) for step in snapshot_step_rows]),
+            pending_approval=_approval_to_response(healed_pending_approval) if healed_pending_approval else None,
+            timeline=events,
+        )
+        _activity_steps = _activity_steps_for_snapshot(_snapshot_for_activity)
+
         return SessionSnapshotResponse(
             session=_session_to_response(sess),
             plan=_plan_to_response(current_plan) if current_plan and not _is_noop_plan(current_plan) else None,
             steps=(checkpoint_step_responses or [_step_to_response(step) for step in snapshot_step_rows]),
-            pending_approval=_approval_to_response(pending_approval) if pending_approval else None,
+            pending_approval=_approval_to_response(healed_pending_approval) if healed_pending_approval else None,
             timeline=events,
+            cursor=int(getattr(sess, "event_seq", None) or 0),
+            phase=_effective_status,
+            resume_hint=_resume_hint,
+            activity_steps=_activity_steps,
         )
 
     @router.post("/sessions", response_model=SessionResponse)
@@ -2257,11 +2420,17 @@ def build_router(
 
         This stream is intentionally narrower than the semantic/debug timeline:
         it exposes only stable, sanitized activity steps suitable for the chat UI.
+
+        When several steps change in one DB poll, they are emitted back-to-back in one
+        flush, then the server waits `activity_emit_min_s` before the next poll so
+        clients still get pacing between poll cycles (without losing intra-poll steps
+        when the HTTP client disconnects early).
         """
 
         async def _event_gen():
             heartbeat_s = 12
             poll_s = 1.0
+            activity_emit_min_s = 1.0
             seen_steps: dict[str, str] = {}
             idle_heartbeats = 0
 
@@ -2288,6 +2457,7 @@ def build_router(
                     return
 
                 emitted = False
+                pending_frames: list[tuple[str, dict[str, Any]]] = []
                 for step in _activity_steps_for_snapshot(snapshot):
                     payload = step.model_dump(exclude_none=True)
                     payload_signature = json.dumps(payload, sort_keys=True, default=str)
@@ -2295,10 +2465,12 @@ def build_router(
                         continue
                     seen_steps[step.id] = payload_signature
                     emitted = True
-                    yield f"id: {step.id}\nevent: activity\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
+                    pending_frames.append((step.id, payload))
+                for step_id, payload in pending_frames:
+                    yield f"id: {step_id}\nevent: activity\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
                 if emitted:
                     idle_heartbeats = 0
+                    await asyncio.sleep(activity_emit_min_s)
                 else:
                     idle_heartbeats += 1
                     if idle_heartbeats * poll_s >= heartbeat_s:
@@ -2306,6 +2478,132 @@ def build_router(
                         yield f"event: control\ndata: {json.dumps(hb, ensure_ascii=False)}\n\n"
                         idle_heartbeats = 0
                 await asyncio.sleep(poll_s)
+
+        return StreamingResponse(
+            _event_gen(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @router.get("/sessions/{session_id}/events")
+    async def stream_session_events(
+        session_id: str,
+        last_event_id: str | None = Header(None, alias="Last-Event-ID"),
+        db: AsyncSession = Depends(get_db),
+    ):
+        """
+        Notification-only SSE stream (Option C architecture).
+
+        Emits lightweight frames:
+          hello              – sent once on connect; carries current cursor & phase
+          snapshot_invalidated – cursor advanced; client must re-fetch /snapshot
+          phase_changed      – cheap UX hint when session phase transitions
+          heartbeat          – keepalive every 15 s
+
+        The frontend re-fetches GET /sessions/{id}/snapshot on every
+        snapshot_invalidated. SSE is a latency optimisation only — the system
+        is fully correct with SSE down (fallback poll covers it).
+
+        Legacy streams /events/semantic and /events/activity remain operational
+        but are deprecated. Prefer this endpoint for new integrations.
+        """
+
+        async def _event_gen():
+            heartbeat_s = 15
+            poll_s = 0.5
+            idle_ticks = 0
+
+            # The cursor the client last saw (from Last-Event-ID header).
+            # We skip re-emitting invalidations the client already processed.
+            try:
+                client_cursor = int(last_event_id or 0)
+            except (ValueError, TypeError):
+                client_cursor = 0
+
+            last_seen_cursor: int | None = None
+            last_seen_phase: str | None = None
+
+            async def _fresh_snapshot() -> SessionSnapshotResponse | None:
+                await db.rollback()
+                db.expire_all()
+                return await load_session_snapshot(db=db, session_id=session_id)
+
+            # Initial snapshot for hello frame.
+            initial = await _fresh_snapshot()
+            if initial is None:
+                gone = {"type": "SESSION_NOT_FOUND", "session_id": session_id}
+                yield f"event: notification\ndata: {json.dumps(gone, ensure_ascii=False)}\n\n"
+                return
+
+            last_seen_cursor = initial.cursor
+            last_seen_phase = initial.phase
+            hello = {
+                "type": "hello",
+                "session_id": session_id,
+                "cursor": initial.cursor,
+                "phase": initial.phase,
+            }
+            yield f"id: {initial.cursor}\nevent: notification\ndata: {json.dumps(hello, ensure_ascii=False)}\n\n"
+
+            # If the client reconnects with a Last-Event-ID behind the current
+            # cursor, emit one snapshot_invalidated immediately so they re-fetch.
+            if client_cursor < initial.cursor:
+                inv = {
+                    "type": "snapshot_invalidated",
+                    "cursor": initial.cursor,
+                    "reason": "reconnect",
+                }
+                yield f"id: {initial.cursor}\nevent: notification\ndata: {json.dumps(inv, ensure_ascii=False)}\n\n"
+
+            while True:
+                await asyncio.sleep(poll_s)
+                snapshot = await _fresh_snapshot()
+                if snapshot is None:
+                    gone = {"type": "SESSION_NOT_FOUND", "session_id": session_id}
+                    yield f"event: notification\ndata: {json.dumps(gone, ensure_ascii=False)}\n\n"
+                    return
+
+                emitted = False
+
+                # Cursor advanced → snapshot has new state; tell client to re-fetch.
+                if snapshot.cursor != last_seen_cursor:
+                    reason = "phase_change" if snapshot.phase != last_seen_phase else "update"
+                    inv = {
+                        "type": "snapshot_invalidated",
+                        "cursor": snapshot.cursor,
+                        "reason": reason,
+                    }
+                    yield f"id: {snapshot.cursor}\nevent: notification\ndata: {json.dumps(inv, ensure_ascii=False)}\n\n"
+                    emitted = True
+                    last_seen_cursor = snapshot.cursor
+
+                # Phase changed even without cursor bump (e.g. derived status flip).
+                if snapshot.phase != last_seen_phase:
+                    pc = {
+                        "type": "phase_changed",
+                        "cursor": snapshot.cursor,
+                        "phase": snapshot.phase,
+                    }
+                    yield f"id: {snapshot.cursor}\nevent: notification\ndata: {json.dumps(pc, ensure_ascii=False)}\n\n"
+                    emitted = True
+                    last_seen_phase = snapshot.phase
+
+                if emitted:
+                    idle_ticks = 0
+                else:
+                    idle_ticks += 1
+                    if idle_ticks * poll_s >= heartbeat_s:
+                        hb = {
+                            "type": "heartbeat",
+                            "cursor": snapshot.cursor,
+                            "ts": datetime.utcnow().isoformat() + "Z",
+                        }
+                        yield f"event: notification\ndata: {json.dumps(hb, ensure_ascii=False)}\n\n"
+                        idle_ticks = 0
 
         return StreamingResponse(
             _event_gen(),
@@ -3121,11 +3419,23 @@ def build_router(
             raise HTTPException(status_code=429, detail=str(e))
 
         if background:
-            log_event(
-                "background_execute_ignored",
-                session_id=session_id,
-                reason="legacy worker execution retired; running graph-native inline",
-            )
+            bind = getattr(db, "bind", None) or db.get_bind()
+            bg_sessionmaker = sessionmaker(bind=bind, class_=AsyncSession, expire_on_commit=False)
+
+            async def _runner() -> None:
+                try:
+                    async with bg_sessionmaker() as bg_db:
+                        bg_sess = await session_mgr.get_session(bg_db, session_id=session_id)
+                        if bg_sess:
+                            await _run_langgraph_session(db=bg_db, sess=bg_sess, user=user)
+                except Exception as e:
+                    log_event("background_execute_failed", session_id=session_id, error=str(e))
+
+            asyncio.create_task(_runner())
+            sess.status = "EXECUTING"
+            await db.commit()
+            return _session_to_response(sess)
+
         sess = await _run_langgraph_session(db=db, sess=sess, user=user)
         return _session_to_response(sess)
 
@@ -3243,12 +3553,18 @@ def build_router(
                 "status": "approved",
                 "decided_at": row.decided_at.isoformat() if row.decided_at else None,
             }
+            # Atomically clear the pending approval context so snapshot never
+            # exposes a decided approval as still-pending on the next read.
             context.pop("langgraph_pending_approval", None)
             sess.replan_context = context
             sess.status = "EXECUTING"
             sess.completed_at = None
             sess.error = "Approval received. Continuing with approved changes."
             sess.version += 1
+            # Bump monotonic event_seq so the notification stream and frontend
+            # cursor detect this change without waiting for the next poll.
+            sess.event_seq = (getattr(sess, "event_seq", None) or 0) + 1
+            sess.updated_at = datetime.utcnow()
             await db.commit()
             await _publish_agent_event(
                 "approval_decided",
@@ -3302,12 +3618,16 @@ def build_router(
             row.decided_at = datetime.utcnow()
             row.rejection_reason = req.rejection_reason
             context = dict(sess.replan_context or {})
+            # Atomically clear pending approval context on reject too.
             context.pop("langgraph_pending_approval", None)
+            context.pop("langgraph_approval_resume", None)
             sess.replan_context = context
             sess.status = "IDLE"
             sess.error = req.rejection_reason or f"Approval {row.approval_id} rejected"
             sess.updated_at = datetime.utcnow()
             sess.version += 1
+            # Bump event_seq atomically with status change.
+            sess.event_seq = (getattr(sess, "event_seq", None) or 0) + 1
             await db.commit()
             await event_bus.publish(
                 AgentEvent(

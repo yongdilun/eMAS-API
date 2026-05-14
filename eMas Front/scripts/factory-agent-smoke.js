@@ -9,14 +9,14 @@
  *   FACTORY_AGENT_BASE_URL=http://127.0.0.1:8000
  *   FACTORY_AGENT_BEARER_TOKEN=...
  *   FACTORY_AGENT_USER_ID=frontend-smoke
- *   FACTORY_AGENT_INTENT="Check machine 5 status"
+ *   FACTORY_AGENT_INTENT="Show status for machine M-CNC-01"
  *   FACTORY_AGENT_APPROVAL_DECISION=approve|reject
  */
 
 const BASE = (process.env.FACTORY_AGENT_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
 const TOKEN = process.env.FACTORY_AGENT_BEARER_TOKEN || ''
 const USER_ID = process.env.FACTORY_AGENT_USER_ID || 'frontend-smoke'
-const INTENT = process.env.FACTORY_AGENT_INTENT || 'Check machine 5 status'
+const INTENT = process.env.FACTORY_AGENT_INTENT || 'Show status for machine M-CNC-01'
 const APPROVAL_DECISION = (process.env.FACTORY_AGENT_APPROVAL_DECISION || 'reject').toLowerCase()
 
 function h() {

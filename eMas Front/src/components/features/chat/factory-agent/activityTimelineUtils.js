@@ -1,5 +1,39 @@
 export const ACTIVITY_STATES = ['running', 'success', 'retry', 'waiting', 'error', 'complete']
 
+/**
+ * When the activity timeline is enabled for the latest turn, defer assistant
+ * prose, tables, and stream-gated extras until the strip shows a terminal step,
+ * or until the turn has a terminal event when no steps exist yet.
+ */
+export function assistantAnswerAllowed({
+  activityTimelineEnabled,
+  isLatestTurn,
+  sessionStatus,
+  activitySteps,
+  turn,
+}) {
+  if (!activityTimelineEnabled || !isLatestTurn) return true
+
+  const stu = String(sessionStatus || '').toUpperCase()
+  const steps = Array.isArray(activitySteps) ? activitySteps : []
+  const hasActivity = steps.length > 0
+  const last = hasActivity ? steps[steps.length - 1] : null
+  const activityEnded = Boolean(last && (last.state === 'complete' || last.state === 'error'))
+  const term = turn?.terminal?.event_type
+  const turnEnded =
+    term === 'session_completed' || term === 'session_failed' || term === 'session_blocked'
+
+  const skipActivityRowTerminal =
+    stu === 'WAITING_APPROVAL' ||
+    stu === 'WAITING_CONFIRMATION' ||
+    stu === 'FAILED' ||
+    stu === 'BLOCKED'
+
+  if (skipActivityRowTerminal) return true
+  if (hasActivity) return activityEnded
+  return Boolean(turnEnded)
+}
+
 export function normalizeActivityStep(step) {
  if (!step || typeof step !== 'object') return null
  const id = String(step.id || '').trim()
@@ -94,7 +128,7 @@ function activityBaseForEvent(event) {
  if (type === 'confirmation_decided') return ['approval', 'Confirmation received', 'success']
  if (type === 'replan_requested') return ['planning', 'Improving the response', 'retry']
  if (type === 'session_failed' || type === 'session_blocked') return ['system', 'Something needs attention', 'error']
- if (type === 'session_completed') return ['response', 'Finalizing answer', 'complete']
+ if (type === 'session_completed') return ['response', 'Run complete', 'complete']
  return null
 }
 
@@ -113,7 +147,7 @@ function detailForEvent(event, label) {
  if (type === 'confirmation_required') return 'Waiting for confirmation'
  if (type === 'confirmation_decided') return 'Confirmation received'
  if (type === 'replan_requested') return 'Refining the response with updated information'
- if (type === 'session_completed') return 'Ready to show the answer'
+ if (type === 'session_completed') return 'All steps finished. See the thread below.'
  if (type === 'session_failed' || type === 'session_blocked') return 'The request could not be completed'
  return null
 }
@@ -151,6 +185,50 @@ function eventsMatchingOperation(timeline, operationId) {
  const byOp = timeline.filter((e) => String(e?.operation_id || e?.operationId || '').trim() === oid)
  if (byOp.length) return byOp
  return timeline.filter((e) => eventPlanId(e) === oid)
+}
+
+function timelineHasApprovalActivity(timeline) {
+ return (Array.isArray(timeline) ? timeline : []).some((e) => {
+  const t = getEventType(e)
+  return t === 'approval_required' || t === 'approval_decided'
+ })
+}
+
+function scopedHasApprovalActivity(events) {
+ return (Array.isArray(events) ? events : []).some((e) => {
+  const t = getEventType(e)
+  if (t === 'approval_required') {
+   const st = String(e?.status || '').toUpperCase()
+   return !st || st === 'PENDING'
+  }
+  return t === 'approval_decided'
+ })
+}
+
+/** Slice from the latest user_message so approval + pre/post plan ids stay in one strip. */
+function timelineFromLatestUserMessage(timeline) {
+ const sorted = sortTimelineEvents(timeline)
+ let start = 0
+ for (let i = sorted.length - 1; i >= 0; i -= 1) {
+  if (getEventType(sorted[i]) === 'user_message') {
+   start = i
+   break
+  }
+ }
+ return sorted.slice(start)
+}
+
+/** Widen scope when resume used a new plan id so strict plan match dropped approval rows. */
+function operationScopedEventsForActivity(timeline, operationId) {
+ const direct = eventsMatchingOperation(timeline, operationId)
+ if (
+  direct.length
+  && timelineHasApprovalActivity(timeline)
+  && !scopedHasApprovalActivity(direct)
+ ) {
+  return timelineFromLatestUserMessage(timeline)
+ }
+ return direct
 }
 
 function sortTimelineEvents(events) {
@@ -278,7 +356,7 @@ function capActivitySteps(steps = [], idPrefix = 'snapshot_activity') {
 }
 
 /**
- * One logical operation (plan scope): pre-approval tool noise omitted when an approval gate exists;
+ * One logical operation (plan scope): pre-approval tools show as review/staging rows;
  * post-approval execution uses Applying / Updating / Verifying labels.
  */
 function buildStepsFromEventsOperational(events) {
@@ -299,12 +377,22 @@ function buildStepsFromEventsOperational(events) {
 
  const postApprovalDoneToolResults = []
  if (approvalApprovedIdx >= 0) {
-  for (let i = approvalApprovedIdx + 1; i < sorted.length; i += 1) {
-   if (getType(sorted[i]) !== 'tool_result') continue
-   const st = String(sorted[i]?.status || '').toUpperCase()
-   if (st === 'DONE') postApprovalDoneToolResults.push(sorted[i])
+  for (let j = approvalApprovedIdx + 1; j < sorted.length; j += 1) {
+   if (getType(sorted[j]) !== 'tool_result') continue
+   const st = String(sorted[j]?.status || '').toUpperCase()
+   if (st === 'DONE') postApprovalDoneToolResults.push(sorted[j])
   }
  }
+
+ const preApprovalDoneToolResults =
+  hasApproval && firstAprIdx >= 0
+   ? sorted.filter(
+    (ev, j) =>
+     j < firstAprIdx
+     && getType(ev) === 'tool_result'
+     && String(ev?.status || '').toUpperCase() === 'DONE',
+   )
+   : []
 
  const allDoneTools = sorted.filter(
   (e) => getType(e) === 'tool_result' && String(e?.status || '').toUpperCase() === 'DONE',
@@ -335,12 +423,10 @@ function buildStepsFromEventsOperational(events) {
   const t = getType(event)
   const ts = toEventTime(event) / 1000
 
-  if (t === 'user_message') continue
-  if (t === 'tool_started') continue
+ if (t === 'user_message') continue
+ if (t === 'tool_started') continue
 
-  if (hasApproval && firstAprIdx >= 0 && i < firstAprIdx && t === 'tool_result') continue
-
-  if (t === 'plan_created') {
+ if (t === 'plan_created') {
    if (!seenUnderstanding) {
     push('planning', 'Understanding your request', 'success', 'Reviewing your request and recent context', ts)
     seenUnderstanding = true
@@ -406,6 +492,23 @@ function buildStepsFromEventsOperational(events) {
    }
    if (st !== 'DONE') continue
 
+   if (hasApproval && firstAprIdx >= 0 && i < firstAprIdx) {
+    const idxPre = preApprovalDoneToolResults.indexOf(event)
+    if (idxPre >= 0) {
+     if (preApprovalDoneToolResults.length >= 2) {
+      const isLastPre = idxPre === preApprovalDoneToolResults.length - 1
+      if (isLastPre) {
+       push('research', 'Verifying result', 'success', 'Validated staged changes before approval', ts)
+      } else {
+       push('research', 'Updating job records', 'success', `Reviewed ${safeDomainLabel(event)}`, ts)
+      }
+     } else {
+      push('research', 'Updating job records', 'success', `Checked ${safeDomainLabel(event)}`, ts)
+     }
+    }
+    continue
+   }
+
    if (hasApproval && afterApproved) {
     const idxInPost = postApprovalDoneToolResults.indexOf(event)
     if (idxInPost >= 0) {
@@ -449,7 +552,7 @@ function buildStepsFromEventsOperational(events) {
   }
 
   if (t === 'session_completed') {
-   push('response', 'Finalizing answer', 'complete', 'Ready to show the answer', ts)
+   push('response', 'Run complete', 'complete', 'All steps finished. See the thread below.', ts)
    continue
   }
  }
@@ -473,11 +576,19 @@ function latestTurnTimeline(timeline = []) {
  })
 }
 
+function activityTimelineIsTerminalSession(sessionStatus) {
+ const s = String(sessionStatus || '').toUpperCase()
+ return s === 'COMPLETED' || s === 'FAILED' || s === 'BLOCKED'
+}
+
 export function buildActivityStepsFromTimeline(timeline = [], options = {}) {
- const { mode = 'legacy', scopedEvents = null } = options
+ const { mode = 'legacy', scopedEvents = null, sessionStatus = '' } = options
  let sourceEvents
  if (scopedEvents != null && scopedEvents.length) {
   sourceEvents = sortTimelineEvents(scopedEvents)
+ } else if (activityTimelineIsTerminalSession(sessionStatus)) {
+  // Read-only review: show the whole session, not only events tied to the latest user turn.
+  sourceEvents = sortTimelineEvents(timeline)
  } else {
   sourceEvents = latestTurnTimeline(timeline)
  }
@@ -559,7 +670,7 @@ function findLastTerminalStepIndex(steps) {
 /**
  * When the server timeline omits tool rows (LangGraph / projection gaps) but plan steps
  * show finished work, add one consolidated execution row so the strip is not
- * only "Understanding" → "Finalizing".
+ * only "Understanding" → "Run complete".
  */
 function injectExecutionSummaryFromPlanSteps(steps, planSteps, plan) {
  const scoped = filterPlanStepsForActivePlan(planSteps, plan)
@@ -596,17 +707,28 @@ function injectExecutionSummaryFromPlanSteps(steps, planSteps, plan) {
 export function buildActivityStepsFromSnapshot(snapshot = {}) {
  const session = snapshot?.session || {}
  const plan = snapshot?.plan || null
- const timeline = Array.isArray(snapshot?.timeline) ? snapshot.timeline : []
+ const rawTimeline = Array.isArray(snapshot?.timeline) ? snapshot.timeline : []
  const planSteps = Array.isArray(snapshot?.steps) ? snapshot.steps : []
  const status = String(session?.status || '').toUpperCase()
+ const hasPendingApproval = Boolean(snapshot?.pending_approval)
+
+ // Suppress session_completed timeline events while an approval is still pending —
+ // showing "Run complete" while the approval card is open is misleading.
+ const timeline = hasPendingApproval
+  ? rawTimeline.filter((e) => (e?.event_type || e?.eventType) !== 'session_completed')
+  : rawTimeline
 
  const operationId = resolveOperationIdFromSnapshot(snapshot)
- const scoped = operationId ? eventsMatchingOperation(timeline, operationId) : []
+ const scoped = operationId ? operationScopedEventsForActivity(timeline, operationId) : []
  let steps = []
  if (operationId && scoped.length) {
-  steps = buildActivityStepsFromTimeline(timeline, { mode: 'operational', scopedEvents: scoped })
+  steps = buildActivityStepsFromTimeline(timeline, {
+   mode: 'operational',
+   scopedEvents: scoped,
+   sessionStatus: status,
+  })
  } else {
-  steps = buildActivityStepsFromTimeline(timeline, { mode: 'legacy' })
+  steps = buildActivityStepsFromTimeline(timeline, { mode: 'legacy', sessionStatus: status })
  }
 
  const now = Date.now() / 1000
@@ -680,8 +802,8 @@ export function buildActivityStepsFromSnapshot(snapshot = {}) {
    id: `snapshot_activity_${steps.length + 1}`,
    timestamp: now,
    group: 'response',
-   label: 'Finalizing answer',
-   detail: 'Ready to show the answer',
+   label: 'Run complete',
+   detail: 'All steps finished. See the thread below.',
    state: 'complete',
   })
  }

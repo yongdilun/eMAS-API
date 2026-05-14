@@ -376,12 +376,34 @@ class ActivityStepResponse(BaseModel):
     state: Literal["running", "success", "retry", "waiting", "error", "complete"]
 
 
+class ResumeHintResponse(BaseModel):
+    applying_after_approval: bool
+    approval_id: str | None = None
+    decided_at: str | None = None
+
+
 class SessionSnapshotResponse(BaseModel):
     session: SessionResponse
     plan: PlanResponse | None = None
     steps: list[PlanStepResponse] = Field(default_factory=list)
     pending_approval: ApprovalResponse | None = None
     timeline: list[TimelineEventResponse] = Field(default_factory=list)
+    cursor: int = Field(
+        default=0,
+        description="Monotonic event_seq cursor. Advances on every state-changing write. Used by the notification SSE stream to detect staleness.",
+    )
+    phase: SessionStatus = Field(
+        default="IDLE",
+        description="Authoritative session phase, derived from session.status. Clients should gate terminal UI on phase=='COMPLETED'.",
+    )
+    resume_hint: ResumeHintResponse | None = Field(
+        default=None,
+        description="Server-derived hint that the session is applying approved changes. Replaces the client-side isResumingAfterApproval flag.",
+    )
+    activity_steps: list[ActivityStepResponse] = Field(
+        default_factory=list,
+        description="Server-rendered activity timeline steps. Stable ids act:{event_id}. Clients should prefer these over client-side derivation.",
+    )
 
 
 class ValidationErrorResponse(BaseModel):

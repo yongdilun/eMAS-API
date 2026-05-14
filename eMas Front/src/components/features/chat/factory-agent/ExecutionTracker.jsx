@@ -1,5 +1,6 @@
 /* eslint-disable react/prop-types */
 import { friendlySessionStatus } from './activityTimelineUtils'
+import { formatFactoryAgentTime } from './factoryAgentDisplayTime.js'
 
 const statusTone = {
  IDLE: 'text-ink-muted',
@@ -40,7 +41,7 @@ const ExecutionTracker = ({ session, lastSyncedAt, isPollingSession }) => {
  ) : null}
  <div className="mt-2 flex items-center justify-between text-[10px] text-ink-subtle">
  <span>{isPollingSession ? 'Updating automatically' : 'Up to date'}</span>
- <span>{lastSyncedAt ? `Synced ${new Date(lastSyncedAt).toLocaleTimeString()}` : 'Not synced yet'}</span>
+ <span>{lastSyncedAt ? `Synced ${formatFactoryAgentTime(lastSyncedAt)}` : 'Not synced yet'}</span>
  </div>
  </div>
  )

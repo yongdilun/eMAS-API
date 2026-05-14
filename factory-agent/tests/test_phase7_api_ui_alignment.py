@@ -21,7 +21,7 @@ from factory_agent.observability.events import AgentEvent
 from factory_agent.persistence import database as persistence_database
 from factory_agent.persistence.models import Approval, Message, Plan, PlanStep, Session, WorkflowCheckpoint
 from factory_agent.registry.tool_registry import ToolRegistry
-from factory_agent.schemas import SessionSnapshotResponse, TimelineEventResponse
+from factory_agent.schemas import PlanResponse, PlanStepResponse, SessionSnapshotResponse, TimelineEventResponse
 
 
 class _FakeEventBus:
@@ -280,7 +280,7 @@ def test_phase7_activity_adapter_sanitizes_tool_and_runtime_details():
         "Gathering information",
         "Information checked",
         "Improving the response",
-        "Finalizing answer",
+        "Run complete",
     ]
     assert steps[-1].state == "complete"
     assert steps[1].detail == "Checking machine records"
@@ -634,3 +634,124 @@ def test_phase7_activity_adapter_skips_non_pending_approval_required():
     labels = [s.label for s in steps]
     assert "Waiting for your approval" not in labels
     assert "Approval received" in labels
+
+
+def test_phase7_activity_does_not_merge_plan_created_across_different_plan_ids():
+    created_at = datetime(2026, 5, 13, 11, 0, 0)
+    snapshot = SessionSnapshotResponse(
+        session={
+            "session_id": "activity-plan-merge",
+            "user_id": "u1",
+            "status": "COMPLETED",
+            "plan_version": 0,
+            "current_step_index": 0,
+            "step_count": 1,
+            "replan_count": 0,
+            "llm_call_count": 1,
+            "session_started_at": created_at,
+            "created_at": created_at,
+            "updated_at": created_at + timedelta(seconds=5),
+        },
+        timeline=[
+            TimelineEventResponse(
+                event_id="pc-a",
+                event_type="plan_created",
+                content="first",
+                created_at=created_at + timedelta(seconds=1),
+                details={"plan_id": "plan-a"},
+            ),
+            TimelineEventResponse(
+                event_id="pc-b",
+                event_type="plan_created",
+                content="second",
+                created_at=created_at + timedelta(seconds=2),
+                details={"plan_id": "plan-b"},
+            ),
+            TimelineEventResponse(
+                event_id="sc-merge",
+                event_type="session_completed",
+                content="ok",
+                created_at=created_at + timedelta(seconds=3),
+                status="COMPLETED",
+            ),
+        ],
+    )
+    steps = _activity_steps_for_snapshot(snapshot)
+    assert [s.label for s in steps if s.label == "Understanding your request"] == [
+        "Understanding your request",
+        "Understanding your request",
+    ]
+
+
+def test_phase7_activity_injects_plan_execution_when_timeline_omits_tool_rows():
+    created_at = datetime(2026, 5, 13, 12, 0, 0)
+    plan = PlanResponse(
+        plan_id="p-inject",
+        session_id="s-inject",
+        version=1,
+        plan_hash="h1",
+        created_at=created_at,
+        created_by="u1",
+    )
+    step_row = PlanStepResponse(
+        step_id="st1",
+        plan_id="p-inject",
+        session_id="s-inject",
+        step_index=0,
+        tool_name="get__jobs_{id}",
+        args={},
+        execution_mode="single",
+        bindings=[],
+        bulk_state=None,
+        status="DONE",
+        idempotency_key="k1",
+        requires_approval=False,
+        approval_id=None,
+        retry_count=0,
+        max_retries=0,
+    )
+    snapshot = SessionSnapshotResponse(
+        session={
+            "session_id": "s-inject",
+            "user_id": "u1",
+            "status": "COMPLETED",
+            "plan_version": 1,
+            "current_step_index": 0,
+            "step_count": 1,
+            "replan_count": 0,
+            "llm_call_count": 1,
+            "session_started_at": created_at,
+            "created_at": created_at,
+            "updated_at": created_at + timedelta(seconds=2),
+        },
+        plan=plan,
+        steps=[step_row],
+        timeline=[
+            TimelineEventResponse(
+                event_id="u-inj",
+                event_type="user_message",
+                content="hi",
+                created_at=created_at,
+                role="user",
+            ),
+            TimelineEventResponse(
+                event_id="pl-inj",
+                event_type="plan_created",
+                content="plan",
+                created_at=created_at + timedelta(seconds=1),
+                details={"plan_id": "p-inject"},
+            ),
+            TimelineEventResponse(
+                event_id="sc-inj",
+                event_type="session_completed",
+                content="done",
+                created_at=created_at + timedelta(seconds=2),
+                status="COMPLETED",
+            ),
+        ],
+    )
+    steps = _activity_steps_for_snapshot(snapshot)
+    labels = [s.label for s in steps]
+    assert "Understanding your request" in labels
+    assert "Updating job records" in labels
+    assert labels[-1] == "Run complete"

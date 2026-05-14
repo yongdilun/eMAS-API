@@ -96,17 +96,17 @@ export function TablePresentation({ presentation, animate = false, animateKey = 
  }
 
  const rowCount = rows.length
- const summaryLabel =
-  rowCount > 0 ? `Affected records (${rowCount}) — tap to expand` : 'Affected records — tap to expand'
+ const recordsLabel = rowCount > 0 ? `Affected records (${rowCount})` : 'Affected records'
 
  return (
  <details className="mt-3 group rounded-lg border border-hairline bg-surface-1">
  <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-ink-subtle marker:content-none [&::-webkit-details-marker]:hidden">
  <span className="inline-flex items-center gap-1">
  <span className="material-symbols-outlined text-sm text-ink-muted transition-transform group-open:rotate-180">
- expand_more
+  expand_more
  </span>
- {summaryLabel}
+ <span className="group-open:hidden">{recordsLabel} — tap to expand</span>
+ <span className="hidden group-open:inline">{recordsLabel} — tap to collapse</span>
  </span>
  </summary>
  <div className="border-t border-hairline px-0 pb-0 pt-2">{tableBlock}</div>

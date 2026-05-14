@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  assistantAnswerAllowed,
   friendlySessionStatus,
   buildActivityStepsFromSnapshot,
   buildActivityStepsFromTimeline,
@@ -10,6 +11,126 @@ import {
   shouldAutoCollapseActivity,
   shouldShowActivityTimeline,
 } from './activityTimelineUtils.js'
+
+test('assistantAnswerAllowed: defers until activity terminal when steps exist', () => {
+  const turn = { summary: 'Long OSHA answer…', terminal: null }
+  const steps = [{ id: '1', label: 'Working', state: 'running', group: 'g', timestamp: 1 }]
+  assert.equal(
+    assistantAnswerAllowed({
+      activityTimelineEnabled: true,
+      isLatestTurn: true,
+      sessionStatus: 'EXECUTING',
+      activitySteps: steps,
+      turn,
+    }),
+    false,
+  )
+  assert.equal(
+    assistantAnswerAllowed({
+      activityTimelineEnabled: true,
+      isLatestTurn: true,
+      sessionStatus: 'EXECUTING',
+      activitySteps: [...steps, { id: '2', label: 'Run complete', state: 'complete', group: 'g', timestamp: 2 }],
+      turn,
+    }),
+    true,
+  )
+})
+
+test('assistantAnswerAllowed: without steps, requires turn terminal', () => {
+  assert.equal(
+    assistantAnswerAllowed({
+      activityTimelineEnabled: true,
+      isLatestTurn: true,
+      sessionStatus: 'EXECUTING',
+      activitySteps: [],
+      turn: { terminal: null },
+    }),
+    false,
+  )
+  assert.equal(
+    assistantAnswerAllowed({
+      activityTimelineEnabled: true,
+      isLatestTurn: true,
+      sessionStatus: 'EXECUTING',
+      activitySteps: [],
+      turn: { terminal: { event_type: 'session_completed' } },
+    }),
+    true,
+  )
+})
+
+test('assistantAnswerAllowed: always allows when not latest or timeline off', () => {
+  assert.equal(
+    assistantAnswerAllowed({
+      activityTimelineEnabled: true,
+      isLatestTurn: false,
+      sessionStatus: 'EXECUTING',
+      activitySteps: [{ id: '1', state: 'running', label: 'x', group: 'g', timestamp: 1 }],
+      turn: {},
+    }),
+    true,
+  )
+  assert.equal(
+    assistantAnswerAllowed({
+      activityTimelineEnabled: false,
+      isLatestTurn: true,
+      sessionStatus: 'EXECUTING',
+      activitySteps: [{ id: '1', state: 'running', label: 'x', group: 'g', timestamp: 1 }],
+      turn: {},
+    }),
+    true,
+  )
+})
+
+test('assistantAnswerAllowed: allows during waiting approval', () => {
+  assert.equal(
+    assistantAnswerAllowed({
+      activityTimelineEnabled: true,
+      isLatestTurn: true,
+      sessionStatus: 'WAITING_APPROVAL',
+      activitySteps: [{ id: '1', state: 'running', label: 'x', group: 'g', timestamp: 1 }],
+      turn: {},
+    }),
+    true,
+  )
+})
+
+test('assistantAnswerAllowed: COMPLETED still defers until last activity row is terminal', () => {
+  assert.equal(
+    assistantAnswerAllowed({
+      activityTimelineEnabled: true,
+      isLatestTurn: true,
+      sessionStatus: 'COMPLETED',
+      activitySteps: [{ id: '1', label: 'Wrapping up', state: 'running', group: 'g', timestamp: 1 }],
+      turn: { terminal: { event_type: 'session_completed' } },
+    }),
+    false,
+  )
+  assert.equal(
+    assistantAnswerAllowed({
+      activityTimelineEnabled: true,
+      isLatestTurn: true,
+      sessionStatus: 'COMPLETED',
+      activitySteps: [{ id: '1', label: 'Run complete', state: 'complete', group: 'g', timestamp: 1 }],
+      turn: { terminal: { event_type: 'session_completed' } },
+    }),
+    true,
+  )
+})
+
+test('assistantAnswerAllowed: IDLE with in-flight activity rows defers like EXECUTING', () => {
+  assert.equal(
+    assistantAnswerAllowed({
+      activityTimelineEnabled: true,
+      isLatestTurn: true,
+      sessionStatus: 'IDLE',
+      activitySteps: [{ id: '1', label: 'Understanding your request...', state: 'running', group: 'g', timestamp: 1 }],
+      turn: { terminal: null },
+    }),
+    false,
+  )
+})
 
 test('normalizes activity steps to the stable user-facing schema', () => {
   const step = normalizeActivityStep({
@@ -69,7 +190,7 @@ test('merges activity by id and auto-collapses on complete', () => {
     id: 'activity_2',
     timestamp: 3,
     group: 'response',
-    label: 'Finalizing answer',
+    label: 'Run complete',
     state: 'complete',
   })
 
@@ -82,8 +203,8 @@ test('completed activity remains available as a collapsed summary', () => {
     id: 'activity_3',
     timestamp: 1710000002,
     group: 'response',
-    label: 'Finalizing answer',
-    detail: 'Ready to show the answer',
+    label: 'Run complete',
+    detail: 'All steps finished. See the thread below.',
     state: 'complete',
   }]), true)
 })
@@ -128,7 +249,7 @@ test('builds sanitized activity from snapshot timeline fallback', () => {
   assert.deepEqual(steps.map((step) => step.label), [
     'Understanding your request',
     'Information checked',
-    'Finalizing answer',
+    'Run complete',
   ])
   assert.equal(steps[1].detail, 'Checked job records')
   assert.equal(JSON.stringify(steps).includes('get__jobs'), false)
@@ -168,7 +289,7 @@ test('groups repeated checked records and finalizes historical retry states', ()
   assert.deepEqual(steps.map((step) => step.label), [
     'Information checked',
     'Improving the response',
-    'Finalizing answer',
+    'Run complete',
   ])
   assert.equal(steps[0].detail, 'Checked job records (10 updates)')
   assert.equal(steps[1].state, 'success')
@@ -191,7 +312,7 @@ test('builds current activity from session status when timeline is delayed', () 
     timeline: executing,
   })
 
-  assert.equal(completed.at(-1).label, 'Finalizing answer')
+  assert.equal(completed.at(-1).label, 'Run complete')
   assert.equal(completed.at(-1).state, 'complete')
 
   const waitingDup = buildActivityStepsFromSnapshot({
@@ -297,7 +418,7 @@ test('uses full operation-scoped timeline across turns when operation_id matches
   assert.ok(labels.includes('Applying approved changes'))
   assert.ok(labels.includes('Updating job records'))
   assert.ok(labels.includes('Verifying result'))
-  assert.ok(labels.includes('Finalizing answer'))
+  assert.ok(labels.includes('Run complete'))
 })
 
 test('completed approval snapshot uses post-approval progress when tool events are projected from plan steps', () => {
@@ -358,8 +479,83 @@ test('completed approval snapshot uses post-approval progress when tool events a
   const labels = steps.map((s) => s.label)
   assert.ok(labels.includes('Approval received'))
   assert.ok(labels.includes('Updating job records'))
-  assert.ok(labels.includes('Finalizing answer'))
+  assert.ok(labels.includes('Run complete'))
   assert.equal(labels.includes('11 jobs will be updated from high to low priority.'), false)
+})
+
+test('widens plan scope when approval events use a different plan id than current operation', () => {
+  const steps = buildActivityStepsFromSnapshot({
+    session: { status: 'COMPLETED', plan_id: 'plan-final', operation_id: 'plan-final' },
+    plan: { plan_id: 'plan-final' },
+    steps: [],
+    timeline: [
+      { event_type: 'user_message', content: 'u', created_at: '2026-05-14T11:00:00.000Z', turn_id: 't1' },
+      {
+        event_type: 'plan_created',
+        content: 'draft',
+        created_at: '2026-05-14T11:00:00.500Z',
+        turn_id: 't1',
+        details: { plan_id: 'plan-prior' },
+        operation_id: 'plan-prior',
+      },
+      {
+        event_type: 'tool_result',
+        content: 'lookup ok',
+        created_at: '2026-05-14T11:00:01.000Z',
+        turn_id: 't1',
+        tool_name: 'get__jobs',
+        status: 'DONE',
+        operation_id: 'plan-prior',
+      },
+      {
+        event_type: 'approval_required',
+        content: 'approve bundle',
+        created_at: '2026-05-14T11:00:01.500Z',
+        turn_id: 't1',
+        status: 'PENDING',
+        details: { plan_id: 'plan-prior' },
+        operation_id: 'plan-prior',
+      },
+      {
+        event_type: 'approval_decided',
+        content: 'ok',
+        created_at: '2026-05-14T11:00:02.000Z',
+        turn_id: 't1',
+        status: 'APPROVED',
+        details: { plan_id: 'plan-prior' },
+        operation_id: 'plan-prior',
+      },
+      {
+        event_type: 'plan_created',
+        content: 'final',
+        created_at: '2026-05-14T11:00:02.200Z',
+        turn_id: 't1',
+        details: { plan_id: 'plan-final' },
+        operation_id: 'plan-final',
+      },
+      {
+        event_type: 'tool_result',
+        content: 'put ok',
+        created_at: '2026-05-14T11:00:03.000Z',
+        turn_id: 't1',
+        tool_name: 'put__jobs_{id}',
+        status: 'DONE',
+        operation_id: 'plan-final',
+      },
+      {
+        event_type: 'session_completed',
+        content: 'done',
+        created_at: '2026-05-14T11:00:04.000Z',
+        turn_id: 't1',
+        operation_id: 'plan-final',
+      },
+    ],
+  })
+  const labels = steps.map((s) => s.label)
+  assert.ok(labels.includes('Waiting for approval'))
+  assert.ok(labels.includes('Approval received'))
+  assert.ok(labels.includes('Updating job records'))
+  assert.ok(labels.includes('Run complete'))
 })
 
 test('injects execution summary when plan steps exist but timeline has no tool rows', () => {
@@ -395,7 +591,7 @@ test('injects execution summary when plan steps exist but timeline has no tool r
   const labels = steps.map((s) => s.label)
   assert.ok(labels.includes('Understanding your request'))
   assert.ok(labels.includes('Updating job records'))
-  assert.ok(labels.includes('Finalizing answer'))
+  assert.ok(labels.includes('Run complete'))
   const info = steps.find((s) => s.label === 'Updating job records')
   assert.ok(String(info.detail || '').includes('job records'))
   assert.ok(String(info.detail || '').includes('2 updates'))
@@ -430,9 +626,9 @@ test('replan after session_completed is trimmed so the last row is the terminal 
     },
   ])
   const last = steps[steps.length - 1]
-  assert.equal(last.label, 'Finalizing answer')
+  assert.equal(last.label, 'Run complete')
   assert.equal(last.state, 'complete')
-  assert.equal(last.detail, 'Ready to show the answer')
+  assert.equal(last.detail, 'All steps finished. See the thread below.')
 })
 
 test('snapshot fallback only uses the latest user turn', () => {
@@ -465,7 +661,58 @@ test('snapshot fallback only uses the latest user turn', () => {
     ],
   })
 
-  assert.equal(steps.some((step) => step.label === 'Finalizing answer'), false)
+  assert.equal(steps.some((step) => step.label === 'Run complete'), false)
   assert.equal(steps.at(-1).label, 'Gathering information')
   assert.equal(steps.at(-1).state, 'running')
+})
+
+test('terminal snapshot fallback uses full timeline across user turns', () => {
+  const steps = buildActivityStepsFromSnapshot({
+    session: { status: 'COMPLETED' },
+    plan: null,
+    steps: [],
+    timeline: [
+      { event_type: 'user_message', content: 'first', created_at: '2026-05-13T09:00:00Z', turn_id: 't1' },
+      {
+        event_type: 'plan_created',
+        content: 'plan a',
+        created_at: '2026-05-13T09:00:01Z',
+        turn_id: 't1',
+      },
+      {
+        event_type: 'tool_result',
+        content: 'get__machines ok',
+        created_at: '2026-05-13T09:00:02Z',
+        turn_id: 't1',
+        tool_name: 'get__machines_{id}',
+        status: 'DONE',
+      },
+      {
+        event_type: 'session_completed',
+        content: 'done a',
+        created_at: '2026-05-13T09:00:03Z',
+        turn_id: 't1',
+        status: 'COMPLETED',
+      },
+      { event_type: 'user_message', content: 'second', created_at: '2026-05-13T09:05:00Z', turn_id: 't2' },
+      {
+        event_type: 'plan_created',
+        content: 'plan b',
+        created_at: '2026-05-13T09:05:01Z',
+        turn_id: 't2',
+      },
+      {
+        event_type: 'session_completed',
+        content: 'done b',
+        created_at: '2026-05-13T09:05:02Z',
+        turn_id: 't2',
+        status: 'COMPLETED',
+      },
+    ],
+  })
+  // Latest-turn-only fallback would drop turn 1; merged plan rows still collapse to one "Understanding".
+  assert.ok(steps.some((s) => s.label === 'Information checked'), 'turn 1 tool_result must be included')
+  assert.ok(steps.some((s) => s.label === 'Understanding your request'))
+  assert.equal(steps.at(-1).label, 'Run complete')
+  assert.equal(steps.at(-1).state, 'complete')
 })

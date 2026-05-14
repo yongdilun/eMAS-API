@@ -4,6 +4,9 @@ import { FACTORY_AGENT_STATUS, factoryAgentApi } from '../../../../services/fact
 import { assembleFactoryAgentTurns, computeFactoryAgentTurnSummary } from '../turns/turnAssembler'
 import { buildActivityStepsFromSnapshot, finalizeHistoricalActivityStates } from './activityTimelineUtils'
 import { resolveApprovalTablePresentation } from './approvalInterruptDisplay.js'
+import { formatFactoryAgentTime } from './factoryAgentDisplayTime.js'
+import { useActivityStream } from './useActivityStream.js'
+import { useSessionEvents } from './useSessionEvents.js'
 
 const DEFAULT_USER_ID = import.meta.env?.VITE_FACTORY_AGENT_USER_ID || 'frontend-operator'
 const ACTIVITY_TIMELINE_ENABLED = !['0', 'false', 'off'].includes(
@@ -23,13 +26,13 @@ const CLIENT_PROGRESS_STAGES = [
 const hasStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
 
 function nowTime() {
-  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return formatFactoryAgentTime(Date.now())
 }
 
 function formatTs(ts) {
   if (!ts) return nowTime()
   try {
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    return formatFactoryAgentTime(ts)
   } catch {
     return nowTime()
   }
@@ -120,7 +123,7 @@ export function useFactoryAgentChat() {
   const [approvalReason, setApprovalReason] = useState('')
   const [isDecidingApproval, setIsDecidingApproval] = useState(false)
   const [isPollingSession, setIsPollingSession] = useState(false)
-  const [isResumingAfterApproval, setIsResumingAfterApproval] = useState(false)
+  const [resumeHint, setResumeHint] = useState(null)
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
   const [optimisticMessages, setOptimisticMessages] = useState([])
   const [clientProgress, setClientProgress] = useState(null)
@@ -131,10 +134,8 @@ export function useFactoryAgentChat() {
 
   const sessionPollTimerRef = useRef(null)
   const clientProgressTimersRef = useRef([])
-  /** Persisted table presentation keyed by approval_id after approve (timeline may omit args). */
+  /** Persisted table presentation keyed by approval_id (kept for timeline rendering after decide). */
   const bundleTableByApprovalIdRef = useRef(new Map())
-  /** Suppress server stale `pending_approval` until snapshot clears it (same approval_id). */
-  const dismissedPendingApprovalIdsRef = useRef(new Set())
   const lastSnapshotSessionIdRef = useRef(null)
 
   const mergeSessionSummary = useCallback((summary) => {
@@ -160,21 +161,91 @@ export function useFactoryAgentChat() {
   const clearClientProgress = useCallback(() => {
     clearClientProgressTimers()
     setClientProgress(null)
+    if (ACTIVITY_TIMELINE_ENABLED) {
+      setActivitySteps((prev) =>
+        (Array.isArray(prev) ? prev : []).filter((s) => !String(s?.id || '').startsWith('client_activity_')),
+      )
+    }
   }, [clearClientProgressTimers])
 
-  const startClientProgress = useCallback((sessionId, text) => {
+  const startClientProgress = useCallback((sessionId, _text) => {
     if (!sessionId) return
     clearClientProgressTimers()
     if (ACTIVITY_TIMELINE_ENABLED) {
       setClientProgress(null)
-      setActivitySteps([{
-        id: 'client_activity_pending',
-        timestamp: Date.now() / 1000,
-        group: 'planning',
-        label: 'Working on your request',
-        detail: 'This updates as the session progresses',
-        state: 'running',
-      }])
+      const baseTs = Date.now() / 1000
+      const detail = 'This updates as the session progresses'
+      const stageToRow = (stage) => {
+        if (stage === 'intent') {
+          return { group: 'planning', label: 'Understanding...' }
+        }
+        if (stage === 'planning') {
+          return { group: 'planning', label: 'Understanding your request...' }
+        }
+        if (stage === 'tool') {
+          return { group: 'research', label: 'Checking information...' }
+        }
+        if (stage === 'answer') {
+          return { group: 'planning', label: 'Wrapping up…' }
+        }
+        return { group: 'system', label: 'Reviewing results...' }
+      }
+      setActivitySteps([
+        {
+          id: 'client_activity_pending',
+          timestamp: baseTs,
+          group: 'planning',
+          label: 'Understanding...',
+          detail,
+          state: 'running',
+        },
+      ])
+      let archiveSeq = 0
+      const applyStage = (stage) => {
+        const row = stageToRow(stage)
+        const ts = Date.now() / 1000
+        setActivitySteps((prev) => {
+          const list = Array.isArray(prev) ? prev : []
+          const pendingIdx = list.findIndex((s) => String(s?.id || '') === 'client_activity_pending')
+          const pending = pendingIdx >= 0 ? list[pendingIdx] : null
+          const rest = list.filter((s) => String(s?.id || '') !== 'client_activity_pending')
+
+          const nextPending = {
+            id: 'client_activity_pending',
+            timestamp: ts,
+            group: row.group,
+            label: row.label,
+            detail,
+            state: 'running',
+          }
+
+          if (
+            pending &&
+            pending.group === nextPending.group &&
+            pending.label === nextPending.label &&
+            pending.state === 'running'
+          ) {
+            return list
+          }
+
+          if (!pending) {
+            return [...rest, nextPending].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+          }
+
+          archiveSeq += 1
+          const archived = {
+            ...pending,
+            id: `client_activity_hist_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+            state: 'success',
+            timestamp: ts - archiveSeq * 0.0001,
+          }
+          return [...rest, archived, nextPending].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+        })
+      }
+      for (const item of CLIENT_PROGRESS_STAGES) {
+        const timer = setTimeout(() => applyStage(item.stage), item.delayMs)
+        clientProgressTimersRef.current.push(timer)
+      }
       return
     }
     const startedAt = new Date().toISOString()
@@ -188,12 +259,12 @@ export function useFactoryAgentChat() {
         content: stage === 'intent'
           ? 'Understanding...'
           : stage === 'planning'
-          ? 'Understanding your request...'
-          : stage === 'tool'
-          ? 'Checking information...'
-          : stage === 'answer'
-          ? 'Finalizing answer...'
-          : 'Reviewing results...',
+            ? 'Understanding your request...'
+            : stage === 'tool'
+              ? 'Checking information...'
+              : stage === 'answer'
+                ? 'Wrapping up…'
+                : 'Reviewing results...',
         stage,
         startedAt,
       })
@@ -221,12 +292,21 @@ export function useFactoryAgentChat() {
     return id
   }, [])
 
-  const applySnapshot = useCallback((snapshot) => {
+  const applySnapshot = useCallback((snapshot, meta = {}) => {
+    const requestedSessionId = meta?.requestedSessionId ?? null
     const nextSession = snapshot?.session || null
-    const sid = nextSession?.session_id || null
-    if (sid && lastSnapshotSessionIdRef.current && sid !== lastSnapshotSessionIdRef.current) {
-      dismissedPendingApprovalIdsRef.current.clear()
-      setIsResumingAfterApproval(false)
+    const sidFromBody = nextSession?.session_id || null
+    const sid = sidFromBody || requestedSessionId || null
+    const normSid = (v) => (v == null ? '' : String(v).trim().toLowerCase())
+    const prevSnapSid = lastSnapshotSessionIdRef.current
+    // Prefer the GET /snapshot/{id} argument over body.session_id so COMPLETED→IDLE
+    // polls on the same chat are not misclassified as a session switch.
+    const switchedSession =
+      requestedSessionId != null && String(requestedSessionId).length > 0
+        ? Boolean(normSid(prevSnapSid) && normSid(prevSnapSid) !== normSid(requestedSessionId))
+        : Boolean(sid && prevSnapSid && normSid(sid) !== normSid(prevSnapSid))
+    if (switchedSession) {
+      bundleTableByApprovalIdRef.current.clear()
     }
     lastSnapshotSessionIdRef.current = sid
 
@@ -235,36 +315,91 @@ export function useFactoryAgentChat() {
     setSteps(Array.isArray(snapshot?.steps) ? snapshot.steps : [])
     const nextTimeline = Array.isArray(snapshot?.timeline) ? snapshot.timeline : []
     setTimeline(nextTimeline)
+
     if (ACTIVITY_TIMELINE_ENABLED) {
       setActivitySteps((prev) => {
         const clientOnly = (Array.isArray(prev) ? prev : []).filter((s) =>
           String(s?.id || '').startsWith('client_activity_'),
         )
-        const built = buildActivityStepsFromSnapshot({
-          session: nextSession,
-          plan: snapshot?.plan || null,
-          steps: Array.isArray(snapshot?.steps) ? snapshot.steps : [],
-          timeline: nextTimeline,
-          pending_approval: snapshot?.pending_approval || null,
-        })
-        if (built.length) return finalizeHistoricalActivityStates(built)
-        return clientOnly
+        const withoutClient = (Array.isArray(prev) ? prev : []).filter(
+          (s) => !String(s?.id || '').startsWith('client_activity_'),
+        )
+        const serverSteps = Array.isArray(snapshot?.activity_steps)
+          ? snapshot.activity_steps
+          : Array.isArray(snapshot?.activitySteps)
+            ? snapshot.activitySteps
+            : []
+
+        const isStreamActive = [
+          'PLANNING',
+          'EXECUTING',
+          'WAITING_APPROVAL',
+          'WAITING_CONFIRMATION',
+        ].includes(nextSession?.status)
+
+        let result
+        if (serverSteps.length) {
+          if (isStreamActive) {
+            // Union by id: polls can arrive before SSE has caught up, or SSE can be
+            // ahead on some ids — only updating `withoutClient` in place drops rows
+            // that exist only on the server (looks like "first and last" only).
+            const byId = new Map()
+            for (const s of withoutClient) {
+              if (s?.id) byId.set(s.id, { ...s })
+            }
+            for (const s of serverSteps) {
+              if (!s?.id) continue
+              const existing = byId.get(s.id)
+              byId.set(s.id, existing ? { ...existing, ...s } : { ...s })
+            }
+            const merged = Array.from(byId.values()).sort(
+              (a, b) => (a.timestamp || 0) - (b.timestamp || 0),
+            )
+            result = [...clientOnly, ...merged].sort(
+              (a, b) => (a.timestamp || 0) - (b.timestamp || 0),
+            )
+          } else {
+            // Session no longer in an active stream: drop client placeholder rows so a
+            // stale `client_activity_pending` "Reviewing results..." cannot sit after
+            // server "Run complete" and block the assistant body gate.
+            result = finalizeHistoricalActivityStates(serverSteps.map((s) => ({ ...s })))
+          }
+        } else {
+          const built = buildActivityStepsFromSnapshot({
+            session: nextSession,
+            plan: snapshot?.plan || null,
+            steps: Array.isArray(snapshot?.steps) ? snapshot.steps : [],
+            timeline: nextTimeline,
+            pending_approval: snapshot?.pending_approval || null,
+          })
+          if (built.length) {
+            result = finalizeHistoricalActivityStates(built)
+          } else if (switchedSession) {
+            // New session snapshot: do not carry over activity rows from the previous session.
+            result = clientOnly
+          } else if (isStreamActive) {
+            // IDLE and similar snapshots often omit activity_steps; built can still be empty
+            // while the UI already showed rows during the run — keep them.
+            result = [...clientOnly, ...withoutClient].sort(
+              (a, b) => (a.timestamp || 0) - (b.timestamp || 0),
+            )
+          } else {
+            result = finalizeHistoricalActivityStates(withoutClient)
+          }
+        }
+
+        return result
       })
     }
-    if (nextSession?.status !== FACTORY_AGENT_STATUS.WAITING_APPROVAL) {
-      setIsResumingAfterApproval(false)
-    }
+
+    // Server is now the source of truth for pending_approval.
+    // The snapshot loader self-heals stale approvals, so we trust it directly.
     const serverPending = snapshot?.pending_approval || null
-    const spId = serverPending?.approval_id || null
-    const waitingApproval = nextSession?.status === FACTORY_AGENT_STATUS.WAITING_APPROVAL
-    if (!spId) {
-      dismissedPendingApprovalIdsRef.current.clear()
-      setPendingApproval(null)
-    } else if (!waitingApproval || dismissedPendingApprovalIdsRef.current.has(spId)) {
-      setPendingApproval(null)
-    } else {
-      setPendingApproval(serverPending)
-    }
+    setPendingApproval(serverPending)
+
+    // Server-derived resume hint replaces the isResumingAfterApproval client flag.
+    setResumeHint(snapshot?.resume_hint || null)
+
     setLastSyncedAt(new Date().toISOString())
     if (nextSession?.session_id && hasStorage()) {
       localStorage.setItem(ACTIVE_SESSION_KEY, nextSession.session_id)
@@ -284,10 +419,9 @@ export function useFactoryAgentChat() {
     setTimeline([])
     setActivitySteps([])
     setPendingApproval(null)
+    setResumeHint(null)
     bundleTableByApprovalIdRef.current.clear()
-    dismissedPendingApprovalIdsRef.current.clear()
     lastSnapshotSessionIdRef.current = null
-    setIsResumingAfterApproval(false)
   }, [])
 
   const getStashedBundlePresentation = useCallback((approvalId) => {
@@ -304,7 +438,7 @@ export function useFactoryAgentChat() {
   const refreshSnapshot = useCallback(async (sessionId) => {
     if (!sessionId) return null
     const snapshot = await factoryAgentApi.getSnapshot(sessionId)
-    applySnapshot(snapshot)
+    applySnapshot(snapshot, { requestedSessionId: sessionId })
     return snapshot
   }, [applySnapshot])
 
@@ -320,6 +454,37 @@ export function useFactoryAgentChat() {
       throw err
     }
   }, [clearSnapshotState, refreshSnapshot])
+
+  const applyStreamActivityStep = useCallback((incoming) => {
+    if (!ACTIVITY_TIMELINE_ENABLED || !incoming?.id) return
+    setActivitySteps((prev) => {
+      const base = Array.isArray(prev) ? prev : []
+      const clientOnly = base.filter((s) => String(s?.id || '').startsWith('client_activity_'))
+      const withoutClient = base.filter((s) => !String(s?.id || '').startsWith('client_activity_'))
+      const idx = withoutClient.findIndex((s) => s.id === incoming.id)
+      const next = [...withoutClient]
+      if (idx >= 0) next[idx] = { ...next[idx], ...incoming }
+      else next.push(incoming)
+      next.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+      return [...clientOnly, ...next].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
+    })
+  }, [])
+
+  const activityStreamEnabled =
+    ACTIVITY_TIMELINE_ENABLED &&
+    Boolean(session?.session_id) &&
+    (isSending ||
+      [
+        FACTORY_AGENT_STATUS.PLANNING,
+        FACTORY_AGENT_STATUS.EXECUTING,
+        FACTORY_AGENT_STATUS.WAITING_APPROVAL,
+        FACTORY_AGENT_STATUS.WAITING_CONFIRMATION,
+        FACTORY_AGENT_STATUS.BLOCKED,
+      ].includes(session?.status))
+
+  useActivityStream(session?.session_id || null, applyStreamActivityStep, {
+    enabled: activityStreamEnabled,
+  })
 
   const appendUserMessageAndRefresh = useCallback(async (sessionId, text, mode) => {
     await factoryAgentApi.addMessage(sessionId, { role: 'user', content: text, mode })
@@ -343,12 +508,17 @@ export function useFactoryAgentChat() {
     }
   }, [safelyRefreshSnapshot, session?.session_id])
 
+  // SSE-driven invalidation calls pollSnapshot directly; the interval poll is a
+  // safety net / fallback. When SSE is healthy, intervals are longer.
   const sessionPollIntervalMs = useMemo(() => {
     if (!session?.status) return null
-    if ([FACTORY_AGENT_STATUS.PLANNING, FACTORY_AGENT_STATUS.EXECUTING, FACTORY_AGENT_STATUS.WAITING_APPROVAL, FACTORY_AGENT_STATUS.WAITING_CONFIRMATION].includes(session.status)) {
-      return 1500
+    if (
+      [FACTORY_AGENT_STATUS.PLANNING, FACTORY_AGENT_STATUS.EXECUTING,
+      FACTORY_AGENT_STATUS.WAITING_APPROVAL, FACTORY_AGENT_STATUS.WAITING_CONFIRMATION].includes(session.status)
+    ) {
+      return 3000
     }
-    if (session.status === FACTORY_AGENT_STATUS.BLOCKED) return 4000
+    if (session.status === FACTORY_AGENT_STATUS.BLOCKED) return 6000
     return null
   }, [session?.status])
 
@@ -359,6 +529,16 @@ export function useFactoryAgentChat() {
     sessionPollTimerRef.current = setInterval(pollSnapshot, sessionPollIntervalMs)
     return clearSessionPoll
   }, [clearSessionPoll, pollSnapshot, session?.session_id, session?.status, sessionPollIntervalMs])
+
+  // SSE notification stream — triggers snapshot re-fetch on invalidation.
+  // This replaces the tight 1.5 s poll with event-driven latency (~500 ms backend poll).
+  useSessionEvents(
+    session?.session_id || null,
+    useCallback(() => {
+      if (session?.session_id) pollSnapshot()
+    }, [pollSnapshot, session?.session_id]),
+    { enabled: true, fallbackMs: 4000 },
+  )
 
   useEffect(() => clearClientProgressTimers, [clearClientProgressTimers])
 
@@ -571,34 +751,31 @@ export function useFactoryAgentChat() {
         if (argsOverride && typeof argsOverride === 'object') payload.args = argsOverride
         const snapshotApproval = pendingApproval
         const resolvedId = snapshotApproval.approval_id
-        await factoryAgentApi.approve(resolvedId, payload)
-        setIsResumingAfterApproval(true)
-        dismissedPendingApprovalIdsRef.current.add(resolvedId)
+        // Optimistically clear the pending approval card immediately so the UI
+        // does not re-show the stale card while the next snapshot arrives.
+        setPendingApproval(null)
         const mergedArgs =
           argsOverride && typeof argsOverride === 'object'
             ? { ...(snapshotApproval.args && typeof snapshotApproval.args === 'object' ? snapshotApproval.args : {}), ...argsOverride }
             : snapshotApproval.args || {}
         stashBundle(snapshotApproval, mergedArgs)
-        setPendingApproval(null)
+        await factoryAgentApi.approve(resolvedId, payload)
+        // snapshot_invalidated from SSE will trigger re-fetch; resume_hint arrives
+        // in the next snapshot automatically — no client flag needed.
       } else {
         const rejectId = pendingApproval.approval_id
+        setPendingApproval(null)
+        stashBundle(pendingApproval, pendingApproval.args || {})
         await factoryAgentApi.reject(rejectId, {
           decided_by: DEFAULT_USER_ID,
           rejection_reason: approvalReason?.trim() || undefined,
         })
-        dismissedPendingApprovalIdsRef.current.add(rejectId)
-        setIsResumingAfterApproval(false)
-        stashBundle(pendingApproval, pendingApproval.args || {})
-        setPendingApproval(null)
+        await safelyRefreshSnapshot(session?.session_id)
       }
       setApprovalReason('')
-      if (session?.session_id) {
-        if (decision !== 'approve') await safelyRefreshSnapshot(session.session_id)
-        await refreshSessionList()
-      }
+      if (session?.session_id) await refreshSessionList()
     } catch (err) {
       setError(normalizeFactoryAgentError(err, 'Failed to submit approval decision'))
-      setIsResumingAfterApproval(false)
     } finally {
       setIsDecidingApproval(false)
     }
@@ -721,7 +898,8 @@ export function useFactoryAgentChat() {
     setMessageMode,
     isDecidingApproval,
     isPollingSession,
-    isResumingAfterApproval,
+    resumeHint,
+    isResumingAfterApproval: !!(resumeHint?.applying_after_approval),
     getStashedBundlePresentation,
     lastSyncedAt,
     clientProgress,
