@@ -31,7 +31,7 @@ def awaiting_approval_markdown_from_bundle_ui(facts: dict[str, Any]) -> str | No
         [
             hl,
             "",
-            "The change list is shown in the in-app table next to this message.",
+            "The change list is shown in the table below.",
             "",
             "Please approve to continue.",
         ]
@@ -214,23 +214,6 @@ def _entity_recap_markdown_from_facts(facts: dict[str, Any]) -> str | None:
     return "\n\n".join(answers)
 
 
-def _sanitize_completed_bundle_text(text: str) -> str:
-    """Strip approval-wait phrases if the model echoes them on completed bundles."""
-    t = (text or "").strip()
-    if not t:
-        return t
-    out_lines: list[str] = []
-    for line in t.splitlines():
-        sl = line.strip().lower()
-        if sl.startswith("please approve"):
-            continue
-        if sl.startswith("waiting for your approval"):
-            continue
-        out_lines.append(line)
-    cleaned = "\n".join(out_lines).strip()
-    return cleaned or t
-
-
 class SummaryAdapter:
     def __init__(self, settings: Settings):
         self._settings = settings
@@ -311,15 +294,6 @@ class SummaryAdapter:
             raise SummaryBackendError("Summary backend returned empty content.")
         return SummaryResult(text=content, backend_used="langchain", llm_calls=1)
 
-    def _facts_json(self, facts: dict[str, Any], *, max_chars: int = 18_000) -> str:
-        try:
-            raw = json.dumps(facts, ensure_ascii=False, default=str)
-        except Exception:
-            raw = "{}"
-        if len(raw) <= max_chars:
-            return raw
-        return raw[:max_chars] + "\n…(truncated)"
-
     def _deterministic_bundle_narrative(self, *, intent: str, kind: BundleNarrativeKind, facts: dict[str, Any]) -> str:
         if kind == "awaiting_approval":
             structured = awaiting_approval_markdown_from_bundle_ui(facts)
@@ -351,6 +325,9 @@ class SummaryAdapter:
         entity_recap = _entity_recap_markdown_from_facts(facts)
         if entity_recap:
             return entity_recap
+        plan_explanation = facts.get("plan_explanation")
+        if isinstance(plan_explanation, str) and plan_explanation.strip():
+            return f"**Success**\n\n{plan_explanation.strip()}"
         steps = facts.get("steps") if isinstance(facts.get("steps"), list) else []
         lines = ["**Success**", "", (intent or "").strip() or "Execution completed."]
         if steps:
@@ -401,91 +378,15 @@ class SummaryAdapter:
                 )
                 return SummaryResult(text=structured, backend_used="deterministic", llm_calls=0)
 
-        backend = (self._settings.summary_backend or "auto").strip().lower()
-        if backend == "auto":
-            backend = "langchain" if (self._settings.summary_openai_base_url or self._settings.openai_api_key) else "deterministic"
-        if backend == "deterministic":
-            log_llm_prompt_skipped(
-                component="bundle_narrative",
-                backend="deterministic",
-                reason="summary_backend=deterministic",
-                metadata={"intent": intent, "kind": kind},
-            )
-            return SummaryResult(
-                text=self._deterministic_bundle_narrative(intent=intent, kind=kind, facts=facts),
-                backend_used="deterministic",
-                llm_calls=0,
-            )
-        return await self._synthesize_bundle_langchain(intent=intent, kind=kind, facts=facts)
-
-    async def _synthesize_bundle_langchain(
-        self,
-        *,
-        intent: str,
-        kind: BundleNarrativeKind,
-        facts: dict[str, Any],
-    ) -> SummaryResult:
-        try:
-            from langchain_openai import ChatOpenAI  # noqa: F401
-        except Exception as e:
-            raise SummaryBackendError(
-                "LangChain summary backend unavailable; install langchain-openai and configure API credentials."
-            ) from e
-        model = self._build_chat_model(max_tokens=max(900, int(self._settings.summary_max_tokens or 512)))
-        facts_block = self._facts_json(facts)
-        if kind == "awaiting_approval":
-            # ``bundle_ui`` approvals never reach this path: ``synthesize_bundle_markdown`` returns first.
-            prompt = (
-                "You are writing a short Markdown message for an operator who must approve a staged write bundle.\n\n"
-                "Rules:\n"
-                "- Use ONLY the JSON facts (intent + approval). Never invent job IDs, priorities, products, or counts.\n"
-                "- Summarize ``approval.summary`` and, if useful, ``approval.preview`` (tool names + key args only). "
-                "Do not paste raw JSON blobs.\n"
-                "- If job-like IDs or priorities appear, you may use a short numbered list; "
-                "do not use markdown pipe tables or HTML.\n"
-                "- If facts are thin, state what is known and that execution waits on approval.\n"
-                "- End with the exact line: Please approve to continue.\n\n"
-                f"User intent:\n{intent}\n\n"
-                f"Facts JSON:\n{facts_block}\n"
-            )
-        else:
-            prompt = (
-                "You are writing a concise Markdown completion recap for the user after writes succeeded.\n\n"
-                "Rules:\n"
-                "- Start with a first line exactly: **Success** then a blank line.\n"
-                "- Use ONLY the JSON facts (intent, plan fields, steps, tool output excerpts). "
-                "Never invent rows or field values.\n"
-                "- Prefer a numbered list per job when job records appear in tool output excerpts (id/job_id, priority, "
-                "product_id, status, deadline).\n"
-                "- State explicitly whether jobs were created or deleted only if facts support it; otherwise say nothing "
-                "or say there were no creates/deletes if the steps are updates only.\n"
-                "- Do NOT dump raw JSON; no HTML tables.\n"
-                "- Do NOT write 'Please approve', 'Please approve to continue', or 'Waiting for your approval' "
-                "(this run already finished).\n"
-                "- Keep it readable and scannable (blank line between numbered items is fine).\n\n"
-                f"User intent:\n{intent}\n\n"
-                f"Facts JSON:\n{facts_block}\n"
-            )
-        log_llm_prompt(
+        log_llm_prompt_skipped(
             component="bundle_narrative",
-            backend="langchain",
-            model=self._settings.summary_model,
-            prompt=prompt,
+            backend="deterministic",
+            reason="fallback_deterministic",
             metadata={"intent": intent, "kind": kind},
         )
-        try:
-            resp = await model.ainvoke(prompt)
-        except Exception as e:
-            raise SummaryBackendError(f"Bundle narrative call failed: {e}") from e
-        content = (getattr(resp, "content", "") or "").strip()
-        if not content:
-            raise SummaryBackendError("Bundle narrative returned empty content.")
-        if kind == "completed":
-            content = _sanitize_completed_bundle_text(content)
-        if not content:
-            content = _job_recap_markdown_from_facts(facts) or ""
-        if not content:
-            raise SummaryBackendError("Bundle narrative returned empty content after sanitization.")
-        return SummaryResult(text=content, backend_used="langchain", llm_calls=1)
-
+        return SummaryResult(
+            text=self._deterministic_bundle_narrative(intent=intent, kind=kind, facts=facts),
+            backend_used="deterministic",
+            llm_calls=0,
+        )
 

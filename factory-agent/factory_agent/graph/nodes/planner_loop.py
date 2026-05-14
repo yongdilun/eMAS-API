@@ -1296,8 +1296,11 @@ def synthesize_plan_node(state: AgentState) -> dict[str, Any]:
             "status": "awaiting_clarification",
         }
 
-    expl_parts = [str(s.get("summary", "")) for s in (state.get("completed_actions") or []) if isinstance(s, dict) and s.get("phase") == "planner"]
-    plan_explanation = " ".join(expl_parts).strip() or f"Planned tool sequence for: {user_query_text(state)}"
+    planner_actions = [s for s in (state.get("completed_actions") or []) if isinstance(s, dict) and s.get("phase") == "planner"]
+    if planner_actions:
+        plan_explanation = str(planner_actions[-1].get("summary", "")).strip() or f"Planned tool sequence for: {user_query_text(state)}"
+    else:
+        plan_explanation = f"Planned tool sequence for: {user_query_text(state)}"
     risk = state.get("risk_summary") or "Review tool calls before execution."
     return {
         "plan_blueprint": AgentPlanOutput(

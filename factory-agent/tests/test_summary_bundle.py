@@ -8,7 +8,6 @@ import pytest
 
 from factory_agent.analysis.summary_backend import (
     SummaryAdapter,
-    _sanitize_completed_bundle_text,
     awaiting_approval_markdown_from_bundle_ui,
 )
 from factory_agent.config import Settings
@@ -180,13 +179,3 @@ async def test_completed_job_recap_prefers_write_results_over_stale_read_table()
     assert "seed:P-002" not in r.text
     assert "| priority" not in r.text.lower()
 
-
-def test_sanitize_completed_strips_approval_phrases() -> None:
-    raw = (
-        "Please approve to continue.\n\n"
-        "**Success**\n\n"
-        "Updated one job.\n"
-    )
-    cleaned = _sanitize_completed_bundle_text(raw)
-    assert "please approve" not in cleaned.lower()
-    assert "Updated one job" in cleaned
