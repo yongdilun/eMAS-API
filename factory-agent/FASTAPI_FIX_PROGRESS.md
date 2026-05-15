@@ -32,10 +32,10 @@ Status key:
 | FA-005 | Split mixed-responsibility API router | High | 4 | Not Started | OpenAPI diff plus endpoint tests | Revert one extracted router/module |
 | FA-006 | Reduce SSE database polling risk | Medium | 5 | Not Started | Disconnect and concurrent stream tests | Keep old implementation path |
 | FA-007 | Strengthen relational constraints/session cleanup | Medium | 4 | Not Started | Session deletion contract tests | Keep manual cleanup fallback |
-| FA-008 | Document legacy vs graph-native API contracts | Medium | 3 | Not Started | Contract matrix tests | Keep retired endpoints returning 410 |
+| FA-008 | Document legacy vs graph-native API contracts | Medium | 3 | Done | `tests/test_phase3_contract_coverage.py`; full `pytest -q` passed | Keep retired endpoints returning 410 |
 | FA-009 | Align dependency and Docker packaging | Medium | 1 | Done | `docker build -t factory-agent-phase1-cleanup .`; container `import main` smoke passed | Revert ignore/dependency edits |
 | FA-010 | Replace mutable JSON defaults | Low/Medium | 1 | Done | `tests/test_model_json_defaults.py`; full `pytest` passed with project-local temp dir | Revert model default change |
-| FA-011 | Add missing auth/contract coverage | Medium | 3 | Not Started | New tests fail before fix, pass after fix | Revert tests independently |
+| FA-011 | Add missing auth/contract coverage | Medium | 3 | Done | `tests/test_phase3_contract_coverage.py`; related auth/rollback tests; full `pytest -q` passed | Revert tests independently |
 
 ## Phase Progress
 
@@ -87,14 +87,20 @@ Status key:
 
 ### Phase 3: Test Coverage Improvement
 
-- Status: Not Started
+- Status: Done
 - Goal: Add tests that make refactoring safe.
-- Candidate changes:
-  - API/OpenAPI contract snapshot.
-  - SSE auth and disconnect tests.
-  - DLQ and metrics auth tests.
-  - Plan persistence rollback tests.
-  - Legacy/graph-native compatibility matrix tests.
+- Completed:
+  - Added `docs/contracts/legacy_graph_native_contracts.md` documenting active graph-native contracts, deprecated SSE compatibility streams, and retired legacy approval/DLQ write contracts.
+  - Added `tests/test_phase3_contract_coverage.py` with an OpenAPI path/response snapshot for route-refactor safety.
+  - Added OpenAPI auth documentation checks for sensitive JWT-protected user endpoints and admin-key-protected operational endpoints.
+  - Added legacy/graph-native compatibility matrix tests covering retired `plan` and `step` approval decisions returning `410`, retired DLQ write/replay endpoints returning `410`, and active graph-native approval reads.
+  - Reused existing Phase 2 coverage for SSE/DLQ/metrics auth and plan persistence rollback because those gaps are already closed and passing.
+- Verification:
+  - `pytest tests/test_phase3_contract_coverage.py -q`: 10 passed.
+  - `pytest tests/test_phase3_contract_coverage.py tests/test_api_endpoints.py::test_stream_dlq_and_metrics_reads_require_auth tests/test_api_endpoints.py::test_metrics_endpoint_exposes_prometheus_format tests/test_api_endpoints.py::test_create_plan_rolls_back_when_plan_message_persistence_fails tests/test_api_endpoints.py::test_create_plan_persists_plan_and_steps tests/test_planner_service_phase6.py::test_graph_native_snapshot_uses_checkpoint_projection_not_legacy_steps tests/test_planner_service_phase6.py::test_legacy_step_reject_cannot_mutate_graph_native_session tests/test_phase8_legacy_retirement.py -q`: 18 passed.
+  - `pytest -q`: 482 passed, 4 skipped, 20 xfailed after setting `TMP`/`TEMP` to a project-local temp directory.
+- Remaining:
+  - None for Phase 3.
 
 ### Phase 4: Architecture Refactoring
 
@@ -127,9 +133,10 @@ Status key:
 
 ## Current Next Step
 
-Phase 1 is complete. Next cleanup window should start Phase 2 unless explicitly directed otherwise:
+Phase 3 is complete. Next cleanup window should start Phase 4 only when explicitly directed:
 
-1. Add auth contract tests for SSE, DLQ, and metrics policy.
-2. Protect exposed read endpoints according to the chosen auth policy.
-3. Add production config safety tests before enforcing production auth/admin defaults.
-4. Add rollback tests before making plan persistence transactional.
+1. Split routers by domain while preserving the OpenAPI contract snapshot.
+2. Move snapshot/timeline projection to a service.
+3. Move approval resume task handling to a service.
+4. Move plan persistence to a transaction-focused service.
+5. Centralize auth/admin dependencies.
