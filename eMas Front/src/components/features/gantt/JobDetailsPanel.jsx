@@ -20,7 +20,7 @@ const fmt = (iso) => {
     return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-const JobDetailsPanel = ({ job, onEdit, onCancel, onJobUpdated, onClose }) => {
+const JobDetailsPanel = ({ job, onCancel, onJobUpdated, onClose }) => {
     const [steps, setSteps] = useState([])
     const [slots, setSlots] = useState([])
     const [loadingDetail, setLoadingDetail] = useState(false)
@@ -166,7 +166,7 @@ const JobDetailsPanel = ({ job, onEdit, onCancel, onJobUpdated, onClose }) => {
             })
             setMaterialsByStepId(byStep)
         })
-    }, [steps?.map((s) => s.step_id ?? s.stepId).join(',')])
+    }, [steps])
 
     const handleDuplicate = async () => {
         const jobId = job?.job_id || job?.id

@@ -1,4 +1,4 @@
-const BarChart = ({ data, title }) => {
+const BarChart = ({ title }) => {
  return (
  <div className="p-4">
  {title && <h3 className="text-lg font-semibold mb-4">{title}</h3>}

@@ -80,7 +80,7 @@ const Jobs = () => {
             .catch((err) => logger.warn('Could not load machines for filter', { message: err?.message }))
     }, [])
 
-    const handleApplyFilters = (combined, sort) => {
+    const handleApplyFilters = (combined) => {
         const { _sortBy, _sortDir, ...rest } = combined
         setActiveFilters(rest)
         setActiveSort({ sortBy: _sortBy || '', sortDir: _sortDir || 'asc' })
@@ -165,7 +165,7 @@ const Jobs = () => {
 
                 {filterCount > 0 && (
                     <div className="px-6 pt-3 flex flex-wrap gap-2">
-                        {Object.entries(activeFilters).filter(([k, v]) => v).map(([k, v]) => (
+                        {Object.entries(activeFilters).filter(([, v]) => v).map(([k, v]) => (
                             <span
                                 key={k}
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium"

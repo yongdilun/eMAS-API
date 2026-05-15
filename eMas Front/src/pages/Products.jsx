@@ -1,11 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import PageHeader from '../components/shared/PageHeader'
-import { productsApi, processesApi, formulasApi, machinesApi, inventoryApi, referenceApi, toList, toData, apiErrorMessage } from '../services/api'
+import { productsApi, processesApi, formulasApi, inventoryApi, referenceApi, toList, toData, apiErrorMessage } from '../services/api'
 import RefSelect from '../components/shared/RefSelect'
 import { useRefObjects } from '../hooks/useRefData'
 import { normalizeProduct, debugResponse } from '../services/normalizers'
 import logger from '../services/logger'
-import { useToast } from '../context/ToastContext'
 
 // ─── Product Form Modal ───────────────────────────────────────────────────────
 // API fields: product_id, product_name, product_type, unit_of_measure, description
@@ -115,7 +114,6 @@ const ProductModal = ({ isOpen, onClose, onSave, product }) => {
 // ─── BOM / Formula Modal (UC-P01) ─────────────────────────────────────────────
 const BomModal = ({ isOpen, onClose, product }) => {
     const [processes, setProcesses] = useState([])
-    const [allFormulas, setAllFormulas] = useState([]) // [{id, name}] for name lookup
     const [materials, setMaterials] = useState([])
     const [subProducts, setSubProducts] = useState([])
     const [newProcess, setNewProcess] = useState({ processName: '', steps: [{ stepName: '', machineType: '' }] })
@@ -219,7 +217,6 @@ const BomModal = ({ isOpen, onClose, product }) => {
                 id: f.FormulaID || f.formula_id || f.id || '',
                 name: f.FormulaName || f.formula_name || f.name || '',
             })).filter(f => f.id)
-            setAllFormulas(formulaList)
 
             // Backend now returns FormulaID on every product — use it directly
             const prodData = toData(productDetail) ?? productDetail
@@ -242,7 +239,7 @@ const BomModal = ({ isOpen, onClose, product }) => {
                 formulaId: p.FormulaID || p.formula_id || p.formulaId || '',
             })).filter(p => p.id && p.id !== parentId))
         })
-    }, [isOpen, product])
+    }, [isOpen, product, applyFormulaIngredients])
 
     useEffect(() => {
         if (!isOpen) {
@@ -278,7 +275,7 @@ const BomModal = ({ isOpen, onClose, product }) => {
             })
             setMaterialsByStepId(byStep)
         })
-    }, [processes[0]?.steps, newProcess.steps])
+    }, [processes, newProcess.steps])
 
     const refetchStepMaterials = useCallback((stepId) => {
         if (!stepId) return
@@ -859,7 +856,6 @@ const BomModal = ({ isOpen, onClose, product }) => {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const Products = () => {
-    const toast = useToast()
     const [products, setProducts] = useState([])
     const [loading, setLoading] = useState(true)
     const [fetchError, setFetchError] = useState('')

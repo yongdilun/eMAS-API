@@ -1,4 +1,4 @@
-const MachineForm = ({ onSubmit, initialData }) => {
+const MachineForm = ({ onSubmit }) => {
     return (
         <form onSubmit={onSubmit} className="space-y-4">
             {/* Machine form fields will go here */}

@@ -5,7 +5,6 @@ import PageHeader from '../components/shared/PageHeader'
 import { inventoryApi, toList, apiErrorMessage } from '../services/api'
 import { normalizeMaterial, debugResponse } from '../services/normalizers'
 import logger from '../services/logger'
-import { useToast } from '../context/ToastContext'
 
 const STATUS_LABELS = { 'in_stock': 'In Stock', 'low_stock': 'Low Stock', 'out_of_stock': 'Out of Stock' }
 
@@ -100,7 +99,6 @@ const ConsumeModal = ({ isOpen, onClose, item, mode }) => {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 const StorageInventory = () => {
-    const toast = useToast()
     const [tab, setTab] = useState('materials')
     const [items, setItems] = useState([])
     const [loading, setLoading] = useState(true)

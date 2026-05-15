@@ -2,7 +2,6 @@
  * Chat message with avatar, timestamp, content, and optional embedded blocks.
  * Linear-inspired UI (DESIGN-linear.app.md): surface ladder, lavender accent, rounded-lg cards.
  */
-import React from 'react'
 import {
   formatBasedOnLine,
   formatCitationChipLabel,

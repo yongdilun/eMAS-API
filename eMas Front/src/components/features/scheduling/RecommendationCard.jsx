@@ -25,6 +25,15 @@ const RecommendationCard = ({
                         {rec.dependency_product_id ? ` · for subproduct ${rec.dependency_product_id}` : ''}
                     </p>
                 </div>
+                <label className="inline-flex items-center gap-1.5 text-[11px] font-medium text-ink-subtle">
+                    <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={(e) => onToggleSelected?.(e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-hairline text-primary focus:ring-primary"
+                    />
+                    Include
+                </label>
             </div>
 
             <div className="grid grid-cols-2 gap-2">

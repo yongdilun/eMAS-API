@@ -169,7 +169,7 @@ const Settings = () => {
     }, 1200)
   }, [])
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     setSaveMsg(''); setSaveErr('')
     // PUT /settings: theme, language, notifications (bool), ai_enabled — SETTINGS_FRONTEND.md
     const payload = {
@@ -202,7 +202,23 @@ const Settings = () => {
       setSaveErr(msg)
       toast.error(msg)
     }
-  }
+  }, [
+    aiEnabled,
+    autoRescheduleOnEvent,
+    deviationPenaltyWeight,
+    language,
+    lockInWindowMinutes,
+    notifPushEnabled,
+    publicHolidays,
+    schedulingObjective,
+    schedulingSupported,
+    splitStrategy,
+    theme,
+    toast,
+    workDays,
+    workEndTime,
+    workStartTime,
+  ])
 
   const handleSaveRef = useRef(handleSave)
   useEffect(() => {

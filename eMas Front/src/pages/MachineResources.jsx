@@ -4,7 +4,7 @@ import UtilizationChart from '../components/features/machines/UtilizationChart'
 import AddMachineModal from '../components/features/machines/AddMachineModal'
 import RecordDowntimeModal from '../components/features/machines/RecordDowntimeModal'
 import PageHeader from '../components/shared/PageHeader'
-import { machinesApi, reportsApi, jobsApi, schedulingApi, toList, toData, apiErrorMessage } from '../services/api'
+import { machinesApi, reportsApi, jobsApi, toList, toData, apiErrorMessage } from '../services/api'
 import { normalizeMachine, normalizeMaintenanceAlert, debugResponse } from '../services/normalizers'
 import logger from '../services/logger'
 import { useToast } from '../context/ToastContext'
@@ -122,7 +122,7 @@ const MachineResources = () => {
         fetchUtilization()
     }, [])
 
-    const handleSaveMachine = async (formData) => {
+    const handleSaveMachine = async () => {
         fetchMachines()
     }
 

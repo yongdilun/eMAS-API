@@ -20,17 +20,13 @@ This module exposes :func:`run_eval` so the pytest wrapper in
 The harness:
 
 1. Loads cases from ``tests/rag_eval/cases.json``.
-2. Builds a real :class:`factory_agent.orchestration.router.QueryRouter` using
-   :func:`factory_agent.llm.build_planner_chat_model` (matches the wiring in
-   ``factory_agent/api/routes.py``).
-3. Builds a real :class:`factory_agent.rag.pipeline.RAGPipeline` (hybrid
+2. Builds a real :class:`factory_agent.rag.pipeline.RAGPipeline` (hybrid
    retriever + LLM reranker + answer generator).
-4. Wires both into a :class:`factory_agent.orchestration.agent_integration.Phase5Agent`
-   with stub executor + session adapter (the RAG-focused harness does not
-   exercise live API execution).
-5. For each case, runs the agent **and** issues a separate
+3. Runs each case directly through the current RAG pipeline. The retired
+   Phase5Agent/QueryRouter compatibility layer is intentionally not imported.
+4. For each case, runs the pipeline **and** issues a separate
    ``HybridRetriever.retrieve`` call for retrieval debug logging (top chunks).
-6. Writes one JSON artifact per case plus a run-level ``summary.json``.
+5. Writes one JSON artifact per case plus a run-level ``summary.json``.
 
 Failure policy: structural-only checks (answer non-empty, sources present when
 a RAG-bearing route is used, hard ``do_not_use_for`` violations) flip
@@ -60,9 +56,6 @@ if str(FACTORY_AGENT_DIR) not in sys.path:
 
 # Imports below need ``factory-agent`` on sys.path, hence the insert above.
 from factory_agent.config import get_settings  # noqa: E402
-from factory_agent.llm import build_planner_chat_model  # noqa: E402
-from factory_agent.orchestration.agent_integration import Phase5Agent  # noqa: E402
-from factory_agent.orchestration.router import QueryRouter  # noqa: E402
 from factory_agent.rag.pipeline import RAGPipeline  # noqa: E402
 from factory_agent.rag.retrieval import HybridRetriever  # noqa: E402
 
@@ -75,59 +68,9 @@ from tests.rag_eval.artifact_schema import (  # noqa: E402
     build_env_fingerprint,
     build_summary,
     now_iso,
-    serialize_agent_response,
     serialize_rag_result,
     serialize_retrieval_debug,
-    serialize_route_decision,
 )
-
-
-# ---------------------------------------------------------------------------
-# Stubs for the parts of Phase5Agent we don't exercise in the RAG harness.
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class _StubExecutionResult:
-    status: str = "STUBBED"
-    detail: str = "execution_runner is stubbed in the RAG live-eval harness"
-
-
-class _StubExecutionRunner:
-    """Records calls but never hits the real Go API.
-
-    For routes that include execution (``API_ONLY``, ``API_THEN_RAG``,
-    ``RAG_THEN_API``) the harness still observes the routing decision, but the
-    response answer for execution-bearing routes will reflect the stub. That
-    is acceptable: this harness focuses on **routing + RAG** quality. End-to-end
-    execution coverage lives in ``tests/e2e``.
-    """
-
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
-
-    async def execute(self, *, query: str, session_id: str | None = None,
-                      guidance_context: str | None = None) -> _StubExecutionResult:
-        self.calls.append(
-            {
-                "query": query,
-                "session_id": session_id,
-                "guidance_context": guidance_context,
-            }
-        )
-        return _StubExecutionResult()
-
-
-class _StubSessionAdapter:
-    def build_answer_from_execution(self, execution_result: Any) -> str:
-        return "[stubbed-execution] " + getattr(execution_result, "detail", "")
-
-    def summarize_execution(self, execution_result: Any) -> str:
-        return "[stubbed-execution-summary] " + getattr(execution_result, "detail", "")
-
-    def serialize_rag_context(self, rag_result: Any) -> str:
-        answer = getattr(rag_result, "answer", "") or ""
-        return f"[rag-context]\n{answer}"
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +259,7 @@ def _resolve_base_url(settings: Any) -> str | None:
 async def _run_case(
     *,
     case: dict[str, Any],
-    agent: Phase5Agent,
+    rag_pipeline: RAGPipeline,
     retriever: HybridRetriever | None,
     retrieval_top_n: int,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None,
@@ -330,20 +273,19 @@ async def _run_case(
     agent_response: dict[str, Any] | None = None
 
     try:
-        response = await agent.run(query=query, session_id=case.get("id"))
-        agent_response = serialize_agent_response(response)
-        # ``Phase5Agent`` puts the router dict under metadata.route_decision.
-        meta = (agent_response.get("metadata") if agent_response else None) or {}
-        route_decision = serialize_route_decision(meta.get("route_decision") or {})
-        # The agent wraps RAG output into AgentResponse; we expose the same fields
-        # under ``rag`` for reviewer convenience when the route is RAG-bearing.
-        if (route_decision or {}).get("route") in _RAG_BEARING_ROUTES:
-            rag_result = {
-                "answer": agent_response.get("answer"),
-                "sources": agent_response.get("sources"),
-                "safety_warning": agent_response.get("safety_warning"),
-                "route_used": agent_response.get("route"),
-            }
+        response = await rag_pipeline.run(query=query, session_id=case.get("id"), route="RAG_ONLY")
+        rag_result = serialize_rag_result(response)
+        route_decision = {
+            "route": rag_result.get("route_used") or "RAG_ONLY",
+            "route_source": "rag_pipeline_direct",
+        }
+        agent_response = {
+            "answer": rag_result.get("answer"),
+            "sources": rag_result.get("sources") or [],
+            "route": rag_result.get("route_used") or "RAG_ONLY",
+            "safety_warning": bool(rag_result.get("safety_warning")),
+            "metadata": {"route_decision": route_decision},
+        }
     except Exception as exc:  # pragma: no cover - defensive harness
         error = f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
 
@@ -405,17 +347,8 @@ async def _run_async(opts: RunnerOptions) -> dict[str, Any]:
 
     env = build_env_fingerprint(settings)
 
-    router_llm = build_planner_chat_model(settings, json_mode=True)
-    query_router = QueryRouter(llm=router_llm)
     rag_pipeline = RAGPipeline()
     retriever = _build_retriever()
-
-    agent = Phase5Agent(
-        router=query_router,
-        execution_runner=_StubExecutionRunner(),
-        rag_pipeline=rag_pipeline,
-        session_adapter=_StubSessionAdapter(),
-    )
 
     started_at = now_iso()
     case_results: list[dict[str, Any]] = []
@@ -430,7 +363,7 @@ async def _run_async(opts: RunnerOptions) -> dict[str, Any]:
         t0 = time.perf_counter()
         route_decision, rag_result, agent_response, retrieval_debug, error = await _run_case(
             case=case,
-            agent=agent,
+            rag_pipeline=rag_pipeline,
             retriever=retriever,
             retrieval_top_n=opts.retrieval_top_n,
         )

@@ -35,8 +35,7 @@ def _live_mode_enabled() -> bool:
     return any(os.getenv(name, "0").strip().lower() in {"1", "true", "yes"} for name in flags)
 
 
-@pytest.mark.asyncio
-async def test_live_rag_eval_writes_artifacts():
+def test_live_rag_eval_writes_artifacts():
     if not _live_mode_enabled():
         pytest.skip(
             "FACTORY_AGENT_LIVE_RAG / FACTORY_AGENT_LIVE_LLM not set; live RAG eval is opt-in."

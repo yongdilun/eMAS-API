@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 
 const SLOTS_PER_DAY = 48 // half-hour slots, 24-hour day (0:00–24:00)
 const LEFT_COLUMN_WIDTH = 256
@@ -113,7 +113,7 @@ const GanttTable = ({ jobs = [], machines: machinesProp = [], selectedJobId: sel
     const bodyScrollRef = useRef(null)
     const canvasRef = useRef(null)
 
-    const now = new Date()
+    const now = useMemo(() => new Date(), [])
     const zoomLevels = [
         { label: '4 Hour', hours: 4, width: 400 },
         { label: '2 Hour', hours: 2, width: 600 },
@@ -195,7 +195,7 @@ const GanttTable = ({ jobs = [], machines: machinesProp = [], selectedJobId: sel
         })
 
         return { machineRows, displaySlots, totalDays, startDate, baseDate }
-    }, [jobs, machinesProp])
+    }, [jobs, machinesProp, now])
 
     const dayWidth = currentZoom.width
     const totalSlots = totalDays * SLOTS_PER_DAY
@@ -206,7 +206,7 @@ const GanttTable = ({ jobs = [], machines: machinesProp = [], selectedJobId: sel
         return `${months[date.getMonth()]} ${date.getDate()}`
     }
 
-    const generateTimeSlots = () => {
+    const generateTimeSlots = useCallback(() => {
         const slots = []
         const slotsPerZoom = Math.max(1, currentZoom.hours * 2)
         for (let day = 0; day < totalDays; day++) {
@@ -222,9 +222,9 @@ const GanttTable = ({ jobs = [], machines: machinesProp = [], selectedJobId: sel
             }
         }
         return slots
-    }
+    }, [currentZoom.hours, startDate, totalDays])
 
-    const timeSlots = useMemo(() => generateTimeSlots(), [totalDays, currentZoom])
+    const timeSlots = useMemo(() => generateTimeSlots(), [generateTimeSlots])
     const timeSlotsByDay = useMemo(() => {
         const grouped = new Map()
         timeSlots.forEach((slot) => {
@@ -247,16 +247,16 @@ const GanttTable = ({ jobs = [], machines: machinesProp = [], selectedJobId: sel
     const currentSlot = getCurrentSlot()
     const currentSlotPosition = (currentSlot / totalSlots) * 100
 
-    const calculateSlotPosition = (dayOffset, startSlot) => {
+    const calculateSlotPosition = useCallback((dayOffset, startSlot) => {
         const absSlot = dayOffset * SLOTS_PER_DAY + startSlot
         return (absSlot / totalSlots) * 100
-    }
+    }, [totalSlots])
 
-    const calculateSlotWidth = (dayOffset, startSlot, endSlot) => {
+    const calculateSlotWidth = useCallback((dayOffset, startSlot, endSlot) => {
         const absStart = dayOffset * SLOTS_PER_DAY + startSlot
         const absEnd = dayOffset * SLOTS_PER_DAY + (endSlot || startSlot + 1)
         return ((absEnd - absStart) / totalSlots) * 100
-    }
+    }, [totalSlots])
 
     const isStepPast = (dayOffset, endSlot) => {
         const absEnd = dayOffset * SLOTS_PER_DAY + (endSlot || 0)
@@ -291,7 +291,7 @@ const GanttTable = ({ jobs = [], machines: machinesProp = [], selectedJobId: sel
             .filter(Boolean)
 
         return buildSmoothFlowPath(points)
-    }, [selectedJobId, displaySlots, machineRows, timelineWidth, totalSlots])
+    }, [selectedJobId, displaySlots, machineRows, timelineWidth, calculateSlotPosition, calculateSlotWidth])
 
     const handleSlotClick = (displaySlot) => {
         const job = displaySlot.job

@@ -81,12 +81,14 @@ const ApprovalCard = ({ approval, mode = 'user', reason, onReasonChange, onAppro
  const [formValues, setFormValues] = useState(() => normalizeArgs(safeApproval.args))
  const [dynamicOptionsByField, setDynamicOptionsByField] = useState({})
  const [showValidationErrors, setShowValidationErrors] = useState(false)
+ const approvalId = safeApproval.approval_id
+ const approvalArgs = safeApproval.args
 
  useEffect(() => {
  // Keep user edits stable while this same approval stays open.
- setFormValues(normalizeArgs(safeApproval.args))
+ setFormValues(normalizeArgs(approvalArgs))
  setShowValidationErrors(false)
- }, [safeApproval?.approval_id])
+ }, [approvalId, approvalArgs])
 
  useEffect(() => {
  let cancelled = false
