@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -201,7 +200,7 @@ func assertGoldenResponse(t *testing.T, r *gin.Engine, method, path string, body
 	if err != nil {
 		t.Fatalf("read golden %s: %v", fixturePath, err)
 	}
-	want := strings.TrimSpace(string(wantBytes))
+	want := prettyJSON(t, wantBytes)
 	if got != want {
 		t.Fatalf("response did not match %s\n--- got ---\n%s\n--- want ---\n%s", fixture, got, want)
 	}

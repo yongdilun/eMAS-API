@@ -17,7 +17,7 @@ Use one of: `Not started`, `In progress`, `Passed`, `Failed`, `Skipped`, `Could 
 | 0 | Inspect current Git state | Passed | Existing worktrees clean. `main` is ahead of `origin/main` by 2 commits. |
 | 1 | Create integration worktree | Passed | Created `integration/qa-upgrade-merge` at `C:\Users\dilun\OneDrive\Documents\emas-integration-qa`. |
 | 2 | Review all branches before merging | Passed | Reviewed `git log`, `git diff --stat`, `git diff --name-status`, shared file overlap, and watchpoint paths for all three audit branches. No merges performed. |
-| 3 | Merge Go backend branch | Failed | `audit/go-backend-phase-5` merged cleanly with no conflicts in merge commit `b3161cf`; required `go test ./...` failed in `emas/internal/handler`. `go test ./internal/e2e` passed. Phase 4 is not ready until handler test failures are addressed or accepted. |
+| 3 | Merge Go backend branch | Passed | `audit/go-backend-phase-5` merged cleanly with no conflicts in merge commit `b3161cf`. Initial handler failures were fixed in Phase 3 stabilization; `go test ./...` and `go test ./internal/e2e` now pass. Phase 4 is ready to start. |
 | 4 | Merge Factory Agent branch | Not started | Branch: `audit/factory-agent`. |
 | 5 | Merge frontend branch | Not started | Branch: `audit/frontend-phase-5`. |
 | 6 | Full integration verification | Not started | Run after all three merges are complete. |
@@ -62,7 +62,7 @@ Use one of: `Not started`, `In progress`, `Passed`, `Failed`, `Skipped`, `Could 
 
 | Step | Branch | Result | Conflicts | Checks Run | Safe To Continue |
 |---|---|---|---|---|---|
-| 1 | `audit/go-backend-phase-5` | Merged cleanly with `git merge --no-ff audit/go-backend-phase-5` (`b3161cf`). | None | `go test ./...` failed; `go test ./internal/e2e` passed; targeted handler failure isolation failed as expected. | No |
+| 1 | `audit/go-backend-phase-5` | Merged cleanly with `git merge --no-ff audit/go-backend-phase-5` (`b3161cf`), then stabilized on the integration branch. | None | `go test ./...` passed; `go test ./internal/e2e` passed; targeted handler regression subset passed. | Yes |
 | 2 | `audit/factory-agent` | Not started |  |  |  |
 | 3 | `audit/frontend-phase-5` | Not started |  |  |  |
 
@@ -85,8 +85,10 @@ No merge conflicts were found.
 | Phase 3 pre-merge status | `git status --short --branch` from repo root | Passed | Output was only `## integration/qa-upgrade-merge` after committing the Phase 2 tracker update. |
 | Go backend merge | `git merge --no-ff audit/go-backend-phase-5` from repo root | Passed | Clean merge, no conflicts. Merge commit: `b3161cf Merge branch 'audit/go-backend-phase-5' into integration/qa-upgrade-merge`. |
 | Phase 3 post-merge status | `git status --short --branch` from repo root | Passed | Output was only `## integration/qa-upgrade-merge`. |
-| Go tests after Go merge | `go test ./...` from `emas` | Failed | Exit code 1. `emas/internal/handler` failed: `TestAISchedulingHandler_Features` expected draft apply blocked with 422 but got 401 `missing authenticated user or role`; `TestRealSolverProposalLifecycle` expected 422 for draft apply but got 401 with the same auth error; `TestAPIContractGoldenJobs`, `TestAPIContractGoldenMachines`, `TestAPIContractGoldenProductsAndFormulas`, and `TestAPIContractGoldenInventory` failed golden response comparisons. Other listed packages, including `emas/internal/e2e`, passed in the aggregate run. |
-| Go handler failure isolation | `go test ./internal/handler -run "TestAISchedulingHandler_Features\|TestRealSolverProposalLifecycle\|TestAPIContractGolden" -count=1` from `emas` | Failed | Exit code 1. Reproduced the handler failures. The `TestAPIContractGoldenJobs` diff printed matching JSON in the console, so line-ending or exact byte formatting mismatch is possible but not confirmed. |
+| Initial Go tests after Go merge | `go test ./...` from `emas` | Failed | Exit code 1. `emas/internal/handler` failed before stabilization: protected proposal write tests lacked planner auth headers, golden fixtures compared CRLF text literally, and authenticated apply exposed transaction-bound repair issues. |
+| Initial Go handler failure isolation | `go test ./internal/handler -run "TestAISchedulingHandler_Features\|TestRealSolverProposalLifecycle\|TestAPIContractGolden" -count=1` from `emas` | Failed | Exit code 1 before stabilization. Reproduced auth-header failures, golden comparison failures, and then a legacy split repair failure after auth was corrected. |
+| Phase 3 Go stabilization targeted rerun | `go test ./internal/handler -run "TestAISchedulingHandler_Features\|TestRealSolverProposalLifecycle\|TestAPIContractGolden" -count=1 -timeout=3m` from `emas` | Passed | Output included `PASS` and `ok emas/internal/handler 19.498s`. |
+| Go tests after Phase 3 stabilization | `go test ./...` from `emas` | Passed | Output included `ok emas/internal/e2e 3.714s`, `ok emas/internal/handler 33.905s`, `ok emas/internal/router 0.709s`, and `ok emas/internal/service 1.939s`; all Go packages passed or had no test files. |
 | Go e2e after Go merge | `go test ./internal/e2e` from `emas` | Passed | Output: `ok emas/internal/e2e (cached)`. |
 | Factory Agent tests after agent merge | `python -m pytest factory-agent/tests` | Not started |  |
 | Seed manifest check | `python -m pytest factory-agent/tests/test_seed_pipeline_manifest.py` | Not started |  |
@@ -134,9 +136,7 @@ Record untested or uncertain items here:
 - The Go backend adds `002_ml_training_events_lineage.sql`; database migration safety and seed data compatibility remain unverified.
 - Factory Agent production startup now has stricter env/config behavior; `APP_MODE`, `JWT_REQUIRED`, `JWT_SECRET`, `ENABLE_STARTUP_CREATE_ALL`, and `ENABLE_STARTUP_SCHEMA_COMPAT` need deployment-style verification.
 - Frontend EventSource streams are disabled when static bearer auth is configured because browser EventSource cannot send Authorization headers; snapshot polling fallback must be tested with bearer-token configuration.
-- Phase 3 required Go aggregate tests are failing in `emas/internal/handler`; Phase 4 should not start until these are fixed, waived, or explicitly accepted.
-- Two handler tests now receive 401 auth failures where the tests expected a 422 draft-apply validation response; this may indicate test setup missing auth context after the backend contract hardening.
-- Four API contract golden tests failed despite at least one printed got/want JSON appearing identical in the console; line-ending or exact byte formatting mismatch is suspected but unconfirmed.
+- Phase 3 stabilization fixed the required Go aggregate test failures. Remaining risks are now Phase 4+ cross-layer risks, not known Go backend test failures.
 
 ## Final Recommendation
 
@@ -146,4 +146,4 @@ Choose one after Phase 7:
 - Safe to merge into main with minor known risks.
 - Not safe to merge into main yet.
 
-Current recommendation: `Not safe to merge into main yet` because Phase 3 `go test ./...` failed and phases 4 through 7 have not been run.
+Current recommendation: `Not safe to merge into main yet` because phases 4 through 7 have not been run.

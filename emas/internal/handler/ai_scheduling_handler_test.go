@@ -282,7 +282,7 @@ func testAISchedulingApplyProposal(t *testing.T, r *gin.Engine) {
 	_, data, _ := testutil.DecodeResponse(w)
 	jobID := data.(map[string]interface{})["job_id"].(string)
 
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/jobs/"+jobID+"/apply-proposal", nil)
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/jobs/"+jobID+"/apply-proposal", nil, plannerAuthHeaders())
 	if w.Code != http.StatusConflict {
 		t.Fatalf("compat apply proposal should be blocked by default: got %d, body: %s", w.Code, w.Body.String())
 	}
@@ -336,9 +336,9 @@ func testAISchedulingBatchProposals(t *testing.T, r *gin.Engine) {
 	job3 := d3.(map[string]interface{})["job_id"].(string)
 
 	// Scope: all_unscheduled
-	w := testutil.Request(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{
+	w := testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{
 		"scope": "all_unscheduled",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("batch scope all_unscheduled: got %d, body: %s", w.Code, w.Body.String())
 	}
@@ -358,9 +358,9 @@ func testAISchedulingBatchProposals(t *testing.T, r *gin.Engine) {
 	}
 
 	// Job IDs explicit
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{
 		"job_ids": []string{job2, job3},
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("batch job_ids: got %d, body: %s", w.Code, w.Body.String())
 	}
@@ -389,10 +389,10 @@ func testAISchedulingBatchProposals(t *testing.T, r *gin.Engine) {
 	}
 
 	// Order by EDD
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{
 		"job_ids":  []string{job1, job2, job3},
 		"order_by": "edd",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("batch order_by edd: got %d, body: %s", w.Code, w.Body.String())
 	}
@@ -402,10 +402,10 @@ func testAISchedulingBatchProposals(t *testing.T, r *gin.Engine) {
 	}
 
 	// Order by FIFO
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{
 		"job_ids":  []string{job1, job2, job3},
 		"order_by": "fifo",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("batch order_by fifo: got %d, body: %s", w.Code, w.Body.String())
 	}
@@ -415,7 +415,7 @@ func testAISchedulingBatchProposals(t *testing.T, r *gin.Engine) {
 	}
 
 	// Validation: missing job_ids and scope
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{})
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{}, plannerAuthHeaders())
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for missing scope/job_ids, got %d body: %s", w.Code, w.Body.String())
 	}
@@ -425,9 +425,9 @@ func testAISchedulingBatchProposals(t *testing.T, r *gin.Engine) {
 	}
 
 	// Validation: empty job_ids and no scope
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/batch-proposals", map[string]interface{}{
 		"job_ids": []string{},
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for empty job_ids and no scope, got %d body: %s", w.Code, w.Body.String())
 	}
@@ -462,9 +462,9 @@ func testAISchedulingProposalLifecycle(t *testing.T, r *gin.Engine) {
 	}
 	proposalID := data.(map[string]interface{})["proposal_id"].(string)
 
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "LIFE-DRAFT-BLOCK",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected draft apply to be blocked, got %d body: %s", w.Code, w.Body.String())
 	}
@@ -475,16 +475,16 @@ func testAISchedulingProposalLifecycle(t *testing.T, r *gin.Engine) {
 		t.Fatal("expected proposal list for job")
 	}
 
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
 		"notes": "reviewed",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("approve proposal: got %d, body: %s", w.Code, w.Body.String())
 	}
 
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "LIFE-KEY-1",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("apply proposal by id: got %d, body: %s", w.Code, w.Body.String())
 	}
@@ -508,9 +508,9 @@ func testAISchedulingProposalLifecycle(t *testing.T, r *gin.Engine) {
 	}
 
 	// Idempotency: apply with same key again returns 200
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "LIFE-KEY-1",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("idempotent apply: expected 200, got %d body: %s", w.Code, w.Body.String())
 	}
@@ -572,15 +572,15 @@ func testAISchedulingProposalTrainingLineageLifecycle(t *testing.T, db *gorm.DB,
 		}
 	}
 
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
 		"notes": "ml lineage approval",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("approve ml lineage proposal: got %d, body: %s", w.Code, w.Body.String())
 	}
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "ML-LINEAGE-APPLY",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("apply ml lineage proposal: got %d, body: %s", w.Code, w.Body.String())
 	}
@@ -653,6 +653,9 @@ func testAISchedulingApproveApply_InvalidBody(t *testing.T, r *gin.Engine) {
 	rawRequest := func(method, path, body, contentType string) *httptest.ResponseRecorder {
 		req, _ := http.NewRequest(method, path, bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", contentType)
+		for key, value := range plannerAuthHeaders() {
+			req.Header.Set(key, value)
+		}
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		return w
@@ -756,16 +759,16 @@ func testAISchedulingApplyRollbackOnSplitOverflow(t *testing.T, db *gorm.DB, r *
 		t.Fatalf("save mutated rollback proposal: %v", err)
 	}
 
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
 		"notes": "rollback test approval",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("approve rollback proposal: got %d, body: %s", w.Code, w.Body.String())
 	}
 
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "ROLLBACK-OVERFLOW",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected invalid split apply failure, got %d body: %s", w.Code, w.Body.String())
 	}
@@ -865,16 +868,16 @@ func testAISchedulingApplyRepairsLegacySplitFallback(t *testing.T, db *gorm.DB, 
 		t.Fatalf("save legacy proposal: %v", err)
 	}
 
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
 		"notes": "legacy repair approval",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("approve legacy proposal: got %d, body: %s", w.Code, w.Body.String())
 	}
 
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "LEGACY-SPLIT-REPAIR",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("apply legacy proposal: got %d, body: %s", w.Code, w.Body.String())
 	}
