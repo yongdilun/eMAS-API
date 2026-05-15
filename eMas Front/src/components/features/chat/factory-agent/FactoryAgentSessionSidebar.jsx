@@ -67,12 +67,8 @@ const FactoryAgentSessionSidebar = ({
                   : 'border-transparent bg-transparent hover:border-hairline hover:bg-surface-2'
                   }`}
               >
-                <button
-                  type="button"
-                  onClick={() => onSwitchSession(item.session_id)}
-                  className="w-full text-left px-2.5 py-2"
-                >
-                  {isEditing ? (
+                {isEditing ? (
+                  <div className="px-2.5 py-2">
                     <input
                       autoFocus
                       value={editingName}
@@ -91,60 +87,53 @@ const FactoryAgentSessionSidebar = ({
                         }
                       }}
                       className="w-full rounded-md border border-hairline bg-surface-2 px-2 py-1 text-sm text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                      aria-label={`Rename ${item.name || 'session'}`}
                     />
-                  ) : (
-                    <div className="flex items-start gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className={`truncate text-sm text-ink ${isActive ? 'font-semibold' : 'font-medium'}`}>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-1 px-1.5 py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onSwitchSession(item.session_id)}
+                      className="min-w-0 flex-1 rounded-md px-1 py-1 text-left outline-none focus:ring-2 focus:ring-primary/30"
+                      aria-current={isActive ? 'page' : undefined}
+                      aria-label={`Open session ${item.name || 'New chat'}`}
+                    >
+                      <span className="block min-w-0">
+                        <span className={`block truncate text-sm text-ink ${isActive ? 'font-semibold' : 'font-medium'}`}>
                           {item.name}
-                        </div>
-                        <div className="mt-0.5 text-[11px] uppercase tracking-wide text-ink-subtle">
+                        </span>
+                        <span className="mt-0.5 block text-[11px] uppercase tracking-wide text-ink-subtle">
                           {friendlySessionStatus(item.status)}
-                        </div>
-                      </div>
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          onStartEditing(item)
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            onStartEditing(item)
-                          }
-                        }}
-                        className="material-symbols-outlined text-base text-ink-subtle opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                      >
-                        edit
+                        </span>
                       </span>
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          onDeleteSession(item)
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            onDeleteSession(item)
-                          }
-                        }}
-                        className="material-symbols-outlined text-base text-ink-subtle opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                        aria-label="Delete session"
-                        title="Delete session"
-                      >
-                        delete
-                      </span>
-                    </div>
-                  )}
-                </button>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onStartEditing(item)
+                      }}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-subtle opacity-100 transition-opacity hover:bg-surface-3 focus:opacity-100 focus:ring-2 focus:ring-primary/30 md:opacity-0 md:group-hover:opacity-100"
+                      aria-label={`Rename session ${item.name || 'New chat'}`}
+                      title="Rename session"
+                    >
+                      <span className="material-symbols-outlined text-base">edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDeleteSession(item)
+                      }}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-subtle opacity-100 transition-opacity hover:bg-surface-3 focus:opacity-100 focus:ring-2 focus:ring-primary/30 md:opacity-0 md:group-hover:opacity-100"
+                      aria-label={`Delete session ${item.name || 'New chat'}`}
+                      title="Delete session"
+                    >
+                      <span className="material-symbols-outlined text-base">delete</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })

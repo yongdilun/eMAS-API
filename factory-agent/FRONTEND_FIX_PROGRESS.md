@@ -31,10 +31,10 @@ Status key:
 | FE-004 | Snapshot event stream runs for inactive sessions | Medium | 2 | Done | Build passed; `useSessionEvents` is enabled only for active/running states or while sending | Restore `enabled: true` for `useSessionEvents` |
 | FE-005 | Pending approval follow-up can create a new plan before decision | Medium | 2 | Done | Build passed; UI now states follow-up messages can revise the plan while the current approval remains pending | Remove the pending-approval helper copy and placeholder change |
 | FE-006 | Approval card dynamic lookup and validation are too broad | Medium | 2-3 | Done | Added `approvalFieldUtils.test.mjs`; `npm test` passed 37 tests; strict integer/number casting rejects partial numeric strings | Restore previous lenient `parseInt`/`parseFloat` casting or remove the helper |
-| FE-007 | Nested interactive controls in session list | Medium | 5 | Not Started | Keyboard navigation test | Revert session row component |
+| FE-007 | Nested interactive controls in session list | Medium | 5 | Done | Component accessibility test confirms separate select/rename/delete buttons and no nested buttons | Revert session row component |
 | FE-008 | Lint/test configuration is not a reliable safety gate | High | 1 | Done | `npm test` passed 35 tests; `npm.cmd run lint` now ignores generated artifacts and fails on source-only lint issues; `npx.cmd vite build` passed | Revert `.eslintrc.cjs`, `package.json`, and the tiny `useFactoryAgentChat.js` lint fix |
 | FE-009 | Dead or stale frontend modules create maintenance risk | Low/Medium | 1 | Done | Import check for stale names returned no matches after removal; build passed | Restore removed files from git |
-| FE-010 | Main bundle is eager and large | Medium | 5 | Not Started | Build chunk-size comparison and route smoke | Revert lazy imports |
+| FE-010 | Main bundle is eager and large | Medium | 5 | Done | Production build split route chunks and lazy chat modal; initial JS chunk `179.72 kB` | Revert lazy imports |
 
 ## Phase Progress
 
@@ -193,7 +193,7 @@ Status key:
 
 ### Phase 5: Long-Term Improvements
 
-- Status: Not Started
+- Status: Done
 - Goal: Improve UX, accessibility, observability, and performance.
 - Candidate changes:
   - Route-level lazy loading.
@@ -203,6 +203,23 @@ Status key:
   - Better backend unavailable and retry UX.
 - Do not change:
   - Cosmetic-only styling unless it affects clarity, accessibility, or maintainability.
+- Completed:
+  - Created `audit/frontend-phase-5` from committed `audit/frontend-phase-4`.
+  - Added route-level `React.lazy` loading in `src/App.jsx` for all routed pages.
+  - Lazy-loaded `AIAssistantModal`, which keeps Factory Agent chat code out of the initial app chunk until the user opens the chat.
+  - Reworked Factory Agent session rows so session selection, rename, and delete are sibling `<button>` controls rather than nested interactive controls.
+  - Added stream diagnostics from `useSessionEvents.js` and `useActivityStream.js` for disabled, fallback, reconnecting, and stopped SSE states.
+  - Added a Factory Agent diagnostics banner that surfaces backend unavailable errors, stream fallback messages, and a safe `Retry connection` action.
+  - Added `retryConnection` to `useFactoryAgentChat.js`; it retries session list/snapshot loading without replaying the last user message.
+  - Extended Factory Agent component tests for backend retry UX, stream diagnostics, and session row accessibility.
+- Verification:
+  - `npm test` from `eMas Front`: passed, 48 tests.
+  - `npm.cmd run lint` from `eMas Front`: failed on known source lint backlog with `35 errors, 22 warnings`; remaining failures are existing unused variables and hook/fast-refresh warnings from earlier phases.
+  - `npx.cmd vite build --outDir C:\tmp\emas-front-build-phase5-20260515` from `eMas Front`: passed.
+  - Bundle check from the Phase 5 build: initial `index` JS chunk is `179.72 kB`; Factory Agent modal is split into its own `AIAssistantModal` chunk at `114.98 kB`; routed pages are emitted as separate chunks. This removes the prior single main chunk warning recorded in Phase 4 (`618.64 kB`).
+- Rollback:
+  - Revert the Phase 5 commit to restore eager route/modal imports, previous session row controls, and the prior simple error banner.
+  - For partial rollback, restore eager imports in `src/App.jsx`, restore the old session row markup in `FactoryAgentSessionSidebar.jsx`, remove the diagnostic callbacks from the stream hooks, or remove `retryConnection` plus `FactoryAgentDiagnostics`.
 
 ## Decision Log
 
@@ -218,9 +235,9 @@ Status key:
 
 ## Current Next Step
 
-Phase 4 is complete. Stop here and do not start Phase 5 in this window.
+Phase 5 is complete. Stop here and do not start any phase after Phase 5.
 
-The next phase window should branch `audit/frontend-phase-5` from committed `audit/frontend-phase-4`.
+The Phase 5 window should remain on `audit/frontend-phase-5`.
 
 ## Update Rules For This Tracker
 

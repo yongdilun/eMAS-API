@@ -6,9 +6,11 @@ const FACTORY_AGENT_BASE_URL = (
 ).replace(/\/+$/, '')
 
 export function useActivityStream(sessionId, onActivityStep, options = {}) {
-  const { enabled = true } = options
+  const { enabled = true, onDiagnostic } = options
   const onActivityStepRef = useRef(onActivityStep)
   onActivityStepRef.current = onActivityStep
+  const onDiagnosticRef = useRef(onDiagnostic)
+  onDiagnosticRef.current = onDiagnostic
 
   const esRef = useRef(null)
   const retryTimerRef = useRef(null)
@@ -59,11 +61,25 @@ export function useActivityStream(sessionId, onActivityStep, options = {}) {
     }
   }, [])
 
+  const emitDiagnostic = useCallback((status, message) => {
+    onDiagnosticRef.current?.({
+      source: 'activity-stream',
+      status,
+      message,
+    })
+  }, [])
+
   const connect = useCallback(() => {
     if (!mountedRef.current) return
     if (!sessionId || !enabled) return
-    if (!factoryAgentStreamAuth.eventSourceEnabled) return
-    if (typeof EventSource === 'undefined') return
+    if (!factoryAgentStreamAuth.eventSourceEnabled) {
+      emitDiagnostic('disabled', factoryAgentStreamAuth.disabledReason || 'Activity stream disabled.')
+      return
+    }
+    if (typeof EventSource === 'undefined') {
+      emitDiagnostic('disabled', 'Activity stream is unavailable in this browser.')
+      return
+    }
 
     closeEs()
     const url = `${FACTORY_AGENT_BASE_URL}/sessions/${sessionId}/events/activity`
@@ -92,8 +108,10 @@ export function useActivityStream(sessionId, onActivityStep, options = {}) {
         const frame = JSON.parse(evt.data)
         if (frame?.type === 'STREAM_READY') {
           retryDelayRef.current = 500
+          emitDiagnostic('connected', 'Activity stream connected.')
         }
         if (frame?.type === 'SESSION_NOT_FOUND') {
+          emitDiagnostic('stopped', 'Activity stream stopped because the session was not found.')
           closeEs()
         }
       } catch {
@@ -106,15 +124,17 @@ export function useActivityStream(sessionId, onActivityStep, options = {}) {
       closeEs()
       const delay = retryDelayRef.current
       retryDelayRef.current = Math.min(delay * 2, 30000)
+      emitDiagnostic('reconnecting', `Activity stream disconnected. Reconnecting in ${Math.round(delay / 1000)} seconds.`)
       retryTimerRef.current = setTimeout(() => {
         if (mountedRef.current) connect()
       }, delay)
     }
-  }, [sessionId, enabled, closeEs, processQueue])
+  }, [sessionId, enabled, closeEs, emitDiagnostic, processQueue])
 
   useEffect(() => {
     mountedRef.current = true
     if (!sessionId || !enabled) {
+      emitDiagnostic('idle', 'Activity stream idle.')
       closeEs()
       return () => {
         mountedRef.current = false
@@ -127,5 +147,5 @@ export function useActivityStream(sessionId, onActivityStep, options = {}) {
       mountedRef.current = false
       closeEs()
     }
-  }, [sessionId, enabled, connect, closeEs])
+  }, [sessionId, enabled, connect, closeEs, emitDiagnostic])
 }

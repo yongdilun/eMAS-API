@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   React,
+  click,
   createViteSsrServer,
   installDom,
   render,
@@ -34,7 +35,9 @@ function createChatState(overrides = {}) {
     loading: false,
     isSending: false,
     isCancelling: false,
+    isRetryingConnection: false,
     error: null,
+    streamDiagnostics: [],
     pendingApproval: null,
     approvalReason: '',
     messageMode: 'normal',
@@ -47,6 +50,7 @@ function createChatState(overrides = {}) {
     isResumingAfterApproval: false,
     handleSend: () => {},
     handleCancel: () => {},
+    retryConnection: () => {},
     decideApproval: () => {},
     decideConfirmation: () => {},
     startNewSession: () => {},
@@ -113,8 +117,12 @@ test('FactoryAgentChatPanel renders pending approval card and follow-up guidance
 
 test('FactoryAgentChatPanel renders backend unavailable errors without fake success', async () => {
   const { default: FactoryAgentChatPanel } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx')
+  let retryCount = 0
   const chatState = createChatState({
     error: 'Could not restore active session: Cannot connect to factory-agent.',
+    retryConnection: () => {
+      retryCount += 1
+    },
   })
 
   const view = await render(
@@ -124,9 +132,76 @@ test('FactoryAgentChatPanel renders backend unavailable errors without fake succ
   )
 
   assert.match(view.text(), /Cannot connect to factory-agent/)
+  assert.match(view.text(), /Factory Agent backend unavailable/)
+  assert.match(view.text(), /Retry connection/)
   assert.match(view.text(), /Start a session from the sidebar/)
   assert.doesNotMatch(view.text(), /Run complete/)
   assert.doesNotMatch(view.text(), /Approval received/)
+
+  const retryButton = Array.from(view.container.querySelectorAll('button')).find((button) => button.textContent.includes('Retry connection'))
+  await click(retryButton)
+  assert.equal(retryCount, 1)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel renders stream diagnostics without hiding the chat', async () => {
+  const { default: FactoryAgentChatPanel } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx')
+  const chatState = createChatState({
+    streamDiagnostics: [
+      {
+        source: 'session-events',
+        status: 'fallback',
+        message: 'Snapshot stream disconnected. Polling every 4 seconds while reconnecting.',
+      },
+    ],
+  })
+
+  const view = await render(
+    React.createElement(FactoryAgentChatPanel, {
+      useChatState: () => chatState,
+    }),
+  )
+
+  assert.match(view.text(), /Snapshot stream disconnected/)
+  assert.match(view.text(), /Start a session from the sidebar/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentSessionSidebar uses separate controls for select, rename, and delete', async () => {
+  const { default: FactoryAgentSessionSidebar } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/FactoryAgentSessionSidebar.jsx')
+  const calls = []
+  const session = { session_id: 'session-1', name: 'Priority review', status: 'WAITING_APPROVAL' }
+
+  const view = await render(
+    React.createElement(FactoryAgentSessionSidebar, {
+      collapsed: false,
+      onCollapsedChange: (value) => calls.push(['collapse', value]),
+      sessions: [session],
+      activeSessionId: 'session-1',
+      editingSessionId: null,
+      editingName: '',
+      onEditingNameChange: (value) => calls.push(['edit-name', value]),
+      onStartNewSession: () => calls.push(['new']),
+      onSwitchSession: (id) => calls.push(['switch', id]),
+      onStartEditing: (item) => calls.push(['edit', item.session_id]),
+      onStopEditing: () => calls.push(['stop-edit']),
+      onRenameSession: (id, name) => calls.push(['rename', id, name]),
+      onDeleteSession: (item) => calls.push(['delete', item.session_id]),
+    }),
+  )
+
+  assert.equal(view.container.querySelector('button button'), null)
+
+  await click(view.container.querySelector('button[aria-label="Rename session Priority review"]'))
+  assert.deepEqual(calls.at(-1), ['edit', 'session-1'])
+
+  await click(view.container.querySelector('button[aria-label="Delete session Priority review"]'))
+  assert.deepEqual(calls.at(-1), ['delete', 'session-1'])
+
+  await click(view.container.querySelector('button[aria-label="Open session Priority review"]'))
+  assert.deepEqual(calls.at(-1), ['switch', 'session-1'])
 
   await view.unmount()
 })

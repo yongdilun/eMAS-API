@@ -633,6 +633,51 @@ function statusLoadingText(status) {
   return 'Working...'
 }
 
+function isBackendUnavailableError(error) {
+  const text = String(error || '').toLowerCase()
+  return text.includes('cannot reach factory-agent') || text.includes('cannot connect to factory-agent') || text.includes('service temporarily unavailable')
+}
+
+function FactoryAgentDiagnostics({ error, streamDiagnostics = [], retrying, onRetryConnection }) {
+  const diagnostics = Array.isArray(streamDiagnostics) ? streamDiagnostics.filter((item) => item?.message) : []
+  if (!error && diagnostics.length === 0) return null
+
+  return (
+    <div className="border-b border-hairline bg-surface-2 px-4 py-2 text-sm text-ink-muted">
+      {error ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="font-semibold text-ink">
+              {isBackendUnavailableError(error) ? 'Factory Agent backend unavailable' : 'Factory Agent needs attention'}
+            </div>
+            <div className="mt-0.5">{error}</div>
+          </div>
+          {onRetryConnection ? (
+            <button
+              type="button"
+              onClick={onRetryConnection}
+              disabled={retrying}
+              className="rounded-md border border-hairline bg-surface-1 px-2.5 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-surface-3 disabled:opacity-60"
+            >
+              {retrying ? 'Retrying...' : 'Retry connection'}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {diagnostics.length > 0 ? (
+        <div className={error ? 'mt-2 space-y-1 border-t border-hairline pt-2' : 'space-y-1'}>
+          {diagnostics.map((item) => (
+            <div key={item.source} className="flex items-start gap-2 text-xs text-ink-subtle">
+              <span className="material-symbols-outlined mt-0.5 text-sm">settings_input_antenna</span>
+              <span>{item.message}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown, useChatState = useFactoryAgentChat }) => {
   const chatRef = useRef(null)
   const shouldAutoScrollRef = useRef(true)
@@ -648,7 +693,9 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown, useChatState = useF
     loading,
     isSending,
     isCancelling,
+    isRetryingConnection,
     error,
+    streamDiagnostics,
     pendingApproval,
     approvalReason,
     messageMode,
@@ -661,6 +708,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown, useChatState = useF
     isResumingAfterApproval,
     handleSend,
     handleCancel,
+    retryConnection,
     decideApproval,
     decideConfirmation,
     startNewSession,
@@ -791,11 +839,12 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown, useChatState = useF
           />
         ) : null}
 
-        {error && (
-          <div className="border-b border-hairline bg-surface-2 px-4 py-2 text-sm text-ink-muted">
-            {error}
-          </div>
-        )}
+        <FactoryAgentDiagnostics
+          error={error}
+          streamDiagnostics={streamDiagnostics}
+          retrying={isRetryingConnection}
+          onRetryConnection={retryConnection}
+        />
 
         <div ref={chatRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto bg-canvas px-4 py-4">
           {loading && (turns?.length || 0) === 0 && messages.length === 0 ? (

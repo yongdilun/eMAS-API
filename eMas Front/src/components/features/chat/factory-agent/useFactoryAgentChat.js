@@ -117,8 +117,10 @@ export function useFactoryAgentChat() {
   const [approvalReason, setApprovalReason] = useState('')
   const [isDecidingApproval, setIsDecidingApproval] = useState(false)
   const [isPollingSession, setIsPollingSession] = useState(false)
+  const [isRetryingConnection, setIsRetryingConnection] = useState(false)
   const [resumeHint, setResumeHint] = useState(null)
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
+  const [streamDiagnosticsBySource, setStreamDiagnosticsBySource] = useState({})
   const [optimisticMessages, setOptimisticMessages] = useState([])
   const [messageMode, setMessageMode] = useState(() => {
     if (!hasStorage()) return 'normal'
@@ -346,6 +348,27 @@ export function useFactoryAgentChat() {
     })
   }, [])
 
+  const updateStreamDiagnostic = useCallback((diagnostic) => {
+    if (!diagnostic?.source) return
+    setStreamDiagnosticsBySource((prev) => {
+      const next = {
+        source: diagnostic.source,
+        status: diagnostic.status || 'info',
+        message: diagnostic.message || '',
+        updatedAt: new Date().toISOString(),
+      }
+      const current = prev[diagnostic.source]
+      if (current?.status === next.status && current?.message === next.message) return prev
+      return { ...prev, [diagnostic.source]: next }
+    })
+  }, [])
+
+  const streamDiagnostics = useMemo(() => (
+    Object.values(streamDiagnosticsBySource)
+      .filter((item) => item?.status && !['connected', 'idle'].includes(item.status))
+      .sort((a, b) => String(a.source).localeCompare(String(b.source)))
+  ), [streamDiagnosticsBySource])
+
   const activityStreamEnabled =
     ACTIVITY_TIMELINE_ENABLED &&
     Boolean(session?.session_id) &&
@@ -360,6 +383,7 @@ export function useFactoryAgentChat() {
 
   useActivityStream(session?.session_id || null, applyStreamActivityStep, {
     enabled: activityStreamEnabled,
+    onDiagnostic: updateStreamDiagnostic,
   })
 
   const sessionEventsEnabled = Boolean(
@@ -425,7 +449,7 @@ export function useFactoryAgentChat() {
     useCallback(() => {
       if (session?.session_id) pollSnapshot()
     }, [pollSnapshot, session?.session_id]),
-    { enabled: sessionEventsEnabled, fallbackMs: 4000 },
+    { enabled: sessionEventsEnabled, fallbackMs: 4000, onDiagnostic: updateStreamDiagnostic },
   )
 
   useEffect(() => clearClientProgressTimers, [clearClientProgressTimers])
@@ -449,6 +473,22 @@ export function useFactoryAgentChat() {
 
     bootstrap()
   }, [refreshSessionList, safelyRefreshSnapshot])
+
+  const retryConnection = useCallback(async () => {
+    setIsRetryingConnection(true)
+    setError(null)
+    try {
+      await refreshSessionList()
+      const savedId = session?.session_id || (hasStorage() ? localStorage.getItem(ACTIVE_SESSION_KEY) : null)
+      if (savedId) await safelyRefreshSnapshot(savedId)
+      return true
+    } catch (err) {
+      setError(normalizeFactoryAgentError(err, 'Could not reconnect to Factory Agent'))
+      return false
+    } finally {
+      setIsRetryingConnection(false)
+    }
+  }, [refreshSessionList, safelyRefreshSnapshot, session?.session_id])
 
   const startNewSession = useCallback(async () => {
     setLoading(true)
@@ -777,7 +817,9 @@ export function useFactoryAgentChat() {
     loading,
     isSending,
     isCancelling,
+    isRetryingConnection,
     error,
+    streamDiagnostics,
     pendingApproval,
     approvalReason,
     messageMode,
@@ -792,6 +834,7 @@ export function useFactoryAgentChat() {
     clientProgress,
     handleSend,
     handleCancel,
+    retryConnection,
     decideApproval,
     decideConfirmation,
     startNewSession,
