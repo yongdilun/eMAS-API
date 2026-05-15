@@ -14,12 +14,12 @@ Status key:
 
 | Item | Status | Owner | Notes |
 |---|---|---|---|
-| Create cleanup branch | Not Started | TBD | Use a dedicated branch before code changes. |
+| Create cleanup branch | Done | Codex | Created `codex/phase-0-fastapi-safety` from current `origin/main` on 2026-05-15 after deleting merged temporary branch `recover-execution-refactor`. |
 | Run `pytest --collect-only -q` | Done | Codex | 487 tests collected on 2026-05-15. |
-| Run full test suite | Not Started | TBD | Needed before behavior changes. |
-| Capture OpenAPI snapshot | Not Started | TBD | Save as contract baseline before route refactors. |
-| Capture Docker build/import baseline | Not Started | TBD | Needed before `.dockerignore` and dependency cleanup. |
-| Record current frontend/API behavior | Not Started | TBD | Especially snapshot, SSE, approvals, and plan creation. |
+| Run full test suite | Done | Codex | `pytest`: 464 passed, 3 skipped, 20 xfailed on 2026-05-15. |
+| Capture OpenAPI snapshot | Done | Codex | Saved `docs/baselines/openapi.phase0.json` with 33 paths and 26 component schemas. |
+| Capture Docker build/import baseline | Done | Codex | `docker build -t factory-agent-phase0-baseline .` passed; container `import main` smoke passed. |
+| Record current frontend/API behavior | Done | Codex | Recorded in `docs/baselines/phase0_behavior.md`; no runtime behavior changes made. |
 
 ## Issue Tracker
 
@@ -33,32 +33,38 @@ Status key:
 | FA-006 | Reduce SSE database polling risk | Medium | 5 | Not Started | Disconnect and concurrent stream tests | Keep old implementation path |
 | FA-007 | Strengthen relational constraints/session cleanup | Medium | 4 | Not Started | Session deletion contract tests | Keep manual cleanup fallback |
 | FA-008 | Document legacy vs graph-native API contracts | Medium | 3 | Not Started | Contract matrix tests | Keep retired endpoints returning 410 |
-| FA-009 | Align dependency and Docker packaging | Medium | 1 | Not Started | Docker build/import smoke | Revert ignore/dependency edits |
-| FA-010 | Replace mutable JSON defaults | Low/Medium | 1 | Not Started | Two-row default isolation test | Revert model default change |
+| FA-009 | Align dependency and Docker packaging | Medium | 1 | Done | `docker build -t factory-agent-phase1-cleanup .`; container `import main` smoke passed | Revert ignore/dependency edits |
+| FA-010 | Replace mutable JSON defaults | Low/Medium | 1 | Done | `tests/test_model_json_defaults.py`; full `pytest` passed with project-local temp dir | Revert model default change |
 | FA-011 | Add missing auth/contract coverage | Medium | 3 | Not Started | New tests fail before fix, pass after fix | Revert tests independently |
 
 ## Phase Progress
 
 ### Phase 0: Safety Preparation
 
-- Status: In Progress
+- Status: Done
 - Goal: Freeze current behavior and make rollback easy.
 - Next actions:
-  - Create branch.
-  - Run full tests.
-  - Capture OpenAPI snapshot.
-  - Capture Docker build/import baseline.
-  - Record critical behavior for sessions, plans, approvals, SSE, DLQ, and metrics.
+  - Completed on `codex/phase-0-fastapi-safety`.
+  - Use this baseline before starting Phase 1 cleanup.
 
 ### Phase 1: Low-Risk Cleanup
 
-- Status: Not Started
+- Status: Done
 - Goal: Reduce repository and deployment noise without changing behavior.
-- Candidate changes:
-  - Expand `.dockerignore`.
-  - Identify whether committed DB/index artifacts are required.
-  - Replace mutable JSON defaults.
-  - Move pure helper functions from `routes.py` only after tests exist.
+- Completed:
+  - Created `codex/phase-1-fastapi-cleanup` from `codex/phase-0-fastapi-safety`.
+  - Expanded `.dockerignore` for local databases, logs, caches, scratch folders, vector DBs, and pickle artifacts.
+  - Identified tracked local artifacts (`factory_agent.db`, scratch scripts, `factory_agent/rag/bm25_index.pkl`) as Docker packaging exclusions; the RAG retriever handles a missing BM25 pickle by falling back without keyword results.
+  - Aligned package metadata to use `requirements.txt` as the single runtime dependency source via dynamic setuptools dependencies.
+  - Replaced mutable JSON ORM defaults with callable defaults and added isolation tests.
+- Deferred:
+  - Moving pure helper functions from `routes.py`; route/helper extraction is safer after Phase 3 contract coverage and belongs with Phase 4 router refactoring.
+- Verification:
+  - `pytest tests/test_model_json_defaults.py -q`: 2 passed.
+  - `pytest tests/test_model_json_defaults.py tests/test_mysql_schema.py tests/test_schema_compatibility.py -q`: 3 passed, 1 skipped.
+  - `pytest`: 466 passed, 3 skipped, 20 xfailed after setting `TMP`/`TEMP` to a project-local temp directory; default Windows temp root was inaccessible.
+  - `docker build -t factory-agent-phase1-cleanup .`: passed.
+  - `docker run --rm factory-agent-phase1-cleanup python -c "import main; print('import main ok')"`: passed.
 
 ### Phase 2: Bug Fixes and Contract Fixes
 
@@ -112,10 +118,9 @@ Status key:
 
 ## Current Next Step
 
-Before any code changes:
+Phase 1 is complete. Next cleanup window should start Phase 2 unless explicitly directed otherwise:
 
-1. Create a branch.
-2. Run full tests.
-3. Capture OpenAPI snapshot.
-4. Add failing auth/contract tests for exposed endpoints.
-5. Fix the smallest issue first.
+1. Add auth contract tests for SSE, DLQ, and metrics policy.
+2. Protect exposed read endpoints according to the chosen auth policy.
+3. Add production config safety tests before enforcing production auth/admin defaults.
+4. Add rollback tests before making plan persistence transactional.
