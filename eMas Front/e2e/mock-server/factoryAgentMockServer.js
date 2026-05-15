@@ -1,5 +1,15 @@
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
+import {
+  activeHappyPathSnapshot,
+  buildHappyPathPlan,
+  completedHappyPathSnapshot,
+  createHappyPathSession,
+  fixtureTime,
+  machineStatusAnswer,
+  machineStatusPrompt,
+  sessionSummary,
+} from '../fixtures/factoryAgentFixtures.js'
 
 const args = new Map()
 for (let i = 2; i < process.argv.length; i += 2) {
@@ -13,25 +23,50 @@ function now() {
   return new Date().toISOString()
 }
 
-function sessionSummary(session) {
-  return {
-    session_id: session.session_id,
-    user_id: session.user_id,
-    name: session.name,
-    status: session.status,
-    created_at: session.created_at,
-    updated_at: session.updated_at,
-  }
-}
-
 function snapshot(session) {
+  if (session.status === 'COMPLETED') return completedHappyPathSnapshot(session)
+  if (session.status === 'PLANNING' || session.status === 'EXECUTING') return activeHappyPathSnapshot(session)
   return {
     session: sessionSummary(session),
     messages: session.messages,
-    timeline: [],
-    activity_steps: [],
+    timeline: session.timeline || [],
+    plan: session.plan || null,
+    steps: session.steps || [],
+    activity_steps: session.activity_steps || [],
     pending_approval: null,
+    resume_hint: null,
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+function appendTimeline(session, event) {
+  session.timeline.push({
+    created_at: now(),
+    ...event,
+  })
+  session.updated_at = now()
+}
+
+function writeSseHeaders(res) {
+  res.writeHead(200, {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'Content-Type': 'text/event-stream',
+  })
+}
+
+function sendSseEvent(res, event, data, id = 1) {
+  res.write(`id: ${id}\n`)
+  res.write(`event: ${event}\n`)
+  res.write(`data: ${JSON.stringify(data)}\n\n`)
 }
 
 function sendJson(res, status, body) {
@@ -85,15 +120,11 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/sessions') {
     const body = await readJson(req)
     const id = `pw-session-${randomUUID()}`
-    const session = {
-      session_id: id,
-      user_id: body.user_id || 'playwright-user',
+    const session = createHappyPathSession({
+      sessionId: id,
+      userId: body.user_id || 'playwright-user',
       name: body.name || 'Playwright session',
-      status: 'IDLE',
-      created_at: now(),
-      updated_at: now(),
-      messages: [],
-    }
+    })
     sessions.set(id, session)
     sendJson(res, 200, sessionSummary(session))
     return
@@ -126,6 +157,16 @@ const server = http.createServer(async (req, res) => {
       created_at: now(),
     }
     session.messages.push(message)
+    session.status = 'PLANNING'
+    appendTimeline(session, {
+      event_id: 'pw-turn-machine-status',
+      turn_id: 'pw-turn-machine-status',
+      event_type: 'user_message',
+      role: 'user',
+      content: message.content || machineStatusPrompt,
+      status: 'DONE',
+      created_at: fixtureTime(1),
+    })
     session.updated_at = now()
     sendJson(res, 200, message)
     return
@@ -138,9 +179,99 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 404, { detail: 'Session not found' })
       return
     }
-    session.status = 'COMPLETED'
+    session.status = 'EXECUTING'
+    session.operation_id = 'pw-plan-machine-status'
+    session.plan = buildHappyPathPlan(session)
+    session.steps = [...session.plan.steps]
+    appendTimeline(session, {
+      event_id: 'pw-plan-created',
+      turn_id: 'pw-turn-machine-status',
+      event_type: 'plan_created',
+      content: 'Checking machine status for M-CNC-01.',
+      status: 'COMPLETED',
+      operation_id: 'pw-plan-machine-status',
+      details: {
+        status: 'COMPLETED',
+        plan_id: 'pw-plan-machine-status',
+        plan_explanation: 'Checking machine status for M-CNC-01.',
+      },
+      created_at: fixtureTime(2),
+    })
     session.updated_at = now()
-    sendJson(res, 200, { status: 'COMPLETED', plan_id: `pw-plan-${randomUUID()}` })
+    sendJson(res, 200, { status: 'EXECUTING', plan_id: 'pw-plan-machine-status' })
+    return
+  }
+
+  const executeMatch = url.pathname.match(/^\/sessions\/([^/]+)\/execute$/)
+  if (req.method === 'POST' && executeMatch) {
+    const session = sessions.get(executeMatch[1])
+    if (!session) {
+      sendJson(res, 404, { detail: 'Session not found' })
+      return
+    }
+    session.execute_count += 1
+    session.status = 'EXECUTING'
+    appendTimeline(session, {
+      event_id: 'pw-execution-started',
+      turn_id: 'pw-turn-machine-status',
+      event_type: 'execution_started',
+      content: 'Execution started.',
+      status: 'IN_PROGRESS',
+      operation_id: 'pw-plan-machine-status',
+      created_at: fixtureTime(3),
+    })
+    await sleep(350)
+    session.status = 'COMPLETED'
+    session.steps = session.steps.map((step) => ({ ...step, status: 'DONE', updated_at: fixtureTime(4) }))
+    appendTimeline(session, {
+      event_id: 'pw-tool-result-machine-status',
+      turn_id: 'pw-turn-machine-status',
+      event_type: 'tool_result',
+      step_id: 'pw-step-machine-status',
+      tool_name: 'get_machine_status',
+      content: machineStatusAnswer,
+      status: 'DONE',
+      operation_id: 'pw-plan-machine-status',
+      details: {
+        args: { machine_id: 'M-CNC-01' },
+        result: {
+          machine_id: 'M-CNC-01',
+          status: 'RUNNING',
+          utilization: 87,
+          alarms: [],
+          next_maintenance: 'Friday 14:00',
+          _summary: machineStatusAnswer,
+        },
+      },
+      created_at: fixtureTime(4),
+    })
+    appendTimeline(session, {
+      event_id: 'pw-session-completed',
+      turn_id: 'pw-turn-machine-status',
+      event_type: 'session_completed',
+      content: machineStatusAnswer,
+      status: 'COMPLETED',
+      operation_id: 'pw-plan-machine-status',
+      details: { reason: 'happy_path_fixture' },
+      created_at: fixtureTime(5),
+    })
+    sendJson(res, 200, { status: 'COMPLETED', session_id: session.session_id })
+    return
+  }
+
+  const eventsMatch = url.pathname.match(/^\/sessions\/([^/]+)\/events$/)
+  if (req.method === 'GET' && eventsMatch) {
+    writeSseHeaders(res)
+    sendSseEvent(res, 'notification', { type: 'hello', cursor: 1 })
+    req.on('close', () => res.end())
+    return
+  }
+
+  const activityEventsMatch = url.pathname.match(/^\/sessions\/([^/]+)\/events\/activity$/)
+  if (req.method === 'GET' && activityEventsMatch) {
+    writeSseHeaders(res)
+    sendSseEvent(res, 'control', { type: 'STREAM_READY' })
+    req.on('close', () => res.end())
     return
   }
 

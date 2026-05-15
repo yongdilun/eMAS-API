@@ -21,7 +21,7 @@ Use one of:
 |---|---|---|---|
 | 0 | Discovery and risk mapping | Done | Current repo shape, test setup, frontend chat flow, backend/SSE routes, env/auth behavior, and risks were inspected and documented. |
 | 1 | Playwright setup and baseline browser tests | Done | Marked In Progress during implementation; completed with Playwright config, mock Factory Agent server, and two Chromium baseline specs. |
-| 2 | Chatbot happy-path E2E tests | Not Started | Depends on Phase 1 setup. |
+| 2 | Chatbot happy-path E2E tests | Done | Marked In Progress during implementation; completed with deterministic mocked session/message/plan/execute/snapshot lifecycle and one Chromium happy-path browser spec. |
 | 3 | Deterministic mocking for chatbot responses | Not Started | Depends on baseline mock server and happy-path flow. |
 | 4 | SSE streaming tests | Not Started | Depends on fixture-driven mock server with real `text/event-stream`. |
 | 5 | Failure, timeout, retry, and disconnect scenarios | Not Started | Depends on SSE and fixture framework. |
@@ -33,7 +33,7 @@ Use one of:
 | Stage | Status | Scope | Notes |
 |---|---|---|---|
 | L0 Browser smoke | Done | App opens, chat opens, composer usable. | Covered by Phase 1 Chromium baseline specs. |
-| L1 Deterministic mocked chat | Not Started | REST-backed mocked session/message/plan/execute/snapshot flows. | Primary PR suite for user-visible behavior. |
+| L1 Deterministic mocked chat | In Progress | REST-backed mocked session/message/plan/execute/snapshot flows. | Scenario 5 happy path is covered; broader L1 scenarios remain for later phases. |
 | L2 Deterministic mocked SSE | Not Started | Real `text/event-stream` from mock server for notification/activity scenarios. | Adds stream lifecycle, chunk order, fallback, and disconnect coverage. |
 | L3 Seeded full-stack browser | Not Started | Vite plus seeded Go API and Factory Agent fake planner/model provider. | Scheduled or release-branch gate, not first PR requirement. |
 | L4 Production-like release validation | Not Started | Compose/staging with nginx paths, auth mode, polling fallback. | Release candidate gate. |
@@ -49,7 +49,7 @@ Target: about 30 meaningful, non-redundant scenarios. Implement them gradually; 
 | 2 | Chat modal opens and shows empty state plus enabled composer. | Done | L0 |
 | 3 | New session can be started from the sidebar. | Not Started | L1 |
 | 4 | Existing active session is restored from local storage. | Not Started | L1 |
-| 5 | User sends "Show status for machine M-CNC-01" and sees final assistant answer. | Not Started | L1 |
+| 5 | User sends "Show status for machine M-CNC-01" and sees final assistant answer. | Done | L1 |
 | 6 | User asks for low priority jobs and sees a result/table-style answer. | Not Started | L1 |
 | 7 | User asks a RAG/LOTO question and sees answer plus source/citation chrome. | Not Started | L1 |
 | 8 | Follow-up message after completion creates a second distinct turn. | Not Started | L1 |
@@ -114,15 +114,15 @@ Target: about 30 meaningful, non-redundant scenarios. Implement them gradually; 
 
 ### Phase 2: Chatbot Happy-Path E2E Tests
 
-- [ ] Add happy-path fixture for session creation, user message, plan, execute, active snapshot, and completed snapshot.
-- [ ] Test opening the chatbot page/modal.
-- [ ] Test typing a user message.
-- [ ] Test submitting the message.
-- [ ] Assert visible user message.
-- [ ] Assert loading/progress state.
-- [ ] Assert visible final assistant response content.
-- [ ] Assert completed/non-busy UI state.
-- [ ] Assert composer is enabled after completion.
+- [x] Add happy-path fixture for session creation, user message, plan, execute, active snapshot, and completed snapshot.
+- [x] Test opening the chatbot page/modal.
+- [x] Test typing a user message.
+- [x] Test submitting the message.
+- [x] Assert visible user message.
+- [x] Assert loading/progress state.
+- [x] Assert visible final assistant response content.
+- [x] Assert completed/non-busy UI state.
+- [x] Assert composer is enabled after completion.
 
 ### Phase 3: Deterministic Mocking for Chatbot Responses
 
@@ -180,7 +180,7 @@ Target: about 30 meaningful, non-redundant scenarios. Implement them gradually; 
 
 ## Current Blockers
 
-- None for Phase 1.
+- None for Phase 2.
 - There is still no root CI workflow to extend; keep CI integration for Phase 6.
 
 ## Open Questions
@@ -283,6 +283,14 @@ Phase 1:
 - `npm run test:e2e -- --project=chromium`: passed, 2 Chromium Playwright tests.
 - `npx playwright install chromium`: not run because the installed Chromium browser was already available for the Playwright run.
 
+Phase 2:
+
+- `git status --short --branch`: branch `codex/playwright-e2e-plan`; Phase 2 working tree changes present before commit.
+- `npm run test:e2e -- --project=chromium --grep "happy path"`: passed, 1 Chromium Playwright test.
+- `npm test`: passed, 48 tests.
+- `npm run test:e2e -- --project=chromium`: passed, 3 Chromium Playwright tests.
+- `npx playwright install chromium`: not run because Chromium was already available and the Playwright run succeeded.
+
 Discovery command notes:
 
 - Root `package.json` does not exist; frontend package is `eMas Front/package.json`.
@@ -309,8 +317,16 @@ Phase 1 implementation:
 - `eMas Front/playwright-report/` removed from git tracking and covered by `.gitignore`
 - `eMas Front/src/components/shared/FloatingChatButton.jsx`
 
+Phase 2 implementation:
+
+- `TRACK.md`
+- `eMas Front/e2e/fixtures/factoryAgentFixtures.js`
+- `eMas Front/e2e/fixtures/selectors.js`
+- `eMas Front/e2e/mock-server/factoryAgentMockServer.js`
+- `eMas Front/e2e/specs/chat-happy-path.spec.js`
+
 ## Next Action
 
-Begin Phase 2 by extending the mock server with a fixture-driven happy path for session creation, user message submission, plan/execute behavior, active snapshot state, and completed assistant response rendering.
+Begin Phase 3 by extracting the happy-path mock into a small named scenario/reset pattern only if needed for additional deterministic chatbot cases.
 
-Do not remove the existing Go/Python E2E pipeline during Phase 2.
+Do not add SSE streaming scenarios until Phase 4, and do not remove the existing Go/Python E2E pipeline.
