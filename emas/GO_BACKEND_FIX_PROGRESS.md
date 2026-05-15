@@ -65,13 +65,13 @@ Status values:
 
 | Task | Status | Owner | Evidence / Notes |
 |---|---|---|---|
-| Add inventory insufficient-stock tests | Not Started | TBD | Consume should not silently oversubtract unless explicitly allowed. |
-| Add inventory transaction rollback tests | Not Started | TBD | Stock update and transaction insert must be atomic. |
-| Add job create rollback tests | Not Started | TBD | Job, steps, slots should commit or rollback together. |
-| Add production log rollback tests | Not Started | TBD | Log, slot, step, job, inventory updates should be atomic. |
-| Add auth protected-route tests | Not Started | TBD | Missing headers should not default to planner in secure mode. |
-| Add idempotency concurrency tests | Not Started | TBD | Same key and payload should replay once. |
-| Add scheduling overlap/calendar regression tests | Not Started | TBD | Include maintenance and downtime constraints. |
+| Add inventory insufficient-stock tests | Done | Codex | Added `TestInventoryConsumeRejectsInsufficientStock`; consume now rejects insufficient material stock and leaves stock/transactions unchanged. |
+| Add inventory transaction rollback tests | Done | Codex | Added `TestInventoryConsumeRollsBackStockWhenTransactionInsertFails`; consume/receive stock movement and transaction insert run in one DB transaction. |
+| Add job create rollback tests | Done | Codex | Added `TestJobCreateRollsBackWhenStepInsertFails`; job create now rolls back when child step creation fails. |
+| Add production log rollback tests | Done | Codex | Added `TestProductionLogRollsBackWhenStepUpdateFails`; production logging now runs critical log/slot/step/job updates in one DB transaction and propagates critical update errors. |
+| Add auth protected-route tests | Done | Codex | Added protected-route middleware coverage for missing identity, missing role, invalid role, allowed role, and local auth-disabled defaults. |
+| Add idempotency concurrency tests | Done | Codex | Added `TestIdempotencyMiddlewareConcurrentSameKeyExecutesHandlerOnce`; same-key concurrent requests are serialized in-process and replay the first stored response. |
+| Add scheduling overlap/calendar regression tests | Done | Codex | Added `TestValidateSlotRejectsOverlapDowntimeMaintenanceAndCalendarRegression`; covers overlap, downtime, maintenance, and machine work-calendar rejection. |
 
 ## Phase 4: Backend Architecture Refactoring
 
@@ -103,8 +103,9 @@ Status values:
 | 2026-05-15 | Do not refactor scheduler internals first | Proposal apply has specialized logic and existing tests. | Add regression/contract protection before touching. |
 | 2026-05-15 | Prefer incremental transactions over big rewrite | Reduces partial-write risk without changing API behavior. | Start with job and production-log paths. |
 | 2026-05-15 | Use snake_case for new public response DTO fields while preserving tested legacy raw-domain responses | Prevents silent casing drift without forcing a broad breaking response migration in Phase 2. | Migrate raw domain responses behind explicit DTO mapping in a later phase. |
+| 2026-05-15 | Allow Phase 3 tests to drive the smallest runtime safety fixes | Rollback and security tests exposed clear bugs that would leave partial state or authorize missing headers. | Phase 4 can broaden the same patterns to remaining multi-write flows. |
 
 ## Next Recommended Action
 
-Begin Phase 3 backend test improvement: add inventory insufficient-stock/rollback tests, job and production-log rollback tests, auth protected-route tests, idempotency concurrency tests, and scheduling regression coverage.
+Begin Phase 4 backend architecture refactoring: broaden transaction wrappers and error propagation to remaining multi-write flows, introduce the backend error mapper, and continue preserving API contracts with the Phase 1-3 tests.
 

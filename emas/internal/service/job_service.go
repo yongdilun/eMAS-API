@@ -8,6 +8,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type JobService struct {
@@ -38,6 +40,34 @@ func NewJobService(
 }
 
 func (s *JobService) Create(req dto.CreateJobRequest) (*domain.Job, error) {
+	var created *domain.Job
+	err := s.jobRepo.Transaction(func(tx *gorm.DB) error {
+		var scheduling *SchedulingService
+		if s.scheduling != nil {
+			scheduling = s.scheduling.WithTransaction(tx)
+		}
+		txSvc := &JobService{
+			jobRepo:     repository.NewJobRepository(tx),
+			stepRepo:    repository.NewJobStepRepository(tx),
+			slotRepo:    repository.NewJobSlotRepository(tx),
+			processRepo: repository.NewProcessRepository(tx),
+			productRepo: repository.NewProductRepository(tx),
+			scheduling:  scheduling,
+		}
+		job, err := txSvc.create(req)
+		if err != nil {
+			return err
+		}
+		created = job
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+func (s *JobService) create(req dto.CreateJobRequest) (*domain.Job, error) {
 	deadline, _ := time.Parse(time.RFC3339, req.Deadline)
 	if deadline.IsZero() {
 		deadline = time.Now().Add(24 * time.Hour)

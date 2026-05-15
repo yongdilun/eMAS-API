@@ -8,10 +8,13 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+var idempotencyLocks sync.Map
 
 type responseBodyWriter struct {
 	gin.ResponseWriter
@@ -38,6 +41,10 @@ func IdempotencyMiddleware(db *gorm.DB) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		lockValue, _ := idempotencyLocks.LoadOrStore(key, &sync.Mutex{})
+		lock := lockValue.(*sync.Mutex)
+		lock.Lock()
+		defer lock.Unlock()
 
 		// Buffer body for hashing
 		bodyBytes, err := io.ReadAll(c.Request.Body)

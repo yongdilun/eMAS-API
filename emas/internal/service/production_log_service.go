@@ -50,6 +50,39 @@ func NewProductionLogService(
 }
 
 func (s *ProductionLogService) LogProduction(req dto.LogProductionRequest) (*domain.ProductionLogs, error) {
+	var created *domain.ProductionLogs
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var scheduling *SchedulingService
+		if s.scheduling != nil {
+			scheduling = s.scheduling.WithTransaction(tx)
+		}
+		txSvc := &ProductionLogService{
+			db:             tx,
+			logRepo:        repository.NewProductionLogRepository(tx),
+			slotRepo:       repository.NewJobSlotRepository(tx),
+			stepRepo:       repository.NewJobStepRepository(tx),
+			jobRepo:        repository.NewJobRepository(tx),
+			proposalRepo:   repository.NewAIProposalRepository(tx),
+			scheduling:     scheduling,
+			inventoryRepo:  repository.NewInventoryRepository(tx),
+			wipRepo:        repository.NewWIPRepository(tx),
+			psmRepo:        repository.NewProcessStepMaterialRepository(tx),
+			dependencyRepo: repository.NewJobDependencyRepository(tx),
+		}
+		pl, err := txSvc.logProduction(req)
+		if err != nil {
+			return err
+		}
+		created = pl
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+func (s *ProductionLogService) logProduction(req dto.LogProductionRequest) (*domain.ProductionLogs, error) {
 	pl := &domain.ProductionLogs{
 		ProductionID:     id.NewPrefixed("PL-"),
 		SlotID:           req.SlotID,
@@ -67,7 +100,9 @@ func (s *ProductionLogService) LogProduction(req dto.LogProductionRequest) (*dom
 	if slot != nil {
 		step, _ := s.stepRepo.GetByID(slot.JobStepID)
 		if step != nil {
-			_ = s.syncInventoryFromLog(slot, step, req)
+			if err := s.syncInventoryFromLog(slot, step, req); err != nil {
+				return nil, err
+			}
 			step.QuantityCompleted += req.QuantityProduced
 			if step.QuantityCompleted >= step.QuantityTarget {
 				step.Status = domain.JobStepStatusCompleted
@@ -76,7 +111,9 @@ func (s *ProductionLogService) LogProduction(req dto.LogProductionRequest) (*dom
 			} else if step.QuantityCompleted > 0 {
 				step.Status = domain.JobStepStatusRunning
 			}
-			_ = s.stepRepo.Update(step)
+			if err := s.stepRepo.Update(step); err != nil {
+				return nil, err
+			}
 			job, _ := s.jobRepo.GetByID(step.JobID)
 			if job != nil {
 				job.QuantityCompleted += req.QuantityProduced
@@ -87,7 +124,9 @@ func (s *ProductionLogService) LogProduction(req dto.LogProductionRequest) (*dom
 				} else if job.QuantityCompleted > 0 {
 					job.Status = domain.JobStatusRunning
 				}
-				_ = s.jobRepo.Update(job)
+				if err := s.jobRepo.Update(job); err != nil {
+					return nil, err
+				}
 			}
 		}
 		totalProduced, _ := s.logRepo.SumProducedBySlotID(req.SlotID)
@@ -96,7 +135,9 @@ func (s *ProductionLogService) LogProduction(req dto.LogProductionRequest) (*dom
 		} else {
 			slot.Status = domain.SlotStatusRunning
 		}
-		_ = s.slotRepo.Update(slot)
+		if err := s.slotRepo.Update(slot); err != nil {
+			return nil, err
+		}
 		if slot.ProposalID != "" && s.proposalRepo != nil {
 			s.refreshProposalOutcome(slot.ProposalID)
 		}
@@ -108,7 +149,7 @@ func (s *ProductionLogService) LogProduction(req dto.LogProductionRequest) (*dom
 }
 
 func (s *ProductionLogService) syncInventoryFromLog(slot *domain.JobStepScheduleSlots, step *domain.JobSteps, req dto.LogProductionRequest) error {
-	if slot == nil || step == nil || s.psmRepo == nil || s.inventoryRepo == nil {
+	if slot == nil || step == nil || s.scheduling == nil || s.psmRepo == nil || s.inventoryRepo == nil {
 		return nil
 	}
 	processStep, err := s.scheduling.GetProcessStepForJobStep(step.JobStepID)
