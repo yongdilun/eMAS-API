@@ -109,10 +109,13 @@ Status key:
 - Started:
   - Began FA-005 on 2026-05-15 with a small router/service extraction slice guarded by Phase 3 OpenAPI and compatibility tests.
   - Began FA-007 on 2026-05-15 by centralizing session-owned row cleanup behind a service and expanding session deletion contract coverage.
+  - Continued FA-005 on 2026-05-15 with the next safe domain split for session message routes.
 - Completed:
   - Centralized JWT and admin dependency factories in `factory_agent/api/dependencies.py`.
   - Split session lifecycle routes (`POST/GET/PATCH/DELETE /sessions`) into `factory_agent/api/routers/sessions.py`.
+  - Split session message routes (`POST/GET /sessions/{session_id}/messages`) into `factory_agent/api/routers/messages.py`.
   - Moved session response mapping into `factory_agent/api/response_mappers.py` so extracted routers do not import the mixed route module.
+  - Moved message response mapping into `factory_agent/api/response_mappers.py` for the extracted message router.
   - Moved session deletion cleanup into `factory_agent/services/session_cleanup.py`.
   - Expanded the session deletion contract test to cover messages, plans, steps, approvals, dead letters, execution snapshots, workflow checkpoints, and session-scoped vector memories.
 - Verification:
@@ -122,8 +125,13 @@ Status key:
   - `pytest tests/test_planner_service_phase6.py::test_graph_native_snapshot_uses_checkpoint_projection_not_legacy_steps tests/test_planner_service_phase6.py::test_legacy_step_reject_cannot_mutate_graph_native_session tests/test_reliability_e2e.py::test_pause_resume_live_instruction_update_rejects_stale_approval_and_completes -q`: 3 passed.
   - Required contract guard after changes: `pytest tests/test_phase3_contract_coverage.py -q`: 10 passed.
   - Full suite: `pytest -q`: 482 passed, 4 skipped, 20 xfailed.
+  - Message router baseline before this slice: `pytest tests/test_phase3_contract_coverage.py -q`: 10 passed.
+  - `pytest tests/test_api_endpoints.py::test_create_session_and_message_updates_intent tests/test_api_endpoints.py::test_waiting_approval_user_message_triggers_replan_context tests/test_reliability_e2e.py::test_pause_resume_live_instruction_update_rejects_stale_approval_and_completes tests/test_phase3_contract_coverage.py -q`: 13 passed.
+  - `pytest tests/test_api_endpoints.py tests/test_approval_atomicity.py tests/test_session_manager.py -q`: 57 passed, 20 xfailed.
+  - Required contract guard after message router split: `pytest tests/test_phase3_contract_coverage.py -q`: 10 passed.
+  - Full suite after message router split: `pytest -q`: 482 passed, 4 skipped, 20 xfailed.
 - Remaining:
-  - FA-005 remains In Progress. Only the sessions route slice was split; messages, plans, approvals, events, snapshots, admin, and DLQ remain in the mixed router.
+  - FA-005 remains In Progress. Sessions and messages route slices are split; plans, approvals, events, snapshots, admin, and DLQ remain in the mixed router.
   - Snapshot/timeline projection, approval resume task handling, and plan persistence were not moved in this slice because they are tightly coupled to graph/checkpoint behavior and should be extracted one at a time with the same contract guard.
 - Deferred:
   - DB-level foreign key/cascade changes are deferred to migration-backed work so Phase 4 does not introduce implicit schema mutation outside the Phase 5 migration plan.
@@ -157,5 +165,5 @@ Status key:
 Phase 4 is in progress after a completed safe extraction slice:
 
 1. Continue FA-005 by extracting the next safest domain router while preserving the Phase 3 OpenAPI contract snapshot.
-2. Prefer messages or DLQ/admin reads before snapshot, approval resume, or plan persistence extraction.
+2. Prefer DLQ/admin reads before snapshot, approval resume, or plan persistence extraction.
 3. Keep DB-level cascade constraints deferred until explicit migration work.

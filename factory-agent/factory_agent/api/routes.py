@@ -17,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 
 from .dependencies import build_require_admin, build_require_jwt
 from .response_mappers import session_to_response as _session_to_response
+from .routers.messages import build_messages_router
 from .routers.sessions import build_sessions_router
 from factory_agent.persistence.database import get_db
 from factory_agent.persistence.models import Approval as ApprovalRow
@@ -53,8 +54,6 @@ from ..schemas import (
     DeadLetterPushRequest,
     DeadLetterReplayRequest,
     DeadLetterResponse,
-    MessageCreateRequest,
-    MessageResponse,
     PlanStepResponse,
     PlanCreateRequest,
     PlanResponse,
@@ -93,19 +92,6 @@ def _plan_to_response(plan: PlanRow) -> PlanResponse:
         safety_content=plan.safety_content,
         created_at=plan.created_at,
         created_by=plan.created_by,
-    )
-
-
-def _message_to_response(m: MessageRow) -> MessageResponse:
-    return MessageResponse(
-        message_id=m.message_id,
-        session_id=m.session_id,
-        role=m.role,
-        content=m.content,
-        mode=(getattr(m, "mode", None) or "normal"),
-        created_at=m.created_at,
-        step_id=m.step_id,
-        tool_name=m.tool_name,
     )
 
 
@@ -676,6 +662,14 @@ def build_router(
     require_admin = build_require_admin(settings)
     require_jwt = build_require_jwt(settings)
     router.include_router(build_sessions_router(session_mgr=session_mgr, require_jwt=require_jwt))
+    router.include_router(
+        build_messages_router(
+            session_mgr=session_mgr,
+            memory_manager=memory_manager,
+            event_bus=event_bus,
+            require_jwt=require_jwt,
+        )
+    )
 
     def _should_enforce_registry_health() -> bool:
         if not settings.enforce_tool_registry_health:
@@ -2519,142 +2513,6 @@ def build_router(
             return [tools_by_name[name] for name in selection.tool_names if name in tools_by_name]
         names = sorted(tools_by_name.keys())[:max_tools]
         return [tools_by_name[name] for name in names]
-
-    @router.post("/sessions/{session_id}/messages", response_model=MessageResponse)
-    async def add_message(
-        session_id: str,
-        req: MessageCreateRequest,
-        _: dict[str, Any] = Depends(require_jwt),
-        db: AsyncSession = Depends(get_db),
-    ):
-        sess = await session_mgr.get_session(db, session_id=session_id)
-        if not sess:
-            raise HTTPException(status_code=404, detail="session not found")
-        msg = await session_mgr.add_message(db, session_id=session_id, role=req.role, content=req.content, mode=req.mode)
-        await memory_manager.index_message(
-            db,
-            session_id=session_id,
-            message_id=msg.message_id,
-            role=req.role,
-            content=req.content,
-        )
-        if req.role == "user":
-            sess.current_intent = req.content[:5000]
-            lowered = req.content.strip().lower()
-            current_plan = await _load_current_plan(db=db, session_id=session_id)
-            is_langgraph = await _is_graph_native_session(db, sess, current_plan)
-            if any(token in lowered for token in ("stop", "cancel", "don't do this", "do not do this")):
-                if not is_langgraph:
-                    step_rows = (
-                        await db.execute(
-                            select(PlanStepRow)
-                            .where(PlanStepRow.session_id == session_id)
-                            .order_by(PlanStepRow.step_index.asc())
-                        )
-                    ).scalars().all()
-                    for step in step_rows:
-                        if step.status == "DONE":
-                            continue
-                        if step.status not in ("SKIPPED", "FAILED", "AMBIGUOUS"):
-                            step.status = "SKIPPED"
-                            step.completed_at = step.completed_at or datetime.utcnow()
-                            step.last_error = step.last_error or "Cancelled by user message"
-                            _log_step_status(sess, step, step.status)
-                else:
-                    pending_graph_approvals = (
-                        await db.execute(
-                            select(ApprovalRow)
-                            .where(ApprovalRow.session_id == session_id)
-                            .where(ApprovalRow.subject_type == "graph")
-                            .where(ApprovalRow.status == "PENDING")
-                        )
-                    ).scalars().all()
-                    for ap in pending_graph_approvals:
-                        ap.status = "REJECTED"
-                        ap.decided_by = "system"
-                        ap.decided_at = datetime.utcnow()
-                        ap.rejection_reason = "Cancelled by user message"
-                sess.status = "IDLE"
-                sess.error = "Cancelled by user message"
-                sess.pending_user_message = None
-                sess.version += 1
-                await event_bus.publish(
-                    AgentEvent(
-                        event_type="session_cancel",
-                        session_id=session_id,
-                        payload={},
-                        published_at=datetime.utcnow(),
-                    )
-                )
-            elif sess.status == "WAITING_APPROVAL":
-                if current_plan and not current_plan.invalidated_at:
-                    current_plan.invalidated_at = datetime.utcnow()
-                    current_plan.invalidated_reason = "mid_execution_user_message"
-                completed_steps: list[dict[str, Any]] = []
-                if not is_langgraph:
-                    steps = (
-                        await db.execute(
-                            select(PlanStepRow)
-                            .where(PlanStepRow.plan_id == sess.plan_id)
-                            .order_by(PlanStepRow.step_index.asc())
-                        )
-                    ).scalars().all()
-                    completed_steps = [
-                        {"step_index": s.step_index, "tool_name": s.tool_name, "args": s.args, "result": s.result}
-                        for s in steps
-                        if s.status == "DONE"
-                    ]
-                else:
-                    pending_graph_approvals = (
-                        await db.execute(
-                            select(ApprovalRow)
-                            .where(ApprovalRow.session_id == session_id)
-                            .where(ApprovalRow.subject_type == "graph")
-                            .where(ApprovalRow.status == "PENDING")
-                        )
-                    ).scalars().all()
-                    for ap in pending_graph_approvals:
-                        ap.status = "REJECTED"
-                        ap.decided_by = "system"
-                        ap.decided_at = datetime.utcnow()
-                        ap.rejection_reason = "Superseded by user message"
-                sess.replan_count += 1
-                sess.plan_version = (sess.plan_version or 0) + 1
-                sess.replan_context = {
-                    "original_intent": sess.current_intent,
-                    "plan_id": sess.plan_id,
-                    "plan_version": sess.plan_version,
-                    "completed_steps": completed_steps,
-                    "error": "mid_execution_user_message",
-                    "user_message": req.content,
-                }
-                sess.status = "PLANNING"
-                sess.error = "Replan requested from user message"
-                sess.pending_user_message = None
-                sess.version += 1
-            elif sess.status == "EXECUTING":
-                sess.pending_user_message = req.content[:5000]
-                sess.version += 1
-            await db.commit()
-        return _message_to_response(msg)
-
-    @router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])
-    async def list_messages(
-        session_id: str,
-        _: dict[str, Any] = Depends(require_jwt),
-        db: AsyncSession = Depends(get_db),
-    ):
-        sess = await session_mgr.get_session(db, session_id=session_id)
-        if not sess:
-            raise HTTPException(status_code=404, detail="session not found")
-        rows = (
-            await db.execute(
-                select(MessageRow)
-                .where(MessageRow.session_id == session_id)
-                .order_by(MessageRow.created_at.asc())
-            )
-        ).scalars().all()
-        return [_message_to_response(r) for r in rows]
 
     @router.post("/sessions/{session_id}/confirm", response_model=SessionResponse)
     async def confirm_predicate(

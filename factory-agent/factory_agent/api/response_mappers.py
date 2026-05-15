@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from factory_agent.persistence.models import Message as MessageRow
 from factory_agent.persistence.models import Session as SessionRow
-from factory_agent.schemas import SessionResponse
+from factory_agent.schemas import MessageResponse, SessionResponse
 
 
 def normalize_session_name(name: str | None) -> str | None:
@@ -31,4 +32,17 @@ def session_to_response(session: SessionRow) -> SessionResponse:
         updated_at=session.updated_at,
         completed_at=session.completed_at,
         error=session.error,
+    )
+
+
+def message_to_response(message: MessageRow) -> MessageResponse:
+    return MessageResponse(
+        message_id=message.message_id,
+        session_id=message.session_id,
+        role=message.role,
+        content=message.content,
+        mode=(getattr(message, "mode", None) or "normal"),
+        created_at=message.created_at,
+        step_id=message.step_id,
+        tool_name=message.tool_name,
     )
