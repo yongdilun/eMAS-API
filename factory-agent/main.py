@@ -5,10 +5,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, inspect, select
+from sqlalchemy import func, inspect, select, text
 
 import factory_agent.persistence.models as models  # noqa: F401 (ensure models are imported for SQLAlchemy metadata)
 from factory_agent.persistence.database import AsyncSessionLocal, Base, engine
@@ -182,7 +183,10 @@ async def lifespan(app: FastAPI):
 
     # Create DB tables
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        if settings.enable_startup_create_all:
+            await conn.run_sync(Base.metadata.create_all)
+        else:
+            log_event("startup_create_all_skipped", reason="ENABLE_STARTUP_CREATE_ALL=0")
         await conn.run_sync(
             lambda sync_conn: _ensure_schema_compatibility(
                 sync_conn,
@@ -813,6 +817,57 @@ app.add_middleware(
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+async def _readiness_payload(app: FastAPI) -> tuple[int, dict[str, object]]:
+    checks: dict[str, dict[str, object]] = {}
+    ready = True
+
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        checks["database"] = {"ok": True}
+    except Exception as exc:
+        ready = False
+        checks["database"] = {"ok": False, "error": str(exc)}
+
+    settings = getattr(app.state, "settings", None)
+    event_bus = getattr(app.state, "event_bus", None)
+    if settings is None:
+        ready = False
+        checks["settings"] = {"ok": False, "error": "settings not initialized"}
+    else:
+        checks["settings"] = {"ok": True}
+
+        if settings.redis_url:
+            redis_ok = bool(getattr(event_bus, "healthy", False))
+            ready = ready and redis_ok
+            checks["redis"] = {"ok": redis_ok}
+        else:
+            checks["redis"] = {"ok": True, "skipped": True}
+
+        tool_registry = getattr(app.state, "tool_registry", None)
+        snapshot = getattr(tool_registry, "_snapshot", None)
+        tool_count = len(getattr(snapshot, "tools_by_name", {}) or {}) if snapshot is not None else 0
+        if settings.enforce_tool_registry_health:
+            registry_ok = snapshot is not None and tool_count >= settings.min_healthy_tool_count
+            ready = ready and registry_ok
+            checks["tool_registry"] = {
+                "ok": registry_ok,
+                "tool_count": tool_count,
+                "min_tool_count": settings.min_healthy_tool_count,
+            }
+        else:
+            checks["tool_registry"] = {"ok": True, "tool_count": tool_count, "skipped": True}
+
+    status_code = 200 if ready else 503
+    return status_code, {"status": "ready" if ready else "not_ready", "checks": checks}
+
+
+@app.get("/ready")
+async def ready(request: Request):
+    status_code, payload = await _readiness_payload(request.app)
+    return JSONResponse(status_code=status_code, content=payload)
 
 
 @app.get("/_mock/slow")

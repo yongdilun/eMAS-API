@@ -55,22 +55,41 @@ def test_development_mode_prefers_development_scoped_override(monkeypatch):
     assert settings.planner_model == "dev-scoped-planner"
 
 
-def test_startup_schema_compatibility_flag_defaults_enabled(monkeypatch):
+def test_startup_schema_compatibility_flag_defaults_disabled(monkeypatch):
     monkeypatch.setenv("APP_MODE", "development")
     monkeypatch.delenv("ENABLE_STARTUP_SCHEMA_COMPAT", raising=False)
+
+    settings = get_settings()
+
+    assert settings.enable_startup_schema_compat is False
+
+
+def test_startup_schema_compatibility_flag_can_enable_mutation_bridge(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "development")
+    monkeypatch.setenv("ENABLE_STARTUP_SCHEMA_COMPAT", "1")
 
     settings = get_settings()
 
     assert settings.enable_startup_schema_compat is True
 
 
-def test_startup_schema_compatibility_flag_can_disable_mutation(monkeypatch):
+def test_startup_create_all_defaults_enabled_in_development(monkeypatch):
     monkeypatch.setenv("APP_MODE", "development")
-    monkeypatch.setenv("ENABLE_STARTUP_SCHEMA_COMPAT", "0")
+    monkeypatch.delenv("ENABLE_STARTUP_CREATE_ALL", raising=False)
 
     settings = get_settings()
 
-    assert settings.enable_startup_schema_compat is False
+    assert settings.enable_startup_create_all is True
+
+
+def test_startup_create_all_defaults_disabled_in_production(monkeypatch):
+    monkeypatch.setenv("APP_MODE", "production")
+    _set_safe_production_auth(monkeypatch)
+    monkeypatch.delenv("ENABLE_STARTUP_CREATE_ALL", raising=False)
+
+    settings = get_settings()
+
+    assert settings.enable_startup_create_all is False
 
 
 def test_production_mode_rejects_disabled_jwt(monkeypatch):

@@ -6,10 +6,12 @@ from datetime import datetime
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import sessionmaker
 
+from factory_agent.observability.metrics import metrics
 from factory_agent.persistence.database import get_db
 from factory_agent.schemas import ActivityStepResponse, SessionSnapshotResponse, TimelineEventResponse
 
@@ -29,6 +31,7 @@ def build_events_router(
 
     @router.get("/sessions/{session_id}/events/semantic")
     async def stream_semantic_events(
+        request: Request,
         session_id: str,
         last_event_id: str | None = Header(None, alias="Last-Event-ID"),
         _: dict[str, Any] = Depends(require_jwt),
@@ -41,6 +44,8 @@ def build_events_router(
         events derived from snapshot timeline diffs. EventSource reconnects can
         resume after Last-Event-ID.
         """
+        session_factory = sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
+        await db.close()
 
         async def _event_gen():
             heartbeat_s = 12
@@ -50,9 +55,9 @@ def build_events_router(
             idle_heartbeats = 0
 
             async def _fresh_snapshot() -> SessionSnapshotResponse | None:
-                await db.rollback()
-                db.expire_all()
-                return await load_session_snapshot(db=db, session_id=session_id)
+                metrics.inc("stream_snapshot_poll_total", labels={"stream": "semantic"})
+                async with session_factory() as poll_db:
+                    return await load_session_snapshot(db=poll_db, session_id=session_id)
 
             if last_event_id:
                 initial_snapshot = await _fresh_snapshot()
@@ -64,6 +69,9 @@ def build_events_router(
             init_payload = {"type": "STREAM_READY", "session_id": session_id}
             yield f"event: semantic\ndata: {json.dumps(init_payload, ensure_ascii=False)}\n\n"
             while True:
+                if await request.is_disconnected():
+                    metrics.inc("stream_disconnect_total", labels={"stream": "semantic"})
+                    return
                 snapshot = await _fresh_snapshot()
                 if snapshot is None:
                     gone = {"type": "SESSION_NOT_FOUND", "session_id": session_id}
@@ -137,6 +145,7 @@ def build_events_router(
 
     @router.get("/sessions/{session_id}/events/activity")
     async def stream_activity_events(
+        request: Request,
         session_id: str,
         last_event_id: str | None = Header(None, alias="Last-Event-ID"),
         _: dict[str, Any] = Depends(require_jwt),
@@ -149,6 +158,8 @@ def build_events_router(
         the chat UI. Intra-poll changes are emitted together, then paced before
         the next poll cycle.
         """
+        session_factory = sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
+        await db.close()
 
         async def _event_gen():
             heartbeat_s = 12
@@ -158,9 +169,9 @@ def build_events_router(
             idle_heartbeats = 0
 
             async def _fresh_snapshot() -> SessionSnapshotResponse | None:
-                await db.rollback()
-                db.expire_all()
-                return await load_session_snapshot(db=db, session_id=session_id)
+                metrics.inc("stream_snapshot_poll_total", labels={"stream": "activity"})
+                async with session_factory() as poll_db:
+                    return await load_session_snapshot(db=poll_db, session_id=session_id)
 
             if last_event_id:
                 initial_snapshot = await _fresh_snapshot()
@@ -173,6 +184,9 @@ def build_events_router(
             ready = {"type": "STREAM_READY", "session_id": session_id}
             yield f"event: control\ndata: {json.dumps(ready, ensure_ascii=False)}\n\n"
             while True:
+                if await request.is_disconnected():
+                    metrics.inc("stream_disconnect_total", labels={"stream": "activity"})
+                    return
                 snapshot = await _fresh_snapshot()
                 if snapshot is None:
                     gone = {"type": "SESSION_NOT_FOUND", "session_id": session_id}
@@ -214,6 +228,7 @@ def build_events_router(
 
     @router.get("/sessions/{session_id}/events")
     async def stream_session_events(
+        request: Request,
         session_id: str,
         last_event_id: str | None = Header(None, alias="Last-Event-ID"),
         _: dict[str, Any] = Depends(require_jwt),
@@ -225,6 +240,8 @@ def build_events_router(
         Emits lightweight frames: hello, snapshot_invalidated, phase_changed,
         and heartbeat. Clients re-fetch snapshots when invalidated.
         """
+        session_factory = sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
+        await db.close()
 
         async def _event_gen():
             heartbeat_s = 15
@@ -240,9 +257,9 @@ def build_events_router(
             last_seen_phase: str | None = None
 
             async def _fresh_snapshot() -> SessionSnapshotResponse | None:
-                await db.rollback()
-                db.expire_all()
-                return await load_session_snapshot(db=db, session_id=session_id)
+                metrics.inc("stream_snapshot_poll_total", labels={"stream": "notification"})
+                async with session_factory() as poll_db:
+                    return await load_session_snapshot(db=poll_db, session_id=session_id)
 
             initial = await _fresh_snapshot()
             if initial is None:
@@ -270,6 +287,9 @@ def build_events_router(
 
             while True:
                 await asyncio.sleep(poll_s)
+                if await request.is_disconnected():
+                    metrics.inc("stream_disconnect_total", labels={"stream": "notification"})
+                    return
                 snapshot = await _fresh_snapshot()
                 if snapshot is None:
                     gone = {"type": "SESSION_NOT_FOUND", "session_id": session_id}

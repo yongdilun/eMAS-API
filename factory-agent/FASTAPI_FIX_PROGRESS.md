@@ -28,9 +28,9 @@ Status key:
 | FA-001 | Protect unauthenticated SSE, DLQ, and metrics reads | High | 2 | Done | Auth contract tests for SSE, DLQ, and metrics passed; full `pytest` passed | Temporary local-only compatibility flag |
 | FA-002 | Fail unsafe production auth/admin defaults | High | 2 | Done | Production config tests passed; full `pytest` passed | Strict-mode flag rollback |
 | FA-003 | Make plan persistence atomic | High | 2 | Done | Injected failure rollback test and approval resume regression passed; full `pytest` passed | Restore old helper behind flag |
-| FA-004 | Move startup schema mutation to migrations | High | 5 | In Progress | Startup compatibility flag/read-only drift tests and full `pytest -q` passed | Keep startup compat under explicit flag |
+| FA-004 | Move startup schema mutation to migrations | High | 5 | Done | Startup compatibility flag/read-only drift tests, migration script coverage, and full `pytest -q` passed | Re-enable startup compat with `ENABLE_STARTUP_SCHEMA_COMPAT=1` |
 | FA-005 | Split mixed-responsibility API router | High | 4 | Done | OpenAPI contract guard, endpoint/admin/DLQ/approval/session tests, and full `pytest -q` passed | Revert one extracted router/module |
-| FA-006 | Reduce SSE database polling risk | Medium | 5 | Not Started | Disconnect and concurrent stream tests | Keep old implementation path |
+| FA-006 | Reduce SSE database polling risk | Medium | 5 | Done | Short-lived poll session tests, concurrent stream tests, endpoint stream auth tests, and full `pytest -q` passed | Revert event router polling-session change |
 | FA-007 | Strengthen relational constraints/session cleanup | Medium | 4 | Done | Session deletion contract covers session-owned rows; full `pytest -q` passed | Revert session cleanup service extraction |
 | FA-008 | Document legacy vs graph-native API contracts | Medium | 3 | Done | `tests/test_phase3_contract_coverage.py`; full `pytest -q` passed | Keep retired endpoints returning 410 |
 | FA-009 | Align dependency and Docker packaging | Medium | 1 | Done | `docker build -t factory-agent-phase1-cleanup .`; container `import main` smoke passed | Revert ignore/dependency edits |
@@ -160,7 +160,7 @@ Status key:
 
 ### Phase 5: Long-Term Improvements
 
-- Status: In Progress
+- Status: Done
 - Goal: Improve deployment, observability, and runtime scalability.
 - Started:
   - Began FA-004 on 2026-05-15 with a narrow startup schema compatibility safety slice.
@@ -171,17 +171,24 @@ Status key:
   - Added read-only drift failure behavior when `ENABLE_STARTUP_SCHEMA_COMPAT=0` and compatibility DDL is still pending.
   - Avoided repeated best-effort MySQL `tools.capability_tags` DDL when the column already reports a text type.
   - Documented the transition flag and staging rollout flow in `runbooks/STARTUP_SCHEMA_COMPATIBILITY.md`.
+  - Wired the MySQL safe migration script to run the shared startup compatibility migration actions explicitly.
+  - Disabled startup compatibility DDL by default; `ENABLE_STARTUP_SCHEMA_COMPAT=1` remains as a rollback bridge.
+  - Made production `Base.metadata.create_all` opt-in through `ENABLE_STARTUP_CREATE_ALL`; local development remains enabled by default for fresh DBs.
+  - Added `/ready` readiness reporting for database connectivity, Redis state when configured, and tool registry initialization.
+  - Reduced SSE polling risk by closing the request dependency session before streaming and opening short-lived DB sessions per snapshot poll.
+  - Added stream polling/disconnect metrics and graph compile/checkpoint latency metrics.
 - Verification:
   - Pre-change guard: `pytest tests/test_phase3_contract_coverage.py -q`: 10 passed.
   - Targeted schema/config guard: `pytest tests/test_schema_compatibility.py tests/test_config_app_mode.py tests/test_mysql_schema.py -q`: 11 passed, 1 skipped.
   - Required contract guard after changes: `pytest tests/test_phase3_contract_coverage.py -q`: 10 passed.
   - Full suite first attempt with default Windows temp root hit existing `PermissionError` for `C:\Users\dilun\AppData\Local\Temp\pytest-of-dilun`.
   - Full suite after setting `TMP`/`TEMP` to project-local `.tmp`: `pytest -q`: 485 passed, 4 skipped, 20 xfailed.
+  - Phase 5 focused guard: `pytest tests/test_schema_compatibility.py tests/test_schema_migration_script.py tests/test_config_app_mode.py tests/test_readiness.py tests/test_event_stream_runtime.py tests/test_phase3_contract_coverage.py tests/test_planner_service_phase6.py tests/test_reliability_e2e.py -q`: 34 passed.
+  - Stream/API guard: `pytest tests/test_api_endpoints.py::test_stream_dlq_and_metrics_reads_require_auth tests/test_api_endpoints.py::test_metrics_endpoint_exposes_prometheus_format tests/test_api_endpoints.py::test_session_snapshot_returns_plan_steps_pending_approval_and_timeline tests/test_api_endpoints.py::test_graph_approval_returns_before_resume_and_keeps_one_activity_operation -q`: 4 passed.
+  - Final config/schema/readiness/stream/contract guard: `pytest tests/test_config_app_mode.py tests/test_schema_compatibility.py tests/test_schema_migration_script.py tests/test_readiness.py tests/test_event_stream_runtime.py tests/test_phase3_contract_coverage.py -q`: 28 passed.
+  - Final full suite with `TMP`/`TEMP` set to project-local `.tmp`: `pytest -q`: 492 passed, 4 skipped, 20 xfailed.
 - Remaining:
-  - FA-004 is still in progress: convert compatibility DDL into explicit migration coverage/smoke tests before disabling startup mutation by default.
-  - Add readiness checks.
-  - FA-006 SSE polling optimization remains Not Started.
-  - Profile graph compilation and checkpointing.
+  - None for Phase 5.
 - Deferred:
   - Phase 6 / FA-012 graph orchestration service extraction remains Not Started and out of scope for Phase 5.
 - Candidate changes:
@@ -221,9 +228,4 @@ Status key:
 
 ## Current Next Step
 
-Phase 4 is complete for the safe refactor scope. Next step:
-
-1. Start Phase 5 only after confirming this tracker state.
-2. Begin with FA-004 migration-backed startup schema work.
-3. Keep DB-level cascade constraints deferred to migration-backed work.
-4. Keep graph-native plan/execution service extraction deferred to Phase 6.
+Phase 5 is complete. Phase 6 / FA-012 remains Not Started and out of scope unless explicitly requested.
