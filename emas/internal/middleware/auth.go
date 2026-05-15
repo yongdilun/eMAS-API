@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"emas/internal/handler/dto"
 	"emas/pkg/featureflags"
 	"net/http"
 	"strings"
@@ -34,10 +35,7 @@ func RequireRoles(roles ...string) gin.HandlerFunc {
 			return
 		}
 		if _, ok := allowed[role]; !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"error":   "insufficient role for this action",
-			})
+			c.AbortWithStatusJSON(http.StatusForbidden, dto.Response{Success: false, Error: "insufficient role for this action"})
 			return
 		}
 		c.Next()

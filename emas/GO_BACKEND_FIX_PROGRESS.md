@@ -53,13 +53,13 @@ Status values:
 
 | Task | Status | Owner | Evidence / Notes |
 |---|---|---|---|
-| Decide public JSON field naming rule | Not Started | TBD | Prefer snake_case for API response DTOs. |
-| Add golden response tests for jobs | Not Started | TBD | Include `deadline_status`. |
-| Add golden response tests for machines | Not Started | TBD | Catch `MachineID` vs `machine_id` drift. |
-| Add golden response tests for products/formulas | Not Started | TBD | Catch lowerCamel/Pascal/snake drift. |
-| Add golden response tests for inventory | Not Started | TBD | Materials, product stock, reservations. |
-| Standardize error envelope | Not Started | TBD | Ensure middleware also returns `dto.Response` shape. |
-| Map validation errors to 400/422 consistently | Not Started | TBD | Avoid business validation returning 500. |
+| Decide public JSON field naming rule | Done | Codex | Documented in `GO_BACKEND_ENGINEERING_RULES.md`: new public response DTO fields use `snake_case`; legacy raw domain casing stays only with golden contract coverage until intentional migration. |
+| Add golden response tests for jobs | Done | Codex | Added `TestAPIContractGoldenJobs`; locks job response shape including `deadline_status`. |
+| Add golden response tests for machines | Done | Codex | Added `TestAPIContractGoldenMachines`; captures current legacy raw-domain casing such as `MachineID`. |
+| Add golden response tests for products/formulas | Done | Codex | Added `TestAPIContractGoldenProductsAndFormulas`; captures current product/formula response casing. |
+| Add golden response tests for inventory | Done | Codex | Added `TestAPIContractGoldenInventory`; covers materials, product stock, and reservations. |
+| Standardize error envelope | Done | Codex | Idempotency and auth middleware errors now return `dto.Response{success:false,error:...}`; covered by middleware envelope test. |
+| Map validation errors to 400/422 consistently | Done | Codex | Kept binding/syntax errors as 400; mapped semantic invalid time windows for machine downtime and maintenance to 422 with handler tests. Broader service error taxonomy remains Phase 4 scope. |
 
 ## Phase 3: Backend Test Improvement
 
@@ -102,8 +102,9 @@ Status values:
 | 2026-05-15 | Fix OpenAPI drift before runtime refactors | Factory Agent depends on accurate generated tools. | Add route parity test first. |
 | 2026-05-15 | Do not refactor scheduler internals first | Proposal apply has specialized logic and existing tests. | Add regression/contract protection before touching. |
 | 2026-05-15 | Prefer incremental transactions over big rewrite | Reduces partial-write risk without changing API behavior. | Start with job and production-log paths. |
+| 2026-05-15 | Use snake_case for new public response DTO fields while preserving tested legacy raw-domain responses | Prevents silent casing drift without forcing a broad breaking response migration in Phase 2. | Migrate raw domain responses behind explicit DTO mapping in a later phase. |
 
 ## Next Recommended Action
 
-Add a route-vs-Swagger parity test, confirm it fails on the known mismatches, then correct annotations and regenerate Swagger.
+Begin Phase 3 backend test improvement: add inventory insufficient-stock/rollback tests, job and production-log rollback tests, auth protected-route tests, idempotency concurrency tests, and scheduling regression coverage.
 
