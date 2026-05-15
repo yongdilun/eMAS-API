@@ -1147,7 +1147,16 @@ async def test_langchain_planner_invalid_output_rejected(sessionmaker_override, 
 
 @pytest.mark.asyncio
 async def test_delete_session_removes_session_and_related_rows(sessionmaker_override, db_session):
-    from factory_agent.persistence.models import Message, Session
+    from factory_agent.persistence.models import Approval
+    from factory_agent.persistence.models import DeadLetter
+    from factory_agent.persistence.models import ExecutionSnapshot
+    from factory_agent.persistence.models import Message
+    from factory_agent.persistence.models import Plan
+    from factory_agent.persistence.models import PlanStep
+    from factory_agent.persistence.models import Session
+    from factory_agent.persistence.models import VectorMemory
+    from factory_agent.persistence.models import WorkflowCheckpoint
+    from factory_agent.persistence.models import generate_uuid
 
     app, _ = await _make_app(
         sessionmaker_override,
@@ -1165,6 +1174,80 @@ async def test_delete_session_removes_session_and_related_rows(sessionmaker_over
             headers=headers,
         )
 
+        plan_id = generate_uuid()
+        step_id = generate_uuid()
+        db_session.add_all(
+            [
+                Plan(
+                    plan_id=plan_id,
+                    session_id=session_id,
+                    version=1,
+                    kind="execution",
+                    status="DRAFT",
+                    plan_hash="hash-1",
+                ),
+                PlanStep(
+                    step_id=step_id,
+                    plan_id=plan_id,
+                    session_id=session_id,
+                    step_index=0,
+                    tool_name="get__machines",
+                    args={},
+                    status="NOT_STARTED",
+                    idempotency_key=f"delete-session-{step_id}",
+                ),
+                Approval(
+                    approval_id=generate_uuid(),
+                    session_id=session_id,
+                    subject_type="graph",
+                    tool_name="__langgraph_commit__",
+                    args={},
+                    risk_summary="test approval",
+                    side_effect_level="HIGH",
+                    status="PENDING",
+                    expires_at=datetime.utcnow() + timedelta(hours=1),
+                ),
+                DeadLetter(
+                    dlq_id=generate_uuid(),
+                    session_id=session_id,
+                    step_id=step_id,
+                    failure_type="test",
+                    reason="test failure",
+                    payload={},
+                    status="PENDING",
+                ),
+                ExecutionSnapshot(
+                    snapshot_id=generate_uuid(),
+                    step_id=step_id,
+                    session_id=session_id,
+                    tool_name="get__machines",
+                    tool_version=1,
+                    schema_version=1,
+                    input_args={},
+                    plan_hash="hash-1",
+                    plan_version=1,
+                    idempotency_key=f"snapshot-{step_id}",
+                ),
+                WorkflowCheckpoint(
+                    checkpoint_id=generate_uuid(),
+                    thread_id=session_id,
+                    session_id=session_id,
+                    user_id="u1",
+                    state={"kind": "test"},
+                ),
+                VectorMemory(
+                    memory_id=generate_uuid(),
+                    session_id=session_id,
+                    user_id="u1",
+                    memory_type="message",
+                    content="hello",
+                    source_message_id=generate_uuid(),
+                    reusable_scope="session",
+                ),
+            ]
+        )
+        await db_session.commit()
+
         deleted = await client.delete(f"/sessions/{session_id}", headers=headers)
         assert deleted.status_code == 200
         assert deleted.json()["ok"] is True
@@ -1174,8 +1257,9 @@ async def test_delete_session_removes_session_and_related_rows(sessionmaker_over
 
     session_row = await db_session.get(Session, session_id)
     assert session_row is None
-    msg_rows = (await db_session.execute(select(Message).where(Message.session_id == session_id))).scalars().all()
-    assert msg_rows == []
+    for model in (Message, Plan, PlanStep, Approval, DeadLetter, ExecutionSnapshot, WorkflowCheckpoint, VectorMemory):
+        rows = (await db_session.execute(select(model).where(model.session_id == session_id))).scalars().all()
+        assert rows == []
 
 
 @pytest.mark.asyncio

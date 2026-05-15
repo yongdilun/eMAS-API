@@ -29,9 +29,9 @@ Status key:
 | FA-002 | Fail unsafe production auth/admin defaults | High | 2 | Done | Production config tests passed; full `pytest` passed | Strict-mode flag rollback |
 | FA-003 | Make plan persistence atomic | High | 2 | Done | Injected failure rollback test and approval resume regression passed; full `pytest` passed | Restore old helper behind flag |
 | FA-004 | Move startup schema mutation to migrations | High | 5 | Not Started | Migration smoke tests | Keep startup compat under explicit flag |
-| FA-005 | Split mixed-responsibility API router | High | 4 | Not Started | OpenAPI diff plus endpoint tests | Revert one extracted router/module |
+| FA-005 | Split mixed-responsibility API router | High | 4 | In Progress | OpenAPI diff plus endpoint tests | Revert one extracted router/module |
 | FA-006 | Reduce SSE database polling risk | Medium | 5 | Not Started | Disconnect and concurrent stream tests | Keep old implementation path |
-| FA-007 | Strengthen relational constraints/session cleanup | Medium | 4 | Not Started | Session deletion contract tests | Keep manual cleanup fallback |
+| FA-007 | Strengthen relational constraints/session cleanup | Medium | 4 | Done | Session deletion contract covers session-owned rows; full `pytest -q` passed | Revert session cleanup service extraction |
 | FA-008 | Document legacy vs graph-native API contracts | Medium | 3 | Done | `tests/test_phase3_contract_coverage.py`; full `pytest -q` passed | Keep retired endpoints returning 410 |
 | FA-009 | Align dependency and Docker packaging | Medium | 1 | Done | `docker build -t factory-agent-phase1-cleanup .`; container `import main` smoke passed | Revert ignore/dependency edits |
 | FA-010 | Replace mutable JSON defaults | Low/Medium | 1 | Done | `tests/test_model_json_defaults.py`; full `pytest` passed with project-local temp dir | Revert model default change |
@@ -104,8 +104,29 @@ Status key:
 
 ### Phase 4: Architecture Refactoring
 
-- Status: Not Started
+- Status: In Progress
 - Goal: Improve locality by separating route, service, and projection responsibilities.
+- Started:
+  - Began FA-005 on 2026-05-15 with a small router/service extraction slice guarded by Phase 3 OpenAPI and compatibility tests.
+  - Began FA-007 on 2026-05-15 by centralizing session-owned row cleanup behind a service and expanding session deletion contract coverage.
+- Completed:
+  - Centralized JWT and admin dependency factories in `factory_agent/api/dependencies.py`.
+  - Split session lifecycle routes (`POST/GET/PATCH/DELETE /sessions`) into `factory_agent/api/routers/sessions.py`.
+  - Moved session response mapping into `factory_agent/api/response_mappers.py` so extracted routers do not import the mixed route module.
+  - Moved session deletion cleanup into `factory_agent/services/session_cleanup.py`.
+  - Expanded the session deletion contract test to cover messages, plans, steps, approvals, dead letters, execution snapshots, workflow checkpoints, and session-scoped vector memories.
+- Verification:
+  - Baseline before route code changes: `pytest tests/test_phase3_contract_coverage.py -q`: 10 passed.
+  - `pytest tests/test_api_endpoints.py::test_create_session_and_message_updates_intent tests/test_api_endpoints.py::test_delete_session_removes_session_and_related_rows tests/test_api_endpoints.py::test_admin_dashboard_requires_x_admin_key tests/test_api_endpoints.py::test_stream_dlq_and_metrics_reads_require_auth tests/test_phase3_contract_coverage.py -q`: 14 passed.
+  - `pytest tests/test_api_endpoints.py tests/test_approval_atomicity.py tests/test_session_manager.py -q`: 57 passed, 20 xfailed.
+  - `pytest tests/test_planner_service_phase6.py::test_graph_native_snapshot_uses_checkpoint_projection_not_legacy_steps tests/test_planner_service_phase6.py::test_legacy_step_reject_cannot_mutate_graph_native_session tests/test_reliability_e2e.py::test_pause_resume_live_instruction_update_rejects_stale_approval_and_completes -q`: 3 passed.
+  - Required contract guard after changes: `pytest tests/test_phase3_contract_coverage.py -q`: 10 passed.
+  - Full suite: `pytest -q`: 482 passed, 4 skipped, 20 xfailed.
+- Remaining:
+  - FA-005 remains In Progress. Only the sessions route slice was split; messages, plans, approvals, events, snapshots, admin, and DLQ remain in the mixed router.
+  - Snapshot/timeline projection, approval resume task handling, and plan persistence were not moved in this slice because they are tightly coupled to graph/checkpoint behavior and should be extracted one at a time with the same contract guard.
+- Deferred:
+  - DB-level foreign key/cascade changes are deferred to migration-backed work so Phase 4 does not introduce implicit schema mutation outside the Phase 5 migration plan.
 - Candidate changes:
   - Split routers by domain.
   - Move snapshot/timeline projection to a service.
@@ -133,10 +154,8 @@ Status key:
 
 ## Current Next Step
 
-Phase 3 is complete. Next cleanup window should start Phase 4 only when explicitly directed:
+Phase 4 is in progress after a completed safe extraction slice:
 
-1. Split routers by domain while preserving the OpenAPI contract snapshot.
-2. Move snapshot/timeline projection to a service.
-3. Move approval resume task handling to a service.
-4. Move plan persistence to a transaction-focused service.
-5. Centralize auth/admin dependencies.
+1. Continue FA-005 by extracting the next safest domain router while preserving the Phase 3 OpenAPI contract snapshot.
+2. Prefer messages or DLQ/admin reads before snapshot, approval resume, or plan persistence extraction.
+3. Keep DB-level cascade constraints deferred until explicit migration work.

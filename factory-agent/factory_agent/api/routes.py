@@ -11,14 +11,16 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import sessionmaker
 
+from .dependencies import build_require_admin, build_require_jwt
+from .response_mappers import session_to_response as _session_to_response
+from .routers.sessions import build_sessions_router
 from factory_agent.persistence.database import get_db
 from factory_agent.persistence.models import Approval as ApprovalRow
 from factory_agent.persistence.models import DeadLetter as DeadLetterRow
-from factory_agent.persistence.models import ExecutionSnapshot as ExecutionSnapshotRow
 from factory_agent.persistence.models import Message as MessageRow
 from factory_agent.persistence.models import Plan as PlanRow
 from factory_agent.persistence.models import PlanStep as PlanStepRow
@@ -57,16 +59,13 @@ from ..schemas import (
     PlanCreateRequest,
     PlanResponse,
     ResumeHintResponse,
-    SessionCreateRequest,
     SessionSnapshotResponse,
     SessionResponse,
-    SessionUpdateRequest,
     TimelineEventResponse,
     ToolInfo,
     ValidationErrorResponse,
 )
 from ..orchestration.session_manager import SessionManager, TransitionError
-from ..security import JwtValidationError, validate_bearer_token
 from ..analysis.summary_backend import SummaryAdapter, SummaryBackendError, compact_tool_outputs_for_narrative
 from ..observability.telemetry import log_event, log_step_status_changed
 from ..registry.tool_registry import ToolRegistry
@@ -74,36 +73,6 @@ from ..tools.arguments import compute_idempotency_key
 from ..planning.tool_selector import ToolSelector
 from ..analysis.presentation import extract_table_from_result
 from ..analysis.result_normalizer import normalize_tool_result
-
-
-def _normalize_session_name(name: str | None) -> str | None:
-    normalized = (name or "").strip()
-    return normalized or None
-
-
-def _session_to_response(s: SessionRow) -> SessionResponse:
-    return SessionResponse(
-        session_id=s.session_id,
-        user_id=s.user_id,
-        name=_normalize_session_name(getattr(s, "name", None)),
-        status=s.status,
-        current_intent=s.current_intent,
-        plan_id=s.plan_id,
-        operation_id=s.plan_id,
-        plan_version=s.plan_version or 0,
-        plan_hash=s.plan_hash,
-        current_step_index=s.current_step_index or 0,
-        step_count=s.step_count or 0,
-        replan_count=s.replan_count or 0,
-        llm_call_count=s.llm_call_count or 0,
-        session_started_at=s.session_started_at,
-        replan_context=s.replan_context,
-        pending_user_message=s.pending_user_message,
-        created_at=s.created_at,
-        updated_at=s.updated_at,
-        completed_at=s.completed_at,
-        error=s.error,
-    )
 
 
 def _plan_to_response(plan: PlanRow) -> PlanResponse:
@@ -704,6 +673,10 @@ def build_router(
     summary_adapter = SummaryAdapter(settings)
     rag_pipeline = rag_pipeline_adapter
     active_approval_resume_tasks: set[str] = set()
+    require_admin = build_require_admin(settings)
+    require_jwt = build_require_jwt(settings)
+    router.include_router(build_sessions_router(session_mgr=session_mgr, require_jwt=require_jwt))
+
     def _should_enforce_registry_health() -> bool:
         if not settings.enforce_tool_registry_health:
             return False
@@ -1310,26 +1283,6 @@ def build_router(
             session_duration_s=_session_duration_s(sess),
             user_id=sess.user_id,
         )
-
-    def require_admin(x_admin_key: str | None = Header(None, alias="X-Admin-Key")) -> None:
-        if x_admin_key != settings.admin_api_key:
-            raise HTTPException(status_code=403, detail="forbidden")
-
-    def require_jwt(
-        authorization: str | None = Header(None, alias="Authorization"),
-        x_user_role: str | None = Header(None, alias="X-User-Role"),
-    ) -> dict[str, Any]:
-        try:
-            claims = validate_bearer_token(authorization, settings=settings)
-        except JwtValidationError as e:
-            raise HTTPException(status_code=401, detail=str(e))
-        if x_user_role and "role" not in claims and "user_role" not in claims:
-            claims["role"] = x_user_role.strip().lower()
-        claims.setdefault(
-            "role",
-            role_from_claims(claims, default="viewer" if settings.jwt_required else "admin"),
-        )
-        return claims
 
     async def load_session_snapshot(*, db: AsyncSession, session_id: str) -> SessionSnapshotResponse | None:
         sess = await session_mgr.get_session(db, session_id=session_id)
@@ -2220,81 +2173,6 @@ def build_router(
             resume_hint=_resume_hint,
             activity_steps=_activity_steps,
         )
-
-    @router.post("/sessions", response_model=SessionResponse)
-    async def create_session(
-        req: SessionCreateRequest,
-        _: dict[str, Any] = Depends(require_jwt),
-        db: AsyncSession = Depends(get_db),
-    ):
-        sess = await session_mgr.create_session(
-            db,
-            user_id=req.user_id,
-            name=_normalize_session_name(req.name) or "New chat",
-        )
-        return _session_to_response(sess)
-
-    @router.get("/sessions", response_model=list[SessionResponse])
-    async def list_sessions(
-        user_id: str | None = Query(None),
-        _: dict[str, Any] = Depends(require_jwt),
-        db: AsyncSession = Depends(get_db),
-    ):
-        stmt = select(SessionRow).order_by(SessionRow.updated_at.desc())
-        if user_id:
-            stmt = stmt.where(SessionRow.user_id == user_id)
-        rows = (await db.execute(stmt)).scalars().all()
-        return [_session_to_response(row) for row in rows]
-
-    @router.get("/sessions/{session_id}", response_model=SessionResponse)
-    async def get_session(
-        session_id: str,
-        _: dict[str, Any] = Depends(require_jwt),
-        db: AsyncSession = Depends(get_db),
-    ):
-        sess = await session_mgr.get_session(db, session_id=session_id)
-        if not sess:
-            raise HTTPException(status_code=404, detail="session not found")
-        return _session_to_response(sess)
-
-    @router.delete("/sessions/{session_id}")
-    async def delete_session(
-        session_id: str,
-        _: dict[str, Any] = Depends(require_jwt),
-        db: AsyncSession = Depends(get_db),
-    ):
-        sess = await session_mgr.get_session(db, session_id=session_id)
-        if not sess:
-            raise HTTPException(status_code=404, detail="session not found")
-
-        # Manual cleanup (no ORM cascades configured).
-        await db.execute(delete(MessageRow).where(MessageRow.session_id == session_id))
-        await db.execute(delete(ApprovalRow).where(ApprovalRow.session_id == session_id))
-        await db.execute(delete(DeadLetterRow).where(DeadLetterRow.session_id == session_id))
-        await db.execute(delete(PlanStepRow).where(PlanStepRow.session_id == session_id))
-        await db.execute(delete(PlanRow).where(PlanRow.session_id == session_id))
-        await db.execute(delete(ExecutionSnapshotRow).where(ExecutionSnapshotRow.session_id == session_id))
-
-        await db.execute(delete(SessionRow).where(SessionRow.session_id == session_id))
-        await db.commit()
-
-        return {"ok": True, "session_id": session_id}
-
-    @router.patch("/sessions/{session_id}", response_model=SessionResponse)
-    async def update_session(
-        session_id: str,
-        req: SessionUpdateRequest,
-        _: dict[str, Any] = Depends(require_jwt),
-        db: AsyncSession = Depends(get_db),
-    ):
-        sess = await session_mgr.get_session(db, session_id=session_id)
-        if not sess:
-            raise HTTPException(status_code=404, detail="session not found")
-        sess.name = _normalize_session_name(req.name)
-        sess.updated_at = datetime.utcnow()
-        await db.commit()
-        await db.refresh(sess)
-        return _session_to_response(sess)
 
     @router.get("/sessions/{session_id}/snapshot", response_model=SessionSnapshotResponse)
     async def get_session_snapshot(
