@@ -18,6 +18,18 @@ func NewAgentTransactionHandler(service *service.AgentTransactionService) *Agent
 	return &AgentTransactionHandler{service: service}
 }
 
+// @Summary Dry run an agent transaction bundle
+// @Description Validate an agent transaction bundle without committing changes
+// @Tags agent transaction
+// @Accept json
+// @Produce json
+// @Param request body service.AgentTransactionRequest true "Agent Transaction Request"
+// @Success 200 {object} dto.Response{data=service.AgentTransactionResult}
+// @Failure 400 {object} dto.Response
+// @Failure 409 {object} dto.Response
+// @Failure 422 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /agent/transaction/bundle-dry-run [post]
 func (h *AgentTransactionHandler) BundleDryRun(c *gin.Context) {
 	var req service.AgentTransactionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -33,6 +45,20 @@ func (h *AgentTransactionHandler) BundleDryRun(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: result})
 }
 
+// @Summary Commit an agent transaction bundle
+// @Description Commit a validated agent transaction bundle
+// @Tags agent transaction
+// @Accept json
+// @Produce json
+// @Param Idempotency-Key header string false "Bundle idempotency key"
+// @Param X-Bundle-Idempotency-Key header string false "Bundle idempotency key fallback"
+// @Param request body service.AgentTransactionRequest true "Agent Transaction Request"
+// @Success 200 {object} dto.Response{data=service.AgentTransactionResult}
+// @Failure 400 {object} dto.Response
+// @Failure 409 {object} dto.Response
+// @Failure 422 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /agent/transaction/commit [post]
 func (h *AgentTransactionHandler) Commit(c *gin.Context) {
 	var req service.AgentTransactionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

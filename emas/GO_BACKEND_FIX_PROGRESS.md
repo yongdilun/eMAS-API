@@ -39,15 +39,15 @@ Status values:
 
 | Task | Status | Owner | Evidence / Notes |
 |---|---|---|---|
-| Add Gin route vs Swagger parity test | Not Started | TBD | Should initially expose known drift. |
-| Correct stale Swagger annotations for formulas | Not Started | TBD | `/formulas`, not `/formula`. |
-| Correct stale Swagger annotations for settings | Not Started | TBD | `/settings`, not `/settings/get` or `/settings/update`. |
-| Correct stale scheduling route annotations | Not Started | TBD | Candidate machines, earliest completion, training stats/backfill, refresh calendars. |
-| Correct stale reports route annotations | Not Started | TBD | `/reports/oee`, `/reports/bottlenecks`. |
-| Correct production log annotation | Not Started | TBD | `/production-logs`. |
-| Correct chatbot approval annotations | Not Started | TBD | `/ai/chatbot/approvals/...`. |
-| Regenerate Swagger | Not Started | TBD | Run the repo's Swagger generation flow. |
-| Run tools.md generation smoke test | Not Started | TBD | Confirm Factory Agent receives correct paths. |
+| Add Gin route vs Swagger parity test | Done | Codex | Added `internal/router/route_swagger_parity_test.go`; `go test ./internal/router -run TestRegisteredRoutesMatchSwagger -count=1 -v` passes after annotation cleanup. |
+| Correct stale Swagger annotations for formulas | Done | Codex | Corrected `/formulas`, `/formulas/{id}`, and `/formulas/{id}/ingredients`. |
+| Correct stale Swagger annotations for settings | Done | Codex | Corrected `GET/PUT /settings`. |
+| Correct stale scheduling route annotations | Done | Codex | Corrected candidate machines, slot validation, earliest completion, training stats/backfill, and refresh calendars. |
+| Correct stale reports route annotations | Done | Codex | Corrected `/reports/oee` and `/reports/bottlenecks`; removed unregistered helper annotation. |
+| Correct production log annotation | Done | Codex | Corrected `POST /production-logs`. |
+| Correct chatbot approval annotations | Done | Codex | Corrected `/ai/chatbot/approvals/...` and `/ai/chats/{id}/approvals`. |
+| Regenerate Swagger | Done | Codex | Regenerated `docs/docs.go`, `docs/swagger.json`, and `docs/swagger.yaml`, then ran `scripts/enrich_swagger_id_patterns.py`. |
+| Run tools.md generation smoke test | Done | Codex | Non-mutating Factory Agent smoke parsed regenerated Swagger into 138 tools and rendered tools.md in memory; corrected Phase 1 endpoints were present. |
 
 ## Phase 2: API and Contract Fixes
 

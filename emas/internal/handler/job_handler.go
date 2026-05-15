@@ -67,6 +67,16 @@ func (h *JobHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: job})
 }
 
+// @Summary List job steps
+// @Description List job steps for a job
+// @Tags job
+// @Accept json
+// @Produce json
+// @Param id path string true "Job ID"
+// @Success 200 {object} dto.Response{data=[]domain.JobSteps}
+// @Failure 400 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /jobs/{id}/steps [get]
 func (h *JobHandler) ListSteps(c *gin.Context) {
 	id := c.Param("id")
 	steps, err := h.jobService.ListStepsByJobID(id)
@@ -255,6 +265,17 @@ func (h *JobHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.Response{Success: true})
 }
 
+// @Summary Duplicate a job
+// @Description Duplicate a job with an optional deadline and quantity override
+// @Tags job
+// @Accept json
+// @Produce json
+// @Param id path string true "Job ID"
+// @Param request body object false "Duplicate job request"
+// @Success 201 {object} dto.Response{data=domain.Job}
+// @Failure 400 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /jobs/{id}/duplicate [post]
 func (h *JobHandler) Duplicate(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {

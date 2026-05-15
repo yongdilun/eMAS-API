@@ -81,7 +81,7 @@ func (h *AISchedulingHandler) Proposal(c *gin.Context) {
 // @Success 200 {object} dto.Response{data=map[string]interface{}}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /ai/scheduling/jobs/{id}/proposal [post]
+// @Router /ai/scheduling/jobs/{id}/proposals [post]
 func (h *AISchedulingHandler) GenerateProposal(c *gin.Context) {
 	jobID := c.Param("id")
 	includeInventoryActions := true
@@ -586,7 +586,7 @@ func (h *AISchedulingHandler) ShortageAnalysis(c *gin.Context) {
 // @Success 200 {object} dto.Response{data=map[string]interface{}}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /ai/scheduling/jobs/{id}/apply-replenishment [post]
+// @Router /ai/scheduling/proposals/{id}/apply-replenishment [post]
 func (h *AISchedulingHandler) ApplyReplenishment(c *gin.Context) {
 	var req dto.ApplyReplenishmentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

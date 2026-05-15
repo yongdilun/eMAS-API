@@ -25,7 +25,7 @@ func NewProductionLogHandler(productionLogService *service.ProductionLogService)
 // @Success 201 {object} dto.Response{data=domain.ProductionLogs}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /production-log [post]
+// @Router /production-logs [post]
 func (h *ProductionLogHandler) LogProduction(c *gin.Context) {
 	var req dto.LogProductionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

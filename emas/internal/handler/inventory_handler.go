@@ -313,6 +313,17 @@ func (h *InventoryHandler) CreateReservation(c *gin.Context) {
 	c.JSON(http.StatusCreated, dto.Response{Success: true, Data: res})
 }
 
+// @Summary List inventory reservations
+// @Description List inventory reservations
+// @Tags inventory
+// @Accept json
+// @Produce json
+// @Param material_id query string false "Filter by material ID"
+// @Param status query string false "Filter by status" Enums(pending,allocated,consumed,cancelled)
+// @Success 200 {object} dto.Response{data=[]domain.InventoryReservation}
+// @Failure 400 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /inventory/reservations [get]
 func (h *InventoryHandler) ListReservations(c *gin.Context) {
 	var query dto.InventoryReservationListQuery
 	if err := c.ShouldBindQuery(&query); err != nil {

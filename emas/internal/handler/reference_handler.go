@@ -587,7 +587,6 @@ func (h *ReferenceHandler) DeleteStorageLocation(c *gin.Context) {
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /reference/step-types [get]
-
 func (h *ReferenceHandler) ListStepTypes(c *gin.Context) {
 	q := parseReferenceListQuery(c, "name")
 	var items []domain.ReferenceStepType

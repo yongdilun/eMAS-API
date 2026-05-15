@@ -29,7 +29,7 @@ func NewFormulaHandler(formulaService *service.FormulaService) *FormulaHandler {
 // @Success 201 {object} dto.Response{data=domain.Formula}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /formula [post]
+// @Router /formulas [post]
 func (h *FormulaHandler) Create(c *gin.Context) {
 	var req dto.CreateFormulaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -54,7 +54,7 @@ func (h *FormulaHandler) Create(c *gin.Context) {
 // @Success 200 {object} dto.Response{data=domain.Formula}
 // @Failure 404 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /formula/{id} [get]
+// @Router /formulas/{id} [get]
 func (h *FormulaHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
 	f, err := h.formulaService.GetByID(id)
@@ -79,7 +79,7 @@ func (h *FormulaHandler) GetByID(c *gin.Context) {
 // @Success 200 {object} dto.Response{data=[]domain.Formula}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /formula [get]
+// @Router /formulas [get]
 func (h *FormulaHandler) List(c *gin.Context) {
 	var f repository.FormulaListFilter
 	f.NameLike = c.Query("q")
@@ -116,7 +116,7 @@ func (h *FormulaHandler) List(c *gin.Context) {
 // @Success 201 {object} dto.Response{data=domain.FormulaIngredients}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /formula/{id}/ingredients [post]
+// @Router /formulas/{id}/ingredients [post]
 func (h *FormulaHandler) AddIngredient(c *gin.Context) {
 	id := c.Param("id")
 	var req dto.AddFormulaIngredientRequest
@@ -145,7 +145,7 @@ func (h *FormulaHandler) AddIngredient(c *gin.Context) {
 // @Success 200 {object} dto.Response{data=[]repository.IngredientWithNames}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /formula/{id}/ingredients [get]
+// @Router /formulas/{id}/ingredients [get]
 func (h *FormulaHandler) ListIngredients(c *gin.Context) {
 	id := c.Param("id")
 	list, err := h.formulaService.ListIngredients(id)
@@ -165,7 +165,7 @@ func (h *FormulaHandler) ListIngredients(c *gin.Context) {
 // @Success 200 {object} dto.Response{data=map[string]interface{}}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /formula/{id} [delete]
+// @Router /formulas/{id} [delete]
 func (h *FormulaHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.formulaService.Delete(id); err != nil {
