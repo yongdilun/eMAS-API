@@ -36,7 +36,7 @@ Status key:
 | FA-009 | Align dependency and Docker packaging | Medium | 1 | Done | `docker build -t factory-agent-phase1-cleanup .`; container `import main` smoke passed | Revert ignore/dependency edits |
 | FA-010 | Replace mutable JSON defaults | Low/Medium | 1 | Done | `tests/test_model_json_defaults.py`; full `pytest` passed with project-local temp dir | Revert model default change |
 | FA-011 | Add missing auth/contract coverage | Medium | 3 | Done | `tests/test_phase3_contract_coverage.py`; related auth/rollback tests; full `pytest -q` passed | Revert tests independently |
-| FA-012 | Extract graph-sensitive orchestration services from `routes.py` | High | 6 | Not Started | Graph/checkpoint/approval regression suite plus full `pytest -q` | Revert one service extraction at a time |
+| FA-012 | Extract graph-sensitive orchestration services from `routes.py` | High | 6 | Done | Graph/checkpoint/approval regression suite plus full `pytest -q` | Revert one service extraction at a time |
 
 ## Phase Progress
 
@@ -190,7 +190,7 @@ Status key:
 - Remaining:
   - None for Phase 5.
 - Deferred:
-  - Phase 6 / FA-012 graph orchestration service extraction remains Not Started and out of scope for Phase 5.
+  - Phase 6 / FA-012 graph orchestration service extraction was Not Started and out of scope for Phase 5.
 - Candidate changes:
   - Replace startup schema mutation with migrations.
   - Add readiness checks.
@@ -199,22 +199,43 @@ Status key:
 
 ### Phase 6: Graph Orchestration Service Extraction
 
-- Status: Not Started
+- Status: Done
 - Goal: Reduce `factory_agent/api/routes.py` by moving graph-sensitive orchestration behind tested services after Phase 5 runtime/deployment safety work.
-- Candidate changes:
-  - Move snapshot/timeline projection internals into a `SessionSnapshotService`.
-  - Move plan creation orchestration into a `PlanCreationService`.
-  - Move graph execution and resume orchestration into an `ExecutionService`.
-  - Move approval resume task coordination into an `ApprovalResumeService`.
+- Started:
+  - Began FA-012 on 2026-05-15 after confirming Phases 0 through 5 were Done and Phase 6 was Not Started.
+- Completed:
+  - Moved checkpoint-backed session snapshot, timeline, activity-step, and semantic-event projection internals into `factory_agent/services/session_snapshot_service.py`.
+  - Moved plan creation orchestration, compatibility plan persistence, graph interrupt approval persistence, registry health checks, confirmation/no-op plan handling, and RAG answer plan handling into `factory_agent/services/plan_creation_service.py`.
+  - Moved graph session execution and background execution orchestration into `factory_agent/services/execution_service.py`.
+  - Moved approved graph approval resume coordination, event publishing, active resume task tracking, and inline/background resume selection into `factory_agent/services/approval_resume_service.py`.
+  - Added thin plan and execution routers while keeping `factory_agent/api/routes.py` as the service/route composition root.
+  - Moved plan and step response mapping into `factory_agent/api/response_mappers.py`.
+  - Preserved the existing `factory_agent.api.routes.generate_uuid` monkeypatch seam used by rollback coverage through an injected UUID factory.
 - What not to change:
   - Public API paths, request bodies, response models, status codes, or auth behavior.
   - Planner routing, checkpoint semantics, graph approval behavior, plan persistence semantics, or runtime execution behavior.
 - Verification:
-  - `pytest tests/test_phase3_contract_coverage.py -q`.
-  - `pytest tests/test_approval_atomicity.py -q`.
-  - Graph/checkpoint projection tests in `tests/test_planner_service_phase6.py`.
-  - Reliability regressions in `tests/test_reliability_e2e.py`.
-  - Full `pytest -q`.
+  - Baseline before Phase 6 code changes:
+    - `pytest tests/test_phase3_contract_coverage.py -q`: 10 passed.
+    - `pytest tests/test_approval_atomicity.py tests/test_planner_service_phase6.py tests/test_reliability_e2e.py -q`: 16 passed.
+  - Post-extraction focused guards:
+    - `pytest tests/test_phase3_contract_coverage.py tests/test_planner_service_phase6.py -q`: 15 passed.
+    - `pytest tests/test_approval_atomicity.py tests/test_reliability_e2e.py -q`: first run found a missed closure reference, then 11 passed after patching.
+    - `pytest tests/test_api_endpoints.py::test_create_plan_rolls_back_when_plan_message_persistence_fails -q`: 1 passed after preserving the route-level UUID monkeypatch seam.
+    - `pytest tests/test_api_endpoints.py tests/test_event_stream_runtime.py tests/test_phase7_api_ui_alignment.py -q`: 58 passed, 20 xfailed.
+  - Final required verification:
+    - `pytest tests/test_phase3_contract_coverage.py -q`: 10 passed.
+    - `pytest tests/test_approval_atomicity.py -q`: 8 passed.
+    - `pytest tests/test_planner_service_phase6.py -q`: 5 passed.
+    - `pytest tests/test_reliability_e2e.py -q`: 3 passed.
+    - `pytest -q`: default Windows temp root hit `PermissionError` for `C:\Users\dilun\AppData\Local\Temp\pytest-of-dilun` after 489 passed, 4 skipped, 20 xfailed.
+    - `TMP=.tmp TEMP=.tmp pytest -q`: 492 passed, 4 skipped, 20 xfailed.
+- Remaining:
+  - None for Phase 6.
+- Blockers/deferred:
+  - No Phase 6 code blockers remain.
+  - Windows default temp-root permission issue remains an environment blocker for default full-suite runs; project-local `TMP`/`TEMP` passes.
+  - Phase 7 and future work were not started.
 - Rollback:
   - Extract one service at a time so each move can be reverted independently.
 
@@ -228,4 +249,4 @@ Status key:
 
 ## Current Next Step
 
-Phase 5 is complete. Phase 6 / FA-012 remains Not Started and out of scope unless explicitly requested.
+Phase 6 / FA-012 is complete. Phase 7 and future work remain out of scope unless explicitly requested.

@@ -3,8 +3,17 @@ from __future__ import annotations
 from factory_agent.persistence.models import Approval as ApprovalRow
 from factory_agent.persistence.models import DeadLetter as DeadLetterRow
 from factory_agent.persistence.models import Message as MessageRow
+from factory_agent.persistence.models import Plan as PlanRow
+from factory_agent.persistence.models import PlanStep as PlanStepRow
 from factory_agent.persistence.models import Session as SessionRow
-from factory_agent.schemas import ApprovalResponse, DeadLetterResponse, MessageResponse, SessionResponse
+from factory_agent.schemas import (
+    ApprovalResponse,
+    DeadLetterResponse,
+    MessageResponse,
+    PlanResponse,
+    PlanStepResponse,
+    SessionResponse,
+)
 
 
 def normalize_session_name(name: str | None) -> str | None:
@@ -47,6 +56,52 @@ def message_to_response(message: MessageRow) -> MessageResponse:
         created_at=message.created_at,
         step_id=message.step_id,
         tool_name=message.tool_name,
+    )
+
+
+def plan_to_response(plan: PlanRow) -> PlanResponse:
+    return PlanResponse(
+        plan_id=plan.plan_id,
+        session_id=plan.session_id,
+        version=plan.version,
+        kind=plan.kind or "execution",
+        status=plan.status or "DRAFT",
+        dependency_graph=plan.dependency_graph,
+        parallel_groups=plan.parallel_groups,
+        plan_hash=plan.plan_hash,
+        approved_plan_hash=plan.approved_plan_hash,
+        derived_from_plan_id=plan.derived_from_plan_id,
+        plan_explanation=plan.plan_explanation,
+        risk_summary=plan.risk_summary,
+        sources=plan.sources or [],
+        safety_content=plan.safety_content,
+        created_at=plan.created_at,
+        created_by=plan.created_by,
+    )
+
+
+def step_to_response(step: PlanStepRow) -> PlanStepResponse:
+    return PlanStepResponse(
+        step_id=step.step_id,
+        plan_id=step.plan_id,
+        session_id=step.session_id,
+        step_index=step.step_index,
+        tool_name=step.tool_name,
+        args=step.args or {},
+        execution_mode=(getattr(step, "execution_mode", None) or "single"),
+        bindings=getattr(step, "bindings", None) or [],
+        bulk_state=getattr(step, "bulk_state", None),
+        status=step.status,
+        idempotency_key=step.idempotency_key,
+        requires_approval=bool(step.requires_approval),
+        approval_id=step.approval_id,
+        retry_count=step.retry_count or 0,
+        max_retries=step.max_retries or 0,
+        last_error=step.last_error,
+        result=step.result,
+        result_summary=step.result_summary,
+        started_at=step.started_at,
+        completed_at=step.completed_at,
     )
 
 
