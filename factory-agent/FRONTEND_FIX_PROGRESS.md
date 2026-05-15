@@ -165,7 +165,7 @@ Status key:
 
 ### Phase 4: Frontend Architecture Refactoring
 
-- Status: Not Started
+- Status: Done
 - Goal: Reduce coupling after tests exist.
 - Candidate changes:
   - Split `useFactoryAgentChat`.
@@ -174,6 +174,22 @@ Status key:
   - Retire legacy chat modules after verification.
 - Do not change:
   - User-visible Factory Agent behavior without regression tests.
+- Completed:
+  - Created `audit/frontend-phase-4` from committed `audit/frontend-phase-3`.
+  - Extracted Factory Agent client progress timers/activity placeholder ownership from `useFactoryAgentChat.js` into `useFactoryAgentClientProgress.js`.
+  - Extracted approval dynamic lookup scoring, endpoint loading, option shaping, and dedupe helpers from `ApprovalCard.jsx` into `approvalLookupUtils.js`.
+  - Split `FactoryAgentChatPanel.jsx` UI ownership into focused components:
+    - `DeleteSessionDialog.jsx`
+    - `FactoryAgentSessionSidebar.jsx`
+    - `FactoryAgentChatComposer.jsx`
+  - Preserved existing approval, session switching, delete, composer, and activity timeline behavior covered by Phase 3 tests.
+- Verification:
+  - `npm test` from `eMas Front`: passed, 46 tests.
+  - `npm.cmd run lint` from `eMas Front`: failed on known source lint backlog with `35 errors, 22 warnings`; remaining failures are unused variables and hook/fast-refresh warnings already tracked from earlier phases.
+  - `npx.cmd vite build --outDir C:\tmp\emas-front-build-phase4-20260515` from `eMas Front`: passed; retained existing large chunk warning at `618.64 kB`.
+- Rollback:
+  - Revert the Phase 4 commit to restore the pre-refactor single-file Factory Agent chat hook, panel sidebar/composer/delete dialog markup, and inline approval lookup helpers.
+  - For partial rollback, inline `useFactoryAgentClientProgress.js` back into `useFactoryAgentChat.js`, inline the three panel components back into `FactoryAgentChatPanel.jsx`, or restore approval lookup helpers into `ApprovalCard.jsx`.
 
 ### Phase 5: Long-Term Improvements
 
@@ -202,9 +218,9 @@ Status key:
 
 ## Current Next Step
 
-Phase 3 is complete. Stop here and do not start Phase 4 in this window.
+Phase 4 is complete. Stop here and do not start Phase 5 in this window.
 
-The next phase window should branch `audit/frontend-phase-4` from committed `audit/frontend-phase-3`.
+The next phase window should branch `audit/frontend-phase-5` from committed `audit/frontend-phase-4`.
 
 ## Update Rules For This Tracker
 
