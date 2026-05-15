@@ -18,94 +18,94 @@ import { useRefData } from '../../hooks/useRefData'
 const CUSTOM_VAL = '__custom__'
 
 export default function RefSelect({
- value,
- onChange,
- fetcher,
- toLabel,
- placeholder = 'Select…',
- className = '',
- name,
- required,
- allowCustom = false,
+    value,
+    onChange,
+    fetcher,
+    toLabel,
+    placeholder = 'Select…',
+    className = '',
+    name,
+    required,
+    allowCustom = false,
 }) {
- const { options, loading, error } = useRefData(fetcher, toLabel)
- const [customMode, setCustomMode] = useState(false)
- const [customText, setCustomText] = useState('')
+    const { options, loading, error } = useRefData(fetcher, toLabel)
+    const [customMode, setCustomMode] = useState(false)
+    const [customText, setCustomText] = useState('')
 
- // Sync: if an existing value isn't in the list, start in customMode
- const knownValues = options
- const showingCustom = allowCustom && (customMode || (value && !knownValues.includes(value) && value !== ''))
+    // Sync: if an existing value isn't in the list, start in customMode
+    const knownValues = options
+    const showingCustom = allowCustom && (customMode || (value && !knownValues.includes(value) && value !== ''))
 
- const handleSelect = (e) => {
- if (e.target.value === CUSTOM_VAL) {
- setCustomMode(true)
- setCustomText('')
- onChange('')
- } else {
- setCustomMode(false)
- onChange(e.target.value)
- }
- }
+    const handleSelect = (e) => {
+        if (e.target.value === CUSTOM_VAL) {
+            setCustomMode(true)
+            setCustomText('')
+            onChange('')
+        } else {
+            setCustomMode(false)
+            onChange(e.target.value)
+        }
+    }
 
- const selectValue = showingCustom ? CUSTOM_VAL : (value || '')
+    const selectValue = showingCustom ? CUSTOM_VAL : (value || '')
 
- const selectCls = `w-full px-3 py-2 bg-surface-1 text-ink border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-focus/50 ${className} ${error ? 'border-red-500' : 'border-hairline'}`
+    const selectCls = `w-full px-3 py-2 bg-surface-1 text-ink border rounded-md focus:outline-none focus:ring-2 focus:ring-primary-focus/50 ${className} ${error ? 'border-red-500' : 'border-hairline'}`
 
- return (
- <div>
- <select
- name={name}
- value={selectValue}
- onChange={handleSelect}
- className={selectCls}
- required={required}
- disabled={loading}
- >
- <option value="">{loading ? 'Loading…' : placeholder}</option>
+    return (
+        <div>
+            <select
+                name={name}
+                value={selectValue}
+                onChange={handleSelect}
+                className={selectCls}
+                required={required}
+                disabled={loading}
+            >
+                <option value="">{loading ? 'Loading…' : placeholder}</option>
 
- {options.map((opt) => (
- <option key={opt} value={opt} className="bg-surface-1">
- {opt}
- </option>
- ))}
+                {options.map((opt) => (
+                    <option key={opt} value={opt} className="bg-surface-1">
+                        {opt}
+                    </option>
+                ))}
 
- {/* If editing an existing value not in the list, surface it */}
- {!loading && value && !knownValues.includes(value) && !showingCustom && (
- <option value={value}>{value}</option>
- )}
+                {/* If editing an existing value not in the list, surface it */}
+                {!loading && value && !knownValues.includes(value) && !showingCustom && (
+                    <option value={value}>{value}</option>
+                )}
 
- {allowCustom && (
- <option value={CUSTOM_VAL}>Other (specify below)…</option>
- )}
- </select>
+                {allowCustom && (
+                    <option value={CUSTOM_VAL}>Other (specify below)…</option>
+                )}
+            </select>
 
- {/* Status messages below the select */}
- {error && (
- <p className="mt-1 text-caption text-red-500 flex items-center gap-1">
- <span className="material-symbols-outlined text-sm">error</span>
- Failed to load options: {error}
- </p>
- )}
- {!loading && !error && options.length === 0 && (
- <p className="mt-1 text-caption text-amber-500">
- No options configured yet — contact admin or use &quot;Other&quot;.
- </p>
- )}
+            {/* Status messages below the select */}
+            {error && (
+                <p className="mt-1 text-caption text-red-500 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-sm">error</span>
+                    Failed to load options: {error}
+                </p>
+            )}
+            {!loading && !error && options.length === 0 && (
+                <p className="mt-1 text-caption text-amber-500">
+                    No options configured yet — contact admin or use &quot;Other&quot;.
+                </p>
+            )}
 
- {/* Custom text input shown when "Other" is selected */}
- {showingCustom && allowCustom && (
- <input
- type="text"
- className={`w-full px-3 py-2 bg-surface-1 text-ink border border-hairline rounded-md focus:outline-none focus:ring-2 focus:ring-primary-focus/50 mt-2 ${className}`}
- placeholder="Enter custom value…"
- value={customText || (value || '')}
- autoFocus
- onChange={(e) => {
- setCustomText(e.target.value)
- onChange(e.target.value)
- }}
- />
- )}
- </div>
- )
+            {/* Custom text input shown when "Other" is selected */}
+            {showingCustom && allowCustom && (
+                <input
+                    type="text"
+                    className={`w-full px-3 py-2 bg-surface-1 text-ink border border-hairline rounded-md focus:outline-none focus:ring-2 focus:ring-primary-focus/50 mt-2 ${className}`}
+                    placeholder="Enter custom value…"
+                    value={customText || (value || '')}
+                    autoFocus
+                    onChange={(e) => {
+                        setCustomText(e.target.value)
+                        onChange(e.target.value)
+                    }}
+                />
+            )}
+        </div>
+    )
 }

@@ -12,9 +12,8 @@ const Sidebar = ({ collapsed, onCollapsedChange }) => {
 
   return (
     <aside
-      className={`hidden md:flex sticky top-0 h-screen shrink-0 flex-col border-r border-hairline bg-canvas transition-[width] duration-300 ease-out ${
-        collapsed ? 'w-[72px]' : 'w-[280px]'
-      }`}
+      className={`hidden md:flex sticky top-0 h-screen shrink-0 flex-col border-r border-hairline bg-canvas transition-[width] duration-300 ease-out ${collapsed ? 'w-[72px]' : 'w-[280px]'
+        }`}
     >
       <div className="flex h-full w-full min-w-0 flex-col">
         <div className="flex items-center border-b border-hairline px-3 pb-4 pt-5">
@@ -61,9 +60,8 @@ const Sidebar = ({ collapsed, onCollapsedChange }) => {
             {navSections.map((section) => (
               <section key={section.label} className="app-nav-section" aria-label={section.label}>
                 <p
-                  className={`px-3 text-eyebrow uppercase text-ink-tertiary transition-opacity duration-200 ${
-                    collapsed ? 'sr-only' : ''
-                  }`}
+                  className={`px-3 text-eyebrow uppercase text-ink-tertiary transition-opacity duration-200 ${collapsed ? 'sr-only' : ''
+                    }`}
                 >
                   {section.label}
                 </p>
@@ -76,17 +74,15 @@ const Sidebar = ({ collapsed, onCollapsedChange }) => {
                         to={item.path}
                         title={collapsed ? item.label : undefined}
                         aria-current={active ? 'page' : undefined}
-                        className={`app-nav-link ${collapsed ? 'justify-center px-2' : ''} ${
-                          active
+                        className={`app-nav-link ${collapsed ? 'justify-center px-2' : ''} ${active
                             ? 'app-nav-link-active'
                             : 'text-ink-muted hover:bg-surface-1 hover:text-ink'
-                        }`}
+                          }`}
                       >
                         <span className="app-nav-active-marker" aria-hidden="true" />
                         <span
-                          className={`material-symbols-outlined app-nav-icon shrink-0 ${
-                            active ? 'text-ink' : 'text-ink-muted'
-                          }`}
+                          className={`material-symbols-outlined app-nav-icon shrink-0 ${active ? 'text-ink' : 'text-ink-muted'
+                            }`}
                           style={
                             active
                               ? { fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24" }
@@ -96,9 +92,8 @@ const Sidebar = ({ collapsed, onCollapsedChange }) => {
                           {item.icon}
                         </span>
                         <span
-                          className={`min-w-0 truncate text-button transition-opacity duration-200 ${
-                            collapsed ? 'sr-only' : ''
-                          }`}
+                          className={`min-w-0 truncate text-button transition-opacity duration-200 ${collapsed ? 'sr-only' : ''
+                            }`}
                         >
                           {item.label}
                         </span>
@@ -118,17 +113,15 @@ const Sidebar = ({ collapsed, onCollapsedChange }) => {
               to={item.path}
               title={collapsed ? item.label : undefined}
               aria-current={isActive(item.path) ? 'page' : undefined}
-              className={`app-nav-link ${collapsed ? 'justify-center px-2' : ''} ${
-                isActive(item.path)
+              className={`app-nav-link ${collapsed ? 'justify-center px-2' : ''} ${isActive(item.path)
                   ? 'app-nav-link-active'
                   : 'text-ink-muted hover:bg-surface-2 hover:text-ink'
-              }`}
+                }`}
             >
               <span className="app-nav-active-marker" aria-hidden="true" />
               <span
-                className={`material-symbols-outlined app-nav-icon shrink-0 ${
-                  isActive(item.path) ? 'text-ink' : 'text-ink-muted'
-                }`}
+                className={`material-symbols-outlined app-nav-icon shrink-0 ${isActive(item.path) ? 'text-ink' : 'text-ink-muted'
+                  }`}
                 style={
                   isActive(item.path)
                     ? { fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24" }
@@ -138,9 +131,8 @@ const Sidebar = ({ collapsed, onCollapsedChange }) => {
                 {item.icon}
               </span>
               <span
-                className={`min-w-0 truncate text-button transition-opacity duration-200 ${
-                  collapsed ? 'sr-only' : ''
-                }`}
+                className={`min-w-0 truncate text-button transition-opacity duration-200 ${collapsed ? 'sr-only' : ''
+                  }`}
               >
                 {item.label}
               </span>

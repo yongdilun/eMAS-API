@@ -21,8 +21,8 @@ const MIN_LEVEL = IS_DEV ? LEVELS.debug : LEVELS.warn
 
 const STYLES = {
   debug: 'color:#6b7280;font-weight:500',
-  info:  'color:#0ea5e9;font-weight:600',
-  warn:  'color:#f59e0b;font-weight:700',
+  info: 'color:#0ea5e9;font-weight:600',
+  warn: 'color:#f59e0b;font-weight:700',
   error: 'color:#ef4444;font-weight:700',
 }
 
@@ -30,7 +30,7 @@ const ICONS = { debug: '🔍', info: 'ℹ️', warn: '⚠️', error: '❌' }
 
 function print(level, message, data, context) {
   if (LEVELS[level] < MIN_LEVEL) return
-  const ts  = new Date().toISOString().slice(11, 23)
+  const ts = new Date().toISOString().slice(11, 23)
   const tag = `[eMAS ${ICONS[level]} ${ts}]`
 
   if (level === 'error') {
@@ -62,13 +62,13 @@ async function remoteLog(level, message, error, context) {
       error: error ? { name: error.name, message: error.message, stack: error.stack } : undefined,
       context,
       user_agent: navigator.userAgent,
-      url:        window.location.href,
-      ts:         new Date().toISOString(),
+      url: window.location.href,
+      ts: new Date().toISOString(),
     }
     const res = await fetch('http://localhost:8080/api/v1/logs', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload),
+      body: JSON.stringify(payload),
     })
     remoteChecked = true
     // If backend doesn't have this endpoint, permanently disable remote logging
@@ -106,9 +106,9 @@ const logger = {
   /** Log an API request — only logs non-2xx in dev */
   apiRequest: (method, path, durationMs, status) => {
     if (!IS_DEV) return
-    const ok    = status >= 200 && status < 300
+    const ok = status >= 200 && status < 300
     const level = ok ? 'debug' : status >= 500 ? 'error' : 'warn'
-    const icon  = ok ? '✅' : status >= 500 ? '🔴' : '🟡'
+    const icon = ok ? '✅' : status >= 500 ? '🔴' : '🟡'
     // Don't log 404s on known-missing predictive/logs endpoints
     const isExpected404 = status === 404 && (
       path.includes('/predictive/') ||

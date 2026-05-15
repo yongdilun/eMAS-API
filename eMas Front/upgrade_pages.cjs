@@ -16,7 +16,7 @@ files.forEach(file => {
   content = content.replace(/border-gray-\d+\s+dark:border-white\/10/g, 'border-hairline');
   content = content.replace(/border-gray-\d+\s+dark:border-gray-\d+/g, 'border-hairline');
   content = content.replace(/dark:bg-white\/\d+/g, 'bg-surface-1');
-  
+
   // Text colors
   content = content.replace(/text-gray-900 dark:text-white/g, 'text-ink');
   content = content.replace(/text-gray-800 dark:text-gray-100/g, 'text-ink');
@@ -31,13 +31,13 @@ files.forEach(file => {
   content = content.replace(/hover:bg-gray-50 dark:hover:bg-white\/5/g, 'hover:bg-surface-2');
   content = content.replace(/hover:bg-gray-100 dark:hover:bg-gray-800/g, 'hover:bg-surface-2');
   content = content.replace(/hover:text-gray-900 dark:hover:text-white/g, 'hover:text-ink');
-  
+
   // Shadows
   content = content.replace(/\bshadow-sm\b/g, '');
   content = content.replace(/\bshadow-md\b/g, '');
   content = content.replace(/\bshadow-lg\b/g, '');
   content = content.replace(/\bshadow\b/g, '');
-  
+
   // Specific Panel spacing (e.g. gaps between sections)
   content = content.replace(/gap-8/g, 'gap-[96px]'); // Make major section gaps 96px as requested
 

@@ -6,9 +6,9 @@ import { predictiveApi, toList } from '../../../services/api'
 import logger from '../../../services/logger'
 
 const DEMO = [
- { job_id: 'JOB-2403', machine_name: 'Coating Station 01', issue: 'Overdue Maintenance', risk_level: 'High' },
- { job_id: 'JOB-2406', machine_name: 'CNC Mill 02', issue: 'High Load Duration', risk_level: 'Medium' },
- { job_id: 'JOB-2401', machine_name: 'CNC Mill 01', issue: 'Coolant Pressure Drop', risk_level: 'Low' },
+  { job_id: 'JOB-2403', machine_name: 'Coating Station 01', issue: 'Overdue Maintenance', risk_level: 'High' },
+  { job_id: 'JOB-2406', machine_name: 'CNC Mill 02', issue: 'High Load Duration', risk_level: 'Medium' },
+  { job_id: 'JOB-2401', machine_name: 'CNC Mill 01', issue: 'Coolant Pressure Drop', risk_level: 'Low' },
 ]
 
 const RISK_STYLE = {
@@ -18,26 +18,26 @@ const RISK_STYLE = {
 }
 
 const HighRiskJobsTable = () => {
- const [jobs, setJobs] = useState(DEMO)
- const [loading, setLoading] = useState(true)
+  const [jobs, setJobs] = useState(DEMO)
+  const [loading, setLoading] = useState(true)
 
- useEffect(() => {
- predictiveApi.highRiskJobs()
- .then(data => {
- const rows = toList(data)
- if (rows.length > 0) setJobs(rows)
- })
- .catch((err) => logger.debug('High-risk jobs API unavailable; using demo data', { message: err?.message }))
- .finally(() => setLoading(false))
- }, [])
+  useEffect(() => {
+    predictiveApi.highRiskJobs()
+      .then(data => {
+        const rows = toList(data)
+        if (rows.length > 0) setJobs(rows)
+      })
+      .catch((err) => logger.debug('High-risk jobs API unavailable; using demo data', { message: err?.message }))
+      .finally(() => setLoading(false))
+  }, [])
 
- const s = (v, fb = '—') => { const x = v; return (x !== undefined && x !== null) ? String(typeof x === 'object' ? (x.value ?? x.label ?? x.name ?? fb) : x) : fb }
- const normalise = (j) => ({
- id: s(j.job_id ?? j.id),
- machine: s(j.machine_name ?? j.machine_id ?? j.machine),
- issue: s(j.issue ?? j.predicted_issue ?? j.reason),
- riskLevel: s(j.risk_level ?? j.riskLevel, 'Low'),
- })
+  const s = (v, fb = '—') => { const x = v; return (x !== undefined && x !== null) ? String(typeof x === 'object' ? (x.value ?? x.label ?? x.name ?? fb) : x) : fb }
+  const normalise = (j) => ({
+    id: s(j.job_id ?? j.id),
+    machine: s(j.machine_name ?? j.machine_id ?? j.machine),
+    issue: s(j.issue ?? j.predicted_issue ?? j.reason),
+    riskLevel: s(j.risk_level ?? j.riskLevel, 'Low'),
+  })
 
   return (
     <div className="rounded-lg border border-hairline bg-surface-1 overflow-hidden">

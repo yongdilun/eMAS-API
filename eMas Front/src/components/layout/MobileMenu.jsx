@@ -59,17 +59,15 @@ const MobileMenu = () => {
                             to={item.path}
                             onClick={() => setIsOpen(false)}
                             aria-current={active ? 'page' : undefined}
-                            className={`app-nav-link min-h-11 ${
-                              active
+                            className={`app-nav-link min-h-11 ${active
                                 ? 'app-nav-link-active'
                                 : 'text-ink-muted hover:bg-surface-1 hover:text-ink'
-                            }`}
+                              }`}
                           >
                             <span className="app-nav-active-marker" aria-hidden="true" />
                             <span
-                              className={`material-symbols-outlined app-nav-icon ${
-                                active ? 'text-ink' : 'text-ink-muted'
-                              }`}
+                              className={`material-symbols-outlined app-nav-icon ${active ? 'text-ink' : 'text-ink-muted'
+                                }`}
                               style={
                                 active
                                   ? { fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24" }
@@ -95,17 +93,15 @@ const MobileMenu = () => {
                   to={item.path}
                   onClick={() => setIsOpen(false)}
                   aria-current={isActive(item.path) ? 'page' : undefined}
-                  className={`app-nav-link min-h-11 ${
-                    isActive(item.path)
+                  className={`app-nav-link min-h-11 ${isActive(item.path)
                       ? 'app-nav-link-active'
                       : 'text-ink-muted hover:bg-surface-2 hover:text-ink'
-                  }`}
+                    }`}
                 >
                   <span className="app-nav-active-marker" aria-hidden="true" />
                   <span
-                    className={`material-symbols-outlined app-nav-icon ${
-                      isActive(item.path) ? 'text-ink' : 'text-ink-muted'
-                    }`}
+                    className={`material-symbols-outlined app-nav-icon ${isActive(item.path) ? 'text-ink' : 'text-ink-muted'
+                      }`}
                     style={
                       isActive(item.path)
                         ? { fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24" }

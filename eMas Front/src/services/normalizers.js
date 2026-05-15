@@ -67,11 +67,11 @@ export const unwrapList = (d) => {
 export const normalizeProduct = (raw) => {
   const p = unwrap(raw) || raw || {}
   return {
-    product_id:      pick(p, ['product_id','ProductID','productId','id','ID']),
-    product_name:    pick(p, ['product_name','ProductName','productName','name','Name'], '—'),
-    product_type:    pick(p, ['product_type','ProductType','productType','category','Category','type','Type'], '—'),
-    unit_of_measure: pick(p, ['unit_of_measure','UnitOfMeasure','unitOfMeasure','unit','Unit','uom','UOM'], '—'),
-    description:     pick(p, ['description','Description'], ''),
+    product_id: pick(p, ['product_id', 'ProductID', 'productId', 'id', 'ID']),
+    product_name: pick(p, ['product_name', 'ProductName', 'productName', 'name', 'Name'], '—'),
+    product_type: pick(p, ['product_type', 'ProductType', 'productType', 'category', 'Category', 'type', 'Type'], '—'),
+    unit_of_measure: pick(p, ['unit_of_measure', 'UnitOfMeasure', 'unitOfMeasure', 'unit', 'Unit', 'uom', 'UOM'], '—'),
+    description: pick(p, ['description', 'Description'], ''),
   }
 }
 
@@ -79,20 +79,20 @@ export const normalizeProduct = (raw) => {
 export const normalizeMaterial = (raw) => {
   const m = unwrap(raw) || raw || {}
   return {
-    material_id:      pick(m, ['material_id','MaterialID','materialId','id','ID']),
-    material_name:    pick(m, ['material_name','MaterialName','materialName','name','Name'], '—'),
-    unit:             pick(m, ['unit','Unit','uom','UOM'], ''),
-    current_stock:    pick(m, ['current_stock','CurrentStock','currentStock','stock','qty','quantity'], null),
-    min_stock:        pick(m, ['min_stock','MinStock','minStock','minimum_stock','reorder_level'], null),
-    storage_location: pick(m, ['storage_location','StorageLocation','storageLocation','storage_area','StorageArea','storageArea','location','Location'], '—'),
-    status:           pick(m, ['status','Status'], null),
+    material_id: pick(m, ['material_id', 'MaterialID', 'materialId', 'id', 'ID']),
+    material_name: pick(m, ['material_name', 'MaterialName', 'materialName', 'name', 'Name'], '—'),
+    unit: pick(m, ['unit', 'Unit', 'uom', 'UOM'], ''),
+    current_stock: pick(m, ['current_stock', 'CurrentStock', 'currentStock', 'stock', 'qty', 'quantity'], null),
+    min_stock: pick(m, ['min_stock', 'MinStock', 'minStock', 'minimum_stock', 'reorder_level'], null),
+    storage_location: pick(m, ['storage_location', 'StorageLocation', 'storageLocation', 'storage_area', 'StorageArea', 'storageArea', 'location', 'Location'], '—'),
+    status: pick(m, ['status', 'Status'], null),
   }
 }
 
 // ─── Machine ──────────────────────────────────────────────────────────────────
 export const normalizeMachine = (raw) => {
   const m = unwrap(raw) || raw || {}
-  const rawStatus = pick(m, ['status','Status'], 'Idle')
+  const rawStatus = pick(m, ['status', 'Status'], 'Idle')
   // Normalize status to Title Case to match STATUS_COLORS keys
   const statusMap = {
     running: 'Running', idle: 'Idle',
@@ -101,15 +101,15 @@ export const normalizeMachine = (raw) => {
   }
   const status = statusMap[String(rawStatus).toLowerCase()] ?? cap(String(rawStatus))
   return {
-    machine_id:                pick(m, ['machine_id','MachineID','machineId','id','ID']),
-    machine_name:              pick(m, ['machine_name','MachineName','machineName','name','Name'], '—'),
-    machine_type:              pick(m, ['machine_type','MachineType','machineType','type','Type'], '—'),
+    machine_id: pick(m, ['machine_id', 'MachineID', 'machineId', 'id', 'ID']),
+    machine_name: pick(m, ['machine_name', 'MachineName', 'machineName', 'name', 'Name'], '—'),
+    machine_type: pick(m, ['machine_type', 'MachineType', 'machineType', 'type', 'Type'], '—'),
     status,
-    capacity_per_hour:         pick(m, ['capacity_per_hour','CapacityPerHour','capacityPerHour','max_capacity','MaxCapacity','maxCapacity','capacity'], null),
-    maintenance_interval_days: pick(m, ['maintenance_interval_days','MaintenanceIntervalDays','maintenance_interval','maintenanceInterval'], null),
-    last_maintenance_date:     pick(m, ['last_maintenance_date','LastMaintenanceDate','last_maintenance','lastMaintenance'], '—'),
-    location:                  pick(m, ['location','Location'], '—'),
-    utilization_rate:          pick(m, ['utilization_rate','UtilizationRate','utilizationRate','utilization'], null),
+    capacity_per_hour: pick(m, ['capacity_per_hour', 'CapacityPerHour', 'capacityPerHour', 'max_capacity', 'MaxCapacity', 'maxCapacity', 'capacity'], null),
+    maintenance_interval_days: pick(m, ['maintenance_interval_days', 'MaintenanceIntervalDays', 'maintenance_interval', 'maintenanceInterval'], null),
+    last_maintenance_date: pick(m, ['last_maintenance_date', 'LastMaintenanceDate', 'last_maintenance', 'lastMaintenance'], '—'),
+    location: pick(m, ['location', 'Location'], '—'),
+    utilization_rate: pick(m, ['utilization_rate', 'UtilizationRate', 'utilizationRate', 'utilization'], null),
   }
 }
 
@@ -150,10 +150,10 @@ export const normalizeMaintenanceAlert = (raw) => {
   }
 
   return {
-    machine_id:   pick(a, ['machine_id','MachineID','machineId','id','ID'], '—'),
-    machine_name: pick(a, ['machine_name','MachineName','machineName','name','Name'], null),
+    machine_id: pick(a, ['machine_id', 'MachineID', 'machineId', 'id', 'ID'], '—'),
+    machine_name: pick(a, ['machine_name', 'MachineName', 'machineName', 'name', 'Name'], null),
     days_until,
-    due_date:     rawDue,
+    due_date: rawDue,
   }
 }
 
@@ -161,16 +161,16 @@ export const normalizeMaintenanceAlert = (raw) => {
 export const normalizeJob = (raw) => {
   const j = unwrap(raw) || raw || {}
   return {
-    job_id:              pick(j, ['job_id','JobID','jobId','id','ID']),
-    product_id:          pick(j, ['product_id','ProductID','productId'], '—'),
-    quantity_total:      pick(j, ['quantity_total','QuantityTotal','quantityTotal','quantity','Quantity'], null),
-    quantity_completed:  pick(j, ['quantity_completed','QuantityCompleted','quantityCompleted'], null),
-    priority:            pick(j, ['priority','Priority'], '—'),
-    deadline:            pick(j, ['deadline','Deadline'], null),
-    status:              pick(j, ['status','Status'], 'scheduled'),
-    created_at:          pick(j, ['created_at','CreatedAt','createdAt'], null),
-    updated_at:          pick(j, ['updated_at','UpdatedAt','updatedAt'], null),
-    notes:               pick(j, ['notes','Notes'], ''),
+    job_id: pick(j, ['job_id', 'JobID', 'jobId', 'id', 'ID']),
+    product_id: pick(j, ['product_id', 'ProductID', 'productId'], '—'),
+    quantity_total: pick(j, ['quantity_total', 'QuantityTotal', 'quantityTotal', 'quantity', 'Quantity'], null),
+    quantity_completed: pick(j, ['quantity_completed', 'QuantityCompleted', 'quantityCompleted'], null),
+    priority: pick(j, ['priority', 'Priority'], '—'),
+    deadline: pick(j, ['deadline', 'Deadline'], null),
+    status: pick(j, ['status', 'Status'], 'scheduled'),
+    created_at: pick(j, ['created_at', 'CreatedAt', 'createdAt'], null),
+    updated_at: pick(j, ['updated_at', 'UpdatedAt', 'updatedAt'], null),
+    notes: pick(j, ['notes', 'Notes'], ''),
   }
 }
 
@@ -178,15 +178,15 @@ export const normalizeJob = (raw) => {
 export const normalizeSlot = (raw) => {
   const s = unwrap(raw) || raw || {}
   return {
-    slot_id:          pick(s, ['slot_id','SlotID','slotId','id','ID']),
-    job_step_id:      pick(s, ['job_step_id','JobStepID','jobStepId']),
-    machine_id:       pick(s, ['machine_id','MachineID','machineId'], '—'),
-    scheduled_start:  pick(s, ['scheduled_start','ScheduledStart','scheduledStart','start_time','startTime']),
-    scheduled_end:    pick(s, ['scheduled_end','ScheduledEnd','scheduledEnd','end_time','endTime']),
-    actual_start:     pick(s, ['actual_start','ActualStart','actualStart']),
-    actual_end:       pick(s, ['actual_end','ActualEnd','actualEnd']),
-    quantity_planned: pick(s, ['quantity_planned','QuantityPlanned','quantityPlanned','quantity','Quantity'], null),
-    status:           pick(s, ['status','Status'], 'scheduled'),
+    slot_id: pick(s, ['slot_id', 'SlotID', 'slotId', 'id', 'ID']),
+    job_step_id: pick(s, ['job_step_id', 'JobStepID', 'jobStepId']),
+    machine_id: pick(s, ['machine_id', 'MachineID', 'machineId'], '—'),
+    scheduled_start: pick(s, ['scheduled_start', 'ScheduledStart', 'scheduledStart', 'start_time', 'startTime']),
+    scheduled_end: pick(s, ['scheduled_end', 'ScheduledEnd', 'scheduledEnd', 'end_time', 'endTime']),
+    actual_start: pick(s, ['actual_start', 'ActualStart', 'actualStart']),
+    actual_end: pick(s, ['actual_end', 'ActualEnd', 'actualEnd']),
+    quantity_planned: pick(s, ['quantity_planned', 'QuantityPlanned', 'quantityPlanned', 'quantity', 'Quantity'], null),
+    status: pick(s, ['status', 'Status'], 'scheduled'),
   }
 }
 
@@ -194,13 +194,13 @@ export const normalizeSlot = (raw) => {
 export const normalizeStep = (raw) => {
   const s = unwrap(raw) || raw || {}
   return {
-    job_step_id:        pick(s, ['job_step_id','JobStepID','jobStepId']),
-    step_id:            pick(s, ['step_id','StepID','stepId']),
-    step_name:          pick(s, ['step_name','StepName','stepName','name','Name'], null),
-    step_sequence:      pick(s, ['step_sequence','StepSequence','stepSequence','sequence','order'], null),
-    quantity_target:    pick(s, ['quantity_target','QuantityTarget','quantityTarget'], null),
-    quantity_completed: pick(s, ['quantity_completed','QuantityCompleted','quantityCompleted'], null),
-    status:             pick(s, ['status','Status'], 'scheduled'),
+    job_step_id: pick(s, ['job_step_id', 'JobStepID', 'jobStepId']),
+    step_id: pick(s, ['step_id', 'StepID', 'stepId']),
+    step_name: pick(s, ['step_name', 'StepName', 'stepName', 'name', 'Name'], null),
+    step_sequence: pick(s, ['step_sequence', 'StepSequence', 'stepSequence', 'sequence', 'order'], null),
+    quantity_target: pick(s, ['quantity_target', 'QuantityTarget', 'quantityTarget'], null),
+    quantity_completed: pick(s, ['quantity_completed', 'QuantityCompleted', 'quantityCompleted'], null),
+    status: pick(s, ['status', 'Status'], 'scheduled'),
   }
 }
 
@@ -378,76 +378,76 @@ export const extractBatchShortageAggregate = (src) => {
  */
 export const normalizeBatchAggregateLines = (byMaterial = [], byProduct = []) => {
   const lines = []
-  ;(Array.isArray(byMaterial) ? byMaterial : []).forEach((row, idx) => {
-    const material_id = pick(row, ['material_id', 'materialId', 'MaterialID'])
-    const material_name = pick(row, ['material_name', 'materialName', 'MaterialName'])
-    const q = Number(
-      pick(row, ['recommended_qty', 'recommendedQty', 'quantity', 'qty', 'suggested_qty'], 0),
-    )
-    const arrive_at =
-      pick(row, [
-        'suggested_arrive_at',
-        'suggestedArriveAt',
-        'recommended_arrive_at',
-        'recommendedArriveAt',
-        'arrive_at',
-      ]) || null
-    const earliest_possible_arrival = pick(row, ['earliest_possible_arrival', 'earliestPossibleArrival'])
-    if (!material_id || !(q > 0) || !arrive_at) return
-    const snap = row.inventory_snapshot || row.inventorySnapshot
-    const rawOpt = String(pick(row, ['option_type', 'optionType'], '')).trim().toLowerCase()
-    const isScheduleProduction = rawOpt === 'schedule_production'
-    lines.push({
-      key: `agg:m:${material_id}:${idx}`,
-      kind: isScheduleProduction ? 'schedule_production' : 'material',
-      material_id,
-      material_name,
-      qty: q,
-      arrive_at,
-      earliest_possible_arrival,
-      affected_job_ids: Array.isArray(row.affected_job_ids)
-        ? row.affected_job_ids
-        : Array.isArray(row.affectedJobIds)
-          ? row.affectedJobIds
-          : [],
-      rationale: pick(row, ['rationale', 'Rationale', 'notes'], '') || '',
-      snapshot: snap || null,
-      raw: row,
+    ; (Array.isArray(byMaterial) ? byMaterial : []).forEach((row, idx) => {
+      const material_id = pick(row, ['material_id', 'materialId', 'MaterialID'])
+      const material_name = pick(row, ['material_name', 'materialName', 'MaterialName'])
+      const q = Number(
+        pick(row, ['recommended_qty', 'recommendedQty', 'quantity', 'qty', 'suggested_qty'], 0),
+      )
+      const arrive_at =
+        pick(row, [
+          'suggested_arrive_at',
+          'suggestedArriveAt',
+          'recommended_arrive_at',
+          'recommendedArriveAt',
+          'arrive_at',
+        ]) || null
+      const earliest_possible_arrival = pick(row, ['earliest_possible_arrival', 'earliestPossibleArrival'])
+      if (!material_id || !(q > 0) || !arrive_at) return
+      const snap = row.inventory_snapshot || row.inventorySnapshot
+      const rawOpt = String(pick(row, ['option_type', 'optionType'], '')).trim().toLowerCase()
+      const isScheduleProduction = rawOpt === 'schedule_production'
+      lines.push({
+        key: `agg:m:${material_id}:${idx}`,
+        kind: isScheduleProduction ? 'schedule_production' : 'material',
+        material_id,
+        material_name,
+        qty: q,
+        arrive_at,
+        earliest_possible_arrival,
+        affected_job_ids: Array.isArray(row.affected_job_ids)
+          ? row.affected_job_ids
+          : Array.isArray(row.affectedJobIds)
+            ? row.affectedJobIds
+            : [],
+        rationale: pick(row, ['rationale', 'Rationale', 'notes'], '') || '',
+        snapshot: snap || null,
+        raw: row,
+      })
     })
-  })
-  ;(Array.isArray(byProduct) ? byProduct : []).forEach((row, idx) => {
-    const product_id = pick(row, ['product_id', 'productId', 'material_id', 'materialId'])
-    const product_name = pick(row, ['product_name', 'productName', 'material_name', 'materialName'])
-    const q = Number(pick(row, ['recommended_qty', 'recommendedQty', 'quantity', 'qty', 'suggested_qty'], 0))
-    const arrive_at =
-      pick(row, [
-        'suggested_arrive_at',
-        'suggestedArriveAt',
-        'recommended_arrive_at',
-        'recommendedArriveAt',
-        'arrive_at',
-      ]) || null
-    const earliest_possible_arrival = pick(row, ['earliest_possible_arrival', 'earliestPossibleArrival'])
-    if (!product_id || !(q > 0) || !arrive_at) return
-    const snap = row.inventory_snapshot || row.inventorySnapshot
-    lines.push({
-      key: `agg:p:${product_id}:${idx}`,
-      kind: 'schedule_production',
-      material_id: product_id,
-      material_name: product_name,
-      qty: q,
-      arrive_at,
-      earliest_possible_arrival,
-      affected_job_ids: Array.isArray(row.affected_job_ids)
-        ? row.affected_job_ids
-        : Array.isArray(row.affectedJobIds)
-          ? row.affectedJobIds
-          : [],
-      rationale: pick(row, ['rationale', 'Rationale', 'notes'], '') || '',
-      snapshot: snap || null,
-      raw: row,
+    ; (Array.isArray(byProduct) ? byProduct : []).forEach((row, idx) => {
+      const product_id = pick(row, ['product_id', 'productId', 'material_id', 'materialId'])
+      const product_name = pick(row, ['product_name', 'productName', 'material_name', 'materialName'])
+      const q = Number(pick(row, ['recommended_qty', 'recommendedQty', 'quantity', 'qty', 'suggested_qty'], 0))
+      const arrive_at =
+        pick(row, [
+          'suggested_arrive_at',
+          'suggestedArriveAt',
+          'recommended_arrive_at',
+          'recommendedArriveAt',
+          'arrive_at',
+        ]) || null
+      const earliest_possible_arrival = pick(row, ['earliest_possible_arrival', 'earliestPossibleArrival'])
+      if (!product_id || !(q > 0) || !arrive_at) return
+      const snap = row.inventory_snapshot || row.inventorySnapshot
+      lines.push({
+        key: `agg:p:${product_id}:${idx}`,
+        kind: 'schedule_production',
+        material_id: product_id,
+        material_name: product_name,
+        qty: q,
+        arrive_at,
+        earliest_possible_arrival,
+        affected_job_ids: Array.isArray(row.affected_job_ids)
+          ? row.affected_job_ids
+          : Array.isArray(row.affectedJobIds)
+            ? row.affectedJobIds
+            : [],
+        rationale: pick(row, ['rationale', 'Rationale', 'notes'], '') || '',
+        snapshot: snap || null,
+        raw: row,
+      })
     })
-  })
   return lines
 }
 

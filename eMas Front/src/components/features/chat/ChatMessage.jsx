@@ -142,9 +142,8 @@ const ChatMessage = ({
   return (
     <div className={`mb-6 flex gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
       <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-hairline shadow-sm ${
-          isUser ? 'bg-primary/10 text-primary' : 'bg-surface-2 text-ink-subtle'
-        }`}
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-hairline shadow-sm ${isUser ? 'bg-primary/10 text-primary' : 'bg-surface-2 text-ink-subtle'
+          }`}
       >
         <span
           className="material-symbols-outlined text-lg"

@@ -16,7 +16,7 @@ console.log(`Found ${filesToProcess.length} unmodified JSX files to process.`);
 filesToProcess.forEach(file => {
   const filepath = path.join(process.cwd(), file);
   if (!fs.existsSync(filepath)) return;
-  
+
   let content = fs.readFileSync(filepath, 'utf8');
   let originalContent = content;
 
@@ -27,14 +27,14 @@ filesToProcess.forEach(file => {
   content = content.replace(/bg-gray-50\s+dark:bg-gray-\d+\/?\d*/g, 'bg-surface-2');
   content = content.replace(/bg-gray-100\s+dark:bg-gray-\d+\/?\d*/g, 'bg-surface-2');
   content = content.replace(/bg-gray-800\s+dark:bg-gray-900/g, 'bg-surface-3');
-  
+
   // Standalone backgrounds (if dark prefix wasn't strictly paired)
   content = content.replace(/\bbg-white\b(?!\s*\/)/g, 'bg-surface-1');
   content = content.replace(/\bdark:bg-gray-800\b/g, '');
   content = content.replace(/\bdark:bg-gray-900\b/g, '');
   content = content.replace(/\bbg-gray-50\b/g, 'bg-surface-2');
   content = content.replace(/\bbg-gray-100\b/g, 'bg-surface-2');
-  
+
   // Borders
   content = content.replace(/border-gray-\d+\s+dark:border-\[[^\]]+\]/g, 'border-hairline');
   content = content.replace(/border-gray-\d+\s+dark:border-gray-\d+/g, 'border-hairline');
@@ -53,7 +53,7 @@ filesToProcess.forEach(file => {
   content = content.replace(/text-gray-600\s+dark:text-gray-400/g, 'text-ink-subtle');
   content = content.replace(/text-gray-500\s+dark:text-gray-400/g, 'text-ink-subtle');
   content = content.replace(/text-gray-500\s+dark:text-gray-500/g, 'text-ink-tertiary');
-  
+
   // Standalone text
   content = content.replace(/\btext-gray-900\b/g, 'text-ink');
   content = content.replace(/\btext-gray-800\b/g, 'text-ink');
@@ -80,7 +80,7 @@ filesToProcess.forEach(file => {
   content = content.replace(/\btext-green-600\b/g, 'text-semantic-success');
   content = content.replace(/\bdark:bg-green-900\/\d+\b/g, '');
   content = content.replace(/\bdark:text-green-400\b/g, '');
-  
+
   // Red/Yellow colors to muted or subtle (Linear avoids bright accents)
   content = content.replace(/\btext-red-600\b/g, 'text-ink-muted');
   content = content.replace(/\btext-yellow-600\b/g, 'text-ink-muted');
@@ -99,14 +99,14 @@ filesToProcess.forEach(file => {
   content = content.replace(/\bhover:bg-gray-100\b/g, 'hover:bg-surface-2');
   content = content.replace(/\bdark:hover:bg-gray-\d+\b/g, '');
   content = content.replace(/\bdark:hover:bg-white\/\d+\b/g, '');
-  
+
   // Shadows
   content = content.replace(/\bshadow-xl\b/g, '');
   content = content.replace(/\bshadow-lg\b/g, '');
   content = content.replace(/\bshadow-md\b/g, '');
   content = content.replace(/\bshadow-sm\b/g, '');
   content = content.replace(/\bshadow\b/g, '');
-  
+
   // Rounding
   content = content.replace(/\brounded-2xl\b/g, 'rounded-xl'); // 16px is max usually
   content = content.replace(/\brounded-3xl\b/g, 'rounded-xxl');
@@ -118,7 +118,7 @@ filesToProcess.forEach(file => {
   content = content.replace(/className="([^"]+)"/g, (match, p1) => {
     return 'className="' + p1.replace(/\s+/g, ' ').trim() + '"';
   });
-  
+
   // Handle empty classNames
   content = content.replace(/className=""/g, '');
   content = content.replace(/ \s+/g, ' ');

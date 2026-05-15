@@ -85,8 +85,8 @@ async function request(method, path, body, extraHeaders, options) {
     logger.apiError(method, path, new Error(msg))
     const err = new Error(detail || `Request failed with status ${res.status}`)
     err.status = res.status
-    err.type   = res.status >= 500 ? 'SERVER' : res.status === 404 ? 'NOT_FOUND' : res.status === 401 ? 'AUTH' : 'CLIENT'
-    err.path   = path
+    err.type = res.status >= 500 ? 'SERVER' : res.status === 404 ? 'NOT_FOUND' : res.status === 401 ? 'AUTH' : 'CLIENT'
+    err.path = path
     throw err
   }
 
@@ -102,11 +102,11 @@ async function request(method, path, body, extraHeaders, options) {
   }
 }
 
-const get   = (path)                       => request('GET',    path)
-const post  = (path, body, headers, opts)  => request('POST',   path, body, headers, opts)
-const put   = (path, body, headers, opts)  => request('PUT',    path, body, headers, opts)
-const patch = (path, body, headers, opts)  => request('PATCH',  path, body, headers, opts)
-const del   = (path)                       => request('DELETE', path)
+const get = (path) => request('GET', path)
+const post = (path, body, headers, opts) => request('POST', path, body, headers, opts)
+const put = (path, body, headers, opts) => request('PUT', path, body, headers, opts)
+const patch = (path, body, headers, opts) => request('PATCH', path, body, headers, opts)
+const del = (path) => request('DELETE', path)
 
 /** POST with X-User-Role: planner for scheduling write operations */
 const postPlanner = (path, body, options = {}) =>
@@ -120,7 +120,7 @@ export const toList = (d) => {
   if (!d) return []
   if (Array.isArray(d)) return d
   for (const k of ['data', 'items', 'results', 'jobs', 'machines', 'products',
-                    'materials', 'processes', 'formulas', 'slots', 'steps', 'proposals']) {
+    'materials', 'processes', 'formulas', 'slots', 'steps', 'proposals']) {
     if (Array.isArray(d[k])) return d[k]
   }
   return []
@@ -233,14 +233,14 @@ export function apiErrorMessage(err, fallback = 'An unexpected error occurred.')
   if (!err) return fallback
   if (err.type === 'NETWORK') return 'Cannot connect to the eMAS server. Please check that the backend is running.'
   if (err.type === 'TIMEOUT') return err.message || 'Request timed out. Batch proposals can take 90+ seconds. Please try again.'
-  if (err.type === 'AUTH')    return 'Your session has expired. Please refresh and try again.'
+  if (err.type === 'AUTH') return 'Your session has expired. Please refresh and try again.'
   if (err.type === 'NOT_FOUND') return 'The requested resource was not found.'
-  if (err.type === 'SERVER')  return `Server error: ${err.message}`
+  if (err.type === 'SERVER') return `Server error: ${err.message}`
   if (isStaleProposalError(err)) return 'Proposal is stale. Use Reschedule All to regenerate fresh proposals.'
   if (err.message && /outside.*work calendar/i.test(err.message)) {
     return `${err.message} Check resource/machine calendar setup or regenerate proposals.`
   }
-  if (err.message)            return err.message
+  if (err.message) return err.message
   return fallback
 }
 
@@ -287,24 +287,24 @@ export const jobsApi = {
     const q = new URLSearchParams(params).toString()
     return get(`/jobs${q ? `?${q}` : ''}`)
   },
-  get:       (id)        => get(`/jobs/${id}`),
-  getSteps:  (id)        => get(`/jobs/${id}/steps`),
-  getSlots:  (id)        => get(`/jobs/${id}/slots`),
-  create:    (data)      => post('/jobs', data),
-  update:    (id, data)  => put(`/jobs/${id}`, data),
-  cancel:    (id)        => del(`/jobs/${id}`),
-  duplicate: (id)        => post(`/jobs/${id}/duplicate`),
+  get: (id) => get(`/jobs/${id}`),
+  getSteps: (id) => get(`/jobs/${id}/steps`),
+  getSlots: (id) => get(`/jobs/${id}/slots`),
+  create: (data) => post('/jobs', data),
+  update: (id, data) => put(`/jobs/${id}`, data),
+  cancel: (id) => del(`/jobs/${id}`),
+  duplicate: (id) => post(`/jobs/${id}/duplicate`),
 }
 
 // ─── Job Steps & Slots ───────────────────────────────────────────────────────
 export const stepsApi = {
-  create:     (data)     => post('/job-steps', data),
-  split:      (data)     => post('/job-steps/split', data),
-  getSlots:   (stepId)   => get(`/job-steps/${stepId}/slots`),
-  getSlot:    (slotId)   => get(`/slots/${slotId}`),
+  create: (data) => post('/job-steps', data),
+  split: (data) => post('/job-steps/split', data),
+  getSlots: (stepId) => get(`/job-steps/${stepId}/slots`),
+  getSlot: (slotId) => get(`/slots/${slotId}`),
   /** PATCH /slots/:id — supports actual_start, actual_end, status for production logging */
   updateSlot: (slotId, data) => patch(`/slots/${slotId}`, data),
-  cancelSlot: (slotId)   => del(`/slots/${slotId}`),
+  cancelSlot: (slotId) => del(`/slots/${slotId}`),
 }
 
 // ─── Scheduling events & validation ──────────────────────────────────────────
@@ -344,12 +344,12 @@ export const machinesApi = {
     const q = new URLSearchParams(params).toString()
     return get(`/machines${q ? `?${q}` : ''}`)
   },
-  get:              (id)        => get(`/machines/${id}`),
-  create:           (data)      => post('/machines', data),
-  update:           (id, data)  => put(`/machines/${id}`, data),
-  addCapability:    (id, data)  => post(`/machines/${id}/capabilities`, data),
-  recordDowntime:   (data)      => post('/machines/downtime', data),
-  maintenanceAlerts:(params = {}) => {
+  get: (id) => get(`/machines/${id}`),
+  create: (data) => post('/machines', data),
+  update: (id, data) => put(`/machines/${id}`, data),
+  addCapability: (id, data) => post(`/machines/${id}/capabilities`, data),
+  recordDowntime: (data) => post('/machines/downtime', data),
+  maintenanceAlerts: (params = {}) => {
     const q = new URLSearchParams(params).toString()
     return get(`/machines/maintenance-alerts${q ? `?${q}` : ''}`)
   },
@@ -359,22 +359,22 @@ export const machinesApi = {
 
 // ─── Products ────────────────────────────────────────────────────────────────
 export const productsApi = {
-  list:    ()           => get('/products'),
-  get:     (id)         => get(`/products/${id}`),
-  create:  (data)       => post('/products', data),
-  update:  (id, data)   => put(`/products/${id}`, data),
-  linkBom: (id, data)   => put(`/products/${id}/bom`, data),
+  list: () => get('/products'),
+  get: (id) => get(`/products/${id}`),
+  create: (data) => post('/products', data),
+  update: (id, data) => put(`/products/${id}`, data),
+  linkBom: (id, data) => put(`/products/${id}/bom`, data),
 }
 
 // ─── Processes (routing) ─────────────────────────────────────────────────────
 export const processesApi = {
-  list:        ()           => get('/processes'),
-  get:         (id)         => get(`/processes/${id}`),
-  getByProduct:(prodId)     => get(`/products/${prodId}/process`),
-  getSteps:    (id)         => get(`/processes/${id}/steps`),
-  create:      (data)       => post('/processes', data),
-  addStep:     (id, data)   => post(`/processes/${id}/steps`, data),
-  delete:      (id)         => del(`/processes/${id}`),
+  list: () => get('/processes'),
+  get: (id) => get(`/processes/${id}`),
+  getByProduct: (prodId) => get(`/products/${prodId}/process`),
+  getSteps: (id) => get(`/processes/${id}/steps`),
+  create: (data) => post('/processes', data),
+  addStep: (id, data) => post(`/processes/${id}/steps`, data),
+  delete: (id) => del(`/processes/${id}`),
   /** GET /process-steps/:stepId/materials — role: input | output | all (default input) */
   getStepMaterials: (stepId, role = 'input') =>
     get(`/process-steps/${stepId}/materials${role ? `?role=${role}` : ''}`),
@@ -387,12 +387,12 @@ export const processesApi = {
 
 // ─── Formulas ────────────────────────────────────────────────────────────────
 export const formulasApi = {
-  list:           ()           => get('/formulas'),
-  get:            (id)         => get(`/formulas/${id}`),
-  getIngredients: (id)         => get(`/formulas/${id}/ingredients`),
-  create:         (data)       => post('/formulas', data),
-  addIngredient:  (id, data)   => post(`/formulas/${id}/ingredients`, data),
-  delete:         (id)         => del(`/formulas/${id}`),
+  list: () => get('/formulas'),
+  get: (id) => get(`/formulas/${id}`),
+  getIngredients: (id) => get(`/formulas/${id}/ingredients`),
+  create: (data) => post('/formulas', data),
+  addIngredient: (id, data) => post(`/formulas/${id}/ingredients`, data),
+  delete: (id) => del(`/formulas/${id}`),
 }
 
 // ─── Inventory ───────────────────────────────────────────────────────────────
@@ -401,12 +401,12 @@ export const inventoryApi = {
     const q = new URLSearchParams(params).toString()
     return get(`/inventory/materials${q ? `?${q}` : ''}`)
   },
-  get:     (id)        => get(`/inventory/materials/${id}`),
-  create:  (data)      => post('/inventory/materials', data),
-  update:  (id, data)  => put(`/inventory/materials/${id}`, data),
+  get: (id) => get(`/inventory/materials/${id}`),
+  create: (data) => post('/inventory/materials', data),
+  update: (id, data) => put(`/inventory/materials/${id}`, data),
   // Field: reference_job_id (not job_id) per API spec
-  consume: (data)      => post('/inventory/consume', data),
-  receive: (data)      => post('/inventory/receive', data),
+  consume: (data) => post('/inventory/consume', data),
+  receive: (data) => post('/inventory/receive', data),
   // Expected arrivals
   expectedArrivals: {
     list: (params = {}) => {
@@ -419,7 +419,7 @@ export const inventoryApi = {
 
 // ─── Production & Quality ────────────────────────────────────────────────────
 export const productionApi = {
-  log:     (data) => post('/production-logs', data),
+  log: (data) => post('/production-logs', data),
   inspect: (data) => post('/quality/inspections', data),
 }
 
@@ -430,13 +430,13 @@ export const maintenanceApi = {
 
 // ─── Reports & Analytics ─────────────────────────────────────────────────────
 export const reportsApi = {
-  productionOutput:      (params = {}) => get(`/reports/production-output?${new URLSearchParams(params)}`),
-  machineUtilization:    (params = {}) => get(`/reports/machine-utilization?${new URLSearchParams(params)}`),
-  jobCompletion:         (params = {}) => get(`/reports/job-completion?${new URLSearchParams(params)}`),
-  inventoryTrends:       (params = {}) => get(`/reports/inventory-trends?${new URLSearchParams(params)}`),
-  qualityTrends:         (params = {}) => get(`/reports/quality-trends?${new URLSearchParams(params)}`),
-  oee:                   (params = {}) => get(`/reports/oee?${new URLSearchParams(params)}`),
-  bottlenecks:           (params = {}) => get(`/reports/bottlenecks?${new URLSearchParams(params)}`),
+  productionOutput: (params = {}) => get(`/reports/production-output?${new URLSearchParams(params)}`),
+  machineUtilization: (params = {}) => get(`/reports/machine-utilization?${new URLSearchParams(params)}`),
+  jobCompletion: (params = {}) => get(`/reports/job-completion?${new URLSearchParams(params)}`),
+  inventoryTrends: (params = {}) => get(`/reports/inventory-trends?${new URLSearchParams(params)}`),
+  qualityTrends: (params = {}) => get(`/reports/quality-trends?${new URLSearchParams(params)}`),
+  oee: (params = {}) => get(`/reports/oee?${new URLSearchParams(params)}`),
+  bottlenecks: (params = {}) => get(`/reports/bottlenecks?${new URLSearchParams(params)}`),
   maintenanceEfficiency: (params = {}) => get(`/reports/maintenance-efficiency?${new URLSearchParams(params)}`),
 }
 
@@ -473,10 +473,10 @@ export const aiApi = {
    * Chat/conversation persistence (see docs/AI_CHAT_API_SPEC.md).
    */
   chats: {
-    list:         () => get('/ai/chats'),
-    create:       (data = {}) => post('/ai/chats', data),
-    get:          (id) => get(`/ai/chats/${id}`),
-    sendMessage:  (id, { query }) => post(`/ai/chats/${id}/messages`, { query }),
+    list: () => get('/ai/chats'),
+    create: (data = {}) => post('/ai/chats', data),
+    get: (id) => get(`/ai/chats/${id}`),
+    sendMessage: (id, { query }) => post(`/ai/chats/${id}/messages`, { query }),
   },
 
   /**
@@ -484,14 +484,14 @@ export const aiApi = {
    * These are thin wrappers; all business logic stays in the UI.
    */
   scheduling: {
-    assist:        (jobId)      => get(`/ai/scheduling/jobs/${jobId}/assist`),
-    delayRisk:     (jobId)      => get(`/ai/scheduling/jobs/${jobId}/delay-risk`),
-    explanation:   (jobId)      => get(`/ai/scheduling/jobs/${jobId}/explanation`),
-    draftProposal: (jobId)      => get(`/ai/scheduling/jobs/${jobId}/proposal`),
-    createProposal:(jobId, data = {}) =>
+    assist: (jobId) => get(`/ai/scheduling/jobs/${jobId}/assist`),
+    delayRisk: (jobId) => get(`/ai/scheduling/jobs/${jobId}/delay-risk`),
+    explanation: (jobId) => get(`/ai/scheduling/jobs/${jobId}/explanation`),
+    draftProposal: (jobId) => get(`/ai/scheduling/jobs/${jobId}/proposal`),
+    createProposal: (jobId, data = {}) =>
       postPlanner(`/ai/scheduling/jobs/${jobId}/proposals`, data, { timeoutMs: SCHEDULING_LONG_TIMEOUT_MS }),
-    listProposals: (jobId)      => get(`/ai/scheduling/jobs/${jobId}/proposals`),
-    getProposal:   (proposalId) => get(`/ai/scheduling/proposals/${proposalId}`),
+    listProposals: (jobId) => get(`/ai/scheduling/jobs/${jobId}/proposals`),
+    getProposal: (proposalId) => get(`/ai/scheduling/proposals/${proposalId}`),
     approveProposal: (proposalId, data = {}) =>
       postPlanner(`/ai/scheduling/proposals/${proposalId}/approve`, data, { timeoutMs: SCHEDULING_LONG_TIMEOUT_MS }),
     rejectProposal: (proposalId, data = {}) =>
@@ -519,11 +519,11 @@ export const aiApi = {
       const payload = hasScope || hasJobIds ? body : { scope: 'all_unscheduled', order_by: body?.order_by || 'epo' }
       return postPlanner('/ai/scheduling/batch-proposals', payload, { timeoutMs: SCHEDULING_LONG_TIMEOUT_MS })
     },
-    rescheduleAll:  (body = {}) => postPlanner('/ai/scheduling/reschedule-all', body, { timeoutMs: SCHEDULING_LONG_TIMEOUT_MS }),
+    rescheduleAll: (body = {}) => postPlanner('/ai/scheduling/reschedule-all', body, { timeoutMs: SCHEDULING_LONG_TIMEOUT_MS }),
     verifyOverlaps: (body) =>
       postPlanner('/ai/scheduling/verify-overlaps', body, { timeoutMs: SCHEDULING_LONG_TIMEOUT_MS }),
     splitSuggestion: (jobStepId) => get(`/ai/scheduling/job-steps/${jobStepId}/split-suggestion`),
-    machineRanking:  (jobStepId, start, end) =>
+    machineRanking: (jobStepId, start, end) =>
       get(`/ai/scheduling/job-steps/${jobStepId}/machine-ranking?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
     bottleneckForecast: (daysAhead = 7) =>
       get(`/ai/scheduling/bottleneck-forecast?days_ahead=${daysAhead}`),
@@ -533,15 +533,15 @@ export const aiApi = {
 // ─── Predictive Analysis ─────────────────────────────────────────────────────
 // NOTE: These endpoints are NOT yet in the backend spec (see MISSING_APIS.md)
 export const predictiveApi = {
-  highRiskJobs:    (params = {}) => get(`/predictive/high-risk-jobs?${new URLSearchParams(params)}`),
-  recommendations: ()            => get('/predictive/recommendations'),
-  forecast:        (params = {}) => get(`/predictive/forecast?${new URLSearchParams(params)}`),
-  confidence:      ()            => get('/predictive/confidence'),
+  highRiskJobs: (params = {}) => get(`/predictive/high-risk-jobs?${new URLSearchParams(params)}`),
+  recommendations: () => get('/predictive/recommendations'),
+  forecast: (params = {}) => get(`/predictive/forecast?${new URLSearchParams(params)}`),
+  confidence: () => get('/predictive/confidence'),
 }
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 export const settingsApi = {
-  get:    () => get('/settings'),
+  get: () => get('/settings'),
   update: (data) => put('/settings', data),
 }
 
@@ -566,23 +566,33 @@ export async function refGet(path) {
     return { data: [], error: err.message || 'Failed to load options' }
   }
 }
-const refPost   = (path, body) => post(path, body)
-const refDelete = (path)       => del(path)
+const refPost = (path, body) => post(path, body)
+const refDelete = (path) => del(path)
 
 export const referenceApi = {
-  machineTypes:     { list: () => refGet('/reference/machine-types'),
-                      create: (body) => refPost('/reference/machine-types', body),
-                      remove: (id)   => refDelete(`/reference/machine-types/${id}`) },
-  productTypes:     { list: () => refGet('/reference/product-types'),
-                      create: (body) => refPost('/reference/product-types', body),
-                      remove: (id)   => refDelete(`/reference/product-types/${id}`) },
-  locations:        { list: () => refGet('/reference/locations'),
-                      create: (body) => refPost('/reference/locations', body),
-                      remove: (id)   => refDelete(`/reference/locations/${id}`) },
-  storageLocations: { list: () => refGet('/reference/storage-locations'),
-                      create: (body) => refPost('/reference/storage-locations', body),
-                      remove: (id)   => refDelete(`/reference/storage-locations/${id}`) },
-  stepTypes:        { list: () => refGet('/reference/step-types'),
-                      create: (body) => refPost('/reference/step-types', body),
-                      remove: (id)   => refDelete(`/reference/step-types/${id}`) },
+  machineTypes: {
+    list: () => refGet('/reference/machine-types'),
+    create: (body) => refPost('/reference/machine-types', body),
+    remove: (id) => refDelete(`/reference/machine-types/${id}`)
+  },
+  productTypes: {
+    list: () => refGet('/reference/product-types'),
+    create: (body) => refPost('/reference/product-types', body),
+    remove: (id) => refDelete(`/reference/product-types/${id}`)
+  },
+  locations: {
+    list: () => refGet('/reference/locations'),
+    create: (body) => refPost('/reference/locations', body),
+    remove: (id) => refDelete(`/reference/locations/${id}`)
+  },
+  storageLocations: {
+    list: () => refGet('/reference/storage-locations'),
+    create: (body) => refPost('/reference/storage-locations', body),
+    remove: (id) => refDelete(`/reference/storage-locations/${id}`)
+  },
+  stepTypes: {
+    list: () => refGet('/reference/step-types'),
+    create: (body) => refPost('/reference/step-types', body),
+    remove: (id) => refDelete(`/reference/step-types/${id}`)
+  },
 }

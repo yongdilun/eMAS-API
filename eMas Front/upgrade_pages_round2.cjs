@@ -25,7 +25,7 @@ files.forEach(file => {
   // Specific text mappings
   content = content.replace(/hover:text-gray-700 dark:hover:text-gray-300/g, 'hover:text-ink');
   content = content.replace(/text-gray-900 dark:text-gray-100/g, 'text-ink');
-  
+
   // Clean up
   content = content.replace(/  +/g, ' ').replace(/className=" /g, 'className="');
 

@@ -14,7 +14,7 @@ import { useState, useEffect } from 'react'
 export function useRefData(fetcher, toLabel) {
   const [options, setOptions] = useState([])
   const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState(null)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -47,7 +47,7 @@ export function useRefData(fetcher, toLabel) {
 export function useRefObjects(fetcher) {
   const [objects, setObjects] = useState([])
   const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState(null)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     let cancelled = false
