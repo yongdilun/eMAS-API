@@ -183,12 +183,17 @@ func (h *MachineHandler) AssignCapability(c *gin.Context) {
 // @Param request body dto.RecordDowntimeRequest true "Record Downtime Request"
 // @Success 201 {object} dto.Response{data=domain.MachineDowntime}
 // @Failure 400 {object} dto.Response
+// @Failure 422 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /machines/downtime [post]
 func (h *MachineHandler) RecordDowntime(c *gin.Context) {
 	var req dto.RecordDowntimeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, dto.Response{Success: false, Error: err.Error()})
+		return
+	}
+	if !req.EndTime.After(req.StartTime) {
+		c.JSON(http.StatusUnprocessableEntity, dto.Response{Success: false, Error: "end_time must be after start_time"})
 		return
 	}
 	record, err := h.machineService.RecordDowntime(req)

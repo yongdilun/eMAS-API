@@ -60,3 +60,21 @@ func TestProductionLogHandler_LogProduction(t *testing.T) {
 		t.Fatalf("log production: got %d, body: %s", w.Code, w.Body.String())
 	}
 }
+
+func TestProductionLogHandler_MissingSlotReturnsNotFound(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	r := testutil.NewTestRouter(db, router.Setup)
+
+	now := time.Now()
+	w := testutil.Request(r, "POST", "/api/v1/production-logs", map[string]interface{}{
+		"slot_id": "SLOT-MISSING", "start_time": now.Add(-1 * time.Hour), "end_time": now,
+		"quantity_produced": 1,
+	})
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("missing slot: got %d, want 404, body: %s", w.Code, w.Body.String())
+	}
+	success, _, errMsg := testutil.DecodeResponse(w)
+	if success || errMsg == "" {
+		t.Fatalf("error envelope = success:%v error:%q, want failure with message", success, errMsg)
+	}
+}

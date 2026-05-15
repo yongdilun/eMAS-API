@@ -73,7 +73,7 @@ func (h *ProcessHandler) GetByID(c *gin.Context) {
 // @Success 200 {object} dto.Response{data=domain.ProductProcess}
 // @Failure 404 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /processes/product/{id} [get]
+// @Router /products/{id}/process [get]
 func (h *ProcessHandler) GetByProduct(c *gin.Context) {
 	productID := c.Param("id")
 	p, err := h.processService.GetByProductID(productID)

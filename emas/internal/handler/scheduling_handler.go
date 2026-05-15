@@ -88,10 +88,13 @@ func (h *SchedulingHandler) Readiness(c *gin.Context) {
 // @Tags scheduling
 // @Accept json
 // @Produce json
+// @Param id path string true "Job Step ID"
+// @Param start query string false "RFC3339 start"
+// @Param end query string false "RFC3339 end"
 // @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /scheduling/candidate-machines [get]
+// @Router /scheduling/steps/{id}/candidate-machines [get]
 func (h *SchedulingHandler) CandidateMachines(c *gin.Context) {
 	stepID := c.Param("id")
 	start := time.Now()
@@ -119,10 +122,11 @@ func (h *SchedulingHandler) CandidateMachines(c *gin.Context) {
 // @Tags scheduling
 // @Accept json
 // @Produce json
+// @Param request body dto.SchedulingSlotValidationRequest true "Slot Validation Request"
 // @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /scheduling/validate-slot [post]
+// @Router /scheduling/slots/validate [post]
 func (h *SchedulingHandler) ValidateSlot(c *gin.Context) {
 	var req dto.SchedulingSlotValidationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -142,10 +146,11 @@ func (h *SchedulingHandler) ValidateSlot(c *gin.Context) {
 // @Tags scheduling
 // @Accept json
 // @Produce json
+// @Param id path string true "Job ID"
 // @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /scheduling/estimate-job-completion [get]
+// @Router /scheduling/jobs/{id}/earliest-completion [get]
 func (h *SchedulingHandler) EstimateJobCompletion(c *gin.Context) {
 	jobID := c.Param("id")
 	data, err := h.schedulingService.EstimateJobEarliestCompletion(jobID)
@@ -179,10 +184,11 @@ func (h *SchedulingHandler) TrainingDataset(c *gin.Context) {
 // @Tags scheduling
 // @Accept json
 // @Produce json
+// @Param since query string false "RFC3339 lower bound"
 // @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /scheduling/training-dataset-stats [get]
+// @Router /scheduling/training-dataset/stats [get]
 func (h *SchedulingHandler) TrainingDatasetStats(c *gin.Context) {
 	var since *time.Time
 	if raw := c.Query("since"); raw != "" {
@@ -209,7 +215,7 @@ func (h *SchedulingHandler) TrainingDatasetStats(c *gin.Context) {
 // @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /scheduling/backfill-training-dataset [get]
+// @Router /scheduling/training-dataset/backfill [post]
 func (h *SchedulingHandler) BackfillTrainingDataset(c *gin.Context) {
 	if err := h.schedulingService.BackfillMLTrainingEvents(); err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
@@ -247,7 +253,7 @@ func (h *SchedulingHandler) SolverPreview(c *gin.Context) {
 // @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /scheduling/refresh-work-calendars [get]
+// @Router /scheduling/refresh-work-calendars [post]
 func (h *SchedulingHandler) RefreshWorkCalendars(c *gin.Context) {
 	if err := h.schedulingService.RefreshWorkCalendarsFromSettings(); err != nil {
 		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})

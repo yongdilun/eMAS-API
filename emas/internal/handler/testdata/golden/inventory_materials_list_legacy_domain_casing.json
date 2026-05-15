@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "CurrentStock": 123.5,
+      "LastUpdated": "2026-05-20T10:00:00Z",
+      "MaterialID": "MAT-GOLDEN",
+      "MaterialName": "Golden Alloy",
+      "MinStock": 25,
+      "ReorderLevel": 50,
+      "StorageLocation": "Rack G",
+      "Unit": "kg",
+      "status": "in_stock"
+    }
+  ],
+  "success": true
+}

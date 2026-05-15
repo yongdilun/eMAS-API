@@ -1,0 +1,14 @@
+{
+  "data": {
+    "CreatedAt": "2026-05-18T10:00:00Z",
+    "Description": "Contract fixture product",
+    "FormulaID": "F-GOLDEN",
+    "ProcessID": "PRC-GOLDEN",
+    "ProductID": "P-GOLDEN",
+    "ProductName": "Golden Product",
+    "ProductType": "assembly",
+    "UnitOfMeasure": "pcs",
+    "status": "active"
+  },
+  "success": true
+}

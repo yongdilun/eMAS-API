@@ -8,6 +8,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type JobService struct {
@@ -38,6 +40,34 @@ func NewJobService(
 }
 
 func (s *JobService) Create(req dto.CreateJobRequest) (*domain.Job, error) {
+	var created *domain.Job
+	err := s.jobRepo.Transaction(func(tx *gorm.DB) error {
+		var scheduling *SchedulingService
+		if s.scheduling != nil {
+			scheduling = s.scheduling.WithTransaction(tx)
+		}
+		txSvc := &JobService{
+			jobRepo:     repository.NewJobRepository(tx),
+			stepRepo:    repository.NewJobStepRepository(tx),
+			slotRepo:    repository.NewJobSlotRepository(tx),
+			processRepo: repository.NewProcessRepository(tx),
+			productRepo: repository.NewProductRepository(tx),
+			scheduling:  scheduling,
+		}
+		job, err := txSvc.create(req)
+		if err != nil {
+			return err
+		}
+		created = job
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+func (s *JobService) create(req dto.CreateJobRequest) (*domain.Job, error) {
 	deadline, _ := time.Parse(time.RFC3339, req.Deadline)
 	if deadline.IsZero() {
 		deadline = time.Now().Add(24 * time.Hour)
@@ -342,12 +372,25 @@ func (s *JobService) Update(id string, req dto.UpdateJobRequest) (*domain.Job, e
 }
 
 func (s *JobService) Delete(id string) error {
-	steps, _ := s.stepRepo.ListByJobID(id)
-	for _, st := range steps {
-		_ = s.slotRepo.DeleteByJobStepID(st.JobStepID)
-	}
-	_ = s.stepRepo.DeleteByJobID(id)
-	return s.jobRepo.Delete(id)
+	return s.jobRepo.Transaction(func(tx *gorm.DB) error {
+		txStepRepo := repository.NewJobStepRepository(tx)
+		txSlotRepo := repository.NewJobSlotRepository(tx)
+		txJobRepo := repository.NewJobRepository(tx)
+
+		steps, err := txStepRepo.ListByJobID(id)
+		if err != nil {
+			return err
+		}
+		for _, st := range steps {
+			if err := txSlotRepo.DeleteByJobStepID(st.JobStepID); err != nil {
+				return err
+			}
+		}
+		if err := txStepRepo.DeleteByJobID(id); err != nil {
+			return err
+		}
+		return txJobRepo.Delete(id)
+	})
 }
 
 func (s *JobService) Duplicate(jobID string, newDeadline time.Time, newQty int) (*domain.Job, error) {

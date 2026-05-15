@@ -31,10 +31,10 @@ func NewChatbotApprovalHandler(
 // @Produce json
 // @Param id path string true "Approval ID"
 // @Param fields query string false "Comma-separated fields to return"
-// @Success 200 {object} dto.Response{data=domain.ChatbotApproval}
+// @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /chatbot/approval/{id} [get]
+// @Router /ai/chatbot/approvals/{id} [get]
 func (h *ChatbotApprovalHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -60,7 +60,8 @@ func (h *ChatbotApprovalHandler) Get(c *gin.Context) {
 // @Success 200 {object} dto.Response{data=map[string]interface{}}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /chatbot/approval/{id}/approve [post]
+// @Router /ai/chatbot/approvals [post]
+// @Router /ai/chatbot/approvals/{id}/approve [post]
 func (h *ChatbotApprovalHandler) Approve(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -100,10 +101,10 @@ func (h *ChatbotApprovalHandler) Approve(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param id path string true "Approval ID"
-// @Success 200 {object} dto.Response{data=domain.ChatbotApproval}
+// @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /chatbot/approval/{id}/reject [post]
+// @Router /ai/chatbot/approvals/{id}/reject [post]
 func (h *ChatbotApprovalHandler) Reject(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -136,10 +137,10 @@ func (h *ChatbotApprovalHandler) Reject(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Param id path string true "Chat ID"
-// @Success 200 {object} dto.Response{data=[]domain.ChatbotApproval}
+// @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /chatbot/approval/pending [get]
+// @Router /ai/chats/{id}/approvals [get]
 func (h *ChatbotApprovalHandler) ListPending(c *gin.Context) {
 	chatId := c.Param("id")
 	if chatId == "" {

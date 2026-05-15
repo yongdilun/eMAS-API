@@ -70,16 +70,16 @@ type SchedulingSettingsResponse struct {
 	UpdatedAt              string   `json:"updated_at,omitempty"`
 }
 
+// @Summary Get scheduling settings
+// @Description Get scheduling settings
+// @Tags scheduling
+// @Accept json
+// @Produce json
+// @Success 200 {object} dto.Response{data=SchedulingSettingsResponse}
+// @Failure 400 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /scheduling/settings [get]
 func (h *SchedulingSettingsHandler) Get(c *gin.Context) {
-	// @Summary Get scheduling settings
-	// @Description Get scheduling settings
-	// @Tags scheduling
-	// @Accept json
-	// @Produce json
-	// @Success 200 {object} dto.Response{data=SchedulingSettingsResponse}
-	// @Failure 400 {object} dto.Response
-	// @Failure 500 {object} dto.Response
-	// @Router /scheduling/settings [get]
 	lockMins := defaultLockInWindowMinutes
 	penalty := defaultDeviationPenaltyWeight
 	splitStrategy := defaultSplitStrategy
@@ -377,15 +377,6 @@ func (h *SchedulingSettingsHandler) Update(c *gin.Context) {
 	h.Get(c)
 }
 
-// @Summary Is time before
-// @Description Is time before
-// @Tags scheduling
-// @Accept json
-// @Produce json
-// @Success 200 {object} dto.Response{data=bool}
-// @Failure 400 {object} dto.Response
-// @Failure 500 {object} dto.Response
-// @Router /scheduling/is-time-before [get]
 func isTimeBefore(a, b string) bool {
 	ta, errA := time.Parse("15:04", strings.TrimSpace(a))
 	tb, errB := time.Parse("15:04", strings.TrimSpace(b))
@@ -395,15 +386,6 @@ func isTimeBefore(a, b string) bool {
 	return ta.Before(tb)
 }
 
-// @Summary Validate work days
-// @Description Validate work days
-// @Tags scheduling
-// @Accept json
-// @Produce json
-// @Success 200 {object} dto.Response{data=error}
-// @Failure 400 {object} dto.Response
-// @Failure 500 {object} dto.Response
-// @Router /scheduling/validate-work-days [get]
 func validateWorkDays(s string) error {
 	seen := make(map[rune]bool)
 	for _, p := range strings.Split(s, ",") {
@@ -423,15 +405,6 @@ func validateWorkDays(s string) error {
 	return nil
 }
 
-// @Summary Is valid ISO date
-// @Description Is valid ISO date
-// @Tags scheduling
-// @Accept json
-// @Produce json
-// @Success 200 {object} dto.Response{data=bool}
-// @Failure 400 {object} dto.Response
-// @Failure 500 {object} dto.Response
-// @Router /scheduling/is-valid-iso-date [get]
 func isValidISODate(s string) bool {
 	_, err := time.Parse("2006-01-02", strings.TrimSpace(s))
 	return err == nil

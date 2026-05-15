@@ -35,15 +35,6 @@ func minuteDiffAvgExpr(db *gorm.DB, startCol, endCol string) string {
 	}
 }
 
-// @Summary Parse date range
-// @Description Parse date range
-// @Tags reports
-// @Accept json
-// @Produce json
-// @Success 200 {object} dto.Response{data=time.Time}
-// @Failure 400 {object} dto.Response
-// @Failure 500 {object} dto.Response
-// @Router /reports/parse-date-range [get]
 func (h *ReportsHandler) parseDateRange(c *gin.Context) (start, end time.Time, ok bool) {
 	startStr := c.Query("start")
 	endStr := c.Query("end")
@@ -244,7 +235,7 @@ func (h *ReportsHandler) QualityTrends(c *gin.Context) {
 // @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /reports/oee-trends [get]
+// @Router /reports/oee [get]
 func (h *ReportsHandler) OEETrends(c *gin.Context) {
 	start, end, ok := h.parseDateRange(c)
 	if !ok {
@@ -298,7 +289,7 @@ func (h *ReportsHandler) OEETrends(c *gin.Context) {
 // @Success 200 {object} dto.Response
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /reports/bottleneck-forecast [get]
+// @Router /reports/bottlenecks [get]
 func (h *ReportsHandler) BottleneckForecast(c *gin.Context) {
 	var results []struct {
 		MachineID   string  `json:"machine_id"`

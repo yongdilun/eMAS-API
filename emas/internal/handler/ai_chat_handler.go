@@ -22,6 +22,14 @@ func NewAIChatHandler(chatService service.ChatConversationService) *AIChatHandle
 	return &AIChatHandler{chatService: chatService}
 }
 
+type CreateConversationRequest struct {
+	Title string `json:"title"`
+}
+
+type SendMessageRequest struct {
+	Query string `json:"query" binding:"required"`
+}
+
 // @Summary List all conversations
 // @Description List all conversations
 // @Tags ai chats
@@ -30,36 +38,6 @@ func NewAIChatHandler(chatService service.ChatConversationService) *AIChatHandle
 // @Success 200 {object} dto.Response{data=[]domain.AIConversation}
 // @Failure 500 {object} dto.Response
 // @Router /ai/chats [get]
-type CreateConversationRequest struct {
-	Title string `json:"title"`
-}
-
-// @Summary Create a new conversation
-// @Description Create a new conversation
-// @Tags ai chats
-// @Accept json
-// @Produce json
-// @Param request body CreateConversationRequest true "Create Conversation Request"
-// @Success 201 {object} dto.Response{data=domain.AIConversation}
-// @Failure 400 {object} dto.Response
-// @Failure 500 {object} dto.Response
-// @Router /ai/chats [post]
-type SendMessageRequest struct {
-	Query string `json:"query" binding:"required"`
-}
-
-// @Summary Send a message to a conversation
-// @Description Send a message to a conversation
-// @Tags ai chats
-// @Accept json
-// @Produce json
-// @Param id path string true "Conversation ID"
-// @Param request body SendMessageRequest true "Send Message Request"
-// @Success 200 {object} dto.Response{data=domain.AIChatMessage}
-// @Failure 400 {object} dto.Response
-// @Failure 500 {object} dto.Response
-// @Router /ai/chats/{id}/messages [post]
-
 func (h *AIChatHandler) List(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
@@ -88,7 +66,6 @@ func (h *AIChatHandler) List(c *gin.Context) {
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /ai/chats [post]
-
 func (h *AIChatHandler) Create(c *gin.Context) {
 	var req CreateConversationRequest
 	_ = c.ShouldBindJSON(&req)
@@ -112,7 +89,6 @@ func (h *AIChatHandler) Create(c *gin.Context) {
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /ai/chats/{id} [get]
-
 func (h *AIChatHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -145,7 +121,6 @@ func (h *AIChatHandler) Get(c *gin.Context) {
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /ai/chats/{id}/messages [post]
-
 func (h *AIChatHandler) SendMessage(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -183,18 +158,6 @@ func (h *AIChatHandler) SendMessage(c *gin.Context) {
 	// Response shape matches POST /ai/command per spec
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: res})
 }
-
-// @Summary Convert a conversation to a response
-// @Description Convert a conversation to a response
-// @Tags ai chats
-// @Accept json
-// @Produce json
-// @Param conv body domain.AIConversation true "Conversation"
-// @Param msgs body []domain.AIChatMessage true "Messages"
-// @Success 200 {object} dto.Response{data=map[string]interface{}}
-// @Failure 400 {object} dto.Response
-// @Failure 500 {object} dto.Response
-// @Router /ai/chats/{id}/messages [post]
 
 func toConversationResponse(conv *domain.AIConversation, msgs []domain.AIChatMessage) map[string]interface{} {
 	messageList := make([]map[string]interface{}, 0, len(msgs))

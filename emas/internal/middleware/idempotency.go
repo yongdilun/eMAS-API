@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"emas/internal/domain"
+	"emas/internal/handler/dto"
 	"encoding/hex"
 	"io"
 	"net/http"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+var idempotencyLocks sync.Map
 
 type responseBodyWriter struct {
 	gin.ResponseWriter
@@ -37,14 +41,18 @@ func IdempotencyMiddleware(db *gorm.DB) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		lockValue, _ := idempotencyLocks.LoadOrStore(key, &sync.Mutex{})
+		lock := lockValue.(*sync.Mutex)
+		lock.Lock()
+		defer lock.Unlock()
 
 		// Buffer body for hashing
 		bodyBytes, err := io.ReadAll(c.Request.Body)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
+			c.AbortWithStatusJSON(http.StatusBadRequest, dto.Response{Success: false, Error: "Failed to read request body"})
 			return
 		}
-		
+
 		// Restore body
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
@@ -59,9 +67,7 @@ func IdempotencyMiddleware(db *gorm.DB) gin.HandlerFunc {
 		if result.Error == nil {
 			// Found in DB
 			if log.RequestHash != requestHash {
-				c.AbortWithStatusJSON(http.StatusConflict, gin.H{
-					"error": "Idempotency key reused with different payload",
-				})
+				c.AbortWithStatusJSON(http.StatusConflict, dto.Response{Success: false, Error: "Idempotency key reused with different payload"})
 				return
 			}
 
@@ -72,7 +78,7 @@ func IdempotencyMiddleware(db *gorm.DB) gin.HandlerFunc {
 			return
 		} else if result.Error != gorm.ErrRecordNotFound {
 			// DB Error
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Database error checking idempotency"})
+			c.AbortWithStatusJSON(http.StatusInternalServerError, dto.Response{Success: false, Error: "Database error checking idempotency"})
 			return
 		}
 
@@ -90,7 +96,7 @@ func IdempotencyMiddleware(db *gorm.DB) gin.HandlerFunc {
 			Response:    w.body.Bytes(),
 			StatusCode:  c.Writer.Status(),
 		}
-		
+
 		// Use Create (if multiple requests arrive at exact same time, only one will succeed due to primary key constraint)
 		db.Create(&newLog)
 	}

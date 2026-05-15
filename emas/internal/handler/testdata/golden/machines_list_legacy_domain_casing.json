@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "CapacityPerHour": 42,
+      "DefaultChangeoverTime": 20,
+      "DefaultCleaningTime": 10,
+      "DefaultSetupTime": 15,
+      "LastMaintenanceDate": "2026-05-01T08:30:00Z",
+      "Location": "Cell A",
+      "MachineID": "M-GOLDEN",
+      "MachineName": "Golden CNC",
+      "MachineType": "CNC",
+      "MaintenanceIntervalDays": 30,
+      "UtilizationRate": 87.5,
+      "status": "running"
+    }
+  ],
+  "success": true
+}

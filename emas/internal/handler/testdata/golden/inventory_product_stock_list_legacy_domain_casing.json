@@ -1,0 +1,15 @@
+{
+  "data": [
+    {
+      "AvailableFrom": "2026-05-21T10:00:00Z",
+      "InventoryID": "PINV-GOLDEN",
+      "LastUpdated": "2026-05-20T10:00:00Z",
+      "ProductID": "P-GOLDEN",
+      "QuantityOnHand": 80,
+      "QuantityReserved": 15,
+      "StorageLocation": "Finished G",
+      "status": "available"
+    }
+  ],
+  "success": true
+}

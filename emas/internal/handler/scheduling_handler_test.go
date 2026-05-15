@@ -256,7 +256,10 @@ func testSchedulingTrainingDatasetMaintenanceFlow(t *testing.T, db *gorm.DB, r *
 		t.Fatal("expected zero rows before explicit backfill")
 	}
 
-	w = testutil.Request(r, "POST", "/api/v1/scheduling/training-dataset/backfill", nil)
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/scheduling/training-dataset/backfill", nil, map[string]string{
+		"X-User-Id":   "test-planner",
+		"X-User-Role": "planner",
+	})
 	if w.Code != http.StatusOK {
 		t.Fatalf("training dataset backfill: got %d, body: %s", w.Code, w.Body.String())
 	}
