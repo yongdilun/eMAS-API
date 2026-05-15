@@ -19,7 +19,7 @@ Use one of: `Not started`, `In progress`, `Passed`, `Failed`, `Skipped`, `Could 
 | 2 | Review all branches before merging | Passed | Reviewed `git log`, `git diff --stat`, `git diff --name-status`, shared file overlap, and watchpoint paths for all three audit branches. No merges performed. |
 | 3 | Merge Go backend branch | Passed | `audit/go-backend-phase-5` merged cleanly with no conflicts in merge commit `b3161cf`. Initial handler failures were fixed in Phase 3 stabilization; `go test ./...` and `go test ./internal/e2e` now pass. Phase 4 is ready to start. |
 | 4 | Merge Factory Agent branch | Passed | `audit/factory-agent` merged in `9b42d3a` after one documentation conflict was resolved. Initial `python -m pytest factory-agent/tests` exited 1 because pytest could not create/use the default temp root `C:\Users\dilun\AppData\Local\Temp\pytest-of-dilun`; the same full suite passed when rerun with a repo-local `--basetemp ".pytest-basetemp"`. Targeted checks passed/skipped as noted below. Phase 5 is ready to start. |
-| 5 | Merge frontend branch | Not started | Branch: `audit/frontend-phase-5`. |
+| 5 | Merge frontend branch | Passed | `audit/frontend-phase-5` merged in `d7cc9f1` after one documentation conflict was resolved. Frontend build, overlap check, and `npm test` passed. `npm run lint` failed on the known source lint backlog, and `npm run factory-agent-smoke` failed on local Factory Agent planning `503 {"detail":{"errors":["Connection error."]}}`. Phase 6 is ready to start with known risks. |
 | 6 | Full integration verification | Not started | Run after all three merges are complete. |
 | 7 | Cross-layer contract check | Not started | Run after integration verification. |
 | 8 | Final report | Not started | Stop after report; do not merge to `main`. |
@@ -64,18 +64,20 @@ Use one of: `Not started`, `In progress`, `Passed`, `Failed`, `Skipped`, `Could 
 |---|---|---|---|---|---|
 | 1 | `audit/go-backend-phase-5` | Merged cleanly with `git merge --no-ff audit/go-backend-phase-5` (`b3161cf`), then stabilized on the integration branch. | None | `go test ./...` passed; `go test ./internal/e2e` passed; targeted handler regression subset passed. | Yes |
 | 2 | `audit/factory-agent` | Merged with `git merge --no-ff audit/factory-agent`; merge completed as `9b42d3a Merge branch 'audit/factory-agent' into integration/qa-upgrade-merge`. | One conflict in `factory-agent/CODE_PRACTICE_RULES.md`, resolved before committing. | Initial full Factory Agent suite failed under the default pytest temp path: 489 passed, 4 skipped, 20 xfailed, 3 errors. Full suite rerun with repo-local `--basetemp` passed: 492 passed, 4 skipped, 20 xfailed. Seed manifest targeted check passed. Live RAG targeted check skipped because opt-in env vars are missing. | Yes |
-| 3 | `audit/frontend-phase-5` | Not started |  |  |  |
+| 3 | `audit/frontend-phase-5` | Merged with `git merge --no-ff audit/frontend-phase-5`; merge completed as `d7cc9f1 Merge branch 'audit/frontend-phase-5' into integration/qa-upgrade-merge`. | One conflict in `FRONTEND_FIX_PROGRESS.md`, resolved before committing. | `npm install` passed with dependency audit warnings; `npm run lint` failed with 35 errors and 22 warnings; `npm run build` passed; `npm run verify-overlaps` passed; `npm run factory-agent-smoke` failed on local Factory Agent planning 503; `npm test` passed 48 tests. | Yes, with known risks |
 
 ## Conflicts Resolved
 
 If no conflicts are found, write: `No merge conflicts were found.`
 
 Phase 3 found no merge conflicts. Phase 4 found one merge conflict and it was resolved.
+Phase 5 found one merge conflict and it was resolved.
 
 | File | Cause | Resolution | Why Safe |
 |---|---|---|---|
 | None | Go backend branch merged cleanly using Git `ort` strategy. | No conflict resolution was needed. | Phase 2 tracker updates were already committed before merge; Go backend API contract changes were accepted through the clean merge. |
 | `factory-agent/CODE_PRACTICE_RULES.md` | The integration side contained frontend phase/window worktree rules that were absent on `audit/factory-agent`. | Kept the integration-side frontend phase/window rules and removed only the conflict markers. | Documentation-only conflict. It preserves prior integration rules and does not touch OpenAPI, `tools.md`, Go backend API contract changes, Factory Agent runtime/session/approval/SSE behavior, or tracker history. |
+| `FRONTEND_FIX_PROGRESS.md` | The integration side contained older baseline branch/worktree checklist rows while `audit/frontend-phase-5` contained the completed frontend phase tracker. | Kept the frontend branch's completed baseline entry and removed the conflict markers. | Documentation-only conflict. It preserves the completed frontend Phase 0-5 evidence and does not touch OpenAPI, Swagger, `tools.md`, Go backend API contract changes, Factory Agent runtime/session/approval/SSE behavior, or the QA integration tracker history. |
 
 ## Tests and Checks
 
@@ -100,11 +102,15 @@ Phase 3 found no merge conflicts. Phase 4 found one merge conflict and it was re
 | Live RAG check | `python -m pytest factory-agent/tests/test_rag_live_llm.py` | Skipped | 1 skipped, 1 warning in 0.55s. |
 | Live RAG skip reason check | `python -m pytest -rs factory-agent/tests/test_rag_live_llm.py` | Skipped | 1 skipped, 1 warning in 0.71s. Skip reason: `FACTORY_AGENT_LIVE_RAG / FACTORY_AGENT_LIVE_LLM not set; live RAG eval is opt-in.` |
 | RAG ingestion temp-base diagnostic | `python -m pytest factory-agent/tests/test_rag_ingestion.py --basetemp ".pytest-basetemp"` | Passed | 3 passed, 3 warnings in 16.41s. This indicates the full-suite errors are tied to the default Windows temp directory permission, not the three ingestion tests themselves. |
-| Frontend install | `npm install` from `eMas Front` | Not started |  |
-| Frontend lint | `npm run lint` from `eMas Front` | Not started |  |
-| Frontend build | `npm run build` from `eMas Front` | Not started |  |
-| Frontend overlap check | `npm run verify-overlaps` from `eMas Front` | Not started |  |
-| Frontend factory-agent smoke | `npm run factory-agent-smoke` from `eMas Front` | Not started |  |
+| Phase 5 pre-merge branch/status gate | `git branch --show-current`; `git status --short --branch` from repo root | Passed | Branch was `integration/qa-upgrade-merge`; status output was only `## integration/qa-upgrade-merge`. |
+| Frontend merge | `git merge --no-ff audit/frontend-phase-5` from repo root, then `git commit --no-edit` after resolving the conflict | Passed | Initial merge stopped with one conflict in `FRONTEND_FIX_PROGRESS.md`; conflict was resolved and merge commit `d7cc9f1` was created. |
+| Phase 5 post-merge status | `git status --short --branch` from repo root | Passed | Output was only `## integration/qa-upgrade-merge` after the merge commit. |
+| Frontend install | `npm install` from `eMas Front` | Passed | Added/audited 371 packages in 7s. Reported 12 vulnerabilities (5 moderate, 7 high) and deprecation warnings for `inflight`, `@humanwhocodes/config-array`, `rimraf`, `glob`, `@humanwhocodes/object-schema`, and `eslint@8.57.1`. |
+| Frontend lint | `npm run lint` from `eMas Front` | Failed | Exit code 1. Summary: 57 problems (35 errors, 22 warnings). Failures match the known source lint backlog: unused variables, hook dependency warnings, and fast-refresh warnings. |
+| Frontend build | `npm run build` from `eMas Front` | Passed | Vite build passed in 1.44s. Initial `index` JS chunk was 179.72 kB; `AIAssistantModal` chunk was 114.98 kB; routed pages were emitted as separate chunks. |
+| Frontend overlap check | `npm run verify-overlaps` from `eMas Front` | Passed | Found 26 jobs and 26 proposal IDs. Local partial-overlap check found no overlaps. API checks returned `valid: true`, `total_slots: 89`, `overlap_count: 0` for proposals and `valid: true`, `total_slots: 0`, `overlap_count: 0` for applied. |
+| Frontend factory-agent smoke | `npm run factory-agent-smoke` from `eMas Front` | Failed | Session was created and message was added, then `POST /sessions/{id}/plans` failed with `[503] ... {"detail":{"errors":["Connection error."]}}`. Node also printed `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 76` after the smoke failure. |
+| Frontend npm test | `npm test` from `eMas Front` | Passed | 48 tests passed, 0 failed, 0 skipped, duration 6297.8132 ms. |
 | Full seeded scenario runner | `.\tests\e2e\run_seed_pipeline.ps1` from repo root | Not started |  |
 | Docker Compose build | `docker compose build` | Not started |  |
 | Docker Compose startup | `docker compose up -d` and `docker compose ps` | Not started |  |
@@ -139,7 +145,9 @@ Phase 3 found no merge conflicts. Phase 4 found one merge conflict and it was re
 Record untested or uncertain items here:
 
 - Phase 4 full-suite testing depends on avoiding the inaccessible default pytest temp root `C:\Users\dilun\AppData\Local\Temp\pytest-of-dilun`. The suite passed with a repo-local `--basetemp`, but the underlying machine temp permission issue remains outside the integration worktree.
-- Frontend has not been merged. Remaining frontend conflict risk is inferred from changed files only; actual conflicts may still appear in Phase 5.
+- Frontend branch has been merged, but the frontend lint gate still fails on the known source lint backlog: 35 errors and 22 warnings.
+- Frontend Factory Agent smoke failed because local Factory Agent planning returned `503 {"detail":{"errors":["Connection error."]}}` after session creation and message add. This matches the frontend Phase 0 baseline planner-unavailable behavior and needs Phase 6/service-level investigation before final release recommendation.
+- `npm install` reported 12 vulnerabilities (5 moderate, 7 high) and deprecated package warnings. No audit remediation was attempted during Phase 5.
 - `emas/docs/swagger.json` and `emas/docs/swagger.yaml` changed, but `rag_sources/01_emas_internal_docs/api_reference/openapi.json` did not; this needs a later cross-layer contract check.
 - Factory Agent route/service behavior changed, but `factory-agent/factory_agent/tools.md` and `rag_sources/01_emas_internal_docs/api_reference/tools.md` did not; tool documentation and generated tool definitions need verification later.
 - The Go backend adds `002_ml_training_events_lineage.sql`; database migration safety and seed data compatibility remain unverified.
@@ -155,4 +163,4 @@ Choose one after Phase 7:
 - Safe to merge into main with minor known risks.
 - Not safe to merge into main yet.
 
-Current recommendation: `Not safe to merge into main yet` because phases 5 through 7 have not been run.
+Current recommendation: `Not safe to merge into main yet` because phases 6 and 7 have not been run, and Phase 5 found known lint and Factory Agent smoke failures that need follow-up before a final release recommendation.
