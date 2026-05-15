@@ -4,7 +4,7 @@ import time
 from typing import List, Dict, Any, Optional
 
 from factory_agent.config import Settings, get_settings
-from factory_agent.llm.models import build_bge_reranker
+from factory_agent.llm.models import build_bge_reranker, build_rag_reranker_chat_model
 from factory_agent.rag.schemas import Chunk, ScoredChunk
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,11 @@ class LLMReranker:
 
     def __init__(self, settings: Optional[Settings] = None):
         self.settings = settings or get_settings()
-        self.model = build_bge_reranker(self.settings)
+        try:
+            self.model = build_bge_reranker(self.settings)
+        except Exception:
+            self.model = None
+        self.llm = None
 
     def rerank(
         self, 
@@ -50,6 +54,12 @@ class LLMReranker:
         start_time = time.time()
         
         try:
+            legacy_llm = getattr(self, "llm", None)
+            if legacy_llm is not None:
+                return self._rerank_with_legacy_llm(query, candidates, route, top_k)
+            if self.model is None:
+                return self._fallback_rerank(candidates, top_k)
+
             # 1. Prepare pairs for BGE
             # We include metadata summary in the doc text to help BGE understand context
             pairs = []
@@ -60,6 +70,8 @@ class LLMReranker:
             
             # 2. Compute semantic scores
             scores = self.model.compute_score(pairs, max_length=1024)
+            if not isinstance(scores, list):
+                scores = [scores]
             
             # 3. Apply industrial boosts (Authority and Safety)
             # We combine the semantic BGE score with our rule-based boosts
@@ -100,6 +112,40 @@ class LLMReranker:
 
         except Exception as e:
             logger.error(f"BGE Reranker failed: {e}. Falling back to initial boosted scores.")
+            return self._fallback_rerank(candidates, top_k)
+
+    def _rerank_with_legacy_llm(
+        self,
+        query: str,
+        candidates: List[ScoredChunk],
+        route: str,
+        top_k: int,
+    ) -> List[Chunk]:
+        """Compatibility path for older tests and deployments that inject an LLM reranker."""
+        try:
+            prompt = json.dumps(
+                {
+                    "query": query,
+                    "route": route,
+                    "candidate_ids": [sc.chunk.chunk_id for sc in candidates],
+                }
+            )
+            response = self.llm.invoke(prompt)
+            content = getattr(response, "content", response)
+            ranked_ids = json.loads(content)
+            if not isinstance(ranked_ids, list):
+                raise ValueError("reranker response must be a JSON list")
+            by_id = {sc.chunk.chunk_id: sc.chunk for sc in candidates}
+            ordered = [by_id[str(chunk_id)] for chunk_id in ranked_ids if str(chunk_id) in by_id]
+            seen = {chunk.chunk_id for chunk in ordered}
+            ordered.extend(sc.chunk for sc in candidates if sc.chunk.chunk_id not in seen)
+            scored = [
+                ScoredChunk(chunk=chunk, boosted_score=float(len(ordered) - idx))
+                for idx, chunk in enumerate(ordered)
+            ]
+            return self._process_candidates(query, route, scored, top_k)
+        except Exception as e:
+            logger.error(f"LLM Reranker failed: {e}. Falling back to initial boosted scores.")
             return self._fallback_rerank(candidates, top_k)
 
     def _process_candidates(

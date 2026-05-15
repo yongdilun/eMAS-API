@@ -263,8 +263,14 @@ def test_pause_resume_live_instruction_update_rejects_stale_approval_and_complet
                 json={"decided_by": "operator"},
             )
             assert approved.status_code == 200, approved.text
-            final_snapshot = await client.get(f"/sessions/{session_id}/snapshot")
-            final_body = final_snapshot.json()
+            final_body = None
+            for _ in range(20):
+                final_snapshot = await client.get(f"/sessions/{session_id}/snapshot")
+                final_body = final_snapshot.json()
+                if final_body["session"]["status"] == "COMPLETED":
+                    break
+                await asyncio.sleep(0.05)
+            assert final_body is not None
             assert final_body["session"]["status"] == "COMPLETED"
             assert final_body["pending_approval"] is None
             assert "JOB-NEW-004" in json.dumps(final_body)

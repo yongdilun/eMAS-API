@@ -7,10 +7,47 @@ from factory_agent.rag.schemas import DocumentEntry
 
 TEST_DB_PATH = "factory_agent/rag/test_vector_db"
 TEST_BM25_PATH = "factory_agent/rag/test_bm25_index.pkl"
-TEST_REGISTER = "../rag_sources/source_register.json"
+
+
+def _write_test_register(tmp_path):
+    sources = tmp_path / "sources"
+    sources.mkdir()
+    doc_path = sources / "loto.md"
+    doc_path.write_text(
+        "# LOTO SOP\n\n## Lockout\n\nThe LOTO procedure requires locking out all energy sources before maintenance.\n",
+        encoding="utf-8",
+    )
+    register_path = tmp_path / "source_register.json"
+    register_path.write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "doc_id": "SOP-LOTO-001",
+                        "title": "LOTO SOP",
+                        "file_path": str(doc_path),
+                        "source_type": "markdown",
+                        "organization": "eMAS Safety",
+                        "domain": "safety",
+                        "subdomain": "loto",
+                        "authority_level": "mandatory_procedure",
+                        "use_for": ["loto"],
+                        "do_not_use_for": ["live factory status lookup"],
+                        "related_entities": ["machine"],
+                        "risk_level": "high",
+                        "license": "internal",
+                        "version": "1.0",
+                        "retrieved_date": "2026-05-10",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return register_path
 
 @pytest.fixture
-def engine():
+def engine(tmp_path):
     # Cleanup before test
     if os.path.exists(TEST_DB_PATH):
         shutil.rmtree(TEST_DB_PATH, ignore_errors=True)
@@ -21,6 +58,7 @@ def engine():
             pass
         
     engine = IngestionEngine(db_path=TEST_DB_PATH, bm25_path=TEST_BM25_PATH)
+    engine.test_register = str(_write_test_register(tmp_path))
     yield engine
     
     # Cleanup after test
@@ -35,7 +73,7 @@ def engine():
 
 def test_full_ingestion(engine):
     # Requirement I1: Ingest from register
-    engine.run_full_ingestion(TEST_REGISTER)
+    engine.run_full_ingestion(engine.test_register)
     
     # Requirement I2: Vector DB chunk count
     count = engine.collection.count()
@@ -59,27 +97,27 @@ def test_full_ingestion(engine):
         assert "risk_level" in meta
         
         # I5: List types
-        assert isinstance(meta["use_for"], list)
-        assert isinstance(meta["do_not_use_for"], list)
+        assert isinstance(json.loads(meta["use_for"]), list)
+        assert isinstance(json.loads(meta["do_not_use_for"]), list)
         
         # I9: Section prefixing
         assert text.startswith("[Section:")
 
 def test_reingestion_logic(engine):
     # First ingestion
-    engine.run_full_ingestion(TEST_REGISTER)
+    engine.run_full_ingestion(engine.test_register)
     initial_count = engine.collection.count()
     
     # Requirement I6: Re-ingest unchanged doc (should skip)
-    engine.run_full_ingestion(TEST_REGISTER)
+    engine.run_full_ingestion(engine.test_register)
     assert engine.collection.count() == initial_count
     
     # Requirement I7: Re-ingest with changed version
-    with open(TEST_REGISTER, 'r') as f:
+    with open(engine.test_register, 'r') as f:
         data = json.load(f)
         data['documents'][0]['version'] = "2.0"
         
-    temp_register = "../rag_sources/temp_register.json"
+    temp_register = os.path.join(os.path.dirname(engine.test_register), "temp_register.json")
     with open(temp_register, 'w') as f:
         json.dump(data, f)
         

@@ -139,6 +139,8 @@ class AnswerGenerator:
             safety_text = None
             if has_high_risk:
                 safety_text = "This topic involves high-risk industrial procedures. Always follow your site's approved SOP, obtain required permits, and consult your safety officer before proceeding."
+                if SAFETY_WARNING_BLOCK.strip() not in answer_text:
+                    answer_text = f"{SAFETY_WARNING_BLOCK.strip()}\n\n{answer_text}".strip()
 
             # 6. Build citations (one per unique document)
             sources = [self.build_source_citation(c, i + 1) for i, c in enumerate(unique_doc_chunks)]
@@ -179,11 +181,13 @@ class AnswerGenerator:
                 route_used=route
             )
 
-    def build_context(self, chunks: List[Chunk], source_numbers: List[int]) -> str:
+    def build_context(self, chunks: List[Chunk], source_numbers: Optional[List[int]] = None) -> str:
         """
         Format selected chunks into a structured context block (6.1).
         Uses provided source_numbers to ensure chunks from the same doc share a citation ID.
         """
+        if source_numbers is None:
+            source_numbers = list(range(1, len(chunks) + 1))
         context_parts = []
         for chunk, src_num in zip(chunks, source_numbers):
             meta = chunk.metadata

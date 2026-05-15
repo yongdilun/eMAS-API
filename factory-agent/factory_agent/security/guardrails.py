@@ -32,15 +32,7 @@ _PLACEHOLDER_VALUES: frozenset[str] = frozenset(
 _SAFE_CONTROL_FIELDS: frozenset[str] = frozenset(
     {
         "limit",
-        "offset",
-        "page",
-        "page_size",
-        "sort_by",
-        "sort_dir",
-        "order_by",
-        "order_dir",
         "fields",
-        "ids_only",
     }
 )
 
@@ -277,6 +269,20 @@ def strip_unsupported_optional_args(
 
     clean: dict[str, Any] = {}
     dropped: list[str] = []
+
+    def _safe_control_supported(field: str, value: Any) -> bool:
+        if field == "fields":
+            return not is_placeholder(value)
+        if field == "limit":
+            try:
+                # Keep intentional broad-read caps inserted by deterministic planning
+                # (for example bulk update preflight reads), but strip common LLM
+                # default pagination like limit=10/offset=0 with no user grounding.
+                return int(value) >= 100
+            except Exception:
+                return False
+        return False
+
     for field, value in (args or {}).items():
         if field in required_fields:
             clean[field] = value
@@ -294,7 +300,7 @@ def strip_unsupported_optional_args(
                 or (isinstance(resolved_predicates, dict) and field in resolved_predicates)
             )
         )
-        control_supported = field in _SAFE_CONTROL_FIELDS and not is_placeholder(value)
+        control_supported = field in _SAFE_CONTROL_FIELDS and _safe_control_supported(field, value)
         if supported or control_supported:
             clean[field] = value
             continue

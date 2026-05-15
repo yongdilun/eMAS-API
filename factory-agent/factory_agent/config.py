@@ -32,6 +32,7 @@ class Settings:
     admin_api_key: str = "changeme-admin-key"
     retry_base_delay_s: float = 0.25
     retry_max_delay_s: float = 5.0
+    planner_max_retries: int = 2
     max_foreach_items: int = 50
     max_auto_pages: int = 5
     foreach_page_size: int = 50
@@ -189,6 +190,7 @@ def get_settings() -> Settings:
         in {"1", "true", "yes"},
         retry_base_delay_s=float(os.getenv("RETRY_BASE_DELAY_S", "0.25")),
         retry_max_delay_s=float(os.getenv("RETRY_MAX_DELAY_S", "5.0")),
+        planner_max_retries=int(os.getenv("PLANNER_MAX_RETRIES", "2")),
         max_foreach_items=int(os.getenv("MAX_FOREACH_ITEMS", "50")),
         max_auto_pages=int(os.getenv("MAX_AUTO_PAGES", "5")),
         foreach_page_size=int(os.getenv("FOREACH_PAGE_SIZE", "50")),

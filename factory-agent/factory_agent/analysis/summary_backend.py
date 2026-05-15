@@ -31,7 +31,7 @@ def awaiting_approval_markdown_from_bundle_ui(facts: dict[str, Any]) -> str | No
         [
             hl,
             "",
-            "The change list is shown in the table below.",
+            "The change list is shown in the in-app table below.",
             "",
             "Please approve to continue.",
         ]
