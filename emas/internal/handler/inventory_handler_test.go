@@ -59,6 +59,26 @@ func TestInventoryHandler_ConsumeReceive(t *testing.T) {
 	}
 }
 
+func TestInventoryHandler_ConsumeInsufficientStockReturnsConflict(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	r := testutil.NewTestRouter(db, router.Setup)
+	testutil.Request(r, "POST", "/api/v1/inventory/materials", map[string]interface{}{
+		"material_id": "MAT-LOW", "material_name": "Low Steel", "current_stock": 5,
+		"min_stock": 2, "unit": "kg",
+	})
+
+	w := testutil.Request(r, "POST", "/api/v1/inventory/consume", map[string]interface{}{
+		"material_id": "MAT-LOW", "quantity": 6,
+	})
+	if w.Code != http.StatusConflict {
+		t.Fatalf("consume insufficient stock: got %d, want 409, body: %s", w.Code, w.Body.String())
+	}
+	success, _, errMsg := testutil.DecodeResponse(w)
+	if success || errMsg == "" {
+		t.Fatalf("error envelope = success:%v error:%q, want failure with message", success, errMsg)
+	}
+}
+
 func TestInventoryHandler_ProductStockListOptions(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	r := testutil.NewTestRouter(db, router.Setup)

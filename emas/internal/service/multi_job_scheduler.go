@@ -548,6 +548,7 @@ func (s *AIPredictiveService) validateProposalSlotsStrict(jobID string, proposal
 	if proposal == nil {
 		return nil
 	}
+	ignoreMinSplitByStep := temporalSliceProposalStepIDs(proposal)
 	slots := make([]ProposedSlot, len(proposal.ProposedSlots))
 	copy(slots, proposal.ProposedSlots)
 	sort.SliceStable(slots, func(i, j int) bool {
@@ -568,7 +569,7 @@ func (s *AIPredictiveService) validateProposalSlotsStrict(jobID string, proposal
 		if !prevEnd.IsZero() && slot.ScheduledStart.Before(prevEnd) {
 			return newSchedulingActionError(422, fmt.Sprintf("reason_code=calendar_or_constraint_blocked proposal slot invalid (job_id=%s, step=%s, machine=%s, start=%s, end=%s): step precedence violated in proposal chain", jobID, slot.JobStepID, slot.MachineID, slot.ScheduledStart.In(time.Local).Format(time.RFC3339), slot.ScheduledEnd.In(time.Local).Format(time.RFC3339)))
 		}
-		validation, err := s.scheduling.validateSlotCoreResultForStep(processStep, slot.MachineID, slot.ScheduledStart, slot.ScheduledEnd, maxInt(slot.QuantityPlanned, 1), "")
+		validation, err := s.scheduling.validateSlotCoreResultForStepWithOptions(processStep, slot.MachineID, slot.ScheduledStart, slot.ScheduledEnd, maxInt(slot.QuantityPlanned, 1), "", SlotValidationOptions{IgnoreMinSplitQty: ignoreMinSplitByStep[slot.JobStepID]})
 		if err != nil {
 			return newSchedulingActionError(422, fmt.Sprintf("proposal slot validation failed (job_id=%s, step=%s, machine=%s, start=%s, end=%s): %v", jobID, slot.JobStepID, slot.MachineID, slot.ScheduledStart.UTC().Format(time.RFC3339), slot.ScheduledEnd.UTC().Format(time.RFC3339), err))
 		}
@@ -586,10 +587,38 @@ func (s *AIPredictiveService) validateProposalSlotsStrict(jobID string, proposal
 	return nil
 }
 
+func temporalSliceProposalStepIDs(proposal *SchedulingProposal) map[string]bool {
+	ignore := make(map[string]bool)
+	if proposal == nil || len(proposal.ProposedSlots) <= 1 {
+		return ignore
+	}
+	type stepGroup struct {
+		count       int
+		hasParallel bool
+	}
+	groups := make(map[string]stepGroup)
+	for _, slot := range proposal.ProposedSlots {
+		if slot.JobStepID == "" {
+			continue
+		}
+		group := groups[slot.JobStepID]
+		group.count++
+		group.hasParallel = group.hasParallel || slot.IsParallel
+		groups[slot.JobStepID] = group
+	}
+	for jobStepID, group := range groups {
+		if group.count > 1 && !group.hasParallel {
+			ignore[jobStepID] = true
+		}
+	}
+	return ignore
+}
+
 func (s *AIPredictiveService) firstProposalConflict(proposal *SchedulingProposal, allProposals []*SchedulingProposal, extraTentative []TentativeSlot) (int, string, error) {
 	if proposal == nil {
 		return -1, "", nil
 	}
+	ignoreMinSplitByStep := temporalSliceProposalStepIDs(proposal)
 	prevEnd := time.Time{}
 	for i := range proposal.ProposedSlots {
 		slot := proposal.ProposedSlots[i]
@@ -615,7 +644,7 @@ func (s *AIPredictiveService) firstProposalConflict(proposal *SchedulingProposal
 			}
 		}
 
-		validation, err := s.scheduling.validateSlotCoreResultForStep(processStep, slot.MachineID, slot.ScheduledStart, slot.ScheduledEnd, maxInt(slot.QuantityPlanned, 1), "")
+		validation, err := s.scheduling.validateSlotCoreResultForStepWithOptions(processStep, slot.MachineID, slot.ScheduledStart, slot.ScheduledEnd, maxInt(slot.QuantityPlanned, 1), "", SlotValidationOptions{IgnoreMinSplitQty: ignoreMinSplitByStep[slot.JobStepID]})
 		if err != nil {
 			return i, "slot validation failed", err
 		}
@@ -747,6 +776,7 @@ func (s *AIPredictiveService) chainAwareForwardRepair(proposals []*SchedulingPro
 			if conflictIdx < 0 {
 				continue
 			}
+			ignoreMinSplitByStep := temporalSliceProposalStepIDs(p)
 			slot := p.ProposedSlots[conflictIdx]
 			lastConflict = fmt.Sprintf("job_id=%s step=%s machine=%s start=%s end=%s", p.JobID, slot.JobStepID, slot.MachineID, slot.ScheduledStart.In(time.Local).Format(time.RFC3339), slot.ScheduledEnd.In(time.Local).Format(time.RFC3339))
 			if strings.TrimSpace(conflictReason) != "" {
@@ -785,7 +815,7 @@ func (s *AIPredictiveService) chainAwareForwardRepair(proposals []*SchedulingPro
 				tryStart := searchStart
 				maxRetries := 3
 				for retry := 0; retry < maxRetries; retry++ {
-					start, ok, reasons, diag = s.scheduling.findFeasibleMachineStart(
+					start, ok, reasons, diag = s.scheduling.findFeasibleMachineStartWithOptions(
 						slot.JobStepID,
 						slot.MachineID,
 						processStep,
@@ -796,6 +826,7 @@ func (s *AIPredictiveService) chainAwareForwardRepair(proposals []*SchedulingPro
 						repairBusy,
 						predecessorEnd,
 						repairHorizonEnd,
+						SlotValidationOptions{IgnoreMinSplitQty: ignoreMinSplitByStep[slot.JobStepID]},
 					)
 					if ok {
 						break
@@ -814,7 +845,7 @@ func (s *AIPredictiveService) chainAwareForwardRepair(proposals []*SchedulingPro
 				// in the repairer's eyes, causing apply-time calendar_outside_shift.
 				chosen := start
 				if chosen.Before(slot.ScheduledStart) {
-					anchored, ok2, _, _ := s.scheduling.findFeasibleMachineStart(
+					anchored, ok2, _, _ := s.scheduling.findFeasibleMachineStartWithOptions(
 						slot.JobStepID,
 						slot.MachineID,
 						processStep,
@@ -825,6 +856,7 @@ func (s *AIPredictiveService) chainAwareForwardRepair(proposals []*SchedulingPro
 						repairBusy,
 						predecessorEnd,
 						repairHorizonEnd,
+						SlotValidationOptions{IgnoreMinSplitQty: ignoreMinSplitByStep[slot.JobStepID]},
 					)
 					if ok2 {
 						chosen = anchored
@@ -833,7 +865,7 @@ func (s *AIPredictiveService) chainAwareForwardRepair(proposals []*SchedulingPro
 				}
 				slot.ScheduledStart = chosen
 				slot.ScheduledEnd = chosen.Add(ceilDurationTo30Min(duration))
-				if okVal, vErr := s.scheduling.validateSlotCoreForStep(processStep, slot.MachineID, slot.ScheduledStart, slot.ScheduledEnd, maxInt(slot.QuantityPlanned, 1), ""); vErr != nil || !okVal {
+				if okVal, vErr := s.scheduling.validateSlotCoreForStepWithOptions(processStep, slot.MachineID, slot.ScheduledStart, slot.ScheduledEnd, maxInt(slot.QuantityPlanned, 1), "", SlotValidationOptions{IgnoreMinSplitQty: ignoreMinSplitByStep[slot.JobStepID]}); vErr != nil || !okVal {
 					// Fall back to first search result if anchor produced invalid slot (should be rare).
 					slot.ScheduledStart = start
 					slot.ScheduledEnd = start.Add(ceilDurationTo30Min(duration))

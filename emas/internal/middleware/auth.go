@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"emas/internal/handler/dto"
 	"emas/pkg/featureflags"
 	"net/http"
 	"strings"
@@ -21,23 +22,26 @@ func RequireRoles(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := strings.TrimSpace(c.GetHeader("X-User-Id"))
 		role := strings.ToLower(strings.TrimSpace(c.GetHeader("X-User-Role")))
-		if userID == "" {
-			userID = "system"
-		}
-		if role == "" {
-			role = "planner"
-		}
-		c.Set(ContextUserIDKey, userID)
-		c.Set(ContextUserRoleKey, role)
 		if !featureflags.SchedulingWriteAuthRequired() {
+			if userID == "" {
+				userID = "system"
+			}
+			if role == "" {
+				role = "planner"
+			}
+			c.Set(ContextUserIDKey, userID)
+			c.Set(ContextUserRoleKey, role)
 			c.Next()
 			return
 		}
+		if userID == "" || role == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, dto.Response{Success: false, Error: "missing authenticated user or role"})
+			return
+		}
+		c.Set(ContextUserIDKey, userID)
+		c.Set(ContextUserRoleKey, role)
 		if _, ok := allowed[role]; !ok {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"success": false,
-				"error":   "insufficient role for this action",
-			})
+			c.AbortWithStatusJSON(http.StatusForbidden, dto.Response{Success: false, Error: "insufficient role for this action"})
 			return
 		}
 		c.Next()

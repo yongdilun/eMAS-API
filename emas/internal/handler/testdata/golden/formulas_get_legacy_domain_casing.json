@@ -1,0 +1,13 @@
+{
+  "data": {
+    "CreatedAt": "2026-05-17T10:00:00Z",
+    "EffectiveFrom": null,
+    "EffectiveTo": null,
+    "FormulaID": "F-GOLDEN",
+    "FormulaName": "Golden Formula",
+    "Instructions": "Mix carefully",
+    "SafetyNotes": "Wear gloves",
+    "Version": 3
+  },
+  "success": true
+}

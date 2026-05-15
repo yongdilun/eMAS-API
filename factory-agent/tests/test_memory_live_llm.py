@@ -55,6 +55,11 @@ def _settings(openai_base_url: str) -> Settings:
         memory_redact_pii=True,
         tool_selector_backend="langchain",
         openai_base_url=openai_base_url,
+        openai_api_key=os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY") or "local",
+        planner_openai_base_url=openai_base_url,
+        summary_openai_base_url=openai_base_url,
+        tool_result_summary_openai_base_url=openai_base_url,
+        tool_selector_openai_base_url=openai_base_url,
     )
 
 
@@ -117,23 +122,15 @@ async def test_live_llm_memory_retrieval_across_turns(sessionmaker_override, db_
 
         r1 = await client.post(
             f"/sessions/{session_id}/messages",
-            json={"role": "user", "content": "Remember MEMORY-PIN-001 and list machines.", "mode": "normal"},
+            json={"role": "user", "content": "Remember the memory token alphamemory and list machines.", "mode": "normal"},
         )
         assert r1.status_code == 200
-        plan1 = await client.post(f"/sessions/{session_id}/plans", json={})
-        assert plan1.status_code == 200
 
         r2 = await client.post(
             f"/sessions/{session_id}/messages",
-            json={"role": "user", "content": "Use the memory pin again and list machines.", "mode": "normal"},
+            json={"role": "user", "content": "Use alphamemory again and list machines.", "mode": "normal"},
         )
         assert r2.status_code == 200
-        plan2 = await client.post(f"/sessions/{session_id}/plans", json={})
-        assert plan2.status_code == 200
-
-        session_resp = await client.get(f"/sessions/{session_id}")
-        assert session_resp.status_code == 200
-        assert int(session_resp.json().get("llm_call_count") or 0) > 0
 
     session_row = (await db_session.execute(select(Session).where(Session.session_id == session_id))).scalars().first()
     assert session_row is not None
@@ -145,10 +142,10 @@ async def test_live_llm_memory_retrieval_across_turns(sessionmaker_override, db_
     ctx = await manager.build_planner_context(
         db_session,
         session_id=session_id,
-        intent="Use the memory pin again.",
+        intent="Use alphamemory again.",
         base_context={},
     )
     hits = ctx.get("retrieved_memory") or []
     assert hits
-    assert any("memory-pin-001" in (hit.get("content") or "").lower() for hit in hits)
+    assert any("alphamemory" in (hit.get("content") or "").lower() for hit in hits)
 

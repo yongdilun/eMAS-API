@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type InventoryRepository struct {
@@ -19,6 +20,19 @@ func NewInventoryRepository(db *gorm.DB) *InventoryRepository {
 func (r *InventoryRepository) GetMaterialByID(id string) (*domain.InventoryMaterials, error) {
 	var m domain.InventoryMaterials
 	err := r.db.Where("material_id = ?", id).First(&m).Error
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (r *InventoryRepository) GetMaterialByIDForUpdate(id string) (*domain.InventoryMaterials, error) {
+	q := r.db
+	if r.db.Dialector != nil && r.db.Dialector.Name() == "mysql" {
+		q = q.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
+	var m domain.InventoryMaterials
+	err := q.Where("material_id = ?", id).First(&m).Error
 	if err != nil {
 		return nil, err
 	}

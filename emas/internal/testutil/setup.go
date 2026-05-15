@@ -135,6 +135,10 @@ func NewTestRouter(db *gorm.DB, setupFn func(*gorm.DB) *gin.Engine) *gin.Engine 
 
 // Request executes an HTTP request against the given router and returns the response.
 func Request(r *gin.Engine, method, path string, body interface{}) *httptest.ResponseRecorder {
+	return RequestWithHeaders(r, method, path, body, nil)
+}
+
+func RequestWithHeaders(r *gin.Engine, method, path string, body interface{}, headers map[string]string) *httptest.ResponseRecorder {
 	var bodyReader io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -143,6 +147,9 @@ func Request(r *gin.Engine, method, path string, body interface{}) *httptest.Res
 	req := httptest.NewRequest(method, path, bodyReader)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
 	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

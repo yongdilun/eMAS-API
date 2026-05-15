@@ -178,6 +178,19 @@ func TestMachineHandler_RecordDowntime(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("record downtime: got %d", w.Code)
 	}
+
+	w = testutil.Request(r, "POST", "/api/v1/machines/downtime", map[string]interface{}{
+		"machine_id": "M-DT", "cause": "invalid window",
+		"start_time": now.Format(time.RFC3339),
+		"end_time":   now.Add(-1 * time.Hour).Format(time.RFC3339),
+	})
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("record downtime invalid time window: got %d, want 422, body: %s", w.Code, w.Body.String())
+	}
+	success, _, errMsg := testutil.DecodeResponse(w)
+	if success || errMsg == "" {
+		t.Fatalf("record downtime invalid time window envelope: success=%v error=%q", success, errMsg)
+	}
 }
 
 func TestMachineHandler_MaintenanceAlerts(t *testing.T) {

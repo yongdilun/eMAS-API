@@ -4,7 +4,7 @@ import UtilizationChart from '../components/features/machines/UtilizationChart'
 import AddMachineModal from '../components/features/machines/AddMachineModal'
 import RecordDowntimeModal from '../components/features/machines/RecordDowntimeModal'
 import PageHeader from '../components/shared/PageHeader'
-import { machinesApi, reportsApi, jobsApi, schedulingApi, toList, toData, apiErrorMessage } from '../services/api'
+import { machinesApi, reportsApi, jobsApi, toList, toData, apiErrorMessage } from '../services/api'
 import { normalizeMachine, normalizeMaintenanceAlert, debugResponse } from '../services/normalizers'
 import logger from '../services/logger'
 import { useToast } from '../context/ToastContext'
@@ -31,20 +31,6 @@ const MachineResources = () => {
     const [downtimeMachine, setDowntimeMachine] = useState(null)
     const [rerouteForMachine, setRerouteForMachine] = useState(null)
     const [rerouteRecs, setRerouteRecs] = useState([])
-
-    const MOCK_UTILIZATION = {
-        data: [
-            { machine_name: 'Assembly Station 01', utilization_pct: 72 },
-            { machine_name: 'CNC Mill 01', utilization_pct: 85 },
-            { machine_name: 'CNC Mill 02', utilization_pct: 68 },
-            { machine_name: 'Coating Station 01', utilization_pct: 42 },
-            { machine_name: 'Lathe 01', utilization_pct: 60 },
-            { machine_name: 'Lathe 02', utilization_pct: 92 },
-            { machine_name: 'Hydraulic Press 01', utilization_pct: 70 },
-            { machine_name: 'Quality Control Station', utilization_pct: 55 },
-        ],
-        avg_pct: 68,
-    }
 
     const fetchMachines = useCallback(async () => {
         setLoading(true)
@@ -126,17 +112,17 @@ const MachineResources = () => {
                     }
                     setUtilData(computed)
                 } else {
-                    setUtilData(MOCK_UTILIZATION)
+                    setUtilData(null)
                 }
             } catch (err) {
                 logger.warn('Could not compute utilization from slots', { message: err?.message })
-                setUtilData(MOCK_UTILIZATION)
+                setUtilData(null)
             }
         }
         fetchUtilization()
     }, [])
 
-    const handleSaveMachine = async (formData) => {
+    const handleSaveMachine = async () => {
         fetchMachines()
     }
 

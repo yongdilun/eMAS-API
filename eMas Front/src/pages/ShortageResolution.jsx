@@ -8,10 +8,8 @@ import { useToast } from '../context/ToastContext'
 import {
   aiApi,
   apiErrorMessage,
-  jobsApi,
   mergeBatchSummaryWithAggregate,
   toData,
-  toList,
   unwrapSchedulingBatchPayload,
 } from '../services/api'
 import {
@@ -56,14 +54,14 @@ const ShortageResolution = ({
   orderBy = 'epo',
 }) => {
   const toast = useToast()
-  const [loading, setLoading] = useState(false)
+  const [, setLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [proposals, setProposals] = useState([])
   const [selectedProposalId, setSelectedProposalId] = useState('')
   const [focusedEntityId, setFocusedEntityId] = useState('')
   const [drafts, setDrafts] = useState({})
-  const [showOnlyInfeasible, setShowOnlyInfeasible] = useState(true)
-  const [showOnlyWithSuggestions, setShowOnlyWithSuggestions] = useState(true)
+  const [showOnlyInfeasible] = useState(true)
+  const [showOnlyWithSuggestions] = useState(true)
   const [localBatchSummary, setLocalBatchSummary] = useState(null)
   const [aggDrafts, setAggDrafts] = useState({})
 
@@ -225,20 +223,6 @@ const ShortageResolution = ({
     })
   }, [filteredProposals])
 
-  const selectedRecommendationsCurrent = useMemo(() => {
-    return recommendations
-      .map((rec) => {
-        const d = drafts[rec.key] || {}
-        return {
-          ...rec,
-          selected: d.selected !== false,
-          selected_qty: recommendationQtyFromDraft(d, rec),
-          selected_arrive_at: toIso(d.arriveAtLocal) || rec.suggested_arrive_at,
-        }
-      })
-      .filter((rec) => rec.selected)
-  }, [recommendations, drafts])
-
   const selectedRecommendationsAll = useMemo(() => {
     return filteredProposals
       .flatMap((proposal) => extractRecommendations(proposal))
@@ -254,12 +238,6 @@ const ShortageResolution = ({
       .filter((rec) => rec.selected)
   }, [filteredProposals, drafts])
 
-  const selectedApplyReadyCount = selectedRecommendationsAll.filter((r) => isApplyReplenishmentSuggestion(r)).length
-  const aggregateApplyReadyCount = aggregateApplySuggestions.length
-  const blockedJobs = proposals.filter((p) => p.feasible === false).length
-
-  const totalDeficit = (selectedProposal?.material_shortages || []).reduce((sum, s) => sum + Number(s.max_deficit ?? 0), 0)
-
   const handleDraftChange = (key, field, value) => {
     setDrafts((prev) => ({
       ...prev,
@@ -272,41 +250,6 @@ const ShortageResolution = ({
       ...prev,
       [key]: { ...(prev[key] || {}), [field]: value },
     }))
-  }
-
-  const resetAllDrafts = useCallback(() => {
-    setDrafts({})
-    const next = {}
-    normalizedAggregateLines.forEach((line) => {
-      next[line.key] = {
-        qty: line.qty,
-        arriveAtLocal: toLocalInput(line.arrive_at),
-      }
-    })
-    setAggDrafts(next)
-  }, [normalizedAggregateLines])
-
-  const refreshAnalysis = async () => {
-    if (!selectedProposal?.job_id) return
-    setActionLoading(true)
-    try {
-      const res = await aiApi.scheduling.shortageAnalysis(selectedProposal.job_id)
-      const data = toData(res) || res
-      setProposals((prev) => prev.map((p) => {
-        if (p.proposal_id !== selectedProposal.proposal_id) return p
-        return {
-          ...p,
-          material_shortages: data?.shortages || p.material_shortages || [],
-          shortage_resolutions: data?.resolution_options || data?.replenishment_suggestions || p.shortage_resolutions || [],
-          global_score: data?.global_score ?? p.global_score,
-        }
-      }))
-      toast.success('Shortage analysis refreshed.')
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Failed to refresh shortage analysis.'))
-    } finally {
-      setActionLoading(false)
-    }
   }
 
   /** When `allowTimeNudge` is false (batch has `material_replenishment_aggregate`), one attempt per proposal — no +31m stagger. */
@@ -346,36 +289,6 @@ const ShortageResolution = ({
       else if (notice?.level === 'info') applyInfoTexts.push(notice.text)
     }
     return { applyCalls, applyWarnTexts, applyInfoTexts }
-  }
-
-  const rescheduleAllWithoutApply = async () => {
-    setActionLoading(true)
-    try {
-      const resp = await aiApi.scheduling.rescheduleAll({ order_by: orderBy })
-      const u = unwrapSchedulingBatchPayload(resp)
-      const { proposals: proposalsList, summary, byMaterial, byProduct, materialReplenishmentAggregate } = u
-      setLocalBatchSummary(
-        mergeBatchSummaryWithAggregate({ summary, byMaterial, byProduct, materialReplenishmentAggregate }),
-      )
-      if (embedded && typeof onApplySuccess === 'function') {
-        setDrafts({})
-        await Promise.resolve(onApplySuccess(resp))
-        return
-      }
-      if (Array.isArray(proposalsList) && proposalsList.length > 0) {
-        setProposals(proposalsList)
-        const first = proposalsList.find((p) => extractRecommendations(p).length > 0) || proposalsList[0]
-        setSelectedProposalId(first?.proposal_id || '')
-      } else {
-        await loadDraftProposals()
-      }
-      setDrafts({})
-      toast.success('Schedule regenerated (no material arrivals applied).')
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Failed to reschedule.'))
-    } finally {
-      setActionLoading(false)
-    }
   }
 
   const applyAndReplanAll = async () => {
@@ -496,7 +409,6 @@ const ShortageResolution = ({
     }
   }
 
-  const summaryReplenishCount = hasAggregateLines ? aggregateApplyReadyCount : selectedApplyReadyCount
   const summarySelectedCount = hasAggregateLines ? normalizedAggregateLines.length : selectedRecommendationsAll.length
 
   return (

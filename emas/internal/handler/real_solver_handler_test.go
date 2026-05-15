@@ -85,25 +85,25 @@ func TestRealSolverProposalLifecycle(t *testing.T) {
 	}
 
 	// --- draft apply must be blocked ---
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "RS-DRAFT-BLOCK",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for draft apply, got %d body: %s", w.Code, w.Body.String())
 	}
 
 	// --- approve ---
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
 		"notes": "real-solver test approval",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("approve proposal: got %d, body: %s", w.Code, w.Body.String())
 	}
 
 	// --- apply ---
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "RS-APPLY-1",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("apply proposal: got %d, body: %s", w.Code, w.Body.String())
 	}
@@ -120,9 +120,9 @@ func TestRealSolverProposalLifecycle(t *testing.T) {
 	}
 
 	// --- idempotent re-apply returns same result ---
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "RS-APPLY-1",
-	})
+	}, plannerAuthHeaders())
 	if w.Code != http.StatusOK {
 		t.Fatalf("idempotent re-apply: expected 200, got %d body: %s", w.Code, w.Body.String())
 	}
@@ -176,25 +176,26 @@ func TestRealSolverGovernance(t *testing.T) {
 	}
 	_, data, _ = testutil.DecodeResponse(w)
 	proposalID := data.(map[string]interface{})["proposal_id"].(string)
+	plannerHeaders := map[string]string{"X-User-Id": "test-planner", "X-User-Role": "planner"}
 
 	// Draft apply must be blocked.
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "GOV-DRAFT",
-	})
+	}, plannerHeaders)
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for draft apply, got %d body: %s", w.Code, w.Body.String())
 	}
 
 	// Approve then reject.
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/approve", map[string]interface{}{
 		"notes": "governance test",
-	})
+	}, plannerHeaders)
 	if w.Code != http.StatusOK {
 		t.Fatalf("approve: got %d, body: %s", w.Code, w.Body.String())
 	}
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/reject", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/reject", map[string]interface{}{
 		"reason": "requirements changed",
-	})
+	}, plannerHeaders)
 	if w.Code != http.StatusOK {
 		t.Fatalf("reject: got %d, body: %s", w.Code, w.Body.String())
 	}
@@ -204,9 +205,9 @@ func TestRealSolverGovernance(t *testing.T) {
 	}
 
 	// Applying a rejected proposal must be blocked.
-	w = testutil.Request(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
+	w = testutil.RequestWithHeaders(r, "POST", "/api/v1/ai/scheduling/proposals/"+proposalID+"/apply", map[string]interface{}{
 		"idempotency_key": "GOV-REJECTED",
-	})
+	}, plannerHeaders)
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for rejected apply, got %d body: %s", w.Code, w.Body.String())
 	}

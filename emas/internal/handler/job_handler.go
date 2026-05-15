@@ -40,7 +40,7 @@ func (h *JobHandler) Create(c *gin.Context) {
 	}
 	job, err := h.jobService.Create(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, dto.Response{Success: true, Data: job})
@@ -61,17 +61,27 @@ func (h *JobHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
 	job, err := h.jobService.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: job})
 }
 
+// @Summary List job steps
+// @Description List job steps for a job
+// @Tags job
+// @Accept json
+// @Produce json
+// @Param id path string true "Job ID"
+// @Success 200 {object} dto.Response{data=[]domain.JobSteps}
+// @Failure 400 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /jobs/{id}/steps [get]
 func (h *JobHandler) ListSteps(c *gin.Context) {
 	id := c.Param("id")
 	steps, err := h.jobService.ListStepsByJobID(id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: steps})
@@ -132,7 +142,7 @@ func (h *JobHandler) List(c *gin.Context) {
 
 	jobs, err := h.jobService.ListFiltered(f)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	if len(f.Fields) > 0 {
@@ -226,7 +236,7 @@ func (h *JobHandler) Update(c *gin.Context) {
 	}
 	job, err := h.jobService.Update(id, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: job})
@@ -255,6 +265,17 @@ func (h *JobHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.Response{Success: true})
 }
 
+// @Summary Duplicate a job
+// @Description Duplicate a job with an optional deadline and quantity override
+// @Tags job
+// @Accept json
+// @Produce json
+// @Param id path string true "Job ID"
+// @Param request body object false "Duplicate job request"
+// @Success 201 {object} dto.Response{data=domain.Job}
+// @Failure 400 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /jobs/{id}/duplicate [post]
 func (h *JobHandler) Duplicate(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {
@@ -265,7 +286,7 @@ func (h *JobHandler) Duplicate(c *gin.Context) {
 	deadline, _ := time.Parse(time.RFC3339, req.Deadline)
 	job, err := h.jobService.Duplicate(id, deadline, req.Quantity)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, dto.Response{Success: true, Data: job})

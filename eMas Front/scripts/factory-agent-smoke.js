@@ -9,14 +9,14 @@
  *   FACTORY_AGENT_BASE_URL=http://127.0.0.1:8000
  *   FACTORY_AGENT_BEARER_TOKEN=...
  *   FACTORY_AGENT_USER_ID=frontend-smoke
- *   FACTORY_AGENT_INTENT="Show status for machine M-CNC-01"
+ *   FACTORY_AGENT_INTENT="list machines"
  *   FACTORY_AGENT_APPROVAL_DECISION=approve|reject
  */
 
 const BASE = (process.env.FACTORY_AGENT_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
 const TOKEN = process.env.FACTORY_AGENT_BEARER_TOKEN || ''
 const USER_ID = process.env.FACTORY_AGENT_USER_ID || 'frontend-smoke'
-const INTENT = process.env.FACTORY_AGENT_INTENT || 'Show status for machine M-CNC-01'
+const INTENT = process.env.FACTORY_AGENT_INTENT || 'list machines'
 const APPROVAL_DECISION = (process.env.FACTORY_AGENT_APPROVAL_DECISION || 'reject').toLowerCase()
 
 function h() {
@@ -102,11 +102,15 @@ async function runMainFlow() {
 
 async function runCancelFlow() {
   const session = await req('POST', '/sessions', { user_id: USER_ID })
-  await req('POST', `/sessions/${session.session_id}/messages`, { role: 'user', content: 'Start then cancel test run' })
-  await req('POST', `/sessions/${session.session_id}/plans`, {})
-  await req('POST', `/sessions/${session.session_id}/execute`, {})
+  await req('POST', `/sessions/${session.session_id}/messages`, {
+    role: 'user',
+    content: 'Show status for machine M-CNC-01',
+  })
   await req('POST', `/sessions/${session.session_id}/cancel`, {})
   const final = await req('GET', `/sessions/${session.session_id}`)
+  if (final.status !== 'IDLE') {
+    throw new Error(`Expected cancelled session to be IDLE, got ${final.status}`)
+  }
   console.log(`cancel flow status: ${final.status}`)
 }
 

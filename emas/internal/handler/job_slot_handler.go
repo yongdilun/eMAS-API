@@ -74,6 +74,7 @@ func (h *JobSlotHandler) SplitStep(c *gin.Context) {
 // @Success 200 {object} dto.Response{data=domain.JobStepScheduleSlots}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
+// @Router /slots/{id} [patch]
 // @Router /slots/{id} [put]
 func (h *JobSlotHandler) UpdateSlot(c *gin.Context) {
 	id := c.Param("id")
@@ -151,6 +152,16 @@ func (h *JobSlotHandler) ListSlotsByJob(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: slots})
 }
 
+// @Summary Cancel a slot
+// @Description Cancel a slot
+// @Tags job slot
+// @Accept json
+// @Produce json
+// @Param id path string true "Slot ID"
+// @Success 200 {object} dto.Response
+// @Failure 400 {object} dto.Response
+// @Failure 500 {object} dto.Response
+// @Router /slots/{id} [delete]
 func (h *JobSlotHandler) CancelSlot(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.slotService.CancelSlot(id); err != nil {

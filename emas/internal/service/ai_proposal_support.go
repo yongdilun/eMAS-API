@@ -1370,6 +1370,17 @@ func (s *AIPredictiveService) ApplyProposalByIDWithOpts(proposalID, appliedBy, i
 		txProcessRepo := repository.NewProcessRepository(tx)
 		txScheduling := s.scheduling.WithTransaction(tx)
 		txSlotService := NewJobSlotService(txSlotRepo, txStepRepo, txProcessRepo, txJobRepo, txScheduling)
+		txPredictive := *s
+		txPredictive.db = tx
+		txPredictive.jobRepo = txJobRepo
+		txPredictive.stepRepo = txStepRepo
+		txPredictive.slotRepo = txSlotRepo
+		txPredictive.proposalRepo = repository.NewAIProposalRepository(tx)
+		txPredictive.machineRepo = repository.NewMachineRepository(tx)
+		txPredictive.maintenanceRepo = repository.NewMaintenanceRepository(tx)
+		txPredictive.settingsRepo = repository.NewSystemSettingsRepository(tx)
+		txPredictive.scheduling = txScheduling
+		txPredictive.jobSlotService = txSlotService
 		existing, err := txSlotRepo.ListByJobID(record.JobID)
 		if err != nil {
 			return err
@@ -1388,10 +1399,10 @@ func (s *AIPredictiveService) ApplyProposalByIDWithOpts(proposalID, appliedBy, i
 		}
 		liveTentative := tentativeSlotsFromActiveRows(activeRows, map[string]bool{record.JobID: true})
 		repairTargets := []*SchedulingProposal{proposal}
-		if err := s.chainAwareForwardRepair(repairTargets, chainRepairPassBudget(repairTargets), liveTentative, nil); err != nil {
+		if err := txPredictive.chainAwareForwardRepair(repairTargets, chainRepairPassBudget(repairTargets), liveTentative, nil); err != nil {
 			return err
 		}
-		if err := s.validateProposalSlotsStrict(record.JobID, proposal); err != nil {
+		if err := txPredictive.validateProposalSlotsStrict(record.JobID, proposal); err != nil {
 			return err
 		}
 		createdPlanJobs, createdPlanSteps, childJobIDs, dependencyLinks, err := s.createDependentJobsAndApply(tx, proposal, record.ProposalID)
@@ -1420,10 +1431,10 @@ func (s *AIPredictiveService) ApplyProposalByIDWithOpts(proposalID, appliedBy, i
 		}
 		liveTentativeAfterDeps := tentativeSlotsFromActiveRows(activeRowsAfterDeps, map[string]bool{record.JobID: true})
 		repairTargetsAfterDeps := []*SchedulingProposal{normalizedRepair}
-		if err := s.chainAwareForwardRepair(repairTargetsAfterDeps, chainRepairPassBudget(repairTargetsAfterDeps), liveTentativeAfterDeps, nil); err != nil {
+		if err := txPredictive.chainAwareForwardRepair(repairTargetsAfterDeps, chainRepairPassBudget(repairTargetsAfterDeps), liveTentativeAfterDeps, nil); err != nil {
 			return err
 		}
-		if err := s.validateProposalSlotsStrict(record.JobID, normalizedRepair); err != nil {
+		if err := txPredictive.validateProposalSlotsStrict(record.JobID, normalizedRepair); err != nil {
 			return err
 		}
 		normalizedSlots = normalizedRepair.ProposedSlots
@@ -1502,7 +1513,7 @@ func (s *AIPredictiveService) ApplyProposalByIDWithOpts(proposalID, appliedBy, i
 							strings.Contains(reasonLower, "outside") ||
 							strings.Contains(reasonLower, "calendar") ||
 							strings.Contains(reasonLower, "previous process step completes") {
-							processStep, psErr := s.scheduling.GetProcessStepForJobStep(jobStepID)
+							processStep, psErr := txScheduling.GetProcessStepForJobStep(jobStepID)
 							if psErr == nil && processStep != nil {
 								activeRowsNow, arErr := txSlotRepo.ListActiveByJobIDs(nil)
 								if arErr == nil {
@@ -1511,7 +1522,7 @@ func (s *AIPredictiveService) ApplyProposalByIDWithOpts(proposalID, appliedBy, i
 									if previousEnd != nil && previousEnd.After(tryStart) {
 										tryStart = *previousEnd
 									}
-									repairedStart, ok, _, _ := s.scheduling.findFeasibleMachineStart(
+									repairedStart, ok, _, _ := txScheduling.findFeasibleMachineStartWithOptions(
 										jobStepID,
 										rs.MachineID,
 										processStep,
@@ -1533,6 +1544,7 @@ func (s *AIPredictiveService) ApplyProposalByIDWithOpts(proposalID, appliedBy, i
 											return chainPrevEnd
 										}(),
 										alignSuccessorStart(time.Now().UTC().Add(time.Duration(maxHorizonDays)*24*time.Hour)),
+										SlotValidationOptions{IgnoreMinSplitQty: ignoreMinSplitQty},
 									)
 									if !ok {
 									}

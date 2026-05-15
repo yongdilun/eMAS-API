@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 const CalendarPicker = ({ onDateRangeChange }) => {
     const [currentMonth, setCurrentMonth] = useState(new Date(2023, 9, 1)) // October 2023
@@ -71,6 +71,17 @@ const CalendarPicker = ({ onDateRangeChange }) => {
 
     // Get the correct first day (0 = Sunday, 1 = Monday, etc.)
     const adjustedFirstDay = firstDayOfMonth === 0 ? 0 : firstDayOfMonth
+    const selectedRange = useMemo(() => {
+        if (!selectedStart) return null
+        const start = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), selectedStart)
+        const endDay = selectedEnd || selectedStart
+        const end = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), endDay)
+        return { start, end }
+    }, [currentMonth, selectedStart, selectedEnd])
+
+    useEffect(() => {
+        if (selectedRange) onDateRangeChange?.(selectedRange)
+    }, [onDateRangeChange, selectedRange])
 
     return (
         <div className="flex flex-col w-full p-4 bg-surface-1 border border-hairline rounded-xl">

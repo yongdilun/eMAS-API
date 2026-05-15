@@ -1,10 +1,12 @@
 package service
 
 import (
+	"emas/internal/apperror"
 	"emas/internal/domain"
 	"emas/internal/handler/dto"
 	"emas/internal/repository"
 	"emas/pkg/id"
+	"fmt"
 	"time"
 )
 
@@ -17,53 +19,60 @@ func NewInventoryService(invRepo *repository.InventoryRepository) *InventoryServ
 }
 
 func (s *InventoryService) ConsumeMaterial(req dto.ConsumeMaterialRequest) error {
-	m, err := s.invRepo.GetMaterialByID(req.MaterialID)
-	if err != nil {
-		return err
-	}
-	m.CurrentStock -= req.Quantity
-	if m.CurrentStock < m.MinStock {
-		m.Status = domain.InventoryStatusLowStock
-	}
-	if m.CurrentStock <= 0 {
-		m.Status = domain.InventoryStatusOutOfStock
-	}
-	m.LastUpdated = time.Now()
-	if err := s.invRepo.UpdateMaterial(m); err != nil {
-		return err
-	}
-	t := &domain.InventoryTransactions{
-		TransactionID:   id.NewPrefixed("TXN-"),
-		MaterialID:      req.MaterialID,
-		TransactionType: domain.TransactionTypeConsume,
-		Quantity:        req.Quantity,
-		ReferenceJobID:  req.ReferenceJobID,
-		Timestamp:       time.Now(),
-	}
-	return s.invRepo.CreateTransaction(t)
+	return s.invRepo.Transaction(func(txRepo *repository.InventoryRepository) error {
+		m, err := txRepo.GetMaterialByIDForUpdate(req.MaterialID)
+		if err != nil {
+			return err
+		}
+		if req.Quantity > m.CurrentStock {
+			return apperror.Conflict(fmt.Sprintf("insufficient stock for material %s: requested %.2f, available %.2f", req.MaterialID, req.Quantity, m.CurrentStock))
+		}
+		m.CurrentStock -= req.Quantity
+		if m.CurrentStock < m.MinStock {
+			m.Status = domain.InventoryStatusLowStock
+		}
+		if m.CurrentStock <= 0 {
+			m.Status = domain.InventoryStatusOutOfStock
+		}
+		m.LastUpdated = time.Now()
+		if err := txRepo.UpdateMaterial(m); err != nil {
+			return err
+		}
+		t := &domain.InventoryTransactions{
+			TransactionID:   id.NewPrefixed("TXN-"),
+			MaterialID:      req.MaterialID,
+			TransactionType: domain.TransactionTypeConsume,
+			Quantity:        req.Quantity,
+			ReferenceJobID:  req.ReferenceJobID,
+			Timestamp:       time.Now(),
+		}
+		return txRepo.CreateTransaction(t)
+	})
 }
 
 func (s *InventoryService) ReceiveMaterial(req dto.ReceiveMaterialRequest) error {
-	m, err := s.invRepo.GetMaterialByID(req.MaterialID)
-	if err != nil {
-		return err
-	}
-	m.CurrentStock += req.Quantity
-	if m.CurrentStock >= m.ReorderLevel {
-		m.Status = domain.InventoryStatusInStock
-	}
-	m.LastUpdated = time.Now()
-	if err := s.invRepo.UpdateMaterial(m); err != nil {
-		return err
-	}
-	t := &domain.InventoryTransactions{
-		TransactionID:   id.NewPrefixed("TXN-"),
-		MaterialID:      req.MaterialID,
-		TransactionType: domain.TransactionTypeReceive,
-		Quantity:        req.Quantity,
-		Timestamp:       time.Now(),
-	}
-	return s.invRepo.CreateTransaction(t)
+	return s.invRepo.Transaction(func(txRepo *repository.InventoryRepository) error {
+		m, err := txRepo.GetMaterialByIDForUpdate(req.MaterialID)
+		if err != nil {
+			return err
+		}
+		m.CurrentStock += req.Quantity
+		if m.CurrentStock >= m.ReorderLevel {
+			m.Status = domain.InventoryStatusInStock
+		}
+		m.LastUpdated = time.Now()
+		if err := txRepo.UpdateMaterial(m); err != nil {
+			return err
+		}
+		t := &domain.InventoryTransactions{
+			TransactionID:   id.NewPrefixed("TXN-"),
+			MaterialID:      req.MaterialID,
+			TransactionType: domain.TransactionTypeReceive,
+			Quantity:        req.Quantity,
+			Timestamp:       time.Now(),
+		}
+		return txRepo.CreateTransaction(t)
+	})
 }
 
 func (s *InventoryService) CreateMaterial(req dto.CreateMaterialRequest) (*domain.InventoryMaterials, error) {

@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "CreatedAt": "2026-05-20T08:00:00Z",
+      "JobID": "JOB-GOLDEN",
+      "JobStepID": "JS-GOLDEN",
+      "MaterialID": "MAT-GOLDEN",
+      "NeededAt": "2026-05-20T12:00:00Z",
+      "ReservationID": "RES-GOLDEN",
+      "ReservedQty": 12.5,
+      "UpdatedAt": "2026-05-20T09:00:00Z",
+      "status": "pending"
+    }
+  ],
+  "success": true
+}

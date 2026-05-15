@@ -76,7 +76,7 @@ type SettingsResponse struct {
 // @Success 200 {object} dto.Response{data=SettingsResponse}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /settings/get [get]
+// @Router /settings [get]
 func (h *SettingsHandler) Get(c *gin.Context) {
 	res := SettingsResponse{
 		Theme:         defaultTheme,
@@ -110,7 +110,8 @@ func (h *SettingsHandler) Get(c *gin.Context) {
 // @Success 200 {object} dto.Response{data=SettingsResponse}
 // @Failure 400 {object} dto.Response
 // @Failure 500 {object} dto.Response
-// @Router /settings/update [put]
+// @Param request body object false "Settings update"
+// @Router /settings [put]
 func (h *SettingsHandler) Update(c *gin.Context) {
 	var req struct {
 		Theme         *string       `json:"theme"`

@@ -25,4 +25,16 @@ func TestMaintenanceHandler_RecordMaintenance(t *testing.T) {
 	if w.Code != http.StatusCreated {
 		t.Fatalf("record maintenance: got %d", w.Code)
 	}
+
+	w = testutil.Request(r, "POST", "/api/v1/maintenance", map[string]interface{}{
+		"machine_id": "M-MNT", "maintenance_type": "preventive",
+		"start_time": now, "end_time": now.Add(-1 * time.Hour),
+	})
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("record maintenance invalid time window: got %d, want 422, body: %s", w.Code, w.Body.String())
+	}
+	success, _, errMsg := testutil.DecodeResponse(w)
+	if success || errMsg == "" {
+		t.Fatalf("record maintenance invalid time window envelope: success=%v error=%q", success, errMsg)
+	}
 }

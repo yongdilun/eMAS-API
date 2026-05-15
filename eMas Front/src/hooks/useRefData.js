@@ -9,25 +9,27 @@
  *
  * @returns {{ options: string[], loading: boolean, error: string|null }}
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 export function useRefData(fetcher, toLabel) {
   const [options, setOptions] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const fetcherRef = useRef(fetcher)
+  const toLabelRef = useRef(toLabel)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
 
-    fetcher().then(({ data, error: err }) => {
+    fetcherRef.current().then(({ data, error: err }) => {
       if (cancelled) return
       if (err) {
         setError(err)
         setOptions([])
       } else {
-        const mapper = toLabel ?? ((item) => (typeof item === 'string' ? item : (item.display || item.name || String(item.id ?? ''))))
+        const mapper = toLabelRef.current ?? ((item) => (typeof item === 'string' ? item : (item.display || item.name || String(item.id ?? ''))))
         setOptions(data.map(mapper).filter(Boolean))
       }
       setLoading(false)
@@ -48,13 +50,14 @@ export function useRefObjects(fetcher) {
   const [objects, setObjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const fetcherRef = useRef(fetcher)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
 
-    fetcher().then(({ data, error: err }) => {
+    fetcherRef.current().then(({ data, error: err }) => {
       if (cancelled) return
       if (err) {
         setError(err)

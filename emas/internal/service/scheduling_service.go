@@ -1865,6 +1865,21 @@ func (s *SchedulingService) findFeasibleMachineStart(
 	predecessorEnd *time.Time,
 	horizonEnd time.Time,
 ) (time.Time, bool, []string, map[string]interface{}) {
+	return s.findFeasibleMachineStartWithOptions(jobStepID, machineID, processStep, start, duration, quantity, excludeSlotID, tentativeSlots, predecessorEnd, horizonEnd, SlotValidationOptions{})
+}
+
+func (s *SchedulingService) findFeasibleMachineStartWithOptions(
+	jobStepID, machineID string,
+	processStep *domain.ProcessSteps,
+	start time.Time,
+	duration time.Duration,
+	quantity int,
+	excludeSlotID string,
+	tentativeSlots []TentativeSlot,
+	predecessorEnd *time.Time,
+	horizonEnd time.Time,
+	opts SlotValidationOptions,
+) (time.Time, bool, []string, map[string]interface{}) {
 	duration = ceilDurationTo30Min(duration)
 	if duration <= 0 {
 		duration = schedulerSlotGranularity
@@ -1952,7 +1967,7 @@ func (s *SchedulingService) findFeasibleMachineStart(
 			continue
 		}
 
-		ok, err := s.validateSlotCoreForStep(ps, machineID, candidate, end, quantity, excludeSlotID)
+		ok, err := s.validateSlotCoreForStepWithOptions(ps, machineID, candidate, end, quantity, excludeSlotID, opts)
 		if err != nil {
 			return time.Time{}, false, []string{"reason_code=" + noFeasibleSlotReasonCode + " slot validation failed: " + err.Error()}, diag
 		}
@@ -1970,13 +1985,17 @@ func (s *SchedulingService) findFeasibleMachineStart(
 }
 
 func (s *SchedulingService) validateSlotCoreResultForStep(processStep *domain.ProcessSteps, machineID string, start, end time.Time, quantity int, excludeSlotID string) (*SlotValidationResult, error) {
+	return s.validateSlotCoreResultForStepWithOptions(processStep, machineID, start, end, quantity, excludeSlotID, SlotValidationOptions{})
+}
+
+func (s *SchedulingService) validateSlotCoreResultForStepWithOptions(processStep *domain.ProcessSteps, machineID string, start, end time.Time, quantity int, excludeSlotID string, opts SlotValidationOptions) (*SlotValidationResult, error) {
 	result := &SlotValidationResult{
 		Valid:          true,
 		MachineID:      machineID,
 		ScheduledStart: start,
 		ScheduledEnd:   end,
 	}
-	if err := s.validateMachineWindow(processStep, machineID, start, end, quantity, excludeSlotID, "", false, result); err != nil {
+	if err := s.validateMachineWindow(processStep, machineID, start, end, quantity, excludeSlotID, "", opts.IgnoreMinSplitQty, result); err != nil {
 		return nil, err
 	}
 	if err := s.validateResourceAvailability(processStep, start, end, excludeSlotID, result); err != nil {
@@ -1987,7 +2006,11 @@ func (s *SchedulingService) validateSlotCoreResultForStep(processStep *domain.Pr
 }
 
 func (s *SchedulingService) validateSlotCoreForStep(processStep *domain.ProcessSteps, machineID string, start, end time.Time, quantity int, excludeSlotID string) (bool, error) {
-	result, err := s.validateSlotCoreResultForStep(processStep, machineID, start, end, quantity, excludeSlotID)
+	return s.validateSlotCoreForStepWithOptions(processStep, machineID, start, end, quantity, excludeSlotID, SlotValidationOptions{})
+}
+
+func (s *SchedulingService) validateSlotCoreForStepWithOptions(processStep *domain.ProcessSteps, machineID string, start, end time.Time, quantity int, excludeSlotID string, opts SlotValidationOptions) (bool, error) {
+	result, err := s.validateSlotCoreResultForStepWithOptions(processStep, machineID, start, end, quantity, excludeSlotID, opts)
 	if err != nil {
 		return false, err
 	}

@@ -293,7 +293,7 @@ const Scheduling = () => {
     const [proposals, setProposals] = useState([])
     const [machines, setMachines] = useState([])
     const [loading, setLoading] = useState(false)
-    const [loadingExisting, setLoadingExisting] = useState(false)
+    const [, setLoadingExisting] = useState(false)
     const [generateError, setGenerateError] = useState('')
     const [verifyResult, setVerifyResult] = useState(null)
     const [orderBy, setOrderBy] = useState('epo')
@@ -322,8 +322,11 @@ const Scheduling = () => {
     const [shortageAnalysisLoading, setShortageAnalysisLoading] = useState(false)
     const [infeasiblePreviewListExpanded, setInfeasiblePreviewListExpanded] = useState(false)
 
-    const scheduleItems = proposals.length > 0 ? proposalsToGanttJobs(proposals) : appliedScheduleItems
-    const previewScheduleItems = proposalsToGanttJobs(proposals)
+    const scheduleItems = useMemo(
+        () => (proposals.length > 0 ? proposalsToGanttJobs(proposals) : appliedScheduleItems),
+        [proposals, appliedScheduleItems],
+    )
+    const previewScheduleItems = useMemo(() => proposalsToGanttJobs(proposals), [proposals])
     const selectedProposal = useMemo(() => {
         if (!selectedJob) return null
         const candidateKeys = [
@@ -339,8 +342,9 @@ const Scheduling = () => {
         if (selectedJob?.proposal_id || selectedJob?.shortage_resolutions || selectedJob?.material_shortages) return selectedJob
         return null
     }, [selectedJob, proposals])
-    const selectedShortages = selectedProposal?.material_shortages || []
-    const selectedResolutionsPrimary = selectedProposal?.shortage_resolutions || []
+    const selectedShortages = useMemo(() => selectedProposal?.material_shortages || [], [selectedProposal])
+    const selectedResolutionsPrimary = useMemo(() => selectedProposal?.shortage_resolutions || [], [selectedProposal])
+    const selectedJobSlots = useMemo(() => selectedJob?.slots || [], [selectedJob])
     const selectedResolutionsFromShortages = useMemo(
         () => selectedShortages.flatMap((s) => s?.per_material_resolutions || []),
         [selectedShortages],
@@ -414,13 +418,13 @@ const Scheduling = () => {
                 defaults[selKey] = leadTimeConstrained ? 'delay_jobs' : (r?.option_type || 'replenish')
                 seen.add(selKey)
             })
-            ; (selectedProposal.material_shortages || []).forEach((s) => {
+            ; selectedShortages.forEach((s) => {
                 const materialId = s?.material_id
                 if (!materialId || defaults[materialId]) return
                 defaults[materialId] = 'replenish'
             })
         setShortageSelections(defaults)
-    }, [selectedProposal?.proposal_id, selectedResolutions])
+    }, [selectedProposal?.proposal_id, selectedResolutions, selectedShortages])
 
     const replaceProposalInState = useCallback((nextProposal) => {
         if (!nextProposal?.proposal_id) return
@@ -774,11 +778,11 @@ const Scheduling = () => {
                 })
                 .catch(() => { fetchedReadinessRef.current.delete(jobId) })
         })
-    }, [selectedJob?.job_id, selectedJob?.product_id, selectedJob?.quantity_total, scheduleItems?.map((j) => j.job_id || j.jobId || j.id).join(',')])
+    }, [selectedJob, scheduleItems])
 
     // Load materials per step for preview sidebar (ProcessStepMaterial from GET /process-steps/:stepId/materials)
     useEffect(() => {
-        const slots = selectedJob?.slots || []
+        const slots = selectedJobSlots
         const stepIds = slots.map((s) => s.step_id ?? s.stepId).filter(Boolean)
         if (stepIds.length === 0) {
             setPreviewMaterialsByStepId({})
@@ -798,7 +802,7 @@ const Scheduling = () => {
             })
             setPreviewMaterialsByStepId(byStep)
         })
-    }, [selectedJob?.slots?.map((s) => s.step_id ?? s.stepId).join(',')])
+    }, [selectedJobSlots])
 
     const runSlotValidation = async (proposalsList) => {
         if (!proposalsList?.length) {
@@ -866,54 +870,6 @@ const Scheduling = () => {
             toast.error('Schedule has overlaps. Resolve conflicts before applying.')
         }
         return payload
-    }
-
-    const handleGenerate = async () => {
-        setRescheduleModalOpen(false)
-        setLoading(true)
-        setGenerateError('')
-        setVerifyResult(null)
-        setHardBatchError(null)
-        try {
-            const batch = await aiApi.scheduling.batchProposals({
-                scope: 'all_unscheduled',
-                order_by: orderBy,
-            })
-            const u = unwrapSchedulingBatchPayload(batch)
-            const { proposals: proposalsList, summary, message, byMaterial, byProduct, materialReplenishmentAggregate } = u
-            setProposals(proposalsList)
-            setBatchMessage(message ? augmentScheduleBatchMessage(message) : null)
-            setBatchSummary(
-                mergeBatchSummaryWithAggregate({ summary, byMaterial, byProduct, materialReplenishmentAggregate }),
-            )
-
-            if (proposalsList.length === 0) {
-                toast.info('No unscheduled jobs to generate. All jobs may already have proposals.')
-                setLoading(false)
-                return
-            }
-
-            if (proposalsList.length > 0) {
-                await Promise.all([
-                    runVerifyOverlaps(proposalsList),
-                    runSlotValidation(proposalsList),
-                ])
-            }
-
-            if (summary) {
-                const lateStr = summary.late_count > 0 ? ` (${summary.late_count} late)` : ''
-                toast.success(`Generated ${summary.generated || proposalsList.length} proposal(s)${lateStr}.`)
-            }
-            if (proposalsList.length > 0) {
-                setPreviewOpen(true)
-            }
-        } catch (err) {
-            logger.error('Batch proposals failed', err)
-            setGenerateError(apiErrorMessage(err, 'Failed to generate schedule.'))
-            toast.error(apiErrorMessage(err, 'Failed to generate schedule.'))
-        } finally {
-            setLoading(false)
-        }
     }
 
     const handleApplyProposal = async (proposalId, jobId) => {
@@ -1128,6 +1084,7 @@ const Scheduling = () => {
         setPreviewOpen(false)
         loadAppliedJobs()
         if (rejected > 0) toast.success(`Discarded ${rejected} proposal(s).`)
+        if (failed > 0) toast.warning(`${failed} proposal(s) could not be discarded.`)
     }
 
     const handleApplyAllConfirm = async () => {
@@ -1267,20 +1224,6 @@ const Scheduling = () => {
             if (postApplyVerifyOk) {
                 toast.success(`Applied ${applied}/${feasibleCandidates.length} proposals successfully${skippedSuffix}${lateStr}`)
             }
-        }
-    }
-
-    const handleVerifyApplied = async () => {
-        setLoading(true)
-        setVerifyResult(null)
-        try {
-            await runVerifyOverlaps([], 'applied')
-            toast.info('Applied slots verified.')
-        } catch (err) {
-            logger.error('Verify applied failed', err)
-            toast.error(apiErrorMessage(err, 'Verify failed.'))
-        } finally {
-            setLoading(false)
         }
     }
 

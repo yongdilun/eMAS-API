@@ -24,12 +24,13 @@ Purpose: rules for this backend improvement effort and future Go backend code pr
    - status codes
 3. Regenerate Swagger whenever route annotations, DTOs, or response schemas change.
 4. Regenerate tools.md when OpenAPI changes and Factory Agent tool metadata depends on it.
-5. Public response field names must be intentional and stable. Prefer response DTOs over returning raw GORM models.
+5. Public response field names must be intentional and stable. New public response DTO fields must use `snake_case`; legacy raw domain responses with PascalCase/Go field names must be covered by golden contract tests until they are migrated intentionally.
 6. Do not change response field casing without contract tests and migration notes.
 7. Error responses should use one standard envelope:
    - `success: false`
    - `error: string`
    - optional machine-readable details when needed.
+8. Request syntax/binding errors should return HTTP 400. Semantic validation failures for well-formed requests should return HTTP 422 when the endpoint can be changed safely and has tests.
 
 ## Handler Rules
 
