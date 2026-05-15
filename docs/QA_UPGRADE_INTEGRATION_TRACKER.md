@@ -10,7 +10,15 @@ Integration worktree: `C:\Users\dilun\OneDrive\Documents\emas-integration-qa`
 
 Use one of: `Not started`, `In progress`, `Passed`, `Failed`, `Skipped`, `Could not run`.
 
-## Phase Status
+## Integration Summary
+
+Phase 8 prepared this final integration report only. No branches were merged during Phase 8, no merge to `main` was performed, and no push was performed.
+
+The staged QA integration on `integration/qa-upgrade-merge` completed Phases 0-7 before this final report. Phase 6 automated suites passed, including Go aggregate/e2e tests, the Factory Agent pytest suite with a repo-local temp base, frontend lint/build/component checks, overlap verification, frontend Factory Agent smoke, and the full seeded scenario runner after the auth-header manifest fix. Phase 7 passed after regenerating downstream API/tool metadata from current Swagger and syncing the RAG API/tool mirrors.
+
+Docker Compose can start all services with documented/local verification environment values. Compose planner LLM connectivity remains intentionally skipped/accepted because the LLM is external during testing/deployment; this is recorded as an accepted risk, not a merge blocker.
+
+## Phase Result Table
 
 | Phase | Action | Status | Notes |
 |---|---|---|---|
@@ -22,7 +30,7 @@ Use one of: `Not started`, `In progress`, `Passed`, `Failed`, `Skipped`, `Could 
 | 5 | Merge frontend branch | Passed | `audit/frontend-phase-5` merged in `d7cc9f1` after one documentation conflict was resolved. Frontend build, overlap check, and `npm test` passed. `npm run lint` failed on the known source lint backlog, and `npm run factory-agent-smoke` failed on local Factory Agent planning `503 {"detail":{"errors":["Connection error."]}}`. Phase 6 is ready to start with known risks. |
 | 6 | Full integration verification | Passed | Required automated suites passed, including the full seeded runner after a narrow seed manifest auth-header fix. Docker Compose can build and start with documented/local verification env values. The Compose Factory Agent natural-language planner smoke is intentionally skipped/accepted because the LLM is provided externally by API during testing/deployment; this is an accepted risk, not a Phase 7 blocker. |
 | 7 | Cross-layer contract check | Passed | Contract checks passed after regenerating downstream Factory Agent and RAG API metadata from current Swagger. LLM/planner connectivity inside Compose remains skipped as the accepted external-LLM risk. Phase 8 is ready to start. |
-| 8 | Final report | Not started | Stop after report; do not merge to `main`. |
+| 8 | Final report | Passed | Final integration report prepared in this tracker. No branches were merged during Phase 8, no merge to `main` was performed, and no push was performed. |
 
 ## Branch Review Table
 
@@ -203,10 +211,8 @@ Record untested or uncertain items here:
 
 ## Final Recommendation
 
-Choose one after Phase 7:
+Final recommendation: `Safe to merge into main with minor known risks.`
 
-- Safe to merge into main.
-- Safe to merge into main with minor known risks.
-- Not safe to merge into main yet.
+Rationale: Phases 0-8 are complete, Phase 6 automated integration suites passed, Phase 7 cross-layer contract checks passed after regenerating downstream API/tool metadata, and Docker Compose can start all services with documented/local verification environment values. The remaining risks are known and bounded: Compose planner LLM connectivity and live Compose frontend final-answer verification are accepted external-LLM risks for this integration run, production deployment env validation still needs deployment-style verification, and dependency/security audit remediation was not part of this staged QA merge.
 
-Current recommendation: `Safe to proceed to Phase 8`. Phase 7 passed after regenerating downstream API/tool metadata. The final merge recommendation remains a Phase 8 deliverable; do not merge to `main` until Phase 8 is run and explicitly approved.
+Confirmation: no merge to `main` was performed, no branches were merged during Phase 8, and no push was performed.
