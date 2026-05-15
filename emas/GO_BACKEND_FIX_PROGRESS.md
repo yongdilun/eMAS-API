@@ -77,11 +77,11 @@ Status values:
 
 | Task | Status | Owner | Evidence / Notes |
 |---|---|---|---|
-| Add transaction wrapper for job create | Not Started | TBD | Keep API response stable. |
-| Add transaction wrapper for job delete | Not Started | TBD | Do not ignore child delete errors. |
-| Add transaction wrapper for production logs | Not Started | TBD | Avoid partial execution updates. |
-| Add transaction-safe inventory consume/receive | Not Started | TBD | Consider row locks under MySQL. |
-| Introduce backend error mapper | Not Started | TBD | Small taxonomy: validation, not found, conflict, forbidden, internal. |
+| Add transaction wrapper for job create | Done | Codex | Phase 3 wrapper reverified in Phase 4 with `TestJobCreateRollsBackWhenStepInsertFails`; API response remains stable. |
+| Add transaction wrapper for job delete | Done | Codex | `JobService.Delete` now deletes slots, steps, and job inside one transaction and propagates child delete errors; covered by `TestJobDeleteRollsBackWhenSlotDeleteFails`. |
+| Add transaction wrapper for production logs | Done | Codex | Production log flow continues to run in one transaction and now propagates missing slot, inventory side-effect, proposal outcome, and ML capture errors instead of committing partial execution state; covered by production-log rollback tests. |
+| Add transaction-safe inventory consume/receive | Done | Codex | Consume/receive both update stock and transaction records atomically; material rows are fetched with MySQL `FOR UPDATE` locking where supported. Receive rollback coverage added. |
+| Introduce backend error mapper | Done | Codex | Added small `apperror` taxonomy and handler mapper for validation, not found, conflict, forbidden, and internal errors; inventory insufficient stock now maps to 409. |
 | Extract public response DTO mapping | Deferred | TBD | Do after golden response tests. |
 | Split oversized AI scheduling service | Deferred | TBD | Only after contract and regression tests. |
 
@@ -107,5 +107,5 @@ Status values:
 
 ## Next Recommended Action
 
-Begin Phase 4 backend architecture refactoring: broaden transaction wrappers and error propagation to remaining multi-write flows, introduce the backend error mapper, and continue preserving API contracts with the Phase 1-3 tests.
+Phase 4 is complete. Next recommended action: begin Phase 5 long-term improvements, starting with versioned migration planning and deployment rollback notes.
 

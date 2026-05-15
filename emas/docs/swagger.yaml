@@ -1668,6 +1668,14 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/dto.Response'
+        '404':
+          description: Not Found
+          schema:
+            $ref: '#/definitions/dto.Response'
+        '409':
+          description: Conflict
+          schema:
+            $ref: '#/definitions/dto.Response'
         '500':
           description: Internal Server Error
           schema:
@@ -2046,6 +2054,10 @@ paths:
                   additionalProperties: true
         '400':
           description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.Response'
+        '404':
+          description: Not Found
           schema:
             $ref: '#/definitions/dto.Response'
         '500':
@@ -3577,6 +3589,10 @@ paths:
                   $ref: '#/definitions/domain.ProductionLogs'
         '400':
           description: Bad Request
+          schema:
+            $ref: '#/definitions/dto.Response'
+        '404':
+          description: Not Found
           schema:
             $ref: '#/definitions/dto.Response'
         '500':

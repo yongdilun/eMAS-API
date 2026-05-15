@@ -372,12 +372,25 @@ func (s *JobService) Update(id string, req dto.UpdateJobRequest) (*domain.Job, e
 }
 
 func (s *JobService) Delete(id string) error {
-	steps, _ := s.stepRepo.ListByJobID(id)
-	for _, st := range steps {
-		_ = s.slotRepo.DeleteByJobStepID(st.JobStepID)
-	}
-	_ = s.stepRepo.DeleteByJobID(id)
-	return s.jobRepo.Delete(id)
+	return s.jobRepo.Transaction(func(tx *gorm.DB) error {
+		txStepRepo := repository.NewJobStepRepository(tx)
+		txSlotRepo := repository.NewJobSlotRepository(tx)
+		txJobRepo := repository.NewJobRepository(tx)
+
+		steps, err := txStepRepo.ListByJobID(id)
+		if err != nil {
+			return err
+		}
+		for _, st := range steps {
+			if err := txSlotRepo.DeleteByJobStepID(st.JobStepID); err != nil {
+				return err
+			}
+		}
+		if err := txStepRepo.DeleteByJobID(id); err != nil {
+			return err
+		}
+		return txJobRepo.Delete(id)
+	})
 }
 
 func (s *JobService) Duplicate(jobID string, newDeadline time.Time, newQty int) (*domain.Job, error) {

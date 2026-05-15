@@ -1,6 +1,7 @@
 package service
 
 import (
+	"emas/internal/apperror"
 	"emas/internal/domain"
 	"emas/internal/handler/dto"
 	"emas/internal/repository"
@@ -19,12 +20,12 @@ func NewInventoryService(invRepo *repository.InventoryRepository) *InventoryServ
 
 func (s *InventoryService) ConsumeMaterial(req dto.ConsumeMaterialRequest) error {
 	return s.invRepo.Transaction(func(txRepo *repository.InventoryRepository) error {
-		m, err := txRepo.GetMaterialByID(req.MaterialID)
+		m, err := txRepo.GetMaterialByIDForUpdate(req.MaterialID)
 		if err != nil {
 			return err
 		}
 		if req.Quantity > m.CurrentStock {
-			return fmt.Errorf("insufficient stock for material %s: requested %.2f, available %.2f", req.MaterialID, req.Quantity, m.CurrentStock)
+			return apperror.Conflict(fmt.Sprintf("insufficient stock for material %s: requested %.2f, available %.2f", req.MaterialID, req.Quantity, m.CurrentStock))
 		}
 		m.CurrentStock -= req.Quantity
 		if m.CurrentStock < m.MinStock {
@@ -51,7 +52,7 @@ func (s *InventoryService) ConsumeMaterial(req dto.ConsumeMaterialRequest) error
 
 func (s *InventoryService) ReceiveMaterial(req dto.ReceiveMaterialRequest) error {
 	return s.invRepo.Transaction(func(txRepo *repository.InventoryRepository) error {
-		m, err := txRepo.GetMaterialByID(req.MaterialID)
+		m, err := txRepo.GetMaterialByIDForUpdate(req.MaterialID)
 		if err != nil {
 			return err
 		}

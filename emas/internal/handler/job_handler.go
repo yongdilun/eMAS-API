@@ -40,7 +40,7 @@ func (h *JobHandler) Create(c *gin.Context) {
 	}
 	job, err := h.jobService.Create(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, dto.Response{Success: true, Data: job})
@@ -61,7 +61,7 @@ func (h *JobHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
 	job, err := h.jobService.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: job})
@@ -81,7 +81,7 @@ func (h *JobHandler) ListSteps(c *gin.Context) {
 	id := c.Param("id")
 	steps, err := h.jobService.ListStepsByJobID(id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: steps})
@@ -142,7 +142,7 @@ func (h *JobHandler) List(c *gin.Context) {
 
 	jobs, err := h.jobService.ListFiltered(f)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	if len(f.Fields) > 0 {
@@ -236,7 +236,7 @@ func (h *JobHandler) Update(c *gin.Context) {
 	}
 	job, err := h.jobService.Update(id, req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, dto.Response{Success: true, Data: job})
@@ -286,7 +286,7 @@ func (h *JobHandler) Duplicate(c *gin.Context) {
 	deadline, _ := time.Parse(time.RFC3339, req.Deadline)
 	job, err := h.jobService.Duplicate(id, deadline, req.Quantity)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, dto.Response{Success: true, Data: job})

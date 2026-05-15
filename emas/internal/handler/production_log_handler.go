@@ -24,6 +24,7 @@ func NewProductionLogHandler(productionLogService *service.ProductionLogService)
 // @Param request body dto.LogProductionRequest true "Log Production Request"
 // @Success 201 {object} dto.Response{data=domain.ProductionLogs}
 // @Failure 400 {object} dto.Response
+// @Failure 404 {object} dto.Response
 // @Failure 500 {object} dto.Response
 // @Router /production-logs [post]
 func (h *ProductionLogHandler) LogProduction(c *gin.Context) {
@@ -34,7 +35,7 @@ func (h *ProductionLogHandler) LogProduction(c *gin.Context) {
 	}
 	log, err := h.productionLogService.LogProduction(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, dto.Response{Success: false, Error: err.Error()})
+		respondError(c, err)
 		return
 	}
 	c.JSON(http.StatusCreated, dto.Response{Success: true, Data: log})

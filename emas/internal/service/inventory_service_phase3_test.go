@@ -1,6 +1,7 @@
 package service
 
 import (
+	"emas/internal/apperror"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,9 @@ func TestInventoryConsumeRejectsInsufficientStock(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "insufficient stock") {
 		t.Fatalf("ConsumeMaterial error = %v, want insufficient stock", err)
+	}
+	if !apperror.IsKind(err, apperror.KindConflict) {
+		t.Fatalf("ConsumeMaterial error kind = %v, want conflict", err)
 	}
 
 	got, err := repo.GetMaterialByID(material.MaterialID)
@@ -89,5 +93,44 @@ func TestInventoryConsumeRollsBackStockWhenTransactionInsertFails(t *testing.T) 
 	}
 	if got.CurrentStock != 10 {
 		t.Fatalf("stock after failed transaction insert = %.2f, want 10.00", got.CurrentStock)
+	}
+}
+
+func TestInventoryReceiveRollsBackStockWhenTransactionInsertFails(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	repo := repository.NewInventoryRepository(db)
+	material := &domain.InventoryMaterials{
+		MaterialID:      "MAT-P4-RECEIVE-ROLLBACK",
+		MaterialName:    "Receive rollback material",
+		Unit:            "kg",
+		CurrentStock:    10,
+		MinStock:        2,
+		ReorderLevel:    10,
+		StorageLocation: "RAW",
+		Status:          domain.InventoryStatusInStock,
+		LastUpdated:     time.Now(),
+	}
+	if err := repo.CreateMaterial(material); err != nil {
+		t.Fatalf("create material: %v", err)
+	}
+	if err := db.Exec(`CREATE TRIGGER phase4_fail_receive_transaction BEFORE INSERT ON inventory_transactions BEGIN SELECT RAISE(FAIL, 'forced receive transaction failure'); END;`).Error; err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+	defer db.Exec("DROP TRIGGER IF EXISTS phase4_fail_receive_transaction")
+
+	err := NewInventoryService(repo).ReceiveMaterial(dto.ReceiveMaterialRequest{
+		MaterialID: material.MaterialID,
+		Quantity:   4,
+	})
+	if err == nil {
+		t.Fatal("ReceiveMaterial error = nil, want forced insert failure")
+	}
+
+	got, err := repo.GetMaterialByID(material.MaterialID)
+	if err != nil {
+		t.Fatalf("reload material: %v", err)
+	}
+	if got.CurrentStock != 10 {
+		t.Fatalf("stock after failed receive transaction insert = %.2f, want 10.00", got.CurrentStock)
 	}
 }
