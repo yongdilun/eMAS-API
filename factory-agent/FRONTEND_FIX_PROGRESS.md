@@ -25,12 +25,12 @@ Status key:
 
 | ID | Issue | Severity | Phase | Status | Verification | Rollback |
 |---|---|---|---|---|---|---|
-| FE-001 | Silent demo/mock data can look real | High | 2 | Not Started | Component tests for API failure and empty state | Re-enable demo fallback behind explicit flag |
-| FE-002 | Approval approve path depends on SSE for fresh UI state | High | 2 | Not Started | Approve flow test with no SSE event | Remove direct refresh if needed |
-| FE-003 | SSE streams do not share REST bearer-token behavior | High/Medium | 2 | Not Started | Auth-enabled stream/fallback tests | Feature flag SSE off |
-| FE-004 | Snapshot event stream runs for inactive sessions | Medium | 2 | Not Started | Hook test for IDLE/COMPLETED stream gating | Restore always-on stream |
-| FE-005 | Pending approval follow-up can create a new plan before decision | Medium | 2 | Not Started | Pending approval plus follow-up regression | Disable free-text input while approval pending |
-| FE-006 | Approval card dynamic lookup and validation are too broad | Medium | 2-3 | Not Started | Field validation and lookup failure tests | Disable dynamic options only |
+| FE-001 | Silent demo/mock data can look real | High | 2 | Done | `npm test` passed 37 tests; `npx.cmd vite build` passed; Playwright smoke verified report/machine unavailable text and blocked high-risk jobs unavailable text | Restore removed demo fallback constants only behind a visible demo flag |
+| FE-002 | Approval approve path depends on SSE for fresh UI state | High | 2 | Done | `npm test` passed 37 tests; build passed; approve path now calls direct snapshot refresh after approve succeeds | Remove the post-approve `safelyRefreshSnapshot` call |
+| FE-003 | SSE streams do not share REST bearer-token behavior | High/Medium | 2 | Done | Build passed; EventSource is disabled when `VITE_FACTORY_AGENT_BEARER_TOKEN` is configured and snapshot polling remains active | Re-enable EventSource by removing the bearer-token guard |
+| FE-004 | Snapshot event stream runs for inactive sessions | Medium | 2 | Done | Build passed; `useSessionEvents` is enabled only for active/running states or while sending | Restore `enabled: true` for `useSessionEvents` |
+| FE-005 | Pending approval follow-up can create a new plan before decision | Medium | 2 | Done | Build passed; UI now states follow-up messages can revise the plan while the current approval remains pending | Remove the pending-approval helper copy and placeholder change |
+| FE-006 | Approval card dynamic lookup and validation are too broad | Medium | 2-3 | Done | Added `approvalFieldUtils.test.mjs`; `npm test` passed 37 tests; strict integer/number casting rejects partial numeric strings | Restore previous lenient `parseInt`/`parseFloat` casting or remove the helper |
 | FE-007 | Nested interactive controls in session list | Medium | 5 | Not Started | Keyboard navigation test | Revert session row component |
 | FE-008 | Lint/test configuration is not a reliable safety gate | High | 1 | Done | `npm test` passed 35 tests; `npm.cmd run lint` now ignores generated artifacts and fails on source-only lint issues; `npx.cmd vite build` passed | Revert `.eslintrc.cjs`, `package.json`, and the tiny `useFactoryAgentChat.js` lint fix |
 | FE-009 | Dead or stale frontend modules create maintenance risk | Low/Medium | 1 | Done | Import check for stale names returned no matches after removal; build passed | Restore removed files from git |
@@ -92,7 +92,7 @@ Status key:
 
 ### Phase 2: UI Bug And Contract Fixes
 
-- Status: Not Started
+- Status: Done
 - Goal: Fix misleading UI and stale state risks.
 - Candidate changes:
   - Replace silent demo data with explicit unavailable/demo states.
@@ -103,6 +103,35 @@ Status key:
 - Do not change:
   - Backend contracts without agreement.
   - Planner or approval semantics by assumption.
+- Completed:
+  - Created `audit/frontend-phase-2` from committed `audit/frontend-phase-1`.
+  - Replaced Phase 2 audited silent demo fallbacks with explicit unavailable states:
+    - `src/pages/MachineResources.jsx`
+    - `src/components/features/machines/UtilizationChart.jsx`
+    - `src/components/features/reports/ReportPreview.jsx`
+    - `src/components/features/reports/ProductionOutputChart.jsx`
+    - `src/components/features/predictive/HighRiskJobsTable.jsx`
+  - Added direct snapshot refresh immediately after approval approve succeeds in `useFactoryAgentChat.js`.
+  - Added bearer-token-aware SSE handling: browser `EventSource` is not opened when REST is configured with `VITE_FACTORY_AGENT_BEARER_TOKEN`; snapshot polling remains the fallback path.
+  - Gated session invalidation streams to active states (`PLANNING`, `EXECUTING`, `WAITING_APPROVAL`, `WAITING_CONFIRMATION`, `BLOCKED`) or active sends.
+  - Clarified pending-approval follow-up copy without changing backend planner or approval semantics.
+  - Extracted approval field casting into `approvalFieldUtils.js` and tightened integer/number validation to reject partial numeric values such as `12abc`.
+  - Reduced approval tool lookup load from `max_tools: 200` to `max_tools: 100` while preserving editable field fallback.
+- Verification:
+  - `npm test` from `eMas Front`: passed, 37 tests.
+  - `npm.cmd run lint` from `eMas Front`: failed on known source lint backlog with `35 errors, 22 warnings`; remaining failures are unused variables and hook/fast-refresh warnings in existing source files.
+  - `npx.cmd vite build` from `eMas Front`: passed; retained existing large chunk warning at `617.47 kB`.
+  - Manual Playwright smoke against local Vite `http://127.0.0.1:5173`:
+    - `/reports`: visible text `No demo report rows are being shown`.
+    - `/machine-resources`: visible text `No demo machine values are being shown`.
+    - `/predictive-analysis` with `/predictive/high-risk-jobs` request blocked: visible text `No demo risk rows are being shown`.
+    - `/predictive-analysis` with local API available: rendered live `JOB-SEED-*` high-risk rows rather than demo rows.
+- Rollback:
+  - Revert the Phase 2 commit to restore prior fallback, stream, and approval-validation behavior.
+  - For partial rollback, restore the report/machine/predictive fallback files listed above, remove the post-approve refresh in `useFactoryAgentChat.js`, remove `factoryAgentStreamAuth` and the stream guards, or restore lenient approval casting.
+- Remaining:
+  - Lint still fails on the existing source backlog from Phase 1.
+  - No React component test harness exists yet; component-level coverage for unavailable states and chat flows remains Phase 3 work.
 
 ### Phase 3: Frontend Test Improvement
 
@@ -151,12 +180,13 @@ Status key:
 | 2026-05-15 | Prioritize misleading UI and stale state first | These are highest user-facing reliability risks | Start with FE-001, FE-002, FE-008 |
 | 2026-05-15 | Document before code changes | User requested documentation first | Keep this tracker updated after each fix |
 | 2026-05-15 | Fresh Factory Agent planning is unavailable in the local baseline | `POST /sessions/{id}/plans` returned `503 {"detail":{"errors":["Connection error."]}}` during Phase 0 capture | Treat polished planner error UI as a later frontend reliability concern; do not mask backend unavailability with fake success |
+| 2026-05-15 | Keep SSE bearer handling frontend-only in Phase 2 | Browser `EventSource` cannot attach the REST `Authorization` header, and backend contract changes are out of scope | Use snapshot polling when `VITE_FACTORY_AGENT_BEARER_TOKEN` is configured; define a backend stream auth contract in a later phase if needed |
 
 ## Current Next Step
 
-Phase 1 is complete. Stop here and do not start Phase 2 in this window.
+Phase 2 is complete. Stop here and do not start Phase 3 in this window.
 
-The next phase window should branch `audit/frontend-phase-2` from committed `audit/frontend-phase-1`.
+The next phase window should branch `audit/frontend-phase-3` from committed `audit/frontend-phase-2`.
 
 ## Update Rules For This Tracker
 

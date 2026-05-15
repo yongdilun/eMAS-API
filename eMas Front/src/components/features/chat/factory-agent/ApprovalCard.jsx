@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { factoryAgentApi } from '../../../../services/factoryAgentApi'
 import { toList } from '../../../../services/api'
 import { isInterruptBundleApprovalText, shortenApprovalRiskSummary } from './approvalInterruptDisplay.js'
+import { castApprovalFieldValue } from './approvalFieldUtils.js'
 
 const levelStyles = {
  NONE: 'bg-primary/10 text-primary',
@@ -250,39 +251,6 @@ function dedupeOptions(options = []) {
  return out
 }
 
-function castFieldValue(rawValue, field) {
- const schemaType = field?.type || 'string'
- if (rawValue === undefined || rawValue === null || rawValue === '') return undefined
- if (schemaType === 'integer') {
- const parsed = Number.parseInt(String(rawValue), 10)
- return Number.isNaN(parsed) ? Number.NaN : parsed
- }
- if (schemaType === 'number') {
- const parsed = Number.parseFloat(String(rawValue))
- return Number.isNaN(parsed) ? Number.NaN : parsed
- }
- if (schemaType === 'boolean') {
- if (rawValue === true || rawValue === false) return rawValue
- if (String(rawValue).toLowerCase() === 'true') return true
- if (String(rawValue).toLowerCase() === 'false') return false
- return undefined
- }
- if (schemaType === 'array' || schemaType === 'object') {
- if (typeof rawValue !== 'string') return rawValue
- try {
- return JSON.parse(rawValue)
- } catch {
- return Number.NaN
- }
- }
- if (field?.inputType === 'datetime-local') {
- const d = new Date(String(rawValue))
- if (Number.isNaN(d.getTime())) return Number.NaN
- return d.toISOString()
- }
- return String(rawValue)
-}
-
 const ApprovalCard = ({ approval, mode = 'user', reason, onReasonChange, onApprove, onReject, deciding }) => {
  const safeApproval = approval || {}
 
@@ -305,7 +273,7 @@ const ApprovalCard = ({ approval, mode = 'user', reason, onReasonChange, onAppro
  let cancelled = false
  const loadTools = async () => {
  try {
- const rows = await factoryAgentApi.listTools({ max_tools: 200 })
+ const rows = await factoryAgentApi.listTools({ max_tools: 100 })
  if (!cancelled) setTools(Array.isArray(rows) ? rows : [])
  } catch {
  if (!cancelled) setTools([])
@@ -419,7 +387,7 @@ const ApprovalCard = ({ approval, mode = 'user', reason, onReasonChange, onAppro
 
  for (const field of fields) {
  const raw = formValues[field.name]
- const casted = castFieldValue(raw, field)
+ const casted = castApprovalFieldValue(raw, field)
  if (field.required && (casted === undefined || casted === null || casted === '')) {
  errors.push(`${humanizeFieldName(field.name)} is required`)
  continue

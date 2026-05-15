@@ -486,6 +486,18 @@ export function useFactoryAgentChat() {
     enabled: activityStreamEnabled,
   })
 
+  const sessionEventsEnabled = Boolean(
+    session?.session_id &&
+    (isSending ||
+      [
+        FACTORY_AGENT_STATUS.PLANNING,
+        FACTORY_AGENT_STATUS.EXECUTING,
+        FACTORY_AGENT_STATUS.WAITING_APPROVAL,
+        FACTORY_AGENT_STATUS.WAITING_CONFIRMATION,
+        FACTORY_AGENT_STATUS.BLOCKED,
+      ].includes(session?.status)),
+  )
+
   const appendUserMessageAndRefresh = useCallback(async (sessionId, text, mode) => {
     await factoryAgentApi.addMessage(sessionId, { role: 'user', content: text, mode })
     await safelyRefreshSnapshot(sessionId)
@@ -537,7 +549,7 @@ export function useFactoryAgentChat() {
     useCallback(() => {
       if (session?.session_id) pollSnapshot()
     }, [pollSnapshot, session?.session_id]),
-    { enabled: true, fallbackMs: 4000 },
+    { enabled: sessionEventsEnabled, fallbackMs: 4000 },
   )
 
   useEffect(() => clearClientProgressTimers, [clearClientProgressTimers])
@@ -760,8 +772,7 @@ export function useFactoryAgentChat() {
             : snapshotApproval.args || {}
         stashBundle(snapshotApproval, mergedArgs)
         await factoryAgentApi.approve(resolvedId, payload)
-        // snapshot_invalidated from SSE will trigger re-fetch; resume_hint arrives
-        // in the next snapshot automatically — no client flag needed.
+        await safelyRefreshSnapshot(session?.session_id)
       } else {
         const rejectId = pendingApproval.approval_id
         setPendingApproval(null)

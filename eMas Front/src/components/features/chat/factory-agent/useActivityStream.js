@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { factoryAgentStreamAuth } from '../../../../services/factoryAgentApi.js'
 
 const FACTORY_AGENT_BASE_URL = (
   import.meta.env?.VITE_FACTORY_AGENT_BASE_URL || 'http://127.0.0.1:8000'
@@ -61,6 +62,7 @@ export function useActivityStream(sessionId, onActivityStep, options = {}) {
   const connect = useCallback(() => {
     if (!mountedRef.current) return
     if (!sessionId || !enabled) return
+    if (!factoryAgentStreamAuth.eventSourceEnabled) return
     if (typeof EventSource === 'undefined') return
 
     closeEs()

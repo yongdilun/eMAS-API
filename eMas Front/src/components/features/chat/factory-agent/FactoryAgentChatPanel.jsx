@@ -711,7 +711,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
   let placeholder = 'Ask factory agent...'
   if (session?.status === FACTORY_AGENT_STATUS.PLANNING) placeholder = 'Planning in progress...'
   if (session?.status === FACTORY_AGENT_STATUS.EXECUTING) placeholder = 'Send a follow-up message for the next replan point...'
-  if (session?.status === FACTORY_AGENT_STATUS.WAITING_APPROVAL) placeholder = 'Request a plan change while approval is pending...'
+  if (session?.status === FACTORY_AGENT_STATUS.WAITING_APPROVAL) placeholder = 'Send a revision; pending approval stays open...'
   const displayStatus = friendlySessionStatus(session?.status, isSending)
 
   return (
@@ -1078,6 +1078,12 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown }) => {
             />
           )}
         </div>
+
+        {session?.status === FACTORY_AGENT_STATUS.WAITING_APPROVAL && pendingApproval ? (
+          <div className="mx-4 mt-2 rounded-lg border border-hairline bg-surface-2 px-3 py-2 text-xs text-ink-subtle">
+            Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.
+          </div>
+        ) : null}
 
         <form
           className="mx-4 mb-4 mt-2 flex flex-shrink-0 items-center gap-2 rounded-lg border border-hairline bg-surface-1 p-2.5"
