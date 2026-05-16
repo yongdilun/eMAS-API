@@ -22,7 +22,7 @@ Purpose: living execution tracker for the stateful oracle hardening plan. Future
 | 2 | Stateful fake tool and commit harness | Done | Added reusable mutable oracle harness, focused SO-001/SO-006/SO-007/SO-008/SO-009 tests, and strengthened critical graph tests without starting Phase 3. |
 | 3 | LangGraph state machine invariants | Done | Added focused LangGraph state-machine oracle pytest coverage for cursor movement, staged-write cleanup, approval boundaries, rejection, timeout, stale approval, distinct approval ids, and original-state cascade semantics. |
 | 4 | Snapshot, timeline, and final response contract | Done | Added Phase 4 oracle contract tests tying graph actions, approvals, audit rows, fake committed state, SSE/timeline evidence, and final response copy together; fixed frontend stale-terminal-before-approval guard. |
-| 5 | SSE contract and disconnect semantics | Not Started | Prove stream order, reconnect, malformed payload, and terminal behavior. |
+| 5 | SSE contract and disconnect semantics | Done | Runtime and browser SSE oracles now prove order, reconnect, malformed recovery, disconnect, fallback, and terminal-state gating. |
 | 6 | Seeded full-stack data and audit oracles | Not Started | Verify real seeded Go API plus Factory Agent state. |
 | 7 | Non-seeded LangGraph browser proof | Not Started | Prove critical browser flows without seeded planner adapter. |
 | 8 | Manual failure promotion workflow | Not Started | Every manual miss becomes an oracle or accepted gap. |
@@ -533,14 +533,121 @@ Start Phase 5: SSE Contract and Disconnect Semantics. Keep the next pass focused
 
 ## Phase 5 Checklist: SSE Contract and Disconnect Semantics
 
-- [ ] Assert activity SSE event order.
-- [ ] Assert notification SSE snapshot invalidation.
-- [ ] Assert malformed SSE payload recovery.
-- [ ] Assert reconnect with `Last-Event-ID`.
-- [ ] Assert no duplicate activity rows after reconnect.
-- [ ] Assert stream drop leads to polling or safe diagnostic.
-- [ ] Assert modal close/navigation disconnects EventSource.
-- [ ] Assert SSE cannot force final UI before terminal snapshot.
+- [x] Assert activity SSE event order.
+- [x] Assert notification SSE snapshot invalidation.
+- [x] Assert malformed SSE payload recovery.
+- [x] Assert reconnect with `Last-Event-ID`.
+- [x] Assert no duplicate activity rows after reconnect.
+- [x] Assert stream drop leads to polling or safe diagnostic.
+- [x] Assert modal close/navigation disconnects EventSource.
+- [x] Assert SSE cannot force final UI before terminal snapshot.
+
+## Phase 5 Implementation: SSE Contract and Disconnect Semantics
+
+Status: Done
+
+Updated: 2026-05-16
+
+Pre-edit checkpoint:
+
+- User asked to commit before editing Phase 5.
+- Committed the existing worktree first: `527c9ea chore: checkpoint stateful oracle phases`.
+- Phase 5 edits were made after that checkpoint.
+
+Scope completed in this pass:
+
+- Fixed a runtime SSE reconnect defect in `factory-agent/factory_agent/api/routers/events.py`: activity and semantic streams now only treat events as already seen when the supplied `Last-Event-ID` is found in the current snapshot/timeline. A stale or unknown `Last-Event-ID` now replays current evidence instead of suppressing every current row.
+- Rebuilt `factory-agent/tests/test_event_stream_runtime.py` into a stronger runtime oracle:
+  - notification stream poll sessions are separated from the auth dependency session,
+  - activity reconnect resumes after `Last-Event-ID` without duplicate rows,
+  - stale activity `Last-Event-ID` replays current ordered rows,
+  - notification reconnect invalidates stale snapshot cursors,
+  - semantic stream reconnect ties emitted events back to snapshot timeline order,
+  - negative controls prove the assertions fail for duplicate, out-of-order, missing, and non-invalidating stream evidence.
+- Added mock-server SSE frame logging via `eMas Front/e2e/mock-server/factoryAgentMockServer.js` and exposed `/__test/sse-events` so browser tests can assert actual emitted frames, ids, payload types, raw malformed frames, and ordering.
+- Strengthened mocked Playwright `@sse` coverage:
+  - `chat-sse-activity.spec.js` asserts monotonic unique activity frame ids, expected rendered order, snapshot terminal state, snapshot activity rows, timeline order, and no final answer before terminal snapshot.
+  - `chat-sse-notification.spec.js` asserts notification frames include `snapshot_invalidated` and that a snapshot refresh happens after the invalidation frame.
+  - `chat-stream-errors.spec.js` asserts malformed raw SSE is ignored, the next valid invalidation refreshes the snapshot, and stream drop produces safe polling diagnostics plus post-drop polling.
+  - `chat-cancel-navigation.spec.js` asserts modal close disconnects both notification and activity EventSource streams.
+- Strengthened seeded Playwright SSE/resilience coverage:
+  - `full-stack-sse-hard.spec.js` now ties seeded activity rows to snapshot/timeline order, uniqueness, terminal state, and reconnect evidence.
+  - `full-stack-resilience.spec.js` now proves stream-drop recovery ends in a terminal snapshot with one terminal activity row, ordered timeline evidence, and reconnect `Last-Event-ID`.
+- Fixed one unrelated assertion drift encountered by the recommended seeded grep: scenario 52's no-source RAG test now accepts the actual safe wording `available cited LOTO source` instead of requiring the narrower contiguous phrase `available cited source`.
+
+Commands run:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_event_stream_runtime.py -q
+
+Set-Location "..\eMas Front"
+npm run test:e2e -- --project=chromium --grep "@sse"
+npm run test:e2e -- --project=chromium-seeded --grep "@sse|@l3-hard"
+npm run test:e2e -- --project=chromium-seeded --grep "scenario 47|scenario 48|scenario 51"
+npm run test:e2e -- --project=chromium-seeded --grep "scenario 52"
+npm test
+```
+
+Test results:
+
+```text
+Initial backend runtime baseline: 2 failed, 1 warning.
+  Reason: old poll-session assertions counted the auth snapshot load as a stream poll.
+
+Final backend runtime:
+  tests/test_event_stream_runtime.py: 6 passed, 1 warning in 1.19s
+
+Mocked Chromium @sse:
+  First run: 4 passed, 1 failed.
+  Reason: notification test expected optional phase_changed after terminal invalidation, but the UI legitimately closed the stream after terminal snapshot refresh.
+  Final run: 5 passed in 8.9s
+
+Seeded Chromium @sse|@l3-hard:
+  First run: 10 passed, 4 failed.
+  Reasons: three new Phase 5 assertions were stricter than seeded timeline/activity projections, and scenario 52 had unrelated wording drift.
+  Focused Phase 5 rerun: scenario 47, scenario 48, scenario 51 all passed.
+  Final full run: 14 passed in 52.7s
+
+Frontend unit suite:
+  npm test: 53 passed in 6800.4769ms
+```
+
+Warnings observed:
+
+- Existing `LangChainPendingDeprecationWarning` from `langgraph.checkpoint.serde.jsonplus`.
+- Existing `PytestDeprecationWarning` for unset `asyncio_default_fixture_loop_scope`.
+
+Files changed:
+
+- `docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md`
+- `factory-agent/factory_agent/api/routers/events.py`
+- `factory-agent/tests/test_event_stream_runtime.py`
+- `eMas Front/e2e/mock-server/factoryAgentMockServer.js`
+- `eMas Front/e2e/specs/chat-cancel-navigation.spec.js`
+- `eMas Front/e2e/specs/chat-sse-activity.spec.js`
+- `eMas Front/e2e/specs/chat-sse-notification.spec.js`
+- `eMas Front/e2e/specs/chat-stream-errors.spec.js`
+- `eMas Front/e2e/specs/full-stack-resilience.spec.js`
+- `eMas Front/e2e/specs/full-stack-sse-hard.spec.js`
+
+Decisions made:
+
+- A stale or unknown `Last-Event-ID` must not mark every current activity/timeline row as seen; current evidence should replay rather than stall.
+- Browser final-answer visibility remains snapshot-gated. SSE activity can show progress, but final answer and terminal activity require terminal snapshot/timeline evidence.
+- Notification `snapshot_invalidated` is the core refresh contract. A later `phase_changed` frame is useful but optional once the invalidation refresh reaches terminal state and the client closes the stream.
+- Seeded full-stack timeline oracles should assert the event sequence that the seeded stack actually projects (`plan_created` -> `tool_result` -> `session_completed`) instead of requiring `execution_started` where that projection is absent.
+- Mocked SSE tests now inspect emitted frames through `/__test/sse-events`; visible busy UI alone is not treated as stream correctness evidence.
+
+Blockers/open questions:
+
+- No Phase 5 blockers remain.
+- Phase 5 still does not prove non-seeded real LangGraph browser behavior; that remains Phase 7.
+- The durable operation ledger question remains open for Phase 10.
+
+Next action:
+
+Start Phase 6: Seeded Full-Stack Data and Audit Oracles. Keep Phase 6 focused on seeded DB state, approval rows, audit rows, unchanged rows, snapshot/timeline/final UI agreement, and failure artifacts.
 
 ## Phase 6 Checklist: Seeded Full-Stack Data and Audit Oracles
 
@@ -599,8 +706,8 @@ Start Phase 5: SSE Contract and Disconnect Semantics. Keep the next pass focused
 
 - Existing phase docs mark many phases `Done`, but recent bugs prove several tests had weak oracles.
 - Some seeded Playwright tests prove seeded adapters, not real LangGraph behavior.
-- Phase 5 still needs runtime SSE stream coverage for reconnect, malformed payloads, duplicate suppression, and disconnect recovery.
-- There are many existing uncommitted changes in the worktree. Future agents must avoid reverting unrelated user/agent work.
+- No Phase 5 blockers remain.
+- The worktree contains Phase 5 changes made after checkpoint commit `527c9ea`; future agents must avoid reverting them unless explicitly asked.
 
 ## Open Questions
 
@@ -620,47 +727,66 @@ Start Phase 5: SSE Contract and Disconnect Semantics. Keep the next pass focused
 - For mutating workflows, `COMPLETED` is not sufficient. DB, audit, approvals, timeline, snapshot, final response, and UI must agree.
 - For Phase 4 mutating workflows, empty or synthesized timeline evidence is a failing oracle condition.
 - A newer pending approval must outrank any stale terminal completion row in frontend turn summaries and activity timelines.
+- For Phase 5 stream recovery, stale or unknown `Last-Event-ID` replays current evidence instead of suppressing all rows.
+- SSE activity evidence can advance progress UI, but final assistant UI remains gated on terminal snapshot/timeline state.
 
 ## Commands Run
 
-Latest Phase 4 implementation and verification:
+Latest Phase 5 implementation and verification:
 
 ```powershell
 Get-Content -Raw "docs/qa/STATEFUL_ORACLE_TESTING_PLAN.md"
 Get-Content -Raw "docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md"
-Get-Content -Raw "factory-agent/factory_agent/graph/nodes/planner_loop.py"
+Get-Content -Raw "factory-agent/tests/test_event_stream_runtime.py"
+Get-Content -Raw "factory-agent/factory_agent/api/routers/events.py"
 Get-Content -Raw "eMas Front/e2e/fixtures/sseScripts.js"
-Get-Content -Raw "eMas Front/e2e/fixtures/factoryAgentFixtures.js"
-rg -n "SSE|sse|chat|timeline|approval|approv|EventSource|stream" "factory-agent/factory_agent" -g "*.py"
+Get-Content -Raw "eMas Front/e2e/specs/full-stack-sse-hard.spec.js"
+Get-Content -Raw "eMas Front/e2e/specs/chat-sse-activity.spec.js"
+Get-Content -Raw "eMas Front/src/components/features/chat/factory-agent/useActivityStream.js"
+Get-Content -Raw "eMas Front/src/components/features/chat/factory-agent/useSessionEvents.js"
+git status --short
+git branch --show-current
+git add -A
+git commit -m "chore: checkpoint stateful oracle phases"
+git rev-parse --short HEAD
 Set-Location "factory-agent"
-python -m pytest tests/test_snapshot_timeline_final_response_contract.py -q
-python -m pytest tests/test_langgraph_state_machine_oracles.py -q
+python -m pytest tests/test_event_stream_runtime.py -q
 Set-Location "..\eMas Front"
-node --test --test-concurrency=1 "src/components/features/chat/turns/turnAssembler.test.mjs"
+npm run test:e2e -- --project=chromium --grep "@sse"
+npm run test:e2e -- --project=chromium-seeded --grep "@sse|@l3-hard"
+npm run test:e2e -- --project=chromium-seeded --grep "scenario 47|scenario 48|scenario 51"
+npm run test:e2e -- --project=chromium-seeded --grep "scenario 52"
 npm test
 Set-Location "..\factory-agent"
-python -m pytest tests/test_snapshot_timeline_final_response_contract.py -q
+python -m pytest tests/test_event_stream_runtime.py -q
 ```
 
 ## Test Results
 
-Phase 4 verification passed:
+Phase 5 verification passed:
 
 ```text
-tests/test_snapshot_timeline_final_response_contract.py: 7 passed, 1 warning in 0.66s
-tests/test_langgraph_state_machine_oracles.py: 14 passed, 1 warning in 1.22s
-turnAssembler node test: 9 passed in 93.5243ms
-eMas Front npm test: 53 passed in 6559.0198ms
+Initial backend runtime run: 2 failed, 1 warning.
+Final backend runtime run: 6 passed, 1 warning in 1.19s
+Mocked Chromium @sse final run: 5 passed in 8.9s
+Seeded Chromium focused Phase 5 rerun: 3 passed in 31.6s
+Seeded Chromium @sse|@l3-hard final run: 14 passed in 52.7s
+eMas Front npm test: 53 passed in 6800.4769ms
 ```
 
 ## Files Changed
 
 - `docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md`
-- `factory-agent/tests/test_snapshot_timeline_final_response_contract.py`
-- `eMas Front/src/components/features/chat/turns/turnAssembler.js`
-- `eMas Front/src/components/features/chat/turns/turnAssembler.test.mjs`
-- `eMas Front/src/components/features/chat/factory-agent/activityTimeline.test.mjs`
+- `factory-agent/factory_agent/api/routers/events.py`
+- `factory-agent/tests/test_event_stream_runtime.py`
+- `eMas Front/e2e/mock-server/factoryAgentMockServer.js`
+- `eMas Front/e2e/specs/chat-cancel-navigation.spec.js`
+- `eMas Front/e2e/specs/chat-sse-activity.spec.js`
+- `eMas Front/e2e/specs/chat-sse-notification.spec.js`
+- `eMas Front/e2e/specs/chat-stream-errors.spec.js`
+- `eMas Front/e2e/specs/full-stack-resilience.spec.js`
+- `eMas Front/e2e/specs/full-stack-sse-hard.spec.js`
 
 ## Next Action
 
-Start Phase 5: SSE Contract and Disconnect Semantics. Keep the next pass focused on stream order, reconnect, malformed payload recovery, duplicate suppression, and disconnect/polling behavior.
+Start Phase 6: Seeded Full-Stack Data and Audit Oracles. Keep the next pass focused on DB/audit/approval row evidence, unchanged-row assertions, and seeded artifacts.

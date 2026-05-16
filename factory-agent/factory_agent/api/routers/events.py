@@ -114,10 +114,15 @@ def build_events_router(
             if last_event_id:
                 initial_snapshot = await _fresh_snapshot()
                 if initial_snapshot is not None:
+                    resume_seen_event_ids: list[str] = []
+                    found_resume_event = False
                     for ev in initial_snapshot.timeline:
-                        seen_event_ids.add(ev.event_id)
+                        resume_seen_event_ids.append(ev.event_id)
                         if ev.event_id == last_event_id:
+                            found_resume_event = True
                             break
+                    if found_resume_event:
+                        seen_event_ids.update(resume_seen_event_ids)
             init_payload = {"type": "STREAM_READY", "session_id": session_id}
             yield f"event: semantic\ndata: {json.dumps(init_payload, ensure_ascii=False)}\n\n"
             while True:
@@ -237,10 +242,19 @@ def build_events_router(
             if last_event_id:
                 initial_snapshot = await _fresh_snapshot()
                 if initial_snapshot is not None:
+                    resume_seen_steps: dict[str, str] = {}
+                    found_resume_step = False
                     for step in activity_steps_for_snapshot(initial_snapshot):
-                        seen_steps[step.id] = json.dumps(step.model_dump(exclude_none=True), sort_keys=True, default=str)
+                        resume_seen_steps[step.id] = json.dumps(
+                            step.model_dump(exclude_none=True),
+                            sort_keys=True,
+                            default=str,
+                        )
                         if step.id == last_event_id:
+                            found_resume_step = True
                             break
+                    if found_resume_step:
+                        seen_steps.update(resume_seen_steps)
 
             ready = {"type": "STREAM_READY", "session_id": session_id}
             yield f"event: control\ndata: {json.dumps(ready, ensure_ascii=False)}\n\n"

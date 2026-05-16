@@ -24,10 +24,23 @@ async function requestsFor(query) {
   return body.requests || []
 }
 
+async function sseEventsFor(query) {
+  const params = new URLSearchParams(query)
+  const body = await getMockJson(`/__test/sse-events?${params}`)
+  return body.events || []
+}
+
 async function connectionsFor(query) {
   const params = new URLSearchParams(query)
   const body = await getMockJson(`/__test/sse-connections?${params}`)
   return body.connections || []
+}
+
+function assertMalformedFrameRecovery(frames) {
+  const malformedIndex = frames.findIndex((entry) => entry.raw)
+  const validIndex = frames.findIndex((entry) => entry.data?.type === 'snapshot_invalidated')
+  expect(malformedIndex).toBeGreaterThanOrEqual(0)
+  expect(validIndex).toBeGreaterThan(malformedIndex)
 }
 
 async function openChat(page) {
@@ -45,7 +58,7 @@ async function sendChatPrompt(page, prompt) {
 }
 
 test.describe('Factory Agent chat failure and stream robustness scenarios', () => {
-  test('malformed SSE payload is ignored and the next valid notification still updates the UI', async ({ page }) => {
+  test('malformed SSE payload is ignored and the next valid notification still updates the UI @sse', async ({ page }) => {
     const pageErrors = []
     page.on('pageerror', (err) => pageErrors.push(err.message))
 
@@ -67,6 +80,19 @@ test.describe('Factory Agent chat failure and stream robustness scenarios', () =
     await expect(page.getByText('Run complete')).toBeVisible()
     await expect(page.locator('[role="status"][aria-busy="true"]')).toHaveCount(0)
     expect(pageErrors).toEqual([])
+
+    const frames = await sseEventsFor({
+      scenario: 'malformedSseRecovery',
+      stream: 'notification',
+    })
+    assertMalformedFrameRecovery(frames)
+    expect(() => assertMalformedFrameRecovery(frames.filter((entry) => !entry.raw))).toThrow()
+
+    const requests = await requestsFor({ scenario: 'malformedSseRecovery' })
+    const validInvalidation = frames.find((entry) => entry.data?.type === 'snapshot_invalidated')
+    expect(
+      requests.some((entry) => entry.path.endsWith('/snapshot') && String(entry.at) >= String(validInvalidation.at)),
+    ).toBe(true)
   })
 
   test('execute 409 is retried and the final response completes once', async ({ page }) => {
@@ -97,7 +123,7 @@ test.describe('Factory Agent chat failure and stream robustness scenarios', () =
     await expect(page.getByText(nonTerminalFinalAnswer)).toHaveCount(0)
   })
 
-  test('notification stream drop shows snapshot polling fallback diagnostic without final success', async ({ page }) => {
+  test('notification stream drop shows snapshot polling fallback diagnostic without final success @sse', async ({ page }) => {
     await openChat(page)
     await sendChatPrompt(page, streamDropPrompt)
 
@@ -114,6 +140,21 @@ test.describe('Factory Agent chat failure and stream robustness scenarios', () =
         })
         return connections.length
       })
+      .toBeGreaterThan(0)
+
+    const closed = await connectionsFor({
+      scenario: 'notificationStreamDrop',
+      stream: 'notification',
+      event: 'close',
+    })
+    const closedAt = closed[0]?.at
+    expect(closedAt).toBeTruthy()
+
+    await expect
+      .poll(async () => {
+        const requests = await requestsFor({ scenario: 'notificationStreamDrop' })
+        return requests.filter((entry) => entry.path.endsWith('/snapshot') && String(entry.at) >= String(closedAt)).length
+      }, { timeout: 7000 })
       .toBeGreaterThan(0)
   })
 })

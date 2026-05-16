@@ -25,6 +25,25 @@ async function requestsFor(query) {
   return body.requests || []
 }
 
+async function sseEventsFor(query) {
+  const params = new URLSearchParams(query)
+  const body = await getMockJson(`/__test/sse-events?${params}`)
+  return body.events || []
+}
+
+function assertMonotonicUniqueFrameIds(events) {
+  const ids = events.map((entry) => Number(entry.id))
+  expect(ids.every(Number.isFinite)).toBe(true)
+  expect(ids).toEqual([...ids].sort((a, b) => a - b))
+  expect(new Set(ids).size).toBe(ids.length)
+}
+
+function assertSnapshotRefreshAfterInvalidation(notificationFrames, snapshotRequests) {
+  const invalidation = notificationFrames.find((entry) => entry.data?.type === 'snapshot_invalidated')
+  expect(invalidation, 'expected notification SSE snapshot_invalidated frame').toBeTruthy()
+  expect(snapshotRequests.some((entry) => String(entry.at) >= String(invalidation.at))).toBe(true)
+}
+
 async function openChat(page) {
   await page.goto('/')
   await page.getByRole('button', { name: chatSelectors.openAssistantButtonName }).click()
@@ -39,7 +58,7 @@ async function sendChatPrompt(page, prompt) {
   await expect(page.getByText(prompt)).toBeVisible()
 }
 
-test.describe('Factory Agent chat SSE notification stream', () => {
+test.describe('Factory Agent chat SSE notification stream @sse', () => {
   test('notification hello opens the stream, invalidates the snapshot, and reaches final completion', async ({ page }) => {
     await openChat(page)
     await sendChatPrompt(page, notificationSsePrompt)
@@ -65,8 +84,22 @@ test.describe('Factory Agent chat SSE notification stream', () => {
     const requests = await requestsFor({ scenario: 'notificationSseCompletion' })
     const notificationRequests = requests.filter((entry) => entry.path.endsWith('/events'))
     const snapshotRequests = requests.filter((entry) => entry.path.endsWith('/snapshot'))
+    const notificationFrames = await sseEventsFor({
+      scenario: 'notificationSseCompletion',
+      stream: 'notification',
+    })
 
     expect(notificationRequests.length).toBeGreaterThan(0)
     expect(snapshotRequests.length).toBeGreaterThanOrEqual(2)
+    assertMonotonicUniqueFrameIds(notificationFrames)
+    expect(notificationFrames.map((entry) => entry.data?.type)).toEqual(
+      expect.arrayContaining(['hello', 'heartbeat', 'snapshot_invalidated']),
+    )
+    assertSnapshotRefreshAfterInvalidation(notificationFrames, snapshotRequests)
+
+    expect(() => assertSnapshotRefreshAfterInvalidation(
+      notificationFrames.filter((entry) => entry.data?.type !== 'snapshot_invalidated'),
+      snapshotRequests,
+    )).toThrow()
   })
 })

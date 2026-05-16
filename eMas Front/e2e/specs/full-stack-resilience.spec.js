@@ -8,6 +8,16 @@ import {
   snapshotForPage,
 } from '../support/fullStackScenarios.js'
 
+function assertTimelineOrder(snapshot, expectedTypes) {
+  const types = snapshot.timeline.map((event) => event.event_type)
+  for (const type of expectedTypes) {
+    expect(types).toContain(type)
+  }
+  for (let index = 1; index < expectedTypes.length; index += 1) {
+    expect(types.indexOf(expectedTypes[index - 1])).toBeLessThan(types.indexOf(expectedTypes[index]))
+  }
+}
+
 test.describe('L3 seeded hard resilience @l3-hard @resilience', () => {
   test('scenario 46: stale local storage deleted session recovers to a new safe state', async ({ page }) => {
     const stale = await factoryAgentJson('/sessions', {
@@ -98,8 +108,16 @@ test.describe('L3 seeded hard resilience @l3-hard @resilience', () => {
     await expect(page.locator('[role="status"][aria-busy="true"]')).toHaveCount(0)
 
     const snapshot = await snapshotForPage(page)
-    expect(['COMPLETED', 'FAILED']).toContain(snapshot.session.status)
     expect(snapshot.session.status).toBe('COMPLETED')
+    expect(snapshot.activity_steps.filter((step) => step.label === 'Run complete')).toHaveLength(1)
+    assertTimelineOrder(snapshot, ['plan_created', 'tool_result', 'session_completed'])
+
+    const connections = await factoryAgentJson('/_playwright/sse-connections')
+    expect(
+      connections.connections.some(
+        (entry) => entry.stream === 'notification' && entry.session_id === sessionId && Boolean(entry.last_event_id),
+      ),
+    ).toBe(true)
   })
 
   test('scenario 52: RAG no-source fallback is honest and does not invent citations', async ({ page }) => {
@@ -107,7 +125,7 @@ test.describe('L3 seeded hard resilience @l3-hard @resilience', () => {
     await sendPrompt(page, 'What is the Phase 9 no-source maintenance procedure fallback?')
 
     await expect(page.getByText(/Controlled seeded RAG fallback/i).first()).toBeVisible()
-    await expect(page.getByText(/do not have an available cited source/i).first()).toBeVisible()
+    await expect(page.getByText(/do not have an available cited .*source/i).first()).toBeVisible()
     await expect(page.getByText(/No retrievable seeded source was available/i).first()).toBeVisible()
     await expect(page.getByText('Knowledge sources')).toHaveCount(0)
     await expect(page.getByText('Run complete')).toBeVisible()

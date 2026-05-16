@@ -64,7 +64,7 @@ test.describe('Factory Agent chat cancel and disconnect scenarios', () => {
       .toBe(true)
   })
 
-  test('closing the modal during an active stream records EventSource disconnect', async ({ page }) => {
+  test('closing the modal during an active stream records EventSource disconnect @sse', async ({ page }) => {
     await openChat(page)
     await sendChatPrompt(page, disconnectPrompt)
 
@@ -78,19 +78,31 @@ test.describe('Factory Agent chat cancel and disconnect scenarios', () => {
         return connections.length
       })
       .toBeGreaterThan(0)
-
-    await page.getByRole('button', { name: 'Close' }).first().click()
-    await expect(page.getByRole('dialog', { name: chatSelectors.dialogName })).toHaveCount(0)
-
     await expect
       .poll(async () => {
         const connections = await connectionsFor({
           scenario: 'modalDisconnectActiveRun',
-          stream: 'notification',
-          event: 'close',
+          stream: 'activity',
+          event: 'open',
         })
         return connections.length
       })
       .toBeGreaterThan(0)
+
+    await page.getByRole('button', { name: 'Close' }).first().click()
+    await expect(page.getByRole('dialog', { name: chatSelectors.dialogName })).toHaveCount(0)
+
+    for (const stream of ['notification', 'activity']) {
+      await expect
+        .poll(async () => {
+          const connections = await connectionsFor({
+            scenario: 'modalDisconnectActiveRun',
+            stream,
+            event: 'close',
+          })
+          return connections.length
+        })
+        .toBeGreaterThan(0)
+    }
   })
 })

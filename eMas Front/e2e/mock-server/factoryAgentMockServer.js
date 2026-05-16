@@ -27,6 +27,7 @@ const port = Number(args.get('--port') || process.env.PORT || 8015)
 const sessions = new Map()
 let requestLog = []
 let connectionLog = []
+let sseFrameLog = []
 
 function now() {
   return new Date().toISOString()
@@ -72,6 +73,24 @@ function logConnection({ req, url, event, connectionId, sessionId, scenarioName 
     stream,
     last_event_id: req.headers['last-event-id'] || null,
     status,
+  })
+}
+
+function logSseFrame({ req, url, connectionId, sessionId, scenarioName = null, stream, frame, raw = null }) {
+  sseFrameLog.push({
+    at: now(),
+    connection_id: connectionId,
+    method: req.method,
+    path: url.pathname,
+    query: Object.fromEntries(url.searchParams.entries()),
+    session_id: sessionId,
+    scenario_name: scenarioName,
+    stream,
+    id: frame?.id ?? null,
+    event: frame?.event ?? null,
+    data_type: frame?.data?.type ?? null,
+    data: frame?.data ?? null,
+    raw,
   })
 }
 
@@ -224,6 +243,22 @@ function filteredConnectionLog(url) {
   })
 }
 
+function filteredSseFrameLog(url) {
+  const sessionId = url.searchParams.get('session_id')
+  const scenarioName = url.searchParams.get('scenario')
+  const stream = url.searchParams.get('stream')
+  const event = url.searchParams.get('event')
+  const dataType = url.searchParams.get('type')
+  return sseFrameLog.filter((entry) => {
+    if (sessionId && entry.session_id !== sessionId) return false
+    if (scenarioName && entry.scenario_name !== scenarioName) return false
+    if (stream && entry.stream !== stream) return false
+    if (event && entry.event !== event) return false
+    if (dataType && entry.data_type !== dataType) return false
+    return true
+  })
+}
+
 function snapshot(session) {
   const scenario = getScenario(session.scenario_name)
   return scenario.snapshot(session)
@@ -274,9 +309,11 @@ async function runSseScript({ req, res, url, sessionId, stream, frames }) {
       return
     }
     if (frame.raw) {
+      logSseFrame({ req, url, connectionId, sessionId, scenarioName, stream, frame: null, raw: frame.raw })
       sendRawSseFrame(res, frame.raw)
       continue
     }
+    logSseFrame({ req, url, connectionId, sessionId, scenarioName, stream, frame })
     sendSseEvent(res, frame.event, frame.data, frame.id)
   }
 }
@@ -309,10 +346,16 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  if (req.method === 'GET' && url.pathname === '/__test/sse-events') {
+    sendJson(req, url, res, 200, { events: filteredSseFrameLog(url) })
+    return
+  }
+
   if (req.method === 'POST' && url.pathname === '/__test/reset') {
     sessions.clear()
     requestLog = []
     connectionLog = []
+    sseFrameLog = []
     sendJson(req, url, res, 200, { ok: true })
     return
   }
