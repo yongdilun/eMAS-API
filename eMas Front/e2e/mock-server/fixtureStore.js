@@ -40,6 +40,7 @@ import {
   malformedThenValidNotificationStream,
   notificationCompletionStream,
   orderedActivityStream,
+  reliabilityLongActivityStream,
 } from '../fixtures/sseScripts.js'
 import {
   normalUseLifecycleCompletedPrompt,
@@ -47,6 +48,20 @@ import {
   normalUsePromptSet,
   normalUseTurnForPrompt,
 } from '../support/normalUseScenarios.js'
+import {
+  reliabilityConcurrentTurns,
+  reliabilityLargeResultAnswer,
+  reliabilityLargeResultPresentation,
+  reliabilityLargeResultPrompt,
+  reliabilityLargeResultRows,
+  reliabilityLargeResultSources,
+  reliabilityLongActivitySteps,
+  reliabilityLongStreamAnswer,
+  reliabilityLongStreamPrompt,
+  reliabilitySlowActivitySteps,
+  reliabilitySlowTimeoutPrompt,
+  reliabilityTurnForPrompt,
+} from '../support/reliabilityScenarios.js'
 
 export const DEFAULT_SCENARIO = 'readMachineHappyPath'
 
@@ -190,7 +205,325 @@ function currentNormalUseTurn(session) {
   return session.normal_use_current_turn || normalUseTurnForPrompt(session.last_prompt)
 }
 
+function reliabilityIds(session, key = 'run') {
+  const safeKey = String(key || 'run').replace(/[^a-z0-9-]/gi, '-').toLowerCase()
+  const sequence = session.messages.length || 1
+  return {
+    turnId: session.current_turn_id || `pw-turn-reliability-${safeKey}-${sequence}`,
+    planId: `pw-plan-reliability-${safeKey}-${sequence}`,
+    stepId: `pw-step-reliability-${safeKey}-${sequence}`,
+  }
+}
+
 export const scenarioCatalog = {
+  reliabilityConcurrentReadOnly: {
+    name: 'reliabilityConcurrentReadOnly',
+    description: 'Phase 15 ten concurrent read-only sessions with per-session answers.',
+    prompts: reliabilityConcurrentTurns.map((turn) => turn.prompt),
+    onMessage(session, content) {
+      const turn = reliabilityTurnForPrompt(content)
+      session.reliability_turn = turn
+      addUserTurn(session, content || turn.prompt, `pw-turn-reliability-${turn.key}`)
+    },
+    onPlan(session) {
+      const turn = session.reliability_turn || reliabilityTurnForPrompt(session.last_prompt)
+      const ids = reliabilityIds(session, turn.key)
+      session.status = 'EXECUTING'
+      session.operation_id = ids.planId
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: ids.planId,
+        objective: `Read-only reliability status check for ${turn.label}.`,
+        stepId: ids.stepId,
+        toolName: 'get_machine_status',
+      })
+      session.steps = [...session.plan.steps]
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-created`,
+          planId: ids.planId,
+          content: `Checking ${turn.machineId} for ${turn.label}.`,
+        }),
+      )
+      return { status: 200, body: { status: 'EXECUTING', plan_id: ids.planId } }
+    },
+    async onExecute(session, sleep) {
+      const turn = session.reliability_turn || reliabilityTurnForPrompt(session.last_prompt)
+      const ids = reliabilityIds(session, turn.key)
+      session.execute_count += 1
+      session.status = 'EXECUTING'
+      appendTimeline(
+        session,
+        executionStartedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-execution-started`,
+          planId: ids.planId,
+        }),
+      )
+      await sleep(120 + reliabilityConcurrentTurns.indexOf(turn) * 12)
+      session.status = 'COMPLETED'
+      completeSteps(session)
+      appendTimeline(
+        session,
+        toolResultEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.stepId}-tool-result`,
+          stepId: ids.stepId,
+          planId: ids.planId,
+          toolName: 'get_machine_status',
+          content: turn.answer,
+          details: {
+            args: { machine_id: turn.machineId },
+            result: {
+              machine_id: turn.machineId,
+              reliability_session: turn.label,
+              _summary: turn.answer,
+            },
+          },
+        }),
+      )
+      appendTimeline(
+        session,
+        sessionCompletedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-completed`,
+          planId: ids.planId,
+          content: turn.answer,
+          reason: 'reliability_concurrent_fixture',
+        }),
+      )
+      return { status: 200, body: { status: 'COMPLETED', session_id: session.session_id } }
+    },
+    snapshot(session) {
+      if (session.status === 'COMPLETED') return snapshotFromSession(session, completedActivitySteps())
+      if (session.status === 'PLANNING' || session.status === 'EXECUTING') return activeHappyPathSnapshot(session)
+      return defaultIdleSnapshot(session)
+    },
+  },
+
+  reliabilityLongActivityStream: {
+    name: 'reliabilityLongActivityStream',
+    description: 'Phase 15 long activity stream with many ordered rows.',
+    prompts: [reliabilityLongStreamPrompt],
+    onMessage(session, content) {
+      addUserTurn(session, content || reliabilityLongStreamPrompt, 'pw-turn-reliability-long-stream')
+    },
+    onPlan(session) {
+      const ids = reliabilityIds(session, 'long-stream')
+      session.status = 'EXECUTING'
+      session.operation_id = ids.planId
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: ids.planId,
+        objective: 'Exercise a long activity stream without duplicate rows.',
+        stepId: ids.stepId,
+        toolName: 'stream_many_activity_events',
+      })
+      session.steps = [...session.plan.steps]
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-created`,
+          planId: ids.planId,
+          content: 'Starting the Phase 15 long activity stream.',
+        }),
+      )
+      return { status: 200, body: { status: 'EXECUTING', plan_id: ids.planId } }
+    },
+    async onExecute(session, sleep) {
+      const ids = reliabilityIds(session, 'long-stream')
+      session.execute_count += 1
+      session.status = 'EXECUTING'
+      appendTimeline(
+        session,
+        executionStartedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-execution-started`,
+          planId: ids.planId,
+        }),
+      )
+      scheduleCompletion(session, sleep, {
+        delayMs: 900,
+        turnId: ids.turnId,
+        planId: ids.planId,
+        stepId: ids.stepId,
+        toolName: 'stream_many_activity_events',
+        answer: reliabilityLongStreamAnswer,
+        eventPrefix: 'pw-reliability-long-stream',
+      })
+      return { status: 200, body: { status: 'EXECUTING', session_id: session.session_id } }
+    },
+    snapshot(session) {
+      if (session.status === 'COMPLETED') return snapshotFromSession(session, reliabilityLongActivitySteps({ terminal: true }))
+      if (session.status === 'PLANNING' || session.status === 'EXECUTING') return snapshotFromSession(session, reliabilityLongActivitySteps({ terminal: false }).slice(0, 1))
+      return defaultIdleSnapshot(session)
+    },
+    notificationStream() {
+      return notificationCompletionStream({ invalidationDelayMs: 1350 })
+    },
+    activityStream() {
+      return reliabilityLongActivityStream()
+    },
+  },
+
+  reliabilityLargeStructuredResult: {
+    name: 'reliabilityLargeStructuredResult',
+    description: 'Phase 15 large table result plus many knowledge sources.',
+    prompts: [reliabilityLargeResultPrompt],
+    onMessage(session, content) {
+      addUserTurn(session, content || reliabilityLargeResultPrompt, 'pw-turn-reliability-large-result')
+    },
+    onPlan(session) {
+      const ids = reliabilityIds(session, 'large-result')
+      session.status = 'EXECUTING'
+      session.operation_id = ids.planId
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: ids.planId,
+        objective: 'Render a large structured read-only result with many sources.',
+        stepId: ids.stepId,
+        toolName: 'list_reliability_jobs',
+      })
+      session.steps = [...session.plan.steps]
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-created`,
+          planId: ids.planId,
+          content: 'Gathering a large read-only reliability result set.',
+        }),
+      )
+      return { status: 200, body: { status: 'EXECUTING', plan_id: ids.planId } }
+    },
+    async onExecute(session, sleep) {
+      const ids = reliabilityIds(session, 'large-result')
+      const sources = reliabilityLargeResultSources()
+      session.execute_count += 1
+      session.status = 'EXECUTING'
+      appendTimeline(
+        session,
+        executionStartedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-execution-started`,
+          planId: ids.planId,
+        }),
+      )
+      await sleep(180)
+      session.status = 'COMPLETED'
+      completeSteps(session)
+      appendTimeline(
+        session,
+        toolResultEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.stepId}-tool-result`,
+          stepId: ids.stepId,
+          planId: ids.planId,
+          toolName: 'list_reliability_jobs',
+          content: reliabilityLargeResultAnswer,
+          details: {
+            args: { limit: 120, include_sources: true },
+            result: {
+              data: reliabilityLargeResultRows(),
+              _summary: reliabilityLargeResultAnswer,
+            },
+            presentation: reliabilityLargeResultPresentation(),
+          },
+        }),
+      )
+      appendTimeline(
+        session,
+        sessionCompletedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-completed`,
+          planId: ids.planId,
+          content: reliabilityLargeResultAnswer,
+          reason: 'reliability_large_result_fixture',
+          details: { sources },
+        }),
+      )
+      return { status: 200, body: { status: 'COMPLETED', session_id: session.session_id } }
+    },
+    snapshot(session) {
+      if (session.status === 'COMPLETED') return snapshotFromSession(session, completedActivitySteps())
+      if (session.status === 'PLANNING' || session.status === 'EXECUTING') return activeHappyPathSnapshot(session)
+      return defaultIdleSnapshot(session)
+    },
+  },
+
+  reliabilitySlowResponseTimeout: {
+    name: 'reliabilitySlowResponseTimeout',
+    description: 'Phase 15 slow plan response lets the browser timeout while preserving retry/cancel controls.',
+    prompts: [reliabilitySlowTimeoutPrompt],
+    onMessage(session, content) {
+      addUserTurn(session, content || reliabilitySlowTimeoutPrompt, 'pw-turn-reliability-slow-timeout')
+    },
+    async onPlan(session, sleep) {
+      const ids = reliabilityIds(session, 'slow-timeout')
+      await sleep(2600)
+      if (session.status === 'FAILED') {
+        return { status: 409, body: { detail: 'Run was cancelled before slow planning completed.' } }
+      }
+      session.status = 'EXECUTING'
+      session.operation_id = ids.planId
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: ids.planId,
+        objective: 'This plan is intentionally slower than the reliability request timeout.',
+        stepId: ids.stepId,
+        toolName: 'slow_reliability_tool',
+      })
+      session.steps = [...session.plan.steps]
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-created`,
+          planId: ids.planId,
+          content: 'The slow fixture eventually created a plan.',
+        }),
+      )
+      return { status: 200, body: { status: 'EXECUTING', plan_id: ids.planId } }
+    },
+    async onExecute(session, sleep) {
+      const ids = reliabilityIds(session, 'slow-timeout')
+      session.execute_count += 1
+      session.status = 'EXECUTING'
+      appendTimeline(
+        session,
+        executionStartedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-execution-started`,
+          planId: ids.planId,
+        }),
+      )
+      await sleep(2600)
+      if (session.status === 'FAILED') {
+        return { status: 409, body: { detail: 'Run was cancelled before slow execution completed.' } }
+      }
+      session.status = 'COMPLETED'
+      completeSteps(session)
+      appendTimeline(
+        session,
+        sessionCompletedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-completed`,
+          planId: ids.planId,
+          content: 'Slow response completed after the timeout window.',
+          reason: 'reliability_slow_timeout_fixture',
+        }),
+      )
+      return { status: 200, body: { status: 'COMPLETED', session_id: session.session_id } }
+    },
+    snapshot(session) {
+      if (session.status === 'FAILED') return snapshotFromSession(session)
+      if (session.status === 'PLANNING' || session.status === 'EXECUTING') return snapshotFromSession(session, reliabilitySlowActivitySteps())
+      return defaultIdleSnapshot(session)
+    },
+    notificationStream() {
+      return longRunningNotificationStream()
+    },
+  },
+
   normalUseConversation: {
     name: 'normalUseConversation',
     description: 'Phase 13 realistic normal-use operator turns with deterministic final answers.',

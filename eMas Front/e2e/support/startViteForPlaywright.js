@@ -8,6 +8,7 @@ for (let i = 2; i < process.argv.length; i += 2) {
 const port = Number(args.get('--port') || process.env.PORT || 4175)
 const factoryAgentUrl = args.get('--factory-agent-url') || process.env.VITE_FACTORY_AGENT_BASE_URL
 const apiUrl = args.get('--api-url') || process.env.VITE_API_BASE_URL
+const requestTimeoutMs = args.get('--request-timeout-ms') || process.env.VITE_FACTORY_AGENT_REQUEST_TIMEOUT_MS
 
 if (!factoryAgentUrl) {
   throw new Error('Missing --factory-agent-url for Playwright Vite server')
@@ -16,6 +17,9 @@ if (!factoryAgentUrl) {
 process.env.VITE_FACTORY_AGENT_BASE_URL = factoryAgentUrl
 if (apiUrl) {
   process.env.VITE_API_BASE_URL = apiUrl
+}
+if (requestTimeoutMs) {
+  process.env.VITE_FACTORY_AGENT_REQUEST_TIMEOUT_MS = requestTimeoutMs
 }
 
 const server = await createServer({

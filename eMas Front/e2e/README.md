@@ -152,6 +152,52 @@ Rules:
 - Keep default PR CI on `npm test` plus `npm run test:e2e -- --project=chromium`; `chromium-seeded --grep "@data-integrity"` remains opt-in.
 - Keep `chromium-release` and `chromium-synthetic` opt-in. Phase 14 does not complete production-grade hardening; Phase 17 remains the final signoff.
 
+## Phase 15 Reliability and Soak
+
+Phase 15 adds `@reliability` coverage for concurrent sessions, long streams, large results, slow responses, and soak cleanup. These checks are explicit opt-in or scheduled reliability gates; they are not added to the default PR command.
+
+Default PR validation remains:
+
+```powershell
+Set-Location "eMas Front"
+npm test
+npm run test:e2e -- --project=chromium
+```
+
+Reliability commands:
+
+```powershell
+Set-Location "eMas Front"
+npm run test:e2e -- --project=chromium --grep "@reliability"
+npm run test:e2e -- --project=chromium-seeded --grep "@reliability"
+```
+
+Scenario 95 can also be run as a standalone opt-in soak command:
+
+```powershell
+Set-Location "eMas Front"
+$env:PLAYWRIGHT_RELIABILITY_SOAK_REPEAT = "2"
+node e2e/support/soakRunner.js --repeat 2
+```
+
+Coverage:
+
+| Scenario | Project | Spec | Evidence |
+|---|---|---|---|
+| 91 ten concurrent read-only sessions | `chromium` | `e2e/specs/reliability-soak.spec.js` | Ten isolated browser contexts complete unique read-only prompts, keep distinct session ids, and do not render another session's answer. |
+| 92 long stream | `chromium`, seeded cross-check | `reliability-soak.spec.js`, `full-stack-reliability.spec.js` | Many activity events reach `Run complete`, duplicate labels are rejected, busy UI clears, browser resource metrics stay bounded, and stream close evidence is recorded. |
+| 93 large result and many sources | `chromium`, seeded cross-check | `reliability-soak.spec.js`, `full-stack-reliability.spec.js` | Large table pagination text, source chips, details disclosure, composer controls, and dialog overflow are asserted. |
+| 94 slow response timeout | `chromium` | `reliability-soak.spec.js` | A slow mocked plan exceeds the reliability request timeout, visible progress appears first, and retry plus cancel controls remain usable. |
+| 95 repeated soak cleanup | `chromium` plus child smoke commands | `reliability-soak.spec.js`, `e2e/support/soakRunner.js` | Mocked, seeded, and release smoke commands run on isolated ports; child exit codes, leaked ports, and timeout state are recorded in `test-results/reliability-soak/soak-results.json`. |
+
+Rules:
+
+- `@reliability` mocked tests are excluded from un-grepped `chromium` runs so default PR CI remains deterministic mocked Chromium without soak overhead.
+- `chromium-seeded`, `chromium-release`, and `chromium-synthetic` remain opt-in. Scenario 95 invokes release smoke only inside the opt-in soak runner or scheduled reliability workflow.
+- The scheduled/dispatch workflow is `.github/workflows/playwright-reliability-soak.yml`; it does not run on pull requests.
+- No real LLM dependency is introduced. Seeded and release smoke checks use deterministic fake planner/provider/RAG adapters unless a later phase explicitly opts into real-provider smoke.
+- These checks harden reliability risks but do not claim production-grade hardening is complete.
+
 ## Seeded Full-Stack L3
 
 Phase 8 adds an opt-in seeded project:

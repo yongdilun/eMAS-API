@@ -32,11 +32,13 @@ Use one of:
 | 10 | L4 production-like release validation | Done | Completed with opt-in `chromium-release`, production-built frontend behind nginx-style `/`, `/agent`, and `/api/v1` proxy paths, static-bearer polling fallback, CORS/preflight checks, latency budgets, release artifacts, outage/precheck drills, mobile/keyboard/slow-network/rollback/cache/long-stream coverage, and deterministic seeded providers by default. |
 | 11 | L5 production synthetic monitoring | Done | Completed with opt-in `chromium-synthetic`, safe read-only canary prompts, live-mode env/token guardrails, machine-readable redacted results, alert classification, auth/provider fault drills, latency burn-rate reporting, and failure-only artifact policy. |
 | 12 | Manual testing retirement and governance | Done | Completed with replacement matrix, scenario 80 governance audit, owner model, lifecycle rules, quarterly review, accepted gaps, preserved seed-pipeline guidance, and full L0-L5 verification. |
-| 13 | Normal-use production hardening | Done | Completed with mocked scenarios 81-85 plus opt-in seeded reload/source coverage for scenario 83. Production-grade hardening is not complete; Phase 17 remains the final signoff. |
-| 14 | Data integrity and side-effect safety | Done | Completed with opt-in `@data-integrity` seeded scenarios 86-90, exact DB/audit/UI/SSE/final-summary checks, multi-approval write-set evidence, and approval idempotency/staleness guards. Production-grade hardening is not complete; Phase 17 remains the final signoff. |
-| 15 | Reliability, scale, and soak hardening | Not Started | Add concurrent read-only sessions, long streams, large results, slow-path behavior, and repeated soak cleanup checks. |
+| 13 | Normal-use production hardening | Done | Completed with mocked scenarios 81-85 plus opt-in seeded reload/source coverage for scenario 83. Production-grade hardening is not complete; Phase 19 remains the final prompt/workflow robustness signoff. |
+| 14 | Data integrity and side-effect safety | Done | Completed with opt-in `@data-integrity` seeded scenarios 86-90, exact DB/audit/UI/SSE/final-summary checks, multi-approval write-set evidence, and approval idempotency/staleness guards. Production-grade hardening is not complete; Phase 19 remains the final prompt/workflow robustness signoff. |
+| 15 | Reliability, scale, and soak hardening | Done | Completed with opt-in `@reliability` mocked scenarios 91-95, seeded stream/large-result cross-checks, scheduled/dispatch soak workflow, isolated child smoke ports, timeout recovery, and cleanup artifacts. Production-grade hardening is not complete; Phase 19 remains the final prompt/workflow robustness signoff. |
 | 16 | Security, privacy, and abuse hardening | Not Started | Add session tampering, unauthorized access, artifact redaction, oversized input, unsafe markdown, and tool allowlist checks. |
-| 17 | Production-grade operational readiness | Not Started | Final production-grade gate for alerts, rollback, emergency disable, environment recreation, and full gate matrix signoff. |
+| 17 | Production-grade operational readiness | Not Started | Operational gate for alerts, rollback, emergency disable, environment recreation, and full gate matrix signoff before Phase 18-19 prompt/workflow robustness. |
+| 18 | Intent, entity, and RAG route robustness | Not Started | Add prompt regression bank, entity/parser matrix, LOTO/RAG route checks, clarification-boundary checks, and browser-visible prompt robustness coverage. |
+| 19 | Prompt and workflow regression expansion | Not Started | Expand the regression bank with real manual misses, prompt matrices, route assertions, cascade matrices, approval invariants, and browser diagnostics. |
 
 ## Long-Term Scope Strategy
 
@@ -49,7 +51,7 @@ Use one of:
 | L3 Hard orchestration | Done | Multi-step, multi-approval, concurrency, state recovery, SSE ordering, and service interruption against seeded services. | Phase 9 completed as opt-in `chromium-seeded --grep "@l3-hard"` gate. |
 | L4 Production-like release validation | Done | Compose/staging-style release validation with nginx paths, auth mode, polling fallback, slow network, mobile, and release artifacts. | Phase 10 completed as opt-in `chromium-release`; not default PR CI. |
 | L5 Production synthetic monitoring | Done | Safe read-only canary prompts, provider signals, alerting, health, and latency checks. | Phase 11 completed as opt-in `chromium-synthetic`; not default PR CI. |
-| Production-grade hardening | In Progress | Normal-use, data integrity, reliability, security/privacy, and operational readiness gates. | Phases 13-14 are complete; Phases 15-17 remain opt-in/scheduled until stable and Phase 17 is the only production-grade signoff. |
+| Production-grade hardening | In Progress | Normal-use, data integrity, reliability, security/privacy, operational readiness, intent/entity/RAG route robustness, and prompt/workflow regression expansion gates. | Phases 13-15 are complete; Phases 16-19 remain opt-in/scheduled until stable and Phase 19 is the final production-grade prompt/workflow robustness signoff. |
 
 ## Phase Gate Rule
 
@@ -57,7 +59,7 @@ Use one of:
 - [ ] Any deferred failure must be recorded as an accepted gap with owner, severity, reason, target phase/date, risk, and temporary manual workaround.
 - [ ] Do not mark Phase 8 onward `Done` while the phase verification command is failing.
 - [ ] Do not claim manual testing is eliminated until the replacement matrix maps every old manual check to automation or an accepted gap.
-- [ ] Do not claim production-grade hardening until Phase 17 passes with no critical/high accepted gaps.
+- [ ] Do not claim production-grade hardening until Phase 19 passes with no critical/high accepted gaps.
 
 ## First-Wave Scenario Portfolio
 
@@ -162,11 +164,11 @@ These scenarios extend the original 30 into seeded full-stack, failure-seeking o
 | 88 | Approval double-click, refresh, or replay does not apply the same mutation twice. | Done | Data integrity |
 | 89 | Expired or stale approval cannot mutate data after the session changes state. | Done | Data integrity |
 | 90 | Audit log, DB state, SSE timeline, and final assistant summary agree for every mutating job. | Done | Data integrity |
-| 91 | Ten concurrent read-only browser sessions complete without cross-session leakage. | Not Started | Reliability |
-| 92 | Long stream with many activity events reaches terminal state without duplicate rows, high memory, or stuck busy UI. | Not Started | Reliability |
-| 93 | Large structured result and many sources render with stable layout and usable controls. | Not Started | Reliability |
-| 94 | Slow API/tool response shows progress, respects timeout, and preserves retry/cancel controls. | Not Started | Reliability |
-| 95 | Repeated soak run completes the core mocked, seeded, and release smoke suites without leaked ports or orphan processes. | Not Started | Reliability |
+| 91 | Ten concurrent read-only browser sessions complete without cross-session leakage. | Done | Reliability |
+| 92 | Long stream with many activity events reaches terminal state without duplicate rows, high memory, or stuck busy UI. | Done | Reliability |
+| 93 | Large structured result and many sources render with stable layout and usable controls. | Done | Reliability |
+| 94 | Slow API/tool response shows progress, respects timeout, and preserves retry/cancel controls. | Done | Reliability |
+| 95 | Repeated soak run completes the core mocked, seeded, and release smoke suites without leaked ports or orphan processes. | Done | Reliability |
 | 96 | Tampered local storage or session id cannot expose another user's session. | Not Started | Security/privacy |
 | 97 | Unauthorized REST, polling, and EventSource access are denied with safe visible diagnostics. | Not Started | Security/privacy |
 | 98 | Logs, traces, screenshots, and reports redact tokens, secrets, and sensitive operational fields. | Not Started | Security/privacy |
@@ -177,6 +179,26 @@ These scenarios extend the original 30 into seeded full-stack, failure-seeking o
 | 103 | Chatbot feature flag or emergency disable path leaves the rest of the app usable with a clear diagnostic. | Not Started | Operational readiness |
 | 104 | Recreated environment with seeded DB and synthetic account can run the release/synthetic gates from scratch. | Not Started | Operational readiness |
 | 105 | Production-grade gate matrix runs PR, seeded, hard, release, synthetic, security/privacy, and reliability checks with no critical failures. | Not Started | Operational readiness |
+| 106 | Natural LOTO query with explicit machine ID, `What LOTO procedure applies before working on M-CNC-01?`, routes to LOTO/RAG without asking for the machine again. | Not Started | Intent/entity robustness |
+| 107 | LOTO prompt variants with punctuation, lowercase ID, missing question mark, and short phrasing all extract `M-CNC-01`. | Not Started | Intent/entity robustness |
+| 108 | Machine/job/status prompt variants using synonyms like equipment, asset, work order, task, urgent, overdue, and priority map to the correct tools. | Not Started | Intent/entity robustness |
+| 109 | Clarification boundary: missing machine ID asks a clarifying question, but present machine ID never asks for the same ID again. | Not Started | Intent/entity robustness |
+| 110 | Multi-entity prompt with machine ID plus job ID chooses the correct primary route and does not drop either entity. | Not Started | Intent/entity robustness |
+| 111 | RAG/LOTO route returns an honest not-found response when the machine exists but no LOTO source exists, without generic backend attention. | Not Started | Intent/entity robustness |
+| 112 | RAG source relevance check verifies returned source metadata is tied to the requested machine/procedure. | Not Started | Intent/entity robustness |
+| 113 | Intent/entity parser unit matrix covers IDs embedded in punctuation, newlines, markdown, quotes, and mixed case. | Not Started | Intent/entity robustness |
+| 114 | Manual-regression query bank converts every newly found manual prompt miss into deterministic unit, seeded, or browser coverage. | Not Started | Intent/entity robustness |
+| 115 | Prompt robustness gate runs the query bank through seeded fake-provider routing and fails on any unexpected clarification, wrong tool, or missing final state. | Not Started | Intent/entity robustness |
+| 116 | LOTO wording matrix runs multiple natural variants of the same M-CNC-01 LOTO request and expects the same LOTO/RAG route. | Not Started | Prompt/workflow regression expansion |
+| 117 | Machine and job ID extraction matrix covers punctuation, lowercase, quotes, parentheses, markdown, and newline-separated IDs. | Not Started | Prompt/workflow regression expansion |
+| 118 | Route-selection matrix asserts selected intent/tool evidence for LOTO, machine status, job listing, priority mutation, approval, and cancel prompts. | Not Started | Prompt/workflow regression expansion |
+| 119 | Priority cascade matrix covers high-to-low then low-to-medium, medium-to-high then high-to-medium, low-to-high then high-to-low, and high-to-medium then medium-to-low. | Not Started | Prompt/workflow regression expansion |
+| 120 | Two-write-set approval invariant proves every two-step mutation shows approval 1, executes step 1, shows approval 2, executes step 2, then completes. | Not Started | Prompt/workflow regression expansion |
+| 121 | Original-state mutation invariant proves second-step target groups are based on the original snapshot unless the user explicitly requests current-state behavior. | Not Started | Prompt/workflow regression expansion |
+| 122 | Regression bank schema requires source prompt, observed failure, expected behavior, owner, severity, lowest test layer, and browser coverage flag. | Not Started | Prompt/workflow regression expansion |
+| 123 | Manual failure triage rule maps every new manual miss to parser, route, seeded workflow, browser, or accepted-gap coverage before closure. | Not Started | Prompt/workflow regression expansion |
+| 124 | Browser diagnostics regression check proves successful routed prompts do not show generic `Factory Agent needs attention`, while true unknowns do. | Not Started | Prompt/workflow regression expansion |
+| 125 | Phase 19 regression gate runs the prompt/workflow bank through unit, seeded, and targeted browser checks with a coverage summary. | Not Started | Prompt/workflow regression expansion |
 
 ## Phase Task Checklists
 
@@ -450,7 +472,7 @@ Accepted-gap rules and review cadence:
 - Review Phase 12 human-only gaps monthly while open.
 - Review all accepted gaps during quarterly scenario review.
 - Reopen the relevant phase if a medium or higher gap starts affecting routine PR, release, or post-deploy regression confidence.
-- Do not use any critical or high accepted gap to claim Phase 17 production-grade operational readiness.
+- Do not use any critical or high accepted gap to claim Phase 19 production-grade prompt/workflow robustness.
 
 Quarterly scenario review checklist:
 
@@ -505,16 +527,16 @@ npm run test:e2e -- --project=chromium-synthetic
 
 ### Phase 15: Reliability, Scale, and Soak Hardening
 
-- [ ] Add `@reliability` scenarios and opt-in/scheduled job plan.
-- [ ] Implement scenario 91.
-- [ ] Implement scenario 92.
-- [ ] Implement scenario 93.
-- [ ] Implement scenario 94.
-- [ ] Implement scenario 95.
-- [ ] Add checks for leaked ports, orphan child processes, orphan streams, and teardown timing.
-- [ ] Run `npm run test:e2e -- --project=chromium --grep "@reliability"`.
-- [ ] Run `npm run test:e2e -- --project=chromium-seeded --grep "@reliability"`.
-- [ ] Record flake rate, timing, defects, fixes, accepted gaps, and files changed.
+- [x] Add `@reliability` scenarios and opt-in/scheduled job plan.
+- [x] Implement scenario 91.
+- [x] Implement scenario 92.
+- [x] Implement scenario 93.
+- [x] Implement scenario 94.
+- [x] Implement scenario 95.
+- [x] Add checks for leaked ports, orphan child processes, orphan streams, and teardown timing.
+- [x] Run `npm run test:e2e -- --project=chromium --grep "@reliability"`.
+- [x] Run `npm run test:e2e -- --project=chromium-seeded --grep "@reliability"`.
+- [x] Record flake rate, timing, defects, fixes, accepted gaps, and files changed.
 
 ### Phase 16: Security, Privacy, and Abuse Hardening
 
@@ -544,9 +566,57 @@ npm run test:e2e -- --project=chromium-synthetic
 - [ ] Confirm no critical/high accepted gaps remain open.
 - [ ] Record final signoff result, owners, commands, failures, fixes, and accepted gaps.
 
+### Phase 18: Intent, Entity, and RAG Route Robustness
+
+- [ ] Add manual prompt regression bank seeded with `What LOTO procedure applies before working on M-CNC-01?`.
+- [ ] Add parser/unit matrix for machine IDs, job IDs, punctuation, mixed case, markdown, quotes, and newlines.
+- [ ] Add seeded fake-provider routing checks for selected intent, extracted entities, tool/RAG route, clarification behavior, and final state.
+- [ ] Add browser-visible smoke for the most important prompt classes.
+- [ ] Implement scenario 106.
+- [ ] Implement scenario 107.
+- [ ] Implement scenario 108.
+- [ ] Implement scenario 109.
+- [ ] Implement scenario 110.
+- [ ] Implement scenario 111.
+- [ ] Implement scenario 112.
+- [ ] Implement scenario 113.
+- [ ] Implement scenario 114.
+- [ ] Implement scenario 115.
+- [ ] Confirm the LOTO prompt with `M-CNC-01` does not ask for the machine ID again.
+- [ ] Run `npm test`.
+- [ ] Run `npm run test:e2e -- --project=chromium --grep "@intent-entity"`.
+- [ ] Run `npm run test:e2e -- --project=chromium-seeded --grep "@intent-entity|@rag-route"`.
+- [ ] Record defects, fixes, accepted gaps, prompt-bank additions, and files changed.
+
+### Phase 19: Prompt and Workflow Regression Expansion
+
+- [ ] Extend the regression bank schema with prompt, observed failure, expected behavior, owner, severity, lowest test layer, and browser coverage flag.
+- [ ] Add LOTO wording variants for the M-CNC-01 failure class.
+- [ ] Add machine/job ID extraction variants for punctuation, lowercase, quotes, parentheses, markdown, and newlines.
+- [ ] Add route-selection assertions for LOTO/RAG, machine status, job listing, priority mutation, approval, and cancel prompts.
+- [ ] Add priority cascade matrix fixtures.
+- [ ] Add two-write-set approval invariant helper.
+- [ ] Add original-state mutation invariant helper.
+- [ ] Implement scenario 116.
+- [ ] Implement scenario 117.
+- [ ] Implement scenario 118.
+- [ ] Implement scenario 119.
+- [ ] Implement scenario 120.
+- [ ] Implement scenario 121.
+- [ ] Implement scenario 122.
+- [ ] Implement scenario 123.
+- [ ] Implement scenario 124.
+- [ ] Implement scenario 125.
+- [ ] Confirm the remaining cascade matrix variants beyond the Phase 14-covered high/low and medium/high two-step cascades.
+- [ ] Run `npm test`.
+- [ ] Run `npm run test:e2e -- --project=chromium --grep "@prompt-regression"`.
+- [ ] Run `npm run test:e2e -- --project=chromium-seeded --grep "@prompt-regression|@data-integrity"`.
+- [ ] Record defects, fixes, accepted gaps, prompt-bank additions, and files changed.
+
 ## Current Blockers
 
-- None for Phase 14.
+- Manual failure observed after Phase 14: `What LOTO procedure applies before working on M-CNC-01?` can still trigger a clarification asking for the machine ID. Track and fix this in Phase 18.
+- Manual cascade risk `change all medium priority job to high then change all high priority job to medium` was pulled into Phase 14 Scenario 86 follow-up coverage and is no longer a current blocker; the broader Phase 19 cascade matrix remains not started.
 
 ## Accepted Gaps
 
@@ -554,8 +624,8 @@ npm run test:e2e -- --project=chromium-synthetic
 
 | ID | Manual check | Disposition | Owner | Severity | Risk | Target | Reason | Temporary workaround |
 |---|---|---|---|---|---|---|---|---|
-| AG-P12-001 | Nuanced answer quality, usefulness, tone, and domain semantics beyond structural assertions. | human semantic review | Product/SME review owner | Medium | Structurally valid answers can still be unhelpful, misleading, or poorly phrased. | Monthly accepted-gap review; revisit during Phase 17 signoff. | Exact semantic quality is nondeterministic and should not be made a brittle browser assertion. | Product/SME sample review for release candidates or material prompt/provider changes; convert recurring defects into deterministic scenarios or evals. |
-| AG-P12-002 | Formal policy, compliance, or regulated operational sign-off. | compliance/sign-off | Compliance owner | Medium | Automation can miss policy/legal obligations that require accountable human sign-off. | Monthly accepted-gap review; revisit during Phase 17 signoff. | Compliance approval is outside engineering-only test authority. | Compliance owner signs off when required; engineering adds structural checks for repeatable policy defects. |
+| AG-P12-001 | Nuanced answer quality, usefulness, tone, and domain semantics beyond structural assertions. | human semantic review | Product/SME review owner | Medium | Structurally valid answers can still be unhelpful, misleading, or poorly phrased. | Monthly accepted-gap review; revisit during Phase 19 signoff. | Exact semantic quality is nondeterministic and should not be made a brittle browser assertion. | Product/SME sample review for release candidates or material prompt/provider changes; convert recurring defects into deterministic scenarios or evals. |
+| AG-P12-002 | Formal policy, compliance, or regulated operational sign-off. | compliance/sign-off | Compliance owner | Medium | Automation can miss policy/legal obligations that require accountable human sign-off. | Monthly accepted-gap review; revisit during Phase 19 signoff. | Compliance approval is outside engineering-only test authority. | Compliance owner signs off when required; engineering adds structural checks for repeatable policy defects. |
 | AG-P12-003 | Brand-new prompts, workflows, or unmodeled operational risks. | exploratory discovery | QA/exploratory owner | Low | Unknown risks may not be covered until discovered. | Quarterly scenario review, or sooner after incidents/new features. | Exploratory testing is discovery work, not routine regression. | Exploratory findings become new scenarios only when they represent recurring or release-blocking risk. |
 | AG-P12-004 | Incident diagnosis when automation, harnesses, or production telemetry are unavailable. | emergency-only | On-call owner | Low | During outages, a human may need to inspect behavior directly before automation is restored. | Quarterly scenario review, plus post-incident review. | Emergency diagnosis cannot be fully replaced by prewritten regression checks. | Use manual browser diagnosis only for incident response; backfill automation for any reproducible regression. |
 
@@ -564,7 +634,7 @@ Phase 10-17 implementation risks to resolve:
 - Release and synthetic projects must stay opt-in and separate from default PR CI unless deliberately promoted.
 - Real LLM connectivity should not run before Phase 10 and must be explicitly enabled with structural assertions only.
 - Production synthetic checks must remain safe and read-only.
-- Phase 13-17 reliability, security/privacy, and production-grade gates may need scheduled or opt-in workflows before they become blocking.
+- Phase 13-19 reliability, security/privacy, operational, and prompt/workflow robustness gates may need scheduled or opt-in workflows before they become blocking.
 - Mutating data-integrity scenarios must run only against seeded/resettable environments.
 - Any reproducible defect found in Phase 10 onward blocks phase promotion until fixed or recorded as an accepted gap.
 
@@ -581,8 +651,12 @@ Phase 10-17 implementation risks to resolve:
 | Can manual testing be fully eliminated? | Routine chatbot regression and post-deploy smoke can be automated by L0-L5. Human review may remain for exploratory testing, product judgment, compliance sign-off, or semantic quality audits. |
 | What happens when Phase 8+ finds an error? | Fix it before starting the next phase, add regression coverage, rerun the current phase command plus fast PR tests, and record commands/results in this tracker. |
 | Should hard scenarios be expected to pass immediately? | No. Phase 9 is intentionally failure-seeking. A discovered defect is useful only if it is fixed or explicitly accepted with owner and risk. |
-| Do Phase 13-17 include model-quality evaluation? | No. Phase 13-17 stay focused on Playwright/browser, backend, deterministic provider, reliability, data integrity, privacy, and operations hardening. |
+| Do Phase 13-19 include model-quality evaluation? | No. Phase 13-19 stay focused on Playwright/browser, backend, deterministic provider, reliability, data integrity, privacy, operations, prompt-route robustness, and prompt/workflow regression expansion. |
 | Can Phase 14 mutating tests run against production? | No. Mutating data-integrity scenarios must use seeded/resettable environments only. |
+| Why did the LOTO prompt fail after Phase 14? | Phase 14 covers data mutation integrity, not broad prompt/entity/RAG route robustness. The failure belongs to Phase 18. |
+| Does Phase 18 add Promptfoo? | No. Phase 18 uses deterministic parser/unit tests, seeded fake-provider routing, and targeted Playwright/browser checks only. |
+| Does Phase 19 add Promptfoo? | No. Phase 19 expands deterministic prompt/workflow regression coverage. Real LLM quality evaluation remains a separate eval track. |
+| Where should the medium-to-high then high-to-medium cascade be covered? | The exact manually raised cascade is now covered by Phase 14 Scenario 86 follow-up. Phase 19 scenario 119-121 still expands the broader cascade matrix with explicit two-approval and original-state invariants. |
 
 ## Decisions Made
 
@@ -611,8 +685,11 @@ Phase 10-17 implementation risks to resolve:
 | Routine manual chatbot regression is retired only for PR, release, and post-deploy smoke checks. | Human semantic review, compliance sign-off, exploratory discovery, and emergency diagnosis remain bounded accepted gaps with owners and review cadence. |
 | Default PR CI remains mocked Chromium only. | `npm test` plus `npm run test:e2e -- --project=chromium` stays deterministic and does not start Go API, real Factory Agent, Docker, release proxy, or real LLM/RAG services. |
 | Seeded, release, and synthetic projects remain opt-in. | `chromium-seeded`, `chromium-release`, and `chromium-synthetic` are explicit L3-L5 gates, not default PR work. |
-| Phase 13-17 extend beyond manual-test retirement into production-grade hardening. | They add normal-use, data-integrity, reliability, security/privacy, and operational readiness gates so the chatbot is harder to break in daily use. |
+| Phase 13-19 extend beyond manual-test retirement into production-grade hardening. | They add normal-use, data-integrity, reliability, security/privacy, operational readiness, intent/entity/RAG route, and prompt/workflow regression gates so the chatbot is harder to break in daily use. |
 | Scenario 86 uses original-state semantics for cascading priority updates. | This avoids accidentally converting jobs changed from high to low during step one into medium during step two unless the product explicitly chooses current-state semantics later. |
+| Phase 18 is required after operational readiness for prompt robustness. | The system can pass workflow/data tests while still failing normal operator wording, entity extraction, clarification boundaries, or RAG route selection. |
+| Every manual prompt miss becomes a regression-bank entry. | This prevents the same class of "works in tests but fails manually" issue from returning after it is fixed. |
+| Phase 19 turns the prompt bank into an expansion gate. | It prevents one-off fixes by requiring wording matrices, route assertions, cascade matrices, approval invariants, and regression-bank schema enforcement. |
 | Phase 14 mutating coverage is seeded-only and opt-in. | Data-integrity scenarios reset deterministic job-priority fixtures and assert persisted state, audit entries, SSE/timeline evidence, approval ids, and final summaries without touching production data or default PR CI. |
 | Multi-group Phase 14 mutations require separate approval evidence per write set. | A cascading workflow must prove each group-specific write was approved independently before the final summary can claim success. |
 
@@ -702,6 +779,22 @@ Production-grade hardening planning update commands:
 Get-Content C:\Users\dilun\.codex\skills\awt-e2e-testing\SKILL.md
 rg -n "Phase 1|Phase 8|Phase 9|Phase 10|Phase 11|Phase 12|Recommended Current Implementation Step|Next Action|Scenario|Production" PLAN.md
 rg -n "Phase Status|Phase 8|Phase 9|Phase 10|Phase 11|Phase 12|L3-L5|Scenario|Current Blockers|Open Questions|Decisions Made|Next Action" TRACK.md
+git status --short --branch
+```
+
+Intent/entity robustness planning update commands:
+
+```powershell
+Get-Content C:\Users\dilun\.codex\skills\awt-e2e-testing\SKILL.md
+rg -n "Phase 17|Phase 18|106|115|prompt|entity|RAG|LOTO|Next Action" PLAN.md TRACK.md
+git status --short --branch
+```
+
+Prompt/workflow regression expansion planning update commands:
+
+```powershell
+Get-Content C:\Users\dilun\.codex\skills\awt-e2e-testing\SKILL.md
+rg -n "Phase 18|Phase 19|116|125|prompt-regression|cascade|approval invariant|Next Action" PLAN.md TRACK.md
 git status --short --branch
 ```
 
@@ -870,10 +963,10 @@ Phase 12 final decisions:
 - Existing Go/Python E2E coverage and `tests/e2e/run_seed_pipeline.ps1` remain preserved.
 - No Phase 12 blockers were found.
 
-Phase 13-17 planning update:
+Phase 13-19 planning update:
 
 - Documentation-only update. No application tests were run.
-- Added production-grade hardening phases and scenarios 81-105.
+- Added production-grade hardening phases and scenarios 81-105, then added Phase 18 with scenarios 106-115 for prompt/entity/RAG route robustness.
 
 Phase 13:
 
@@ -898,7 +991,7 @@ Phase 13 coverage and layer decisions:
 - Default PR CI remains `npm test` plus `npm run test:e2e -- --project=chromium`; this is still deterministic and mocked.
 - `chromium-seeded`, `chromium-release`, and `chromium-synthetic` remain opt-in only.
 - Existing Go/Python E2E coverage and `tests/e2e/run_seed_pipeline.ps1` remain preserved.
-- Phase 13 does not claim production-grade hardening is complete; Phase 17 remains the final production-grade gate.
+- Phase 13 does not claim production-grade hardening is complete; Phase 19 remains the final prompt/workflow robustness gate.
 
 Phase 13 defect/fix notes:
 
@@ -918,10 +1011,25 @@ Phase 14:
 - Final `npm run test:e2e -- --project=chromium`: passed, 18 mocked Chromium Playwright tests.
 - Final `npm run test:e2e -- --project=chromium-seeded --grep "@data-integrity"`: passed, 5 seeded Chromium data-integrity tests.
 - Final `git status --short --branch`: branch `codex/playwright-e2e-plan`; pending Phase 14 changes only plus the pre-existing unstaged `PLAN.md` change.
+- Scenario 86 follow-up `node --check src/components/features/chat/factory-agent/activityTimelineUtils.js; node --check src/components/features/chat/factory-agent/useFactoryAgentChat.js; node --check src/components/features/chat/factory-agent/activityTimeline.test.mjs; node --check e2e/specs/full-stack-data-integrity.spec.js`: passed.
+- Scenario 86 follow-up `factory-agent\.venv\Scripts\python.exe -m py_compile factory-agent\factory_agent\testing_seeded_adapters.py factory-agent\factory_agent\services\session_snapshot_service.py`: passed.
+- Scenario 86 follow-up first `npm run test:e2e -- --project=chromium-seeded --grep "scenario 86"` reproduced the natural-prompt regression path and exposed missing UI evidence; after the product/test fix, the command passed 1 seeded Chromium test.
+- Scenario 86 follow-up first full `npm run test:e2e -- --project=chromium-seeded --grep "@data-integrity"` exposed a premature active-session `Run complete` row while the session was still `EXECUTING`; after the product fix, the command passed 5 seeded Chromium data-integrity tests.
+- Scenario 86 follow-up final `npm test`: passed, 50 tests.
+- Scenario 86 follow-up first `npm run test:e2e -- --project=chromium`: hit the previously recorded mocked SSE activity timing flake; immediate rerun passed 18 mocked Chromium Playwright tests.
+- Scenario 86 medium/high follow-up `node --check src/components/features/chat/factory-agent/useFactoryAgentChat.js`: passed.
+- Scenario 86 medium/high follow-up `node --check src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx`: not applicable because Node syntax check does not load `.jsx` directly; covered by `npm test`.
+- Scenario 86 medium/high follow-up `node --check src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs`: passed.
+- Scenario 86 medium/high follow-up `node --check e2e/specs/full-stack-data-integrity.spec.js`: passed.
+- Scenario 86 medium/high follow-up `factory-agent\.venv\Scripts\python.exe -m py_compile factory-agent\factory_agent\testing_seeded_adapters.py factory-agent\factory_agent\services\session_snapshot_service.py`: passed.
+- Scenario 86 medium/high follow-up final `npm test`: passed, 51 tests.
+- Scenario 86 medium/high follow-up final `npm run test:e2e -- --project=chromium-seeded --grep "scenario 86"`: passed, 2 seeded Chromium tests.
+- Scenario 86 medium/high follow-up final `npm run test:e2e -- --project=chromium-seeded --grep "@data-integrity"`: passed, 6 seeded Chromium data-integrity tests.
+- Scenario 86 medium/high follow-up final `npm run test:e2e -- --project=chromium`: passed, 18 mocked Chromium Playwright tests.
 
 Phase 14 coverage and layer decisions:
 
-- Scenario 86 is seeded in `full-stack-data-integrity.spec.js`: canonical seeded priority fixtures reset before the test; original high-priority jobs become low, original low-priority jobs become medium, and original medium-priority jobs remain unchanged. The test requires two distinct approval ids and asserts exact final Go API DB state, audit entries, approval timeline evidence, SSE/timeline rows, and visible persisted summary agreement.
+- Scenario 86 is seeded in `full-stack-data-integrity.spec.js`: canonical seeded priority fixtures reset before the test; original high-priority jobs become low, original low-priority jobs become medium, and original medium-priority jobs remain unchanged. It also covers the manually raised `change all medium priority job to high then change all high priority job to medium` variant: original medium-priority jobs become high, original high-priority jobs become medium, and original low-priority jobs remain unchanged. Both variants require two distinct approval ids and assert exact final Go API DB state, audit entries, approval timeline evidence, SSE/timeline rows, and visible persisted summary agreement. The broader Phase 19 cascade matrix remains not started.
 - Scenario 87 is seeded: a bulk update with one missing job records row-level success/failure outcomes, persists only the valid job changes, records audit success/failure rows, leaves the session failed, and does not claim all jobs succeeded.
 - Scenario 88 is seeded: double-click/replay after refresh uses the same approval id but applies the mutation once, with one success audit row and one final DB change.
 - Scenario 89 is seeded: stale approval context and expired approval attempts return safe conflict responses and leave DB state and audit success rows unchanged.
@@ -929,7 +1037,7 @@ Phase 14 coverage and layer decisions:
 - Default PR CI remains `npm test` plus mocked `npm run test:e2e -- --project=chromium`; Phase 14 did not add Go API, real Factory Agent, Docker, release proxy, or real LLM/RAG services to default PR CI.
 - `chromium-seeded`, `chromium-release`, and `chromium-synthetic` remain opt-in only. The `@data-integrity` scenarios are seeded/resettable and are not allowed to run against production data.
 - Existing Go/Python E2E coverage and `tests/e2e/run_seed_pipeline.ps1` remain preserved.
-- Phase 14 does not claim production-grade hardening is complete; Phases 15-17 remain, and Phase 17 remains the final production-grade signoff.
+- Phase 14 does not claim production-grade hardening is complete; Phases 15-19 remain, and Phase 19 remains the final prompt/workflow robustness signoff.
 
 Phase 14 defect/fix notes:
 
@@ -938,6 +1046,56 @@ Phase 14 defect/fix notes:
 - Fixture/result defect: the cascade scenario initially shaped the result like a plain query table, which allowed the visible summary to look like a generic medium-priority query. Fix: the seeded adapter returns mutation outcomes and a concise final summary, and the test asserts the persisted visible summary after reload.
 - Assertion defect: the partial-failure summary honestly says not all jobs succeeded, so the negative assertion was changed to reject false full-success claims instead of the substring `all jobs succeeded`.
 - No accepted gaps, blockers, production/staging data mutation, release/synthetic CI promotion, or production-grade signoff claim was introduced for Phase 14.
+- Scenario 86 follow-up defect: the natural operator prompt `change all high priority job to low then change all low priority job to medium` routed to the older generic one-approval priority flow instead of the two-write-set cascade. Fix: the seeded planner now detects high-to-low plus low-to-medium priority cascade wording before the generic approval branch.
+- Scenario 86 follow-up defect: after approval 1, the UI/backend snapshot could show a stale `Run complete` activity row while the session was still `EXECUTING`, making the workflow appear complete before approval 2. Fix: backend snapshot activity projection and frontend activity merging now suppress terminal completion rows while a session is still active, and a unit regression covers active approval resume before the next approval.
+- Scenario 86 regression coverage now uses the exact reported natural prompt, requires visible approval 1, waits for `WAITING_APPROVAL` after approval 1, requires a distinct visible approval 2 before completion, and then verifies DB state, audit rows, timeline/SSE evidence, approval ids, and final summary agreement.
+- Scenario 86 medium/high follow-up defect: the manually raised prompt `change all medium priority job to high then change all high priority job to medium` was not part of the original Phase 14 cascade fixture, so the previous fix was too narrow to prove this swap-shaped cascade would not stop after approval 1. Fix: the seeded planner now parses natural two-step priority cascades dynamically and keeps original-state write sets such as `original_medium_to_high` and `original_high_to_medium` separate.
+- Scenario 86 medium/high follow-up defect: after approval 1, the backend could already have the second pending approval while the browser still hid the approval card because the matching timeline/status refresh lagged or a stale terminal snapshot was present. Fix: approval polling stops as soon as a different pending approval appears, the chat panel treats `pendingApproval` as authoritative for rendering and waiting state, and snapshot projection keeps a pending approval in `WAITING_APPROVAL` while suppressing completion events.
+- Scenario 86 medium/high regression coverage now requires approval 1 for original medium -> high, approval 2 for original high -> medium, no final completion before approval 2, exact low-priority unchanged rows, exact DB map, audit rows, timeline/SSE approval ids, and final activity agreement.
+
+Phase 15:
+
+- `git status --short --branch`: branch `codex/playwright-e2e-plan`; showed inherited Phase 14 working tree changes plus Phase 15 additions.
+- `git switch codex/playwright-e2e-plan`: already on `codex/playwright-e2e-plan`.
+- Phase 15 was marked `In Progress` in `TRACK.md` before implementation and `Done` only after verification passed.
+- Syntax checks passed: `node --check` for `playwright.config.js`, mock server/store, SSE scripts, reliability specs, reliability helpers, soak runner, Vite starter, and `src/services/factoryAgentApi.js`; `git diff --check` passed with line-ending warnings only.
+- Focused mocked reliability check initially found an assertion defect in scenario 93 because answer copy also contained `Knowledge sources`; the assertion was tightened to the actual sources heading and rerun passed 4 mocked reliability tests for scenarios 91-94.
+- Scenario 95 initially found a harness defect: nested Playwright child runs used the default `test-results` output and removed the parent test artifact folder. Fix: the soak runner now gives each child smoke command an isolated `--output` folder and `--reporter=list`; scenario 95 rerun passed.
+- Final `npm test`: passed, 51 tests.
+- Final `npm run test:e2e -- --project=chromium`: passed, 18 mocked Chromium tests. The default PR suite did not pick up reliability/soak tests.
+- Final `npm run test:e2e -- --project=chromium --grep "@reliability"`: passed, 5 mocked Chromium reliability tests.
+- Final `npm run test:e2e -- --project=chromium-seeded --grep "@reliability"`: passed, 2 seeded Chromium reliability cross-checks.
+
+Phase 15 coverage and layer decisions:
+
+- Scenario 91 is mocked Chromium: ten isolated browser contexts run unique read-only prompts, complete with unique session ids, and assert no other session answer appears in each transcript.
+- Scenario 92 is mocked Chromium plus seeded cross-check: the mocked run streams 48 activity events, rejects duplicate labels, checks bounded browser resources, clears busy UI, and observes stream close evidence; the seeded run proves the real seeded stream reaches terminal state.
+- Scenario 93 is mocked Chromium plus seeded cross-check: the mocked run renders 120 result rows, 24 sources, table count chrome, details, source chips, and non-overflow controls; the seeded run reuses the real seeded large-result path to prove layout stability against real services.
+- Scenario 94 is mocked Chromium: a deliberately slow plan response exceeds the reliability-only request timeout, shows progress first, preserves retry/cancel controls, and cancels safely.
+- Scenario 95 is mocked Chromium with child smoke commands: the soak runner executes core mocked, seeded, and release smoke tests on isolated ports, records child exit codes, timeouts, port closure, and result artifacts under `test-results/reliability-soak/soak-results.json`.
+- `@reliability` mocked tests are excluded from un-grepped `chromium` runs by `playwright.config.js`; `chromium-seeded`, `chromium-release`, and `chromium-synthetic` remain opt-in. The scheduled/dispatch workflow `.github/workflows/playwright-reliability-soak.yml` does not run on pull requests.
+- No real LLM/RAG dependency was introduced. Existing Go/Python E2E coverage and `tests/e2e/run_seed_pipeline.ps1` remain preserved.
+
+Phase 15 defect/fix notes:
+
+- Product reliability defect: Factory Agent browser requests had no bounded timeout, so a hung plan/tool call could leave the UI waiting on the browser fetch indefinitely. Fix: `factoryAgentApi` now applies configurable request timeouts and surfaces a timeout message while keeping retry/cancel recovery available.
+- Harness defect: nested soak Playwright runs could remove parent test artifacts by sharing the default output directory. Fix: `soakRunner.js` assigns isolated child output directories and validates child exit, timeout, and port cleanup.
+- Assertion defect: scenario 93's `Knowledge sources` locator was ambiguous because the final answer also mentioned knowledge sources. Fix: assert the actual sources heading.
+- No accepted gaps, blockers, default PR CI promotion, seeded/release/synthetic default promotion, production/staging data mutation, real LLM dependency, or production-grade hardening signoff was introduced for Phase 15.
+
+Phase 18 planning update:
+
+- Documentation-only update. No application tests were run.
+- Added deep coverage-gap analysis for prompts that fail manually despite passing deterministic workflow/data tests.
+- Added the manual LOTO miss `What LOTO procedure applies before working on M-CNC-01?` as the first Phase 18 regression-bank seed.
+- Added scenarios 106-115 for entity extraction, clarification boundaries, RAG route correctness, source relevance, parser/unit coverage, and query-bank governance.
+
+Phase 19 planning update:
+
+- Documentation-only update. No application tests were run.
+- Added Phase 19 as the prompt/workflow regression expansion layer after Phase 18.
+- Added scenarios 116-125 for wording matrices, route assertions, cascade matrices, two-approval invariants, original-state semantics, regression-bank schema, and manual-failure triage.
+- Added the medium-to-high then original-high-to-medium cascade as an explicit Phase 19 risk; the exact manually raised prompt was later pulled into Phase 14 Scenario 86 follow-up coverage.
 
 Discovery command notes:
 
@@ -1098,7 +1256,7 @@ Phase 12 implementation:
 - `tests/e2e/README.md`
 - `docs/operations/chatbot_test_governance.md`
 
-Phase 13-17 planning update:
+Phase 13-19 planning update:
 
 - `PLAN.md`
 - `TRACK.md`
@@ -1120,15 +1278,51 @@ Phase 14 implementation:
 - `eMas Front/e2e/README.md`
 - `eMas Front/e2e/specs/full-stack-data-integrity.spec.js`
 - `eMas Front/e2e/support/dataIntegrityScenarios.js`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs`
+- `eMas Front/src/components/features/chat/factory-agent/activityTimelineUtils.js`
+- `eMas Front/src/components/features/chat/factory-agent/activityTimeline.test.mjs`
+- `eMas Front/src/components/features/chat/factory-agent/useFactoryAgentChat.js`
 - `factory-agent/factory_agent/api/routers/approvals.py`
 - `factory-agent/factory_agent/services/approval_resume_service.py`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
 - `factory-agent/factory_agent/testing_seeded_adapters.py`
 - `factory-agent/main.py`
 
+Phase 14 Scenario 86 follow-up implementation:
+
+- `TRACK.md`
+- `eMas Front/e2e/specs/full-stack-data-integrity.spec.js`
+- `eMas Front/e2e/support/dataIntegrityScenarios.js`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs`
+- `eMas Front/src/components/features/chat/factory-agent/activityTimeline.test.mjs`
+- `eMas Front/src/components/features/chat/factory-agent/activityTimelineUtils.js`
+- `eMas Front/src/components/features/chat/factory-agent/useFactoryAgentChat.js`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/testing_seeded_adapters.py`
+
+Phase 15 implementation:
+
+- `.github/workflows/playwright-reliability-soak.yml`
+- `TRACK.md`
+- `eMas Front/e2e/README.md`
+- `eMas Front/e2e/fixtures/sseScripts.js`
+- `eMas Front/e2e/mock-server/factoryAgentMockServer.js`
+- `eMas Front/e2e/mock-server/fixtureStore.js`
+- `eMas Front/e2e/specs/full-stack-reliability.spec.js`
+- `eMas Front/e2e/specs/reliability-soak.spec.js`
+- `eMas Front/e2e/support/reliabilityScenarios.js`
+- `eMas Front/e2e/support/resourceMetrics.js`
+- `eMas Front/e2e/support/soakRunner.js`
+- `eMas Front/e2e/support/startViteForPlaywright.js`
+- `eMas Front/playwright.config.js`
+- `eMas Front/src/services/factoryAgentApi.js`
+
 ## Next Action
 
-Phase 14 is complete. Continue to Phase 15 only when explicitly requested. Phases 15-17 remain the later production-grade hardening track and are not complete.
+Phase 15 is complete. Continue to Phase 16 only when explicitly requested. Phases 16-19 remain the later production-grade hardening track and are not complete.
 
-Keep the default PR CI on the mocked `chromium` suite, keep `chromium-seeded` as the opt-in L3 full-stack foundation/hard-orchestration/normal-use/data-integrity gate, keep `chromium-release` as an opt-in L4 release-candidate gate, keep `chromium-synthetic` as the opt-in L5 post-deploy monitor, and keep Phase 15-17 reliability/security/operational gates opt-in or scheduled until stable.
+Keep the default PR CI on the mocked `chromium` suite, keep `chromium-seeded` as the opt-in L3 full-stack foundation/hard-orchestration/normal-use/data-integrity/intent-entity/prompt-regression/reliability gate, keep `chromium-release` as an opt-in L4 release-candidate gate, keep `chromium-synthetic` as the opt-in L5 post-deploy monitor, and keep Phase 16-19 security/operational/prompt-workflow robustness gates opt-in or scheduled until stable.
 
 Do not remove the existing Go/Python E2E pipeline. Do not add Go backend, Docker, real Factory Agent, release proxy, or real LLM dependencies to the default Playwright suite.

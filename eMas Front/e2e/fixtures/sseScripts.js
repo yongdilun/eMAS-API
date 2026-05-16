@@ -1,4 +1,5 @@
 import { fixtureTime, orderedSseActivitySteps } from './factoryAgentFixtures.js'
+import { reliabilityLongActivitySteps } from '../support/reliabilityScenarios.js'
 
 export function defaultNotificationStream() {
   return [
@@ -151,5 +152,21 @@ export function orderedActivityStream() {
       delayMs: 1100,
       data: { ...validating, state: 'running' },
     },
+  ]
+}
+
+export function reliabilityLongActivityStream() {
+  return [
+    {
+      id: 1,
+      event: 'control',
+      data: { type: 'STREAM_READY' },
+    },
+    ...reliabilityLongActivitySteps({ terminal: false }).map((step, index) => ({
+      id: index + 2,
+      event: 'activity',
+      delayMs: index === 0 ? 50 : 10,
+      data: step,
+    })),
   ]
 }

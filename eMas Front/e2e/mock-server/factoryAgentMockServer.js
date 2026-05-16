@@ -84,6 +84,7 @@ function logRequest({ req, url, sessionId = null, scenarioName = null, prompt = 
 }
 
 function sendJson(req, url, res, status, body, logMeta = {}) {
+  if (res.destroyed || res.writableEnded) return
   logRequest({ req, url, ...logMeta, status })
   res.writeHead(status, {
     'Access-Control-Allow-Origin': '*',
@@ -336,7 +337,7 @@ const server = http.createServer(async (req, res) => {
     }
     const body = await readJson(req)
     const scenario = getScenario(session.scenario_name)
-    const result = scenario.onPlan(session)
+    const result = await scenario.onPlan(session, sleep)
     sendJson(req, url, res, result.status, result.body, {
       sessionId: session.session_id,
       scenarioName: scenario.name,

@@ -7,6 +7,7 @@ const FACTORY_AGENT_BASE_URL = (
 ).replace(/\/+$/, '')
 
 const STATIC_BEARER = import.meta.env?.VITE_FACTORY_AGENT_BEARER_TOKEN || ''
+const REQUEST_TIMEOUT_MS = Number(import.meta.env?.VITE_FACTORY_AGENT_REQUEST_TIMEOUT_MS || 30_000)
 
 export const factoryAgentStreamAuth = {
   hasBearerToken: Boolean(STATIC_BEARER),
@@ -52,16 +53,31 @@ async function request(method, path, body, options = {}) {
 
   const startedAt = Date.now()
   const url = buildUrl(path)
+  let timeoutId = null
+  if (Number.isFinite(REQUEST_TIMEOUT_MS) && REQUEST_TIMEOUT_MS > 0) {
+    const controller = new AbortController()
+    init.signal = controller.signal
+    timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  }
   logger.debug(`[factory-agent] -> ${method} ${path}`, body)
 
   let response
   try {
     response = await fetch(url, init)
   } catch (err) {
+    if (err?.name === 'AbortError') {
+      const e = new Error(`Factory Agent request timed out after ${REQUEST_TIMEOUT_MS} ms. Retry or cancel the current run.`)
+      e.type = 'TIMEOUT'
+      e.path = path
+      e.original = err
+      throw e
+    }
     const e = new Error(normalizeFactoryAgentError(err, `Cannot connect to factory-agent: ${err?.message || 'network error'}`))
     e.type = 'NETWORK'
     e.original = err
     throw e
+  } finally {
+    if (timeoutId) globalThis.clearTimeout(timeoutId)
   }
 
   logger.apiRequest(method, `factory-agent${path}`, Date.now() - startedAt, response.status)

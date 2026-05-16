@@ -10,11 +10,18 @@ const releaseEnv = releaseRuntimeEnv()
 const selectedProjects = process.argv
   .flatMap((arg, index, all) => (arg === '--project' ? [all[index + 1]] : arg.startsWith('--project=') ? [arg.slice('--project='.length)] : []))
   .filter(Boolean)
+const selectedGrep = process.argv
+  .flatMap((arg, index, all) => (arg === '--grep' ? [all[index + 1]] : arg.startsWith('--grep=') ? [arg.slice('--grep='.length)] : []))
+  .filter(Boolean)
 const selectedSeeded = selectedProjects.some((project) => project === 'chromium-seeded')
 const selectedRelease = selectedProjects.some((project) => project === 'chromium-release')
 const selectedSynthetic = selectedProjects.some((project) => project === 'chromium-synthetic')
 const selectedMocked = selectedProjects.length === 0 || selectedProjects.some((project) => project === 'chromium')
+const selectedReliability = selectedGrep.some((grep) => grep.includes('@reliability'))
 const syntheticEnv = syntheticRuntimeEnv({ validate: selectedSynthetic })
+const mockedTestIgnore = selectedReliability
+  ? /(full-stack|release)-.*\.spec\.js|production-synthetic\.spec\.js/
+  : /(full-stack|release)-.*\.spec\.js|production-synthetic\.spec\.js|reliability-soak\.spec\.js/
 process.env.PLAYWRIGHT_SEEDED_GO_API_PORT = String(seededEnv.goApiPort)
 process.env.PLAYWRIGHT_SEEDED_FACTORY_AGENT_PORT = String(seededEnv.factoryAgentPort)
 process.env.PLAYWRIGHT_SEEDED_VITE_PORT = String(seededEnv.vitePort)
@@ -40,7 +47,7 @@ if (selectedMocked) {
       timeout: 30_000,
     },
     {
-      command: `node e2e/support/startViteForPlaywright.js --port ${appPort} --factory-agent-url http://127.0.0.1:${factoryAgentPort}`,
+      command: `node e2e/support/startViteForPlaywright.js --port ${appPort} --factory-agent-url http://127.0.0.1:${factoryAgentPort}${selectedReliability ? ' --request-timeout-ms 1200' : ''}`,
       url: `http://127.0.0.1:${appPort}`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
@@ -74,7 +81,7 @@ if (selectedSynthetic && !syntheticEnv.live) {
 
 export default defineConfig({
   testDir: './e2e/specs',
-  timeout: selectedRelease || selectedSynthetic ? 90_000 : selectedSeeded ? 60_000 : 30_000,
+  timeout: selectedReliability ? 360_000 : selectedRelease || selectedSynthetic ? 90_000 : selectedSeeded ? 60_000 : 30_000,
   expect: {
     timeout: 10_000,
   },
@@ -93,7 +100,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /(full-stack|release)-.*\.spec\.js|production-synthetic\.spec\.js/,
+      testIgnore: mockedTestIgnore,
     },
     {
       name: 'chromium-seeded',
