@@ -35,6 +35,61 @@ Manual check replaced by Playwright:
 
 This suite intentionally validates the deterministic mocked frontend path. Real Factory Agent, Go API, live RAG, and real LLM behavior remain outside this default browser suite.
 
+## Phase 12 Governance and Retirement
+
+Routine manual chatbot regression is retired only through the Phase 12 governance gate in [`../../docs/operations/chatbot_test_governance.md`](../../docs/operations/chatbot_test_governance.md). Scenario 80 is the audit checklist: every old manual chatbot check must be mapped to an L0-L5 automated gate or recorded as a human-only accepted gap with owner, severity, risk, target, reason, and workaround.
+
+Manual checks are now classified as:
+
+| Disposition | Meaning |
+|---|---|
+| `retired` | The old manual step is no longer a required PR, release, or post-deploy check. |
+| `automated` | The check is covered by L0-L5 Playwright or lower-level regression gates. |
+| `human semantic review` | Humans still review nuanced answer quality, usefulness, or tone beyond structural assertions. |
+| `compliance/sign-off` | Humans still own formal policy or regulated sign-off outside Playwright. |
+| `exploratory discovery` | Humans explore new risks; recurring findings must become automated scenarios or accepted gaps. |
+| `emergency-only` | Humans may diagnose incidents when automation or telemetry is unavailable. |
+| `accepted gap` | A non-automated check has explicit owner, severity, risk, target, reason, and workaround. |
+
+Owners:
+
+| Gate | Owner |
+|---|---|
+| PR mocked Playwright E2E | Frontend E2E owner |
+| Seeded full-stack L3 | Seeded L3 owner |
+| Hard orchestration L3 | Hard L3 owner |
+| Release validation L4 | Release L4 owner |
+| Production synthetic L5 | Synthetic L5 owner |
+| Accepted-gap review | QA governance owner |
+
+Scenario lifecycle rules:
+
+- Add scenarios only for new risk, new user-visible state, new backend contract, new deployment hazard, or fixed-defect regression coverage.
+- Remove or merge redundant scenarios that prove the same risk with the same assertion and evidence.
+- Define failure artifact expectations for each scenario layer.
+- Add regression coverage for every fixed defect at the lowest useful layer.
+- Keep production synthetic prompts read-only.
+
+Quarterly scenario review checks owners, redundant scenarios, new incidents or product risks, failure artifact usefulness, read-only synthetic prompts, accepted gaps, and whether routine manual chatbot regression has crept back into PR, release, or post-deploy smoke.
+
+Default PR validation remains:
+
+```powershell
+Set-Location "eMas Front"
+npm test
+npm run test:e2e -- --project=chromium
+```
+
+The seeded, release, and synthetic projects remain opt-in:
+
+```powershell
+Set-Location "eMas Front"
+npm run test:e2e -- --project=chromium-seeded --grep "@l3-foundation"
+npm run test:e2e -- --project=chromium-seeded --grep "@l3-hard"
+npm run test:e2e -- --project=chromium-release
+npm run test:e2e -- --project=chromium-synthetic
+```
+
 ## Seeded Full-Stack L3
 
 Phase 8 adds an opt-in seeded project:

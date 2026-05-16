@@ -22,6 +22,8 @@ This seed pipeline is still the place for non-browser and optional full-stack co
 - Optional real Factory Agent API scenarios with `-AgentApi`.
 - Optional full-stack/live checks that require real services or configured model/RAG backends.
 
+Phase 12 governance retires routine manual browser chatbot regression only. It does not remove, replace, or deprecate this Go/Python seed pipeline, and it does not remove `tests/e2e/run_seed_pipeline.ps1`.
+
 Real LLM and RAG checks remain opt-in and non-deterministic. They should not be treated as replacements for the mocked Playwright PR gate, and the mocked Playwright PR gate should not be treated as a replacement for API contract, seed, reliability, Promptfoo, or live evaluation coverage.
 
 ## Fast Checks

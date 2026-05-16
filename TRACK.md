@@ -31,7 +31,7 @@ Use one of:
 | 9 | L3 hard orchestration and break scenarios | Done | Completed with deterministic seeded L3 hard scenarios 39-52, product fixes for approval resume, partial failure, stale session recovery, duplicate submit, and SSE reconnect/drop behavior. |
 | 10 | L4 production-like release validation | Done | Completed with opt-in `chromium-release`, production-built frontend behind nginx-style `/`, `/agent`, and `/api/v1` proxy paths, static-bearer polling fallback, CORS/preflight checks, latency budgets, release artifacts, outage/precheck drills, mobile/keyboard/slow-network/rollback/cache/long-stream coverage, and deterministic seeded providers by default. |
 | 11 | L5 production synthetic monitoring | Done | Completed with opt-in `chromium-synthetic`, safe read-only canary prompts, live-mode env/token guardrails, machine-readable redacted results, alert classification, auth/provider fault drills, latency burn-rate reporting, and failure-only artifact policy. |
-| 12 | Manual testing retirement and governance | Not Started | Final gate for eliminating routine manual chatbot regression, with ownership, accepted gaps, scenario lifecycle rules, and replacement matrix audit. |
+| 12 | Manual testing retirement and governance | Done | Completed with replacement matrix, scenario 80 governance audit, owner model, lifecycle rules, quarterly review, accepted gaps, preserved seed-pipeline guidance, and full L0-L5 verification. |
 | 13 | Normal-use production hardening | Not Started | Add realistic daily operator browser scenarios around long normal chats, session history, reloads, composer state, and modal lifecycle. |
 | 14 | Data integrity and side-effect safety | Not Started | Add exact DB/audit/UI/SSE checks for mutating chatbot workflows, including cascading priority updates and approval idempotency. |
 | 15 | Reliability, scale, and soak hardening | Not Started | Add concurrent read-only sessions, long streams, large results, slow-path behavior, and repeated soak cleanup checks. |
@@ -151,7 +151,7 @@ These scenarios extend the original 30 into seeded full-stack, failure-seeking o
 | 77 | Synthetic provider outage canary detects model/RAG dependency failure without mutating data. | Done | L5 |
 | 78 | Synthetic latency burn-rate check reports degraded performance before hard outage. | Done | L5 |
 | 79 | Production trace/screenshot redaction prevents leaking sensitive operational data on failure. | Done | L5 |
-| 80 | Manual replacement matrix audit confirms every old manual chatbot check has an automated gate or accepted gap. | Not Started | Governance |
+| 80 | Manual replacement matrix audit confirms every old manual chatbot check has an automated gate or accepted gap. | Done | Governance |
 | 81 | Ten-turn normal operator chat mixes machine status, jobs, LOTO/RAG, and follow-up questions without stale answers or lost UI state. | Not Started | Production hardening |
 | 82 | Session list with many historical sessions loads, selects, and restores the correct transcript. | Not Started | Production hardening |
 | 83 | Browser reload after a completed run restores final answer, sources/details, and non-busy composer state. | Not Started | Production hardening |
@@ -383,16 +383,97 @@ Phase 5 note: static bearer mode remains a later L2 expansion item because the r
 
 ### Phase 12: Manual Testing Retirement and Governance
 
-- [ ] Build a manual-test replacement matrix mapping old manual checks to L0-L5 automation.
-- [ ] Implement scenario 80 as a governance audit or checklist.
-- [ ] Mark each old manual check as retired, human semantic review, compliance/sign-off, exploratory discovery, or emergency-only.
-- [ ] Define owners for PR E2E, seeded full-stack foundation, hard orchestration, release validation, and production synthetic monitoring.
-- [ ] Define scenario add/remove rules.
-- [ ] Define accepted-gap rules and review cadence.
-- [ ] Define quarterly scenario review checklist.
-- [ ] Document PR, L3 seeded, L3 hard, release, and post-deploy validation commands.
-- [ ] Record accepted gaps and non-automated human-review areas.
-- [ ] Confirm no routine manual chatbot regression remains required for PR, release, or post-deploy smoke.
+- [x] Build a manual-test replacement matrix mapping old manual checks to L0-L5 automation.
+- [x] Implement scenario 80 as a governance audit or checklist.
+- [x] Mark each old manual check as retired, automated, human semantic review, compliance/sign-off, exploratory discovery, emergency-only, or accepted gap.
+- [x] Define owners for PR E2E, seeded full-stack foundation, hard orchestration, release validation, production synthetic monitoring, and accepted-gap review.
+- [x] Define scenario add/remove rules.
+- [x] Define accepted-gap rules and review cadence.
+- [x] Define quarterly scenario review checklist.
+- [x] Document PR, L3 seeded, L3 hard, release, and post-deploy validation commands.
+- [x] Record accepted gaps and non-automated human-review areas.
+- [x] Confirm no routine manual chatbot regression remains required for PR, release, or post-deploy smoke.
+- [x] Run `git status --short --branch`.
+- [x] Run `npm test`.
+- [x] Run `npm run test:e2e -- --project=chromium`.
+- [x] Run `npm run test:e2e -- --project=chromium-seeded`.
+- [x] Run `npm run test:e2e -- --project=chromium-release`.
+- [x] Run `npm run test:e2e -- --project=chromium-synthetic`.
+- [x] Record Phase 12 commands, results, files changed, blockers, accepted gaps, and final decisions.
+
+Phase 12 replacement matrix:
+
+| Old manual chatbot check | Disposition | Replacement / accepted gap | Owner |
+|---|---|---|---|
+| Open app and find floating AI Assistant control. | automated | L0 mocked Chromium, scenarios 1-2. | Frontend E2E owner |
+| Open chat modal and confirm empty state/composer. | automated | L0 mocked Chromium, scenarios 1-2. | Frontend E2E owner |
+| Type machine-status prompt and verify final answer. | automated | L1 mocked scenario 5 and L3 seeded scenario 32. | Frontend E2E owner / Seeded L3 owner |
+| Check low-priority jobs structured response. | automated | L3 seeded scenario 33. | Seeded L3 owner |
+| Ask RAG/LOTO question and inspect source chrome. | automated | L3 seeded scenario 34 and L5 synthetic scenario 73 structural canary. | Seeded L3 owner / Synthetic L5 owner |
+| Watch notification/activity streaming and completion. | automated | L2 scenarios 11, 13, 14 and L3 scenario 38. | Frontend E2E owner / Seeded L3 owner |
+| Check malformed stream, stream drop, timeout, retry, empty answer, cancel, and modal close recovery. | automated | L1/L2 scenarios 18-26 and L3 hard scenarios 47-51. | Frontend E2E owner / Hard L3 owner |
+| Approve/reject approval-gated chatbot flows. | automated | L3 seeded scenarios 35-36 and L3 hard scenarios 40-42. | Seeded L3 owner / Hard L3 owner |
+| Confirm seeded Go API and Factory Agent contracts still match browser expectations. | automated | L3 seeded scenarios 31-38. | Seeded L3 owner |
+| Try multi-step, multi-approval, stale-session, duplicate-submit, large-result, and cross-session hazards. | automated | L3 hard scenarios 39-52. | Hard L3 owner |
+| Validate production-like paths, auth fallback, CORS, slow network, mobile, keyboard, artifact, rollback, and cache behavior. | automated | L4 release scenarios 53-70. | Release L4 owner |
+| Check after deploy that chatbot opens, progresses, completes, and alerts on outage. | automated | L5 synthetic scenarios 71-79. | Synthetic L5 owner |
+| Judge nuanced answer quality, usefulness, tone, or domain semantics beyond structural assertions. | human semantic review | Accepted gap AG-P12-001. | Product/SME review owner |
+| Complete formal policy, compliance, or regulated operational sign-off. | compliance/sign-off | Accepted gap AG-P12-002. | Compliance owner |
+| Explore brand-new prompts, workflows, or unmodeled operational risks. | exploratory discovery | Accepted gap AG-P12-003. | QA/exploratory owner |
+| Diagnose incidents when automation, harnesses, or production telemetry are unavailable. | emergency-only | Accepted gap AG-P12-004. | On-call owner |
+| Keep routine manual chatbot regression as a PR, release, or post-deploy requirement. | retired | Replaced by L0-L5 gates; not required after Phase 12 passes. | Frontend E2E owner |
+
+Phase 12 governance owners:
+
+| Area | Owner | Rule |
+|---|---|---|
+| PR mocked Playwright E2E | Frontend E2E owner | Owns deterministic `chromium` PR gate. |
+| Seeded full-stack L3 | Seeded L3 owner | Owns real Vite, Go API, Factory Agent, seeded DB, and deterministic provider contract checks. |
+| Hard orchestration L3 | Hard L3 owner | Owns scenarios 39-52 and blocks promotion on reproducible orchestration defects. |
+| Release validation L4 | Release L4 owner | Owns release paths, auth fallback, CORS, mobile, keyboard, rollback, latency, and artifacts. |
+| Production synthetic L5 | Synthetic L5 owner | Owns read-only canaries, alert classification, token checks, provider outage signals, and redaction. |
+| Accepted-gap review | QA governance owner | Owns monthly accepted-gap review and quarterly scenario review. |
+
+Scenario lifecycle rules:
+
+- Add scenarios only for new risk, new user-visible state, new backend contract, new deployment hazard, or fixed-defect regression coverage.
+- Remove or merge redundant scenarios when they prove the same risk with the same assertion and evidence.
+- Require failure artifact expectations for every scenario layer.
+- Require regression coverage at the lowest useful layer for every fixed defect.
+- Keep production synthetic prompts read-only and non-mutating.
+- Keep default PR CI on deterministic mocked `chromium` unless the team deliberately changes the governance rule.
+- Keep `chromium-seeded`, `chromium-release`, and `chromium-synthetic` opt-in or scheduled, not silent default PR work.
+
+Accepted-gap rules and review cadence:
+
+- Every accepted gap must include owner, severity, risk, target date or phase, reason, and temporary workaround.
+- Review Phase 12 human-only gaps monthly while open.
+- Review all accepted gaps during quarterly scenario review.
+- Reopen the relevant phase if a medium or higher gap starts affecting routine PR, release, or post-deploy regression confidence.
+- Do not use any critical or high accepted gap to claim Phase 17 production-grade operational readiness.
+
+Quarterly scenario review checklist:
+
+- Confirm owners are current.
+- Confirm `chromium` remains deterministic and PR-safe.
+- Confirm `chromium-seeded`, `chromium-release`, and `chromium-synthetic` remain opt-in unless deliberately promoted.
+- Remove or merge redundant scenarios.
+- Add scenarios for new incidents, product risks, or fixed defects missing regression coverage.
+- Confirm failure artifacts are sufficient to debug without rerunning manually.
+- Confirm synthetic prompts are still read-only.
+- Review accepted gaps, target dates, workarounds, and whether any human-only check can now be automated.
+- Confirm no routine manual chatbot regression has returned to PR, release, or post-deploy smoke.
+
+Phase 12 validation commands:
+
+```powershell
+Set-Location "eMas Front"
+npm test
+npm run test:e2e -- --project=chromium
+npm run test:e2e -- --project=chromium-seeded
+npm run test:e2e -- --project=chromium-release
+npm run test:e2e -- --project=chromium-synthetic
+```
 
 ### Phase 13: Normal-Use Production Hardening
 
@@ -464,11 +545,18 @@ Phase 5 note: static bearer mode remains a later L2 expansion item because the r
 
 ## Current Blockers
 
-- None for Phase 11.
+- None for Phase 12.
 
 ## Accepted Gaps
 
-- None recorded through Phase 11. Phase 12-17 gaps must be added here before any phase is marked `Done`.
+- Phase 12 records the following non-routine human-only areas. They do not block retiring routine manual chatbot regression because each has an owner, review cadence, reason, risk, and workaround.
+
+| ID | Manual check | Disposition | Owner | Severity | Risk | Target | Reason | Temporary workaround |
+|---|---|---|---|---|---|---|---|---|
+| AG-P12-001 | Nuanced answer quality, usefulness, tone, and domain semantics beyond structural assertions. | human semantic review | Product/SME review owner | Medium | Structurally valid answers can still be unhelpful, misleading, or poorly phrased. | Monthly accepted-gap review; revisit during Phase 17 signoff. | Exact semantic quality is nondeterministic and should not be made a brittle browser assertion. | Product/SME sample review for release candidates or material prompt/provider changes; convert recurring defects into deterministic scenarios or evals. |
+| AG-P12-002 | Formal policy, compliance, or regulated operational sign-off. | compliance/sign-off | Compliance owner | Medium | Automation can miss policy/legal obligations that require accountable human sign-off. | Monthly accepted-gap review; revisit during Phase 17 signoff. | Compliance approval is outside engineering-only test authority. | Compliance owner signs off when required; engineering adds structural checks for repeatable policy defects. |
+| AG-P12-003 | Brand-new prompts, workflows, or unmodeled operational risks. | exploratory discovery | QA/exploratory owner | Low | Unknown risks may not be covered until discovered. | Quarterly scenario review, or sooner after incidents/new features. | Exploratory testing is discovery work, not routine regression. | Exploratory findings become new scenarios only when they represent recurring or release-blocking risk. |
+| AG-P12-004 | Incident diagnosis when automation, harnesses, or production telemetry are unavailable. | emergency-only | On-call owner | Low | During outages, a human may need to inspect behavior directly before automation is restored. | Quarterly scenario review, plus post-incident review. | Emergency diagnosis cannot be fully replaced by prewritten regression checks. | Use manual browser diagnosis only for incident response; backfill automation for any reproducible regression. |
 
 Phase 10-17 implementation risks to resolve:
 
@@ -518,6 +606,10 @@ Phase 10-17 implementation risks to resolve:
 | Phase 11 uses only safe read-only production/staging canaries. | Production synthetic monitoring must not mutate operational data. |
 | Phase 11 synthetic monitoring is opt-in only. | `chromium-synthetic` requires explicit project selection and live production/staging mode requires explicit URL/token/owner env vars. |
 | Phase 12 is required before claiming manual testing is fully eliminated. | It creates the replacement matrix, ownership, scenario lifecycle, accepted-gap record, and final retirement gate. |
+| Scenario 80 is a governance audit/checklist, not another browser prompt variant. | Manual-test retirement is a traceability problem: every old check must map to automation or an accepted human-only gap before routine manual regression can be retired. |
+| Routine manual chatbot regression is retired only for PR, release, and post-deploy smoke checks. | Human semantic review, compliance sign-off, exploratory discovery, and emergency diagnosis remain bounded accepted gaps with owners and review cadence. |
+| Default PR CI remains mocked Chromium only. | `npm test` plus `npm run test:e2e -- --project=chromium` stays deterministic and does not start Go API, real Factory Agent, Docker, release proxy, or real LLM/RAG services. |
+| Seeded, release, and synthetic projects remain opt-in. | `chromium-seeded`, `chromium-release`, and `chromium-synthetic` are explicit L3-L5 gates, not default PR work. |
 | Phase 13-17 extend beyond manual-test retirement into production-grade hardening. | They add normal-use, data-integrity, reliability, security/privacy, and operational readiness gates so the chatbot is harder to break in daily use. |
 | Scenario 86 uses original-state semantics for cascading priority updates. | This avoids accidentally converting jobs changed from high to low during step one into medium during step two unless the product explicitly chooses current-state semantics later. |
 
@@ -756,6 +848,25 @@ Phase 11 defect/fix notes:
 - Assertion gap: the mocked happy-path progress assertion used a strict locator that could match both the status row and compact activity label. Fix: assert the first matching progress label.
 - No production/staging data mutation, broad approval flow, real LLM exact-text assertion, or accepted gap was introduced for Phase 11.
 
+Phase 12:
+
+- `git status --short --branch`: branch `codex/playwright-e2e-plan`; showed pre-existing `PLAN.md` modification plus Phase 12 tracker/README/governance working tree changes.
+- `npm test`: passed, 49 tests.
+- `npm run test:e2e -- --project=chromium`: passed, 13 mocked Chromium Playwright tests.
+- `npm run test:e2e -- --project=chromium-seeded`: passed, 22 Chromium seeded Playwright tests covering L3 foundation and hard orchestration.
+- `npm run test:e2e -- --project=chromium-release`: passed, 18 Chromium release Playwright tests.
+- `npm run test:e2e -- --project=chromium-synthetic`: passed, 9 Chromium synthetic Playwright tests.
+
+Phase 12 final decisions:
+
+- Scenario 80 is implemented as a governance audit/checklist in `docs/operations/chatbot_test_governance.md` and mirrored in this tracker.
+- Routine manual chatbot regression is retired for PR, release, and post-deploy smoke only after the replacement matrix and L0-L5 verification pass.
+- Human semantic review, compliance sign-off, exploratory discovery, and emergency diagnosis remain accepted, owner-bound human-only gaps AG-P12-001 through AG-P12-004.
+- Default PR CI remains mocked `chromium` only. It does not start Go API, real Factory Agent, Docker/release proxy, or real LLM/RAG services.
+- `chromium-seeded`, `chromium-release`, and `chromium-synthetic` remain opt-in L3-L5 gates.
+- Existing Go/Python E2E coverage and `tests/e2e/run_seed_pipeline.ps1` remain preserved.
+- No Phase 12 blockers were found.
+
 Phase 13-17 planning update:
 
 - Documentation-only update. No application tests were run.
@@ -913,6 +1024,13 @@ Phase 11 implementation:
 - `eMas Front/e2e/support/syntheticReporter.js`
 - `eMas Front/e2e/support/syntheticScenarios.js`
 
+Phase 12 implementation:
+
+- `TRACK.md`
+- `eMas Front/e2e/README.md`
+- `tests/e2e/README.md`
+- `docs/operations/chatbot_test_governance.md`
+
 Phase 13-17 planning update:
 
 - `PLAN.md`
@@ -920,7 +1038,7 @@ Phase 13-17 planning update:
 
 ## Next Action
 
-Phase 11 is complete. Do not start Phase 12 unless explicitly requested. Phase 13-17 remain the later production-grade hardening track after governance.
+Phase 12 is complete. Routine manual chatbot regression is retired for PR, release, and post-deploy smoke through the L0-L5 gates and Scenario 80 governance audit. Do not start Phase 13 unless explicitly requested. Phase 13-17 remain the later production-grade hardening track and are not complete.
 
 Keep the default PR CI on the mocked `chromium` suite, keep `chromium-seeded` as the opt-in L3 full-stack foundation/hard-orchestration gate, keep `chromium-release` as an opt-in L4 release-candidate gate, keep `chromium-synthetic` as the opt-in L5 post-deploy monitor, and keep Phase 13-17 reliability/security/operational gates opt-in or scheduled until stable.
 
