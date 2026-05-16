@@ -1147,9 +1147,12 @@ class SeededPlaywrightPlanner:
         )
         succeeded = [row for row in outcomes if row.get("status") == "succeeded"]
         failed = [row for row in outcomes if row.get("status") != "succeeded"]
+        succeeded_ids = ", ".join(str(row.get("job_id")) for row in succeeded if row.get("job_id")) or "none"
+        failed_ids = ", ".join(str(row.get("job_id")) for row in failed if row.get("job_id")) or "none"
         summary = (
             f"Phase 14 partial failure recorded exact per-row outcomes: {len(succeeded)} succeeded, "
-            f"{len(failed)} failed; not all jobs succeeded. Approval id: {approval_id}."
+            f"{len(failed)} failed; succeeded rows: {succeeded_ids}; failed rows: {failed_ids}; "
+            f"not all jobs succeeded. Approval id: {approval_id}."
         )
         steps = [PlanStepDraft(step_index=0, tool_name="put__jobs_{id}", args={"write_set": "bulk_partial_failure", "priority": "high"})]
         return self._plan_result(

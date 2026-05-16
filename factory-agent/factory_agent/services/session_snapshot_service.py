@@ -786,28 +786,32 @@ class SessionSnapshotService:
             for row in approval_rows
             if (getattr(row, "subject_type", "step") or "step") == "graph"
         ]
-        graph_plan_order = {
-            row.plan_id: idx
-            for idx, row in enumerate([p for p in plan_rows if is_langgraph_plan(p)])
-        }
-        graph_plan_count = max(1, len(graph_plan_order))
-
         def _plan_timeline_created_at(plan_row: PlanRow) -> datetime:
-            if not is_langgraph_plan(plan_row) or not graph_approval_rows:
-                return plan_row.created_at
-            first_approval_at = min(row.created_at for row in graph_approval_rows if row.created_at)
-            order = graph_plan_order.get(plan_row.plan_id, 0)
-            latest_user_before_approval = None
-            for msg in user_messages_sorted:
-                if msg.created_at <= first_approval_at:
-                    latest_user_before_approval = msg
-                else:
-                    break
-            if latest_user_before_approval:
-                candidate = latest_user_before_approval.created_at + timedelta(milliseconds=10, microseconds=order)
-                if candidate < first_approval_at:
-                    return candidate
-            return first_approval_at - timedelta(microseconds=graph_plan_count - order)
+            return plan_row.created_at
+
+        approval_decided_at_by_id = {
+            row.approval_id: row.decided_at
+            for row in approval_rows
+            if row.approval_id and row.decided_at
+        }
+
+        def _approval_id_from_payload(*payloads: Any, fallback: str | None = None) -> str | None:
+            for payload in payloads:
+                if not isinstance(payload, dict):
+                    continue
+                candidate = (
+                    payload.get("approval_id")
+                    or payload.get("_approval_id")
+                    or (payload.get("result") if isinstance(payload.get("result"), dict) else {}).get("approval_id")
+                )
+                if candidate:
+                    return str(candidate)
+            return fallback
+
+        def _commit_event_time(default: datetime, approval_id: str | None, offset_ms: int) -> datetime:
+            if approval_id and approval_id in approval_decided_at_by_id:
+                return approval_decided_at_by_id[approval_id] + timedelta(milliseconds=offset_ms)
+            return default
 
         events: list[TimelineEventResponse] = []
         for msg in user_messages:
@@ -834,6 +838,8 @@ class SessionSnapshotService:
                 plan_by_conversation_id[msg.message_id] = noop_plans_in_order[idx_msg]
 
         for msg in conversation_messages:
+            if _is_approval_wait_text(msg.content):
+                continue
             associated_plan = plan_by_conversation_id.get(msg.message_id)
             convo_details: dict[str, Any] = {}
             if associated_plan is not None:
@@ -986,6 +992,12 @@ class SessionSnapshotService:
                 )
             else:
                 continue
+            result_approval_id = _approval_id_from_payload(
+                step.result if isinstance(step.result, dict) else None,
+                step.args if isinstance(step.args, dict) else None,
+                fallback=step.approval_id,
+            )
+            created_at = _commit_event_time(created_at, result_approval_id, 5 + step.step_index)
 
             events.append(
                 _timeline_event(
@@ -1003,6 +1015,7 @@ class SessionSnapshotService:
                         }
                     ),
                     step_id=step.step_id,
+                    approval_id=result_approval_id,
                     tool_name=step.tool_name,
                     status=step.status,
                     details=_build_tool_result_details(
@@ -1067,7 +1080,9 @@ class SessionSnapshotService:
                 if not tool_name:
                     continue
                 key = _graph_tool_event_key(action, idx_action)
-                created_at = _graph_event_time(20 + idx_action * 20)
+                args = action.get("args") if isinstance(action.get("args"), dict) else {}
+                approval_id = _approval_id_from_payload(action, args)
+                created_at = _commit_event_time(_graph_event_time(20 + idx_action * 20), approval_id, 2 + idx_action)
                 events.append(
                     _timeline_event(
                         event_id=f"graph-tool-started:{session_id}:{idx_action}:{key}",
@@ -1082,9 +1097,10 @@ class SessionSnapshotService:
                             }
                         ),
                         step_id=f"lg-step-{idx_action}",
+                        approval_id=approval_id,
                         tool_name=tool_name,
                         status="IN_PROGRESS",
-                        details={"args": action.get("args") if isinstance(action.get("args"), dict) else {}},
+                        details={"args": args},
                     )
                 )
 
@@ -1107,7 +1123,8 @@ class SessionSnapshotService:
                 )
                 content = summary or fallback_content
                 key = _graph_tool_event_key(output, idx_out)
-                created_at = _graph_event_time(25 + idx_out * 20)
+                approval_id = _approval_id_from_payload(output, result, args)
+                created_at = _commit_event_time(_graph_event_time(25 + idx_out * 20), approval_id, 5 + idx_out)
                 events.append(
                     _timeline_event(
                         event_id=f"graph-tool-result:{session_id}:{idx_out}:{key}",
@@ -1122,6 +1139,7 @@ class SessionSnapshotService:
                             }
                         ),
                         step_id=f"lg-step-{idx_out}",
+                        approval_id=approval_id,
                         tool_name=tool_name,
                         status=status,
                         details=_build_tool_result_details(

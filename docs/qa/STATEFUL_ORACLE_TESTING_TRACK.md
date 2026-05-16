@@ -23,7 +23,7 @@ Purpose: living execution tracker for the stateful oracle hardening plan. Future
 | 3 | LangGraph state machine invariants | Done | Added focused LangGraph state-machine oracle pytest coverage for cursor movement, staged-write cleanup, approval boundaries, rejection, timeout, stale approval, distinct approval ids, and original-state cascade semantics. |
 | 4 | Snapshot, timeline, and final response contract | Done | Added Phase 4 oracle contract tests tying graph actions, approvals, audit rows, fake committed state, SSE/timeline evidence, and final response copy together; fixed frontend stale-terminal-before-approval guard. |
 | 5 | SSE contract and disconnect semantics | Done | Runtime and browser SSE oracles now prove order, reconnect, malformed recovery, disconnect, fallback, and terminal-state gating. |
-| 6 | Seeded full-stack data and audit oracles | Not Started | Verify real seeded Go API plus Factory Agent state. |
+| 6 | Seeded full-stack data and audit oracles | Done | Seeded Go API plus Factory Agent DB rows, approvals, audit rows, snapshot, timeline, final response, and UI now agree under Phase 6 oracles. |
 | 7 | Non-seeded LangGraph browser proof | Not Started | Prove critical browser flows without seeded planner adapter. |
 | 8 | Manual failure promotion workflow | Not Started | Every manual miss becomes an oracle or accepted gap. |
 | 9 | CI gate restructure | Not Started | Put fast oracle tests in PR and heavier ones in release gates. |
@@ -651,15 +651,111 @@ Start Phase 6: Seeded Full-Stack Data and Audit Oracles. Keep Phase 6 focused on
 
 ## Phase 6 Checklist: Seeded Full-Stack Data and Audit Oracles
 
-- [ ] Reset seeded DB per oracle.
-- [ ] Capture initial state artifact.
-- [ ] Capture approval rows after each approval.
-- [ ] Capture audit rows after each commit.
-- [ ] Capture final DB state.
-- [ ] Capture final snapshot/timeline.
-- [ ] Assert unchanged rows.
-- [ ] Assert final UI summary matches committed rows.
-- [ ] Export debug bundle on failure.
+- [x] Reset seeded DB per oracle.
+- [x] Capture initial state artifact.
+- [x] Capture approval rows after each approval.
+- [x] Capture audit rows after each commit.
+- [x] Capture final DB state.
+- [x] Capture final snapshot/timeline.
+- [x] Assert unchanged rows.
+- [x] Assert final UI summary matches committed rows.
+- [x] Export debug bundle on failure.
+
+## Phase 6 Implementation: Seeded Full-Stack Data and Audit Oracles
+
+Status: Done
+
+Updated: 2026-05-16
+
+Scope completed in this pass:
+
+- Strengthened `full-stack-data-integrity.spec.js` so each mutating seeded oracle captures and asserts initial DB state before prompt execution, per-approval rows, audit rows after each commit, final DB state, unchanged rows, final snapshot/timeline, final assistant text, and visible UI copy.
+- Strengthened `full-stack-prompt-workflow-regression.spec.js` cascade matrix so prompt-regression cascades now assert approval rows, audit rows, original-state source sets, unchanged rows, final snapshot state, ordered timeline evidence, and final summary copy.
+- Added reusable Phase 6 seeded oracle helpers in `dataIntegrityScenarios.js` for initial/final evidence capture, failure artifact export, approval row assertions, audit commit assertions, unchanged-row protection, ordered timeline checks, and final-summary overclaim checks.
+- Added oracle-validity/negative-control checks proving the Phase 6 assertions fail for wrong committed rows, missing audit evidence, out-of-order commit evidence, unchanged-row mutation, stale approval overclaim, and partial-failure full-success wording.
+- Fixed a product projection bug in `session_snapshot_service.py`: approval-wait assistant messages are no longer projected as `session_completed`, plan timeline rows keep their real creation time instead of being backdated before approvals, and tool-result commit evidence now carries approval ids and is ordered after the matching approval decision.
+- Fixed the seeded partial-failure workflow summary in `testing_seeded_adapters.py` so the final response/UI names succeeded and failed row ids, including `JOB-SEED-MISSING-014`, instead of only saying that one row failed.
+- Fixed a seeded prompt-regression assertion drift where multiple legitimate `Run complete` labels caused a strict locator failure.
+
+Commands run:
+
+```powershell
+Set-Location "eMas Front"
+npm run test:e2e -- --project=chromium-seeded --grep "medium-to-high"
+npm run test:e2e -- --project=chromium-seeded --grep "cascading priority update uses original-state"
+npm run test:e2e -- --project=chromium-seeded --grep "bulk partial failure"
+npm run test:e2e -- --project=chromium-seeded --grep "medium-to-high then high-to-medium"
+npm run test:e2e -- --project=chromium-seeded --grep "@data-integrity|@prompt-regression"
+
+Set-Location "..\factory-agent"
+python -m py_compile "factory_agent\services\session_snapshot_service.py"
+python -m py_compile "factory_agent\testing_seeded_adapters.py" "factory_agent\services\session_snapshot_service.py"
+python -m pytest tests/test_snapshot_timeline_final_response_contract.py tests/test_phase19_prompt_workflow_regression.py -q
+
+Set-Location "..\eMas Front"
+node --check "e2e\support\dataIntegrityScenarios.js"
+node --check "e2e\specs\full-stack-data-integrity.spec.js"
+node --check "e2e\specs\full-stack-prompt-workflow-regression.spec.js"
+npm test
+```
+
+Test results:
+
+```text
+Initial focused seeded prompt run: 1 passed, 1 failed.
+  Reason: existing prompt-regression test used a strict `Run complete` locator while the UI can render more than one matching terminal label.
+
+Initial full Phase 6 seeded run: 3 passed, 9 failed.
+  Reason: new Phase 6 timeline oracle exposed product projection bugs: approval-wait messages appeared as `session_completed`, final-looking plan text was backdated before approval/commit evidence, and commit tool results lacked ordered approval-id evidence.
+
+Focused cascade after projection fix: 1 passed in 27.1s.
+
+Second full Phase 6 seeded run: 11 passed, 1 failed.
+  Reason: partial-failure UI/final summary named counts but not the failed row id.
+
+Focused partial failure after summary fix: 1 passed in 15.5s.
+
+Final recommended Phase 6 seeded run:
+  chromium-seeded `@data-integrity|@prompt-regression`: 12 passed in 2.7m.
+
+Focused backend contract/parser guard:
+  tests/test_snapshot_timeline_final_response_contract.py tests/test_phase19_prompt_workflow_regression.py: 25 passed, 5 warnings in 0.73s.
+
+Frontend unit suite:
+  npm test: 53 passed in 5644.8313ms.
+```
+
+Warnings observed:
+
+- Existing `LangChainPendingDeprecationWarning` from `langgraph.checkpoint.serde.jsonplus`.
+- Existing `DeprecationWarning` from `factory_agent.observability.telemetry` using `datetime.utcnow()`.
+- Existing `PytestDeprecationWarning` for unset `asyncio_default_fixture_loop_scope`.
+
+Files changed:
+
+- `docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md`
+- `eMas Front/e2e/specs/full-stack-data-integrity.spec.js`
+- `eMas Front/e2e/specs/full-stack-prompt-workflow-regression.spec.js`
+- `eMas Front/e2e/support/dataIntegrityScenarios.js`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/testing_seeded_adapters.py`
+
+Decisions made:
+
+- Phase 6 seeded full-stack tests treat approval rows, audit rows, DB state, snapshot, timeline, final assistant response, and visible UI as one evidence bundle; any disagreement is a failing oracle.
+- Failure artifacts are written as Playwright attachments with initial DB state, final DB state, approval/audit evidence, snapshot, timeline, and browser text so partial-failure/debug evidence survives test failure.
+- For graph-native seeded snapshots, commit/tool-result timeline evidence is ordered from the matching approval decision when an approval id is available.
+- Partial-failure summaries must name failed row ids; counts alone are not enough.
+
+Blockers/open questions:
+
+- No Phase 6 blockers remain.
+- Phase 6 still proves seeded adapter behavior, not non-seeded real LangGraph browser behavior; that remains Phase 7.
+- The durable operation ledger question remains open for Phase 10.
+
+Next action:
+
+Start Phase 7: Non-Seeded LangGraph Browser Proof. Prioritize SO-001 in the real LangGraph browser path, then expand to the agreed top critical scenarios.
 
 ## Phase 7 Checklist: Non-Seeded LangGraph Browser Proof
 
@@ -706,8 +802,7 @@ Start Phase 6: Seeded Full-Stack Data and Audit Oracles. Keep Phase 6 focused on
 
 - Existing phase docs mark many phases `Done`, but recent bugs prove several tests had weak oracles.
 - Some seeded Playwright tests prove seeded adapters, not real LangGraph behavior.
-- No Phase 5 blockers remain.
-- The worktree contains Phase 5 changes made after checkpoint commit `527c9ea`; future agents must avoid reverting them unless explicitly asked.
+- No Phase 6 blockers remain.
 
 ## Open Questions
 
@@ -729,64 +824,53 @@ Start Phase 6: Seeded Full-Stack Data and Audit Oracles. Keep Phase 6 focused on
 - A newer pending approval must outrank any stale terminal completion row in frontend turn summaries and activity timelines.
 - For Phase 5 stream recovery, stale or unknown `Last-Event-ID` replays current evidence instead of suppressing all rows.
 - SSE activity evidence can advance progress UI, but final assistant UI remains gated on terminal snapshot/timeline state.
+- For Phase 6 seeded oracles, DB rows, approval rows, audit rows, snapshot, timeline, final response, and visible UI must agree before the scenario can pass.
+- Partial-failure copy must name failed row ids, not only aggregate counts.
+- Graph-native snapshot tool-result evidence should carry the approval id and be ordered after the matching approval decision.
 
 ## Commands Run
 
-Latest Phase 5 implementation and verification:
+Latest Phase 6 implementation and verification:
 
 ```powershell
-Get-Content -Raw "docs/qa/STATEFUL_ORACLE_TESTING_PLAN.md"
-Get-Content -Raw "docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md"
-Get-Content -Raw "factory-agent/tests/test_event_stream_runtime.py"
-Get-Content -Raw "factory-agent/factory_agent/api/routers/events.py"
-Get-Content -Raw "eMas Front/e2e/fixtures/sseScripts.js"
-Get-Content -Raw "eMas Front/e2e/specs/full-stack-sse-hard.spec.js"
-Get-Content -Raw "eMas Front/e2e/specs/chat-sse-activity.spec.js"
-Get-Content -Raw "eMas Front/src/components/features/chat/factory-agent/useActivityStream.js"
-Get-Content -Raw "eMas Front/src/components/features/chat/factory-agent/useSessionEvents.js"
 git status --short
-git branch --show-current
-git add -A
-git commit -m "chore: checkpoint stateful oracle phases"
-git rev-parse --short HEAD
-Set-Location "factory-agent"
-python -m pytest tests/test_event_stream_runtime.py -q
-Set-Location "..\eMas Front"
-npm run test:e2e -- --project=chromium --grep "@sse"
-npm run test:e2e -- --project=chromium-seeded --grep "@sse|@l3-hard"
-npm run test:e2e -- --project=chromium-seeded --grep "scenario 47|scenario 48|scenario 51"
-npm run test:e2e -- --project=chromium-seeded --grep "scenario 52"
+git diff --stat
+
+Set-Location "eMas Front"
+npm run test:e2e -- --project=chromium-seeded --grep "medium-to-high"
+npm run test:e2e -- --project=chromium-seeded --grep "cascading priority update uses original-state"
+npm run test:e2e -- --project=chromium-seeded --grep "bulk partial failure"
+npm run test:e2e -- --project=chromium-seeded --grep "medium-to-high then high-to-medium"
+npm run test:e2e -- --project=chromium-seeded --grep "@data-integrity|@prompt-regression"
 npm test
-Set-Location "..\factory-agent"
-python -m pytest tests/test_event_stream_runtime.py -q
+
+Set-Location "factory-agent"
+python -m py_compile "factory_agent\services\session_snapshot_service.py"
+python -m py_compile "factory_agent\testing_seeded_adapters.py" "factory_agent\services\session_snapshot_service.py"
+python -m pytest tests/test_snapshot_timeline_final_response_contract.py tests/test_phase19_prompt_workflow_regression.py -q
 ```
 
 ## Test Results
 
-Phase 5 verification passed:
+Phase 6 verification passed:
 
 ```text
-Initial backend runtime run: 2 failed, 1 warning.
-Final backend runtime run: 6 passed, 1 warning in 1.19s
-Mocked Chromium @sse final run: 5 passed in 8.9s
-Seeded Chromium focused Phase 5 rerun: 3 passed in 31.6s
-Seeded Chromium @sse|@l3-hard final run: 14 passed in 52.7s
-eMas Front npm test: 53 passed in 6800.4769ms
+Initial full Phase 6 seeded run: 3 passed, 9 failed.
+  New oracles exposed projection/order defects and missing failed-row summary evidence.
+Final chromium-seeded @data-integrity|@prompt-regression: 12 passed in 2.7m
+Focused backend contract/parser guard: 25 passed, 5 warnings in 0.73s
+eMas Front npm test: 53 passed in 5644.8313ms
 ```
 
 ## Files Changed
 
 - `docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md`
-- `factory-agent/factory_agent/api/routers/events.py`
-- `factory-agent/tests/test_event_stream_runtime.py`
-- `eMas Front/e2e/mock-server/factoryAgentMockServer.js`
-- `eMas Front/e2e/specs/chat-cancel-navigation.spec.js`
-- `eMas Front/e2e/specs/chat-sse-activity.spec.js`
-- `eMas Front/e2e/specs/chat-sse-notification.spec.js`
-- `eMas Front/e2e/specs/chat-stream-errors.spec.js`
-- `eMas Front/e2e/specs/full-stack-resilience.spec.js`
-- `eMas Front/e2e/specs/full-stack-sse-hard.spec.js`
+- `eMas Front/e2e/specs/full-stack-data-integrity.spec.js`
+- `eMas Front/e2e/specs/full-stack-prompt-workflow-regression.spec.js`
+- `eMas Front/e2e/support/dataIntegrityScenarios.js`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/testing_seeded_adapters.py`
 
 ## Next Action
 
-Start Phase 6: Seeded Full-Stack Data and Audit Oracles. Keep the next pass focused on DB/audit/approval row evidence, unchanged-row assertions, and seeded artifacts.
+Start Phase 7: Non-Seeded LangGraph Browser Proof. Keep Phase 7 focused on proving SO-001 through the real LangGraph browser path before adding more critical scenarios.

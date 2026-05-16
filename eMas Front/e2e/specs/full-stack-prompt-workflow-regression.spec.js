@@ -11,27 +11,30 @@ import {
 import {
   activityText,
   approvalIdsFromTimeline,
+  captureFinalSeededState,
+  captureInitialSeededState,
   currentPriorityMap,
   dataIntegrityAudit,
   expectedPriorityMapForCascade,
+  expectApprovalRowMatches,
+  expectAuditCommit,
   expectAuditForJobs,
-  factoryAgentRaw,
+  expectCascadeTimelineEvidence,
+  expectFinalSummaryClaimsOnly,
+  expectRowsUnchangedFromInitial,
+  expectSnapshotApprovalState,
   jobIdsByPriority,
   priorityForJob,
+  recordOracleCheckpoint,
   resetSeededJobPriorities,
+  sessionMessages,
   timelineText,
+  withSeededOracleArtifact,
 } from '../support/dataIntegrityScenarios.js'
 import {
   phase19CascadeMatrix,
   phase19LotoRegressionEntries,
 } from '../support/promptRegressionScenarios.js'
-
-async function approveApproval(approvalId, decidedBy = 'phase19-playwright') {
-  return factoryAgentRaw(`/approvals/${approvalId}/approve`, {
-    method: 'POST',
-    body: { decided_by: decidedBy },
-  })
-}
 
 async function pendingApprovalMatching(page, writeSet) {
   await expect
@@ -63,7 +66,16 @@ function approvalHeadlinePattern(number, source, target) {
   return new RegExp(`Approval ${number} required: original ${source.toUpperCase()}-priority jobs will become ${target.toUpperCase()}`, 'i')
 }
 
-async function runCascadeInvariant(page, scenario) {
+async function finalAssistantText(sessionId) {
+  const messages = await sessionMessages(sessionId)
+  return [...messages].reverse().find((message) => message.role === 'assistant')?.content || ''
+}
+
+async function runCascadeInvariant(page, scenario, testInfo) {
+  return withSeededOracleArtifact(testInfo, `prompt regression cascade ${scenario.name}`, async (artifact) => {
+    const initial = await captureInitialSeededState(artifact)
+    let sessionId = null
+    try {
   const [firstChange, secondChange] = scenario.changes
   const firstWriteSet = `original_${firstChange.source}_to_${firstChange.target}`
   const secondWriteSet = `original_${secondChange.source}_to_${secondChange.target}`
@@ -72,8 +84,18 @@ async function runCascadeInvariant(page, scenario) {
 
   await openChat(page)
   await sendPrompt(page, scenario.prompt)
+  sessionId = await activeSessionId(page)
 
   const first = await pendingApprovalMatching(page, firstWriteSet)
+  await expectApprovalRowMatches(first, {
+    status: 'PENDING',
+    writeSet: firstWriteSet,
+    kind: 'phase14_cascade_priority',
+    jobIds: firstJobIds,
+    requestedPriority: firstChange.target,
+    originalPriority: firstChange.source,
+    count: firstJobIds.length,
+  })
   expect(first.args.bundle_ui.rows.map((row) => row.job_id).sort()).toEqual([...firstJobIds].sort())
   expect(first.args.bundle_ui.original_state_semantics.toLowerCase()).toContain(
     `original ${secondChange.source}-priority jobs become ${secondChange.target}`,
@@ -89,31 +111,88 @@ async function runCascadeInvariant(page, scenario) {
   await expect(page.getByText(/Run complete/i)).toHaveCount(0)
 
   const second = await pendingApprovalMatching(page, secondWriteSet)
+  await expectApprovalRowMatches(first.approval_id, {
+    status: 'APPROVED',
+    writeSet: firstWriteSet,
+    kind: 'phase14_cascade_priority',
+    jobIds: firstJobIds,
+    requestedPriority: firstChange.target,
+    originalPriority: firstChange.source,
+    count: firstJobIds.length,
+  })
+  expectAuditCommit(await dataIntegrityAudit(sessionId), {
+    scenario: '119',
+    writeSet: firstWriteSet,
+    approvalId: first.approval_id,
+    succeededJobIds: firstJobIds,
+    requestedPriority: firstChange.target,
+  })
+  for (const unchangedPriority of scenario.unchanged) {
+    for (const jobId of jobIdsByPriority(unchangedPriority)) {
+      expect(await priorityForJob(jobId), `${jobId} should keep original ${unchangedPriority} priority after approval 1`).toBe(unchangedPriority)
+    }
+  }
+  recordOracleCheckpoint(artifact, 'after first prompt-regression cascade commit', {
+    approval: await factoryAgentJson(`/approvals/${first.approval_id}`),
+    audit: await dataIntegrityAudit(sessionId),
+    priorities: await currentPriorityMap(),
+    snapshot: await snapshotForPage(page),
+  })
   expect(second.approval_id).not.toBe(first.approval_id)
   expect(second.args.bundle_ui.rows.map((row) => row.job_id).sort()).toEqual([...secondJobIds].sort())
   expect(second.args.bundle_ui.previous_approval_id).toBe(first.approval_id)
+  await expectApprovalRowMatches(second, {
+    status: 'PENDING',
+    writeSet: secondWriteSet,
+    kind: 'phase14_cascade_priority',
+    jobIds: secondJobIds,
+    requestedPriority: secondChange.target,
+    originalPriority: secondChange.source,
+    previousApprovalId: first.approval_id,
+    count: secondJobIds.length,
+  })
+  await expectSnapshotApprovalState(page, { status: 'WAITING_APPROVAL', pendingApprovalId: second.approval_id })
   await expect(page.getByText(approvalHeadlinePattern(2, secondChange.source, secondChange.target)).first()).toBeVisible()
   await page.getByRole('button', { name: 'Approve' }).click()
 
   await expectJobsAtPriority(secondJobIds, secondChange.target)
   await waitForSessionStatus(page, 'COMPLETED')
-  await expect(page.getByText(/Run complete/i)).toBeVisible()
+  await expect(page.getByText(/Run complete/i).first()).toBeVisible()
+  await expectApprovalRowMatches(second.approval_id, {
+    status: 'APPROVED',
+    writeSet: secondWriteSet,
+    kind: 'phase14_cascade_priority',
+    jobIds: secondJobIds,
+    requestedPriority: secondChange.target,
+    originalPriority: secondChange.source,
+    previousApprovalId: first.approval_id,
+    count: secondJobIds.length,
+  })
+  await expectSnapshotApprovalState(page, { status: 'COMPLETED', pendingApprovalId: null })
 
-  const sessionId = await activeSessionId(page)
   expect(await currentPriorityMap()).toEqual(expectedPriorityMapForCascade(scenario.changes))
   for (const unchangedPriority of scenario.unchanged) {
     for (const jobId of jobIdsByPriority(unchangedPriority)) {
       expect(await priorityForJob(jobId), `${jobId} should keep original ${unchangedPriority} priority`).toBe(unchangedPriority)
+      expect(await priorityForJob(jobId), `${jobId} should match captured initial state`).toBe(initial.priorities[jobId])
     }
+    await expectRowsUnchangedFromInitial(initial.rowsById, jobIdsByPriority(unchangedPriority))
   }
 
   const audit = await dataIntegrityAudit(sessionId)
-  expectAuditForJobs(audit, {
+  expectAuditCommit(audit, {
     scenario: '119',
     writeSet: firstWriteSet,
     approvalId: first.approval_id,
-    jobIds: firstJobIds,
+    succeededJobIds: firstJobIds,
     requestedPriority: firstChange.target,
+  })
+  expectAuditCommit(audit, {
+    scenario: '119',
+    writeSet: secondWriteSet,
+    approvalId: second.approval_id,
+    succeededJobIds: secondJobIds,
+    requestedPriority: secondChange.target,
   })
   expectAuditForJobs(audit, {
     scenario: '119',
@@ -135,6 +214,24 @@ async function runCascadeInvariant(page, scenario) {
   expect(timelineText(snapshot)).toContain(`${firstChange.source}->${firstChange.target} ${firstJobIds.length}`)
   expect(timelineText(snapshot)).toContain(`${secondChange.source}->${secondChange.target} ${secondJobIds.length}`)
   expect(activityText(snapshot)).toContain('Run complete')
+  expectCascadeTimelineEvidence(snapshot, {
+    firstApprovalId: first.approval_id,
+    secondApprovalId: second.approval_id,
+    firstSummary: `changed original ${firstChange.source.toUpperCase()} jobs to ${firstChange.target.toUpperCase()}`,
+    secondSummary: `${firstChange.source}->${firstChange.target} ${firstJobIds.length}`,
+  })
+  expectFinalSummaryClaimsOnly(await finalAssistantText(sessionId), {
+    mustInclude: [
+      'Phase 19 cascade matrix complete',
+      `${firstChange.source}->${firstChange.target} ${firstJobIds.length}`,
+      `${secondChange.source}->${secondChange.target} ${secondJobIds.length}`,
+    ],
+    mustExclude: [/Factory Agent needs attention/i, /Run complete before approval/i],
+  })
+    } finally {
+      await captureFinalSeededState(artifact, { page, sessionId }).catch(() => null)
+    }
+  })
 }
 
 test.describe('Phase 19 seeded prompt/workflow regression gate @prompt-regression @data-integrity', () => {
@@ -157,7 +254,7 @@ test.describe('Phase 19 seeded prompt/workflow regression gate @prompt-regressio
       await expect(page.getByText(/Seeded LOTO Procedure for M-CNC-01/i).first()).toBeVisible()
       await expect(page.getByText(/Which machine ID/i)).toHaveCount(0)
       await expect(page.getByText('Factory Agent needs attention')).toHaveCount(0)
-      await expect(page.getByText('Run complete')).toBeVisible()
+      await expect(page.getByText('Run complete').first()).toBeVisible()
 
       const snapshot = await snapshotForPage(page)
       const sources = sourcesFromSnapshot(snapshot)
@@ -171,7 +268,7 @@ test.describe('Phase 19 seeded prompt/workflow regression gate @prompt-regressio
   for (const scenario of phase19CascadeMatrix) {
     test(`scenario 119/120/121/125: ${scenario.name} uses two approvals and original-state semantics`, async ({ page }) => {
       await resetSeededJobPriorities()
-      await runCascadeInvariant(page, scenario)
+      await runCascadeInvariant(page, scenario, test.info())
     })
   }
 })
