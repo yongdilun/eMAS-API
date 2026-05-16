@@ -198,6 +198,35 @@ Rules:
 - No real LLM dependency is introduced. Seeded and release smoke checks use deterministic fake planner/provider/RAG adapters unless a later phase explicitly opts into real-provider smoke.
 - These checks harden reliability risks but do not claim production-grade hardening is complete.
 
+## Phase 16 Security and Privacy
+
+Phase 16 adds opt-in `@security` and `@privacy` checks for session isolation, authorization failures, artifact redaction, unsafe rendered content, large pasted input, and unsupported tool/approval abuse. These checks are excluded from un-grepped mocked Chromium runs so the default PR command stays unchanged.
+
+```powershell
+Set-Location "eMas Front"
+npm test
+npm run test:e2e -- --project=chromium --grep "@security|@privacy"
+npm run test:e2e -- --project=chromium-release --grep "@security|@privacy"
+```
+
+Coverage:
+
+| Scenario | Project | Spec | Evidence |
+|---|---|---|---|
+| 96 tampered local storage/session id | `chromium`, release cross-check | `security-privacy.spec.js`, `release-security-privacy.spec.js` | A stored session id for another user returns a safe not-found diagnostic, clears the active id, and never renders the other transcript. |
+| 97 unauthorized REST, polling, and EventSource | `chromium`, `chromium-release` | `security-privacy.spec.js`, `release-security-privacy.spec.js` | Missing/wrong auth is denied for session REST, snapshot polling, and EventSource endpoints; visible diagnostics avoid transcript or token leakage. |
+| 98 artifact redaction | `chromium`, `chromium-release` | `security-privacy.spec.js`, `release-security-privacy.spec.js`, `artifactRedaction.js` | Logs, report-like attachments, trace URLs, screenshot metadata, session ids, operation ids, bearer tokens, API keys, and token query params are redacted before retention. |
+| 99 large unsafe rendered content | `chromium` | `security-privacy.spec.js` | Large pasted text and unsafe markdown/HTML render as inert text, do not execute script/image handlers, and do not collapse the mobile dialog layout. |
+| 100 tool allowlist and approval gates | `chromium` | `security-privacy.spec.js` | Unsupported destructive tools are absent from the allowlisted tool response; the UI shows an approval gate and approval is blocked without any fake completion. |
+
+Rules:
+
+- Keep default PR CI on `npm test` plus `npm run test:e2e -- --project=chromium`; Phase 16 is an opt-in grep until deliberately promoted.
+- Keep `chromium-seeded`, `chromium-release`, and `chromium-synthetic` opt-in. The release cross-check is explicit and uses deterministic seeded providers.
+- The release harness builds the frontend with `/agent`, `/api/v1`, a signed test JWT bearer, and polling fallback because browser `EventSource` cannot attach Authorization headers.
+- Do not store raw bearer tokens, API keys, token query params, session ids, operation ids, approval ids, or trace ids in retained text artifacts.
+- No real LLM/RAG dependency is introduced, and Phase 16 does not claim production-grade hardening is complete.
+
 ## Seeded Full-Stack L3
 
 Phase 8 adds an opt-in seeded project:
@@ -269,14 +298,17 @@ The release frontend is compiled with:
 ```text
 VITE_FACTORY_AGENT_BASE_URL=/agent
 VITE_API_BASE_URL=/api/v1
-VITE_FACTORY_AGENT_BEARER_TOKEN=<test static bearer>
+VITE_FACTORY_AGENT_BEARER_TOKEN=<signed test JWT bearer>
+VITE_FACTORY_AGENT_USER_ID=frontend-operator
 ```
 
-The static bearer is intentional: browser `EventSource` cannot attach Authorization headers, so the release gate asserts that EventSource is disabled and snapshot polling remains enabled. The Factory Agent still runs with deterministic Playwright seeded planner/RAG adapters by default; real LLM/RAG calls are not used.
+The signed bearer is intentional: browser `EventSource` cannot attach Authorization headers, so the release gate asserts that EventSource is disabled and snapshot polling remains enabled while REST requests still authenticate. The Factory Agent still runs with deterministic Playwright seeded planner/RAG adapters by default; real LLM/RAG calls are not used.
 
 Optional env vars:
 
 - `PLAYWRIGHT_RELEASE_REAL_LLM_SMOKE=1` enables the structural real-provider connectivity smoke. Leave unset for normal release validation.
+- `PLAYWRIGHT_RELEASE_STATIC_BEARER=<jwt>` overrides the generated signed test JWT. If set, it must match `PLAYWRIGHT_RELEASE_JWT_SECRET` because the local Factory Agent enforces JWT auth in the release harness.
+- `PLAYWRIGHT_RELEASE_JWT_SECRET=<secret>` overrides the local release JWT signing secret.
 - `PLAYWRIGHT_RELEASE_ROLLBACK_BASE_URL=<url>` runs the rollback smoke against a previous build URL. Defaults to the current local release proxy.
 - `PLAYWRIGHT_RELEASE_CHAT_OPEN_BUDGET_MS`, `PLAYWRIGHT_RELEASE_FIRST_PROGRESS_BUDGET_MS`, `PLAYWRIGHT_RELEASE_FINAL_ANSWER_BUDGET_MS`, and `PLAYWRIGHT_RELEASE_LONG_STREAM_BUDGET_MS` tune latency budgets.
 - `PLAYWRIGHT_RELEASE_PORT_BASE`, `PLAYWRIGHT_RELEASE_GO_API_PORT`, `PLAYWRIGHT_RELEASE_FACTORY_AGENT_PORT`, and `PLAYWRIGHT_RELEASE_PROXY_PORT` can be used when local ports collide.

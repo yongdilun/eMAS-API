@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from factory_agent.api.dependencies import require_session_owner
 from factory_agent.api.response_mappers import message_to_response
 from factory_agent.graph.session_detection import is_graph_native_session
 from factory_agent.observability.events import AgentEvent, EventBus
@@ -65,12 +66,13 @@ def build_messages_router(
     async def add_message(
         session_id: str,
         req: MessageCreateRequest,
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         sess = await session_mgr.get_session(db, session_id=session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
+        require_session_owner(sess, user)
         msg = await session_mgr.add_message(db, session_id=session_id, role=req.role, content=req.content, mode=req.mode)
         await memory_manager.index_message(
             db,
@@ -182,12 +184,13 @@ def build_messages_router(
     @router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])
     async def list_messages(
         session_id: str,
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         sess = await session_mgr.get_session(db, session_id=session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
+        require_session_owner(sess, user)
         rows = (
             await db.execute(
                 select(MessageRow)

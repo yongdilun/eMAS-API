@@ -35,7 +35,7 @@ Use one of:
 | 13 | Normal-use production hardening | Done | Completed with mocked scenarios 81-85 plus opt-in seeded reload/source coverage for scenario 83. Production-grade hardening is not complete; Phase 19 remains the final prompt/workflow robustness signoff. |
 | 14 | Data integrity and side-effect safety | Done | Completed with opt-in `@data-integrity` seeded scenarios 86-90, exact DB/audit/UI/SSE/final-summary checks, multi-approval write-set evidence, and approval idempotency/staleness guards. Production-grade hardening is not complete; Phase 19 remains the final prompt/workflow robustness signoff. |
 | 15 | Reliability, scale, and soak hardening | Done | Completed with opt-in `@reliability` mocked scenarios 91-95, seeded stream/large-result cross-checks, scheduled/dispatch soak workflow, isolated child smoke ports, timeout recovery, and cleanup artifacts. Production-grade hardening is not complete; Phase 19 remains the final prompt/workflow robustness signoff. |
-| 16 | Security, privacy, and abuse hardening | Not Started | Add session tampering, unauthorized access, artifact redaction, oversized input, unsafe markdown, and tool allowlist checks. |
+| 16 | Security, privacy, and abuse hardening | Done | Completed with tagged `@security`/`@privacy` mocked Chromium scenarios 96-100, opt-in release cross-checks for scenarios 96-98, owner isolation, auth-denial diagnostics, artifact redaction, oversized/unsafe rendering checks, and tool allowlist/approval-gate coverage. Production-grade hardening is not complete; Phase 19 remains the final prompt/workflow robustness signoff. |
 | 17 | Production-grade operational readiness | Not Started | Operational gate for alerts, rollback, emergency disable, environment recreation, and full gate matrix signoff before Phase 18-19 prompt/workflow robustness. |
 | 18 | Intent, entity, and RAG route robustness | Not Started | Add prompt regression bank, entity/parser matrix, LOTO/RAG route checks, clarification-boundary checks, and browser-visible prompt robustness coverage. |
 | 19 | Prompt and workflow regression expansion | Not Started | Expand the regression bank with real manual misses, prompt matrices, route assertions, cascade matrices, approval invariants, and browser diagnostics. |
@@ -51,7 +51,7 @@ Use one of:
 | L3 Hard orchestration | Done | Multi-step, multi-approval, concurrency, state recovery, SSE ordering, and service interruption against seeded services. | Phase 9 completed as opt-in `chromium-seeded --grep "@l3-hard"` gate. |
 | L4 Production-like release validation | Done | Compose/staging-style release validation with nginx paths, auth mode, polling fallback, slow network, mobile, and release artifacts. | Phase 10 completed as opt-in `chromium-release`; not default PR CI. |
 | L5 Production synthetic monitoring | Done | Safe read-only canary prompts, provider signals, alerting, health, and latency checks. | Phase 11 completed as opt-in `chromium-synthetic`; not default PR CI. |
-| Production-grade hardening | In Progress | Normal-use, data integrity, reliability, security/privacy, operational readiness, intent/entity/RAG route robustness, and prompt/workflow regression expansion gates. | Phases 13-15 are complete; Phases 16-19 remain opt-in/scheduled until stable and Phase 19 is the final production-grade prompt/workflow robustness signoff. |
+| Production-grade hardening | In Progress | Normal-use, data integrity, reliability, security/privacy, operational readiness, intent/entity/RAG route robustness, and prompt/workflow regression expansion gates. | Phases 13-16 are complete; Phases 17-19 remain opt-in/scheduled until stable and Phase 19 is the final production-grade prompt/workflow robustness signoff. |
 
 ## Phase Gate Rule
 
@@ -169,11 +169,11 @@ These scenarios extend the original 30 into seeded full-stack, failure-seeking o
 | 93 | Large structured result and many sources render with stable layout and usable controls. | Done | Reliability |
 | 94 | Slow API/tool response shows progress, respects timeout, and preserves retry/cancel controls. | Done | Reliability |
 | 95 | Repeated soak run completes the core mocked, seeded, and release smoke suites without leaked ports or orphan processes. | Done | Reliability |
-| 96 | Tampered local storage or session id cannot expose another user's session. | Not Started | Security/privacy |
-| 97 | Unauthorized REST, polling, and EventSource access are denied with safe visible diagnostics. | Not Started | Security/privacy |
-| 98 | Logs, traces, screenshots, and reports redact tokens, secrets, and sensitive operational fields. | Not Started | Security/privacy |
-| 99 | Very large pasted input and unsafe markdown render safely without script execution or layout collapse. | Not Started | Security/privacy |
-| 100 | Tool allowlist and approval gates block requests that try to perform unsupported or unsafe actions. | Not Started | Security/privacy |
+| 96 | Tampered local storage or session id cannot expose another user's session. | Done | Security/privacy |
+| 97 | Unauthorized REST, polling, and EventSource access are denied with safe visible diagnostics. | Done | Security/privacy |
+| 98 | Logs, traces, screenshots, and reports redact tokens, secrets, and sensitive operational fields. | Done | Security/privacy |
+| 99 | Very large pasted input and unsafe markdown render safely without script execution or layout collapse. | Done | Security/privacy |
+| 100 | Tool allowlist and approval gates block requests that try to perform unsupported or unsafe actions. | Done | Security/privacy |
 | 101 | Synthetic failure creates the expected alert, owner, severity, and runbook link. | Not Started | Operational readiness |
 | 102 | Rollback validation command passes against the previous known-good build URL. | Not Started | Operational readiness |
 | 103 | Chatbot feature flag or emergency disable path leaves the rest of the app usable with a clear diagnostic. | Not Started | Operational readiness |
@@ -540,17 +540,17 @@ npm run test:e2e -- --project=chromium-synthetic
 
 ### Phase 16: Security, Privacy, and Abuse Hardening
 
-- [ ] Add `@security` and `@privacy` scenarios.
-- [ ] Implement scenario 96.
-- [ ] Implement scenario 97.
-- [ ] Implement scenario 98.
-- [ ] Implement scenario 99.
-- [ ] Implement scenario 100.
-- [ ] Add artifact redaction scan for configured token/secret patterns.
-- [ ] Run `npm test`.
-- [ ] Run `npm run test:e2e -- --project=chromium --grep "@security|@privacy"`.
-- [ ] Run `npm run test:e2e -- --project=chromium-release --grep "@security|@privacy"`.
-- [ ] Record defects, fixes, accepted gaps, and files changed.
+- [x] Add `@security` and `@privacy` scenarios.
+- [x] Implement scenario 96.
+- [x] Implement scenario 97.
+- [x] Implement scenario 98.
+- [x] Implement scenario 99.
+- [x] Implement scenario 100.
+- [x] Add artifact redaction scan for configured token/secret patterns.
+- [x] Run `npm test`.
+- [x] Run `npm run test:e2e -- --project=chromium --grep "@security|@privacy"`.
+- [x] Run `npm run test:e2e -- --project=chromium-release --grep "@security|@privacy"`.
+- [x] Record defects, fixes, accepted gaps, and files changed.
 
 ### Phase 17: Production-Grade Operational Readiness
 
@@ -692,6 +692,10 @@ Phase 10-17 implementation risks to resolve:
 | Phase 19 turns the prompt bank into an expansion gate. | It prevents one-off fixes by requiring wording matrices, route assertions, cascade matrices, approval invariants, and regression-bank schema enforcement. |
 | Phase 14 mutating coverage is seeded-only and opt-in. | Data-integrity scenarios reset deterministic job-priority fixtures and assert persisted state, audit entries, SSE/timeline evidence, approval ids, and final summaries without touching production data or default PR CI. |
 | Multi-group Phase 14 mutations require separate approval evidence per write set. | A cascading workflow must prove each group-specific write was approved independently before the final summary can claim success. |
+| Phase 16 security/privacy scenarios are tag-selected. | `@security`/`@privacy` tests are excluded from un-grepped mocked `chromium` runs and stay explicit gate commands so default PR CI remains deterministic and unchanged. |
+| Phase 16 release security checks use signed local JWTs. | The release harness signs a per-run local token and verifies owner/auth behavior without adding real LLM or external identity dependencies. |
+| Session isolation is enforced at the backend boundary. | Browser-visible ownership hints and JWT principals are checked by Factory Agent session, snapshot, message, control, event, approval, planning, and execution paths before returning session data or performing actions. |
+| Security/privacy artifacts are redacted before evidence is attached or reported. | Trace/log/report helpers redact tokens, secrets, session ids, approval ids, operation ids, and trace ids before storing Phase 16 evidence. |
 
 ## Commands Run During Discovery
 
@@ -1083,6 +1087,36 @@ Phase 15 defect/fix notes:
 - Assertion defect: scenario 93's `Knowledge sources` locator was ambiguous because the final answer also mentioned knowledge sources. Fix: assert the actual sources heading.
 - No accepted gaps, blockers, default PR CI promotion, seeded/release/synthetic default promotion, production/staging data mutation, real LLM dependency, or production-grade hardening signoff was introduced for Phase 15.
 
+Phase 16:
+
+- `git status --short --branch`: branch `codex/playwright-e2e-plan`; showed inherited Phase 14/planning changes plus Phase 16 working tree changes.
+- `git switch codex/playwright-e2e-plan`: already on `codex/playwright-e2e-plan`.
+- Phase 16 was marked `In Progress` in `TRACK.md` before implementation and `Done` only after verification passed.
+- Syntax checks passed: `node --check` for `playwright.config.js`, mock server/store, security/privacy specs, redaction/security helpers, release helpers, and Factory Agent API client helpers; Python `py_compile` passed for modified Factory Agent auth/router/service files. A direct `node --check` attempt on JSX files was not applicable because Node does not parse `.jsx` files directly; the component coverage was exercised by `npm test`.
+- Focused mocked security/privacy check initially exposed harness/product gaps in the mock server CORS/user header path, denied-session logging evidence, unsafe action approval handling, and a rendering wait for the final assistant text. After fixes, the rerun passed all 5 mocked Chromium Phase 16 tests.
+- `npm test`: passed, 51 tests.
+- `npm run test:e2e -- --project=chromium --grep "@security|@privacy"`: passed, 5 mocked Chromium security/privacy tests.
+- `npm run test:e2e -- --project=chromium-release --grep "@security|@privacy"`: passed, 3 opt-in release Chromium security/privacy cross-checks.
+- Extra default PR sanity check: first `npm run test:e2e -- --project=chromium` run excluded the new Phase 16 specs but hit the existing intermittent `chat-sse-activity` timeout after 17 of 18 mocked Chromium tests passed. Targeted rerun of that spec passed, and full rerun of `npm run test:e2e -- --project=chromium` passed all 18 mocked Chromium tests.
+
+Phase 16 coverage and layer decisions:
+
+- Scenario 96 is mocked Chromium plus release cross-check: tampered active session ids cannot render another user's transcript, the UI shows a safe missing/denied diagnostic, local storage is cleared for the bad id, and release mode proves the same visible recovery against a missing session.
+- Scenario 97 is mocked Chromium plus release cross-check: unauthorized REST, polling/snapshot, and EventSource probes are denied; browser-visible diagnostics stay safe; release mode verifies unauthenticated session, snapshot, and event probes return `401` without leaking session content.
+- Scenario 98 is mocked Chromium plus release cross-check: artifact helpers redact bearer tokens, query secrets, JSON secrets, API keys, session ids, approval ids, operation ids, and trace ids before attachments/reports/log evidence is stored.
+- Scenario 99 is mocked Chromium: very large pasted input and unsafe markdown/HTML/script-shaped content render as inert text, do not execute script handlers, keep the composer usable, and avoid dialog/document horizontal layout collapse.
+- Scenario 100 is mocked Chromium: unsupported unsafe tool requests surface an approval/blocked state, keep the unsafe tool out of the allowlist, reject/deny safely, and avoid claiming execution success.
+- `@security`/`@privacy` mocked specs are excluded from un-grepped `chromium` runs by `playwright.config.js`; default PR CI remains `npm test` plus deterministic mocked `npm run test:e2e -- --project=chromium` only.
+- `chromium-seeded`, `chromium-release`, and `chromium-synthetic` remain explicit opt-in projects. Phase 16 did not change `.github` PR triggers, did not add real LLM/RAG dependencies to default CI, did not remove the existing Go/Python E2E pipeline, and did not remove `tests/e2e/run_seed_pipeline.ps1`.
+
+Phase 16 defect/fix notes:
+
+- Product isolation defect: browser/API session access could rely on unauthenticated development defaults without a principal, making cross-user isolation impossible to prove at the backend boundary. Fix: frontend Factory Agent requests carry a deterministic user id in development/test mode, release checks use signed local JWTs, and Factory Agent enforces owner access across session, snapshot, message, event, control, approval, planning, and execution routes/services.
+- Product diagnostic defect: network/auth failures could surface a stale hardcoded backend URL and miss some backend-unavailable wording. Fix: diagnostics now use the configured Factory Agent base URL and recognize the unhyphenated `cannot reach factory agent` message.
+- Product rendering hardening: chat message text now wraps long unbroken content with `break-words`/`pre-wrap`, preventing oversized unsafe content from collapsing layout while still rendering markup/script-shaped text inertly through React.
+- Harness privacy defect: release proxy logs and browser/network/report attachments could record raw bearer tokens or operational ids. Fix: release artifact/proxy helpers apply the Phase 16 redaction scanner before storing evidence.
+- No accepted gaps, blockers, default PR CI promotion, seeded/release/synthetic default promotion, production/staging mutation, real LLM dependency, Go/Python pipeline removal, or production-grade hardening signoff was introduced for Phase 16.
+
 Phase 18 planning update:
 
 - Documentation-only update. No application tests were run.
@@ -1319,10 +1353,40 @@ Phase 15 implementation:
 - `eMas Front/playwright.config.js`
 - `eMas Front/src/services/factoryAgentApi.js`
 
+Phase 16 implementation:
+
+- `TRACK.md`
+- `eMas Front/e2e/README.md`
+- `eMas Front/e2e/mock-server/factoryAgentMockServer.js`
+- `eMas Front/e2e/mock-server/fixtureStore.js`
+- `eMas Front/e2e/specs/release-security-privacy.spec.js`
+- `eMas Front/e2e/specs/security-privacy.spec.js`
+- `eMas Front/e2e/support/artifactRedaction.js`
+- `eMas Front/e2e/support/releaseArtifacts.js`
+- `eMas Front/e2e/support/releaseEnv.js`
+- `eMas Front/e2e/support/releaseProxyServer.js`
+- `eMas Front/e2e/support/releaseScenarios.js`
+- `eMas Front/e2e/support/securityScenarios.js`
+- `eMas Front/e2e/support/startReleaseStackForPlaywright.js`
+- `eMas Front/playwright.config.js`
+- `eMas Front/src/components/features/chat/ChatMessage.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx`
+- `eMas Front/src/services/factoryAgentApi.js`
+- `eMas Front/src/services/factoryAgentErrors.js`
+- `factory-agent/factory_agent/api/dependencies.py`
+- `factory-agent/factory_agent/api/routers/approvals.py`
+- `factory-agent/factory_agent/api/routers/events.py`
+- `factory-agent/factory_agent/api/routers/messages.py`
+- `factory-agent/factory_agent/api/routers/session_controls.py`
+- `factory-agent/factory_agent/api/routers/sessions.py`
+- `factory-agent/factory_agent/api/routers/snapshots.py`
+- `factory-agent/factory_agent/services/execution_service.py`
+- `factory-agent/factory_agent/services/plan_creation_service.py`
+
 ## Next Action
 
-Phase 15 is complete. Continue to Phase 16 only when explicitly requested. Phases 16-19 remain the later production-grade hardening track and are not complete.
+Phase 16 is complete. Continue to Phase 17 only when explicitly requested. Phases 17-19 remain the later production-grade hardening track and are not complete.
 
-Keep the default PR CI on the mocked `chromium` suite, keep `chromium-seeded` as the opt-in L3 full-stack foundation/hard-orchestration/normal-use/data-integrity/intent-entity/prompt-regression/reliability gate, keep `chromium-release` as an opt-in L4 release-candidate gate, keep `chromium-synthetic` as the opt-in L5 post-deploy monitor, and keep Phase 16-19 security/operational/prompt-workflow robustness gates opt-in or scheduled until stable.
+Keep the default PR CI on the mocked `chromium` suite, keep `chromium-seeded` as the opt-in L3 full-stack foundation/hard-orchestration/normal-use/data-integrity/intent-entity/prompt-regression/reliability gate, keep `chromium-release` as an opt-in L4 release-candidate gate, keep `chromium-synthetic` as the opt-in L5 post-deploy monitor, and keep Phase 17-19 operational/prompt-workflow robustness gates opt-in or scheduled until stable.
 
 Do not remove the existing Go/Python E2E pipeline. Do not add Go backend, Docker, real Factory Agent, release proxy, or real LLM dependencies to the default Playwright suite.

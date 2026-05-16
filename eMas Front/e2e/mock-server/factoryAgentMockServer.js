@@ -5,12 +5,18 @@ import {
   createNormalUseHistorySession,
   createScenarioSession,
   getScenario,
+  mockTools,
   notificationStreamForScenario,
   resolveScenarioForPrompt,
   scenarioNames,
   summarizeScenarioSession,
 } from './fixtureStore.js'
 import { normalUseHistoryFixtures } from '../support/normalUseScenarios.js'
+import {
+  securityOtherUserSecret,
+  securityTamperSessionName,
+  securityUnsafeActionBlocked,
+} from '../support/securityScenarios.js'
 
 const args = new Map()
 for (let i = 2; i < process.argv.length; i += 2) {
@@ -35,7 +41,7 @@ function sleep(ms) {
 function writeSseHeaders(res) {
   res.writeHead(200, {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
@@ -83,12 +89,86 @@ function logRequest({ req, url, sessionId = null, scenarioName = null, prompt = 
   })
 }
 
+function requestUserId(req) {
+  const value = req.headers['x-user-id']
+  if (Array.isArray(value)) return String(value[0] || '').trim()
+  return String(value || '').trim()
+}
+
+function authorizationError(req, url, res, status, detail, logMeta = {}) {
+  sendJson(req, url, res, status, { detail }, logMeta)
+  return false
+}
+
+function authorizeUserRequest(req, url, res, { body = null, requiredUserId = null, allowMissing = false } = {}) {
+  const userId = requestUserId(req)
+  if (!userId && !allowMissing) {
+    return authorizationError(req, url, res, 401, 'Authentication required for this Factory Agent request.', { body })
+  }
+  if (requiredUserId && userId && String(requiredUserId) !== userId) {
+    return authorizationError(req, url, res, 403, 'Authenticated user cannot create or impersonate another user session.', { body })
+  }
+  return true
+}
+
+function authorizeSessionRequest(req, url, res, session, { allowMissingStreamUser = false } = {}) {
+  if (!session) return true
+  const userId = requestUserId(req)
+  if (!userId) {
+    if (allowMissingStreamUser && !session.security?.require_stream_auth) return true
+    return authorizationError(req, url, res, 401, 'Authentication required for this session.', { sessionId: session.session_id, scenarioName: session.scenario_name })
+  }
+  if (session.user_id !== userId) {
+    return authorizationError(req, url, res, 404, 'Session not found.', { sessionId: session.session_id, scenarioName: session.scenario_name })
+  }
+  return true
+}
+
+function seedSecuritySession({ sessionId, userId, name, secret, scenarioName = 'securityOwnerIsolatedRead', requireStreamAuth = false }) {
+  const session = createScenarioSession({
+    sessionId,
+    userId,
+    name,
+    scenarioName,
+  })
+  session.status = 'COMPLETED'
+  session.current_turn_id = `${sessionId}-turn`
+  session.messages.push({
+    id: `${sessionId}-message`,
+    role: 'user',
+    content: 'Private session seed',
+    mode: 'normal',
+    created_at: now(),
+  })
+  session.timeline.push({
+    event_id: `${sessionId}-user`,
+    turn_id: session.current_turn_id,
+    event_type: 'user_message',
+    role: 'user',
+    content: 'Private session seed',
+    status: 'DONE',
+    created_at: now(),
+  })
+  session.timeline.push({
+    event_id: `${sessionId}-complete`,
+    turn_id: session.current_turn_id,
+    event_type: 'session_completed',
+    content: secret,
+    status: 'COMPLETED',
+    details: { reason: 'phase16_security_seed' },
+    created_at: now(),
+  })
+  session.security = { require_stream_auth: requireStreamAuth }
+  sessions.set(sessionId, session)
+  return summarizeScenarioSession(session)
+}
+
 function sendJson(req, url, res, status, body, logMeta = {}) {
   if (res.destroyed || res.writableEnded) return
   logRequest({ req, url, ...logMeta, status })
   res.writeHead(status, {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-Id',
     'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'Content-Type': 'application/json',
   })
@@ -263,13 +343,64 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  if (req.method === 'POST' && url.pathname === '/__test/security-sessions') {
+    const body = await readJson(req)
+    const runId = body.run_id || randomUUID().slice(0, 8)
+    const ownerUserId = body.owner_user_id || 'frontend-operator'
+    const otherUserId = body.other_user_id || 'other-operator'
+    const ownerSessionId = `pw-security-owner-${runId}`
+    const otherSessionId = `pw-security-other-${runId}`
+    const streamAuthSessionId = `pw-security-stream-auth-${runId}`
+    const owner = seedSecuritySession({
+      sessionId: ownerSessionId,
+      userId: ownerUserId,
+      name: 'Phase 16 current operator session',
+      secret: 'Phase 16 owner session safe transcript.',
+    })
+    const other = seedSecuritySession({
+      sessionId: otherSessionId,
+      userId: otherUserId,
+      name: securityTamperSessionName,
+      secret: securityOtherUserSecret,
+    })
+    const streamAuth = seedSecuritySession({
+      sessionId: streamAuthSessionId,
+      userId: ownerUserId,
+      name: 'Phase 16 auth-required stream session',
+      secret: 'Phase 16 stream auth diagnostic transcript.',
+      requireStreamAuth: true,
+    })
+    sendJson(req, url, res, 200, {
+      ok: true,
+      run_id: runId,
+      owner,
+      other,
+      stream_auth: streamAuth,
+      other_secret: securityOtherUserSecret,
+    }, { body })
+    return
+  }
+
+  if (req.method === 'GET' && url.pathname === '/tools') {
+    const intent = String(url.searchParams.get('intent') || '').toLowerCase()
+    const tools = mockTools().filter((tool) => {
+      if (!intent.includes('delete') && !intent.includes('unsafe')) return tool.name !== 'phase16_unsafe_delete_production_jobs'
+      return tool.is_read_only
+    })
+    sendJson(req, url, res, 200, tools)
+    return
+  }
+
   if (req.method === 'GET' && url.pathname === '/sessions') {
-    sendJson(req, url, res, 200, Array.from(sessions.values()).map(summarizeScenarioSession))
+    if (!authorizeUserRequest(req, url, res, { allowMissing: false })) return
+    const userId = requestUserId(req)
+    sendJson(req, url, res, 200, Array.from(sessions.values()).filter((session) => session.user_id === userId).map(summarizeScenarioSession))
     return
   }
 
   if (req.method === 'POST' && url.pathname === '/sessions') {
     const body = await readJson(req)
+    if (!authorizeUserRequest(req, url, res, { body, requiredUserId: body.user_id || 'playwright-user' })) return
     const id = `pw-session-${randomUUID()}`
     const session = createScenarioSession({
       sessionId: id,
@@ -292,6 +423,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(req, url, res, 404, { detail: 'Session not found' }, { sessionId: snapshotMatch[1] })
       return
     }
+    if (!authorizeSessionRequest(req, url, res, session)) return
     sendJson(req, url, res, 200, snapshot(session), {
       sessionId: session.session_id,
       scenarioName: session.scenario_name,
@@ -306,6 +438,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(req, url, res, 404, { detail: 'Session not found' }, { sessionId: messagesMatch[1] })
       return
     }
+    if (!authorizeSessionRequest(req, url, res, session)) return
     const body = await readJson(req)
     const scenario = resolveScenarioForPrompt(body.content)
     session.scenario_name = scenario.name
@@ -335,6 +468,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(req, url, res, 404, { detail: 'Session not found' }, { sessionId: planMatch[1] })
       return
     }
+    if (!authorizeSessionRequest(req, url, res, session)) return
     const body = await readJson(req)
     const scenario = getScenario(session.scenario_name)
     const result = await scenario.onPlan(session, sleep)
@@ -354,6 +488,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(req, url, res, 404, { detail: 'Session not found' }, { sessionId: executeMatch[1] })
       return
     }
+    if (!authorizeSessionRequest(req, url, res, session)) return
     const body = await readJson(req)
     const scenario = getScenario(session.scenario_name)
     const result = await scenario.onExecute(session, sleep)
@@ -373,6 +508,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(req, url, res, 404, { detail: 'Session not found' }, { sessionId: cancelMatch[1] })
       return
     }
+    if (!authorizeSessionRequest(req, url, res, session)) return
     const body = await readJson(req)
     const turnId = session.current_turn_id || `pw-cancel-${session.messages.length || 1}`
     session.status = 'FAILED'
@@ -401,10 +537,82 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  if (req.method === 'GET' && url.pathname === '/approvals/pending') {
+    if (!authorizeUserRequest(req, url, res, { allowMissing: false })) return
+    const sessionId = url.searchParams.get('session_id')
+    const approvals = Array.from(sessions.values())
+      .filter((session) => (!sessionId || session.session_id === sessionId) && session.user_id === requestUserId(req))
+      .map((session) => session.pending_approval)
+      .filter(Boolean)
+    sendJson(req, url, res, 200, approvals)
+    return
+  }
+
+  const approveMatch = url.pathname.match(/^\/approvals\/([^/]+)\/approve$/)
+  if (req.method === 'POST' && approveMatch) {
+    const approvalId = approveMatch[1]
+    const session = Array.from(sessions.values()).find((candidate) => candidate.pending_approval?.approval_id === approvalId)
+    if (!session) {
+      sendJson(req, url, res, 404, { detail: 'Approval not found' })
+      return
+    }
+    if (!authorizeSessionRequest(req, url, res, session)) return
+    if (session.scenario_name === 'securityUnsafeToolBlocked') {
+      session.status = 'FAILED'
+      session.pending_approval = null
+      session.updated_at = now()
+      session.timeline.push({
+        event_id: 'pw-security-unsafe-blocked',
+        turn_id: session.current_turn_id || 'pw-turn-security-unsafe-tool',
+        event_type: 'session_failed',
+        content: securityUnsafeActionBlocked,
+        status: 'FAILED',
+        details: { reason: 'tool_allowlist_blocked' },
+        created_at: now(),
+      })
+      sendJson(req, url, res, 403, { detail: securityUnsafeActionBlocked }, {
+        sessionId: session.session_id,
+        scenarioName: session.scenario_name,
+      })
+      return
+    }
+    sendJson(req, url, res, 409, { detail: 'Approval fixture does not support approval.' })
+    return
+  }
+
+  const rejectMatch = url.pathname.match(/^\/approvals\/([^/]+)\/reject$/)
+  if (req.method === 'POST' && rejectMatch) {
+    const approvalId = rejectMatch[1]
+    const session = Array.from(sessions.values()).find((candidate) => candidate.pending_approval?.approval_id === approvalId)
+    if (!session) {
+      sendJson(req, url, res, 404, { detail: 'Approval not found' })
+      return
+    }
+    if (!authorizeSessionRequest(req, url, res, session)) return
+    session.status = 'FAILED'
+    session.pending_approval = null
+    session.updated_at = now()
+    session.timeline.push({
+      event_id: 'pw-security-unsafe-rejected',
+      turn_id: session.current_turn_id || 'pw-turn-security-unsafe-tool',
+      event_type: 'session_failed',
+      content: 'Unsafe action rejected; no factory action was executed.',
+      status: 'FAILED',
+      details: { reason: 'operator_rejected_unsafe_action' },
+      created_at: now(),
+    })
+    sendJson(req, url, res, 200, { status: 'REJECTED', approval_id: approvalId }, {
+      sessionId: session.session_id,
+      scenarioName: session.scenario_name,
+    })
+    return
+  }
+
   const eventsMatch = url.pathname.match(/^\/sessions\/([^/]+)\/events$/)
   if (req.method === 'GET' && eventsMatch) {
     const sessionId = eventsMatch[1]
     const session = sessions.get(sessionId)
+    if (session && !authorizeSessionRequest(req, url, res, session, { allowMissingStreamUser: true })) return
     runSseScript({
       req,
       res,
@@ -422,6 +630,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && activityEventsMatch) {
     const sessionId = activityEventsMatch[1]
     const session = sessions.get(sessionId)
+    if (session && !authorizeSessionRequest(req, url, res, session, { allowMissingStreamUser: true })) return
     runSseScript({
       req,
       res,

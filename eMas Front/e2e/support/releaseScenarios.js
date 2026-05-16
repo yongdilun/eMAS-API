@@ -31,7 +31,11 @@ export async function releaseJson(path, options = {}) {
 export async function factoryAgentJson(path, options = {}) {
   const response = await fetch(`${releaseEnv.directFactoryAgentBaseUrl}${path}`, {
     method: options.method || 'GET',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.auth === false ? {} : { Authorization: `Bearer ${releaseEnv.bearerToken}` }),
+      ...(options.headers || {}),
+    },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   })
   const text = await response.text()

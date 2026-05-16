@@ -62,6 +62,17 @@ import {
   reliabilitySlowTimeoutPrompt,
   reliabilityTurnForPrompt,
 } from '../support/reliabilityScenarios.js'
+import {
+  securityActivitySteps,
+  securityLargeUnsafePrompt,
+  securityMockTools,
+  securitySafeOwnAnswer,
+  securitySafeOwnPrompt,
+  securityUnsafeActionBlocked,
+  securityUnsafeActionPrompt,
+  securityUnsafeActionRisk,
+  securityUnsafeMarkdownAnswer,
+} from '../support/securityScenarios.js'
 
 export const DEFAULT_SCENARIO = 'readMachineHappyPath'
 
@@ -521,6 +532,226 @@ export const scenarioCatalog = {
     },
     notificationStream() {
       return longRunningNotificationStream()
+    },
+  },
+
+  securityOwnerIsolatedRead: {
+    name: 'securityOwnerIsolatedRead',
+    description: 'Phase 16 current-operator read-only session used for local-storage tamper checks.',
+    prompts: [securitySafeOwnPrompt],
+    onMessage(session, content) {
+      addUserTurn(session, content || securitySafeOwnPrompt, 'pw-turn-security-owner')
+    },
+    onPlan(session) {
+      const ids = {
+        turnId: session.current_turn_id || 'pw-turn-security-owner',
+        planId: 'pw-plan-security-owner',
+        stepId: 'pw-step-security-owner',
+      }
+      session.status = 'EXECUTING'
+      session.operation_id = ids.planId
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: ids.planId,
+        objective: 'Confirm the current operator sees only their own session.',
+        stepId: ids.stepId,
+        toolName: 'get_machine_status',
+      })
+      session.steps = [...session.plan.steps]
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId: ids.turnId,
+          eventId: `${ids.planId}-created`,
+          planId: ids.planId,
+          content: 'Checking current-operator session isolation.',
+        }),
+      )
+      return { status: 200, body: { status: 'EXECUTING', plan_id: ids.planId } }
+    },
+    async onExecute(session, sleep) {
+      const turnId = session.current_turn_id || 'pw-turn-security-owner'
+      await sleep(120)
+      session.status = 'COMPLETED'
+      completeSteps(session)
+      appendTimeline(
+        session,
+        toolResultEvent({
+          turnId,
+          eventId: 'pw-security-owner-tool-result',
+          stepId: 'pw-step-security-owner',
+          planId: 'pw-plan-security-owner',
+          toolName: 'get_machine_status',
+          content: securitySafeOwnAnswer,
+          details: {
+            args: { machine_id: 'M-CNC-01' },
+            result: {
+              machine_id: 'M-CNC-01',
+              _summary: securitySafeOwnAnswer,
+            },
+          },
+        }),
+      )
+      appendTimeline(
+        session,
+        sessionCompletedEvent({
+          turnId,
+          eventId: 'pw-security-owner-completed',
+          planId: 'pw-plan-security-owner',
+          content: securitySafeOwnAnswer,
+          reason: 'security_owner_isolation_fixture',
+        }),
+      )
+      return { status: 200, body: { status: 'COMPLETED', session_id: session.session_id } }
+    },
+    snapshot(session) {
+      if (session.status === 'COMPLETED') return snapshotFromSession(session, securityActivitySteps({ terminal: true }))
+      if (session.status === 'PLANNING' || session.status === 'EXECUTING') return snapshotFromSession(session, securityActivitySteps())
+      return defaultIdleSnapshot(session)
+    },
+  },
+
+  securityLargeUnsafeMarkdown: {
+    name: 'securityLargeUnsafeMarkdown',
+    description: 'Phase 16 large pasted input and unsafe rendered content stay inert and stable.',
+    prompts: [securityLargeUnsafePrompt],
+    onMessage(session, content) {
+      addUserTurn(session, content || securityLargeUnsafePrompt, 'pw-turn-security-large-unsafe')
+    },
+    onPlan(session) {
+      const turnId = session.current_turn_id || 'pw-turn-security-large-unsafe'
+      session.status = 'EXECUTING'
+      session.operation_id = 'pw-plan-security-large-unsafe'
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: 'pw-plan-security-large-unsafe',
+        objective: 'Render unsafe markdown and large text safely.',
+        stepId: 'pw-step-security-large-unsafe',
+        toolName: 'render_security_fixture',
+      })
+      session.steps = [...session.plan.steps]
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId,
+          eventId: 'pw-security-large-plan-created',
+          planId: 'pw-plan-security-large-unsafe',
+          content: 'Validating large input and unsafe markdown rendering.',
+        }),
+      )
+      return { status: 200, body: { status: 'EXECUTING', plan_id: 'pw-plan-security-large-unsafe' } }
+    },
+    async onExecute(session, sleep) {
+      const turnId = session.current_turn_id || 'pw-turn-security-large-unsafe'
+      await sleep(140)
+      session.status = 'COMPLETED'
+      completeSteps(session)
+      appendTimeline(
+        session,
+        toolResultEvent({
+          turnId,
+          eventId: 'pw-security-large-tool-result',
+          stepId: 'pw-step-security-large-unsafe',
+          planId: 'pw-plan-security-large-unsafe',
+          toolName: 'render_security_fixture',
+          content: securityUnsafeMarkdownAnswer,
+          details: {
+            args: { render_mode: 'inert_text' },
+            result: {
+              _summary: securityUnsafeMarkdownAnswer,
+            },
+          },
+        }),
+      )
+      appendTimeline(
+        session,
+        sessionCompletedEvent({
+          turnId,
+          eventId: 'pw-security-large-completed',
+          planId: 'pw-plan-security-large-unsafe',
+          content: securityUnsafeMarkdownAnswer,
+          reason: 'security_large_unsafe_markdown_fixture',
+        }),
+      )
+      return { status: 200, body: { status: 'COMPLETED', session_id: session.session_id } }
+    },
+    snapshot(session) {
+      if (session.status === 'COMPLETED') return snapshotFromSession(session, securityActivitySteps({ terminal: true }))
+      if (session.status === 'PLANNING' || session.status === 'EXECUTING') return snapshotFromSession(session, securityActivitySteps())
+      return defaultIdleSnapshot(session)
+    },
+  },
+
+  securityUnsafeToolBlocked: {
+    name: 'securityUnsafeToolBlocked',
+    description: 'Phase 16 unsafe unsupported tool request stays approval-gated and allowlist-blocked.',
+    prompts: [securityUnsafeActionPrompt],
+    onMessage(session, content) {
+      const turnId = addUserTurn(session, content || securityUnsafeActionPrompt, 'pw-turn-security-unsafe-tool')
+      session.security_pending_turn_id = turnId
+    },
+    onPlan(session) {
+      const turnId = session.security_pending_turn_id || session.current_turn_id || 'pw-turn-security-unsafe-tool'
+      session.status = 'WAITING_APPROVAL'
+      session.operation_id = 'pw-plan-security-unsafe-tool'
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: 'pw-plan-security-unsafe-tool',
+        objective: 'Block unsupported destructive action unless an approved allowlisted tool exists.',
+        stepId: 'pw-step-security-unsafe-tool',
+        toolName: 'phase16_unsafe_delete_production_jobs',
+        status: 'PENDING_APPROVAL',
+      })
+      session.steps = session.plan.steps.map((step) => ({ ...step, status: 'WAITING_APPROVAL' }))
+      session.pending_approval = {
+        approval_id: 'pw-approval-security-unsafe-tool',
+        session_id: session.session_id,
+        subject_type: 'tool',
+        tool_name: 'phase16_unsafe_delete_production_jobs',
+        side_effect_level: 'CRITICAL',
+        risk_summary: securityUnsafeActionRisk,
+        args: { reason: 'operator attempted unsupported destructive action' },
+        status: 'PENDING',
+        created_at: fixtureTime(3),
+        expires_at: fixtureTime(300),
+      }
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId,
+          eventId: 'pw-security-unsafe-plan-created',
+          planId: 'pw-plan-security-unsafe-tool',
+          content: 'Unsafe destructive tool request requires approval and allowlist review.',
+          status: 'PENDING_APPROVAL',
+        }),
+      )
+      appendTimeline(session, {
+        event_id: 'pw-security-unsafe-approval-required',
+        turn_id: turnId,
+        event_type: 'approval_required',
+        approval_id: session.pending_approval.approval_id,
+        tool_name: session.pending_approval.tool_name,
+        content: securityUnsafeActionRisk,
+        status: 'PENDING',
+        details: {
+          args: session.pending_approval.args,
+          side_effect_level: session.pending_approval.side_effect_level,
+        },
+        created_at: fixtureTime(3),
+      })
+      return { status: 200, body: { status: 'WAITING_APPROVAL', plan_id: 'pw-plan-security-unsafe-tool' } }
+    },
+    async onExecute() {
+      return { status: 200, body: { status: 'WAITING_APPROVAL', session_id: null } }
+    },
+    snapshot(session) {
+      return snapshotFromSession(session, [
+        {
+          id: 'pw-security-unsafe-gated',
+          timestamp: Date.parse(fixtureTime(3)) / 1000,
+          group: 'approval',
+          label: 'Approval gate active',
+          detail: 'No unsupported or unsafe action has executed.',
+          state: 'waiting',
+        },
+      ])
     },
   },
 
@@ -1250,6 +1481,10 @@ export const scenarioCatalog = {
 
 export function scenarioNames() {
   return Object.keys(scenarioCatalog)
+}
+
+export function mockTools() {
+  return securityMockTools
 }
 
 export function resolveScenarioForPrompt(prompt) {

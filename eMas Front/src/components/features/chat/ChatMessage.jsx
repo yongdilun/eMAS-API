@@ -26,7 +26,7 @@ const ChatMessage = ({
 
   const renderFormattedText = (text) => {
     if (!text) return null
-    return <div className="whitespace-pre-wrap">{renderCitationsAndBold(stripSourceFootnoteDefinitions(text))}</div>
+    return <div className="whitespace-pre-wrap break-words">{renderCitationsAndBold(stripSourceFootnoteDefinitions(text))}</div>
   }
 
   const renderCitationsAndBold = (text) => {

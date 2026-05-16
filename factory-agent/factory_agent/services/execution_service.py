@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import sessionmaker
 
+from factory_agent.api.dependencies import require_session_owner
 from factory_agent.observability.telemetry import log_event
 from factory_agent.orchestration.memory_manager import MemoryManager
 from factory_agent.orchestration.session_manager import SessionManager, TransitionError
@@ -141,6 +142,7 @@ class ExecutionService:
         sess = await self._session_mgr.get_session(db, session_id=session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
+        require_session_owner(sess, user)
         if expected_version is not None and sess.version != expected_version:
             raise HTTPException(status_code=409, detail=f"version_conflict expected={expected_version} actual={sess.version}")
         current_plan = await self._plan_service._load_current_plan(db=db, session_id=session_id)

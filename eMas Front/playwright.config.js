@@ -18,10 +18,12 @@ const selectedRelease = selectedProjects.some((project) => project === 'chromium
 const selectedSynthetic = selectedProjects.some((project) => project === 'chromium-synthetic')
 const selectedMocked = selectedProjects.length === 0 || selectedProjects.some((project) => project === 'chromium')
 const selectedReliability = selectedGrep.some((grep) => grep.includes('@reliability'))
+const selectedSecurityPrivacy = selectedGrep.some((grep) => grep.includes('@security') || grep.includes('@privacy'))
 const syntheticEnv = syntheticRuntimeEnv({ validate: selectedSynthetic })
-const mockedTestIgnore = selectedReliability
-  ? /(full-stack|release)-.*\.spec\.js|production-synthetic\.spec\.js/
-  : /(full-stack|release)-.*\.spec\.js|production-synthetic\.spec\.js|reliability-soak\.spec\.js/
+const mockedIgnorePatterns = ['(full-stack|release)-.*\\.spec\\.js', 'production-synthetic\\.spec\\.js']
+if (!selectedReliability) mockedIgnorePatterns.push('reliability-soak\\.spec\\.js')
+if (!selectedSecurityPrivacy) mockedIgnorePatterns.push('security-privacy\\.spec\\.js')
+const mockedTestIgnore = new RegExp(mockedIgnorePatterns.join('|'))
 process.env.PLAYWRIGHT_SEEDED_GO_API_PORT = String(seededEnv.goApiPort)
 process.env.PLAYWRIGHT_SEEDED_FACTORY_AGENT_PORT = String(seededEnv.factoryAgentPort)
 process.env.PLAYWRIGHT_SEEDED_VITE_PORT = String(seededEnv.vitePort)

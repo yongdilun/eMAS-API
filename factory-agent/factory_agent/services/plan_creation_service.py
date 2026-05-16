@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from factory_agent.analysis.summary_backend import SummaryAdapter, SummaryBackendError, compact_tool_outputs_for_narrative
+from factory_agent.api.dependencies import require_session_owner
 from factory_agent.api.response_mappers import plan_to_response
 from factory_agent.config import Settings
 from factory_agent.observability.metrics import metrics
@@ -733,6 +734,7 @@ class PlanCreationService:
         sess = await self._session_mgr.get_session(db, session_id=session_id)
         if not sess:
             raise HTTPException(status_code=404, detail="session not found")
+        require_session_owner(sess, user)
 
         intent = sess.current_intent or ""
         latest_user = await self._latest_user_message(db=db, session_id=session_id)

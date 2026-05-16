@@ -3,6 +3,7 @@ import path from 'node:path'
 
 import { expect as baseExpect, test as base } from '@playwright/test'
 
+import { redactSensitiveArtifactText } from './artifactRedaction.js'
 import { releaseArtifactDir } from './releaseEnv.js'
 
 const repoRoot = path.resolve(process.cwd(), '..')
@@ -47,13 +48,13 @@ export const test = base.extend({
 
     if (browserConsole.length) {
       await testInfo.attach('browser-console.json', {
-        body: JSON.stringify(browserConsole, null, 2),
+        body: redactSensitiveArtifactText(browserConsole),
         contentType: 'application/json',
       })
     }
     if (networkFailures.length) {
       await testInfo.attach('network-failures.json', {
-        body: JSON.stringify(networkFailures, null, 2),
+        body: redactSensitiveArtifactText(networkFailures),
         contentType: 'application/json',
       })
     }
@@ -67,6 +68,13 @@ export const expect = baseExpect
 
 async function attachFileIfExists(testInfo, filePath, contentType = 'text/plain') {
   if (!fs.existsSync(filePath)) return
+  if (contentType.startsWith('text/') || contentType === 'application/json') {
+    await testInfo.attach(path.basename(filePath), {
+      body: redactSensitiveArtifactText(fs.readFileSync(filePath, 'utf8')),
+      contentType,
+    })
+    return
+  }
   await testInfo.attach(path.basename(filePath), {
     path: filePath,
     contentType,

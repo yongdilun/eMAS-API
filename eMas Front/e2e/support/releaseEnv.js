@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -20,6 +21,21 @@ export function releaseArtifactDir(repoRoot = path.resolve(process.cwd(), '..'))
   )
 }
 
+function base64url(value) {
+  return Buffer.from(value).toString('base64url')
+}
+
+function signReleaseJwt({ secret, userId, role, ttlSeconds = 7200 }) {
+  const header = { alg: 'HS256', typ: 'JWT' }
+  const now = Math.floor(Date.now() / 1000)
+  const payload = { sub: userId, role, iat: now, exp: now + ttlSeconds }
+  const encodedHeader = base64url(JSON.stringify(header))
+  const encodedPayload = base64url(JSON.stringify(payload))
+  const signingInput = `${encodedHeader}.${encodedPayload}`
+  const signature = crypto.createHmac('sha256', secret).update(signingInput).digest('base64url')
+  return `${signingInput}.${signature}`
+}
+
 export function releaseRuntimeEnv(repoRoot = path.resolve(process.cwd(), '..')) {
   const ports = releasePortPlan()
   const artifactDir = releaseArtifactDir(repoRoot)
@@ -31,6 +47,15 @@ export function releaseRuntimeEnv(repoRoot = path.resolve(process.cwd(), '..')) 
   const directFactoryAgentBaseUrl = `http://127.0.0.1:${ports.factoryAgentPort}`
   const releaseBuildId = process.env.PLAYWRIGHT_RELEASE_BUILD_ID || `playwright-release-${ports.proxyPort}`
   const backendSchemaVersion = process.env.PLAYWRIGHT_RELEASE_BACKEND_SCHEMA_VERSION || 'playwright-seeded-schema-v1'
+  const userId = process.env.PLAYWRIGHT_RELEASE_USER_ID || 'frontend-operator'
+  const jwtSecret = process.env.PLAYWRIGHT_RELEASE_JWT_SECRET || 'playwright-release-jwt-secret'
+  const bearerToken =
+    process.env.PLAYWRIGHT_RELEASE_STATIC_BEARER ||
+    signReleaseJwt({
+      secret: jwtSecret,
+      userId,
+      role: process.env.PLAYWRIGHT_RELEASE_USER_ROLE || 'manager',
+    })
 
   return {
     ...ports,
@@ -38,7 +63,9 @@ export function releaseRuntimeEnv(repoRoot = path.resolve(process.cwd(), '..')) 
     artifactDir,
     releaseBuildId,
     backendSchemaVersion,
-    bearerToken: process.env.PLAYWRIGHT_RELEASE_STATIC_BEARER || 'playwright-release-static-bearer',
+    userId,
+    jwtSecret,
+    bearerToken,
     releaseBaseUrl,
     releaseFactoryAgentBaseUrl: `${releaseBaseUrl}/agent`,
     releaseGoApiBaseUrl: `${releaseBaseUrl}/api/v1`,

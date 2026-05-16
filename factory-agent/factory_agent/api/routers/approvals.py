@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from factory_agent.api.dependencies import is_admin_claims, principal_user_id, require_session_owner
 from factory_agent.api.response_mappers import approval_to_response
 from factory_agent.orchestration.session_manager import SessionManager
 from factory_agent.persistence.database import get_db
@@ -36,36 +37,52 @@ def build_approvals_router(
     @router.get("/approvals/pending", response_model=list[ApprovalResponse])
     async def list_pending_approvals(
         session_id: str | None = Query(None),
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         stmt = select(ApprovalRow).where(ApprovalRow.status == "PENDING")
         if session_id:
             stmt = stmt.where(ApprovalRow.session_id == session_id)
         rows = (await db.execute(stmt.order_by(ApprovalRow.created_at.asc()))).scalars().all()
+        principal = principal_user_id(user)
+        if principal and not is_admin_claims(user):
+            visible = []
+            for row in rows:
+                sess = await session_mgr.get_session(db, session_id=row.session_id)
+                if sess is None or sess.user_id == principal:
+                    visible.append(row)
+            rows = visible
         return [approval_to_response(row) for row in rows]
 
     @router.get("/approvals/{approval_id}", response_model=ApprovalResponse)
     async def get_approval(
         approval_id: str,
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         row = (await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == approval_id))).scalars().first()
         if not row:
             raise HTTPException(status_code=404, detail="approval not found")
+        sess = await session_mgr.get_session(db, session_id=row.session_id)
+        if not sess:
+            raise HTTPException(status_code=404, detail="session not found")
+        require_session_owner(sess, user)
         return approval_to_response(row)
 
     @router.post("/approvals/{approval_id}/approve", response_model=ApprovalResponse)
     async def approve_approval(
         approval_id: str,
         req: ApprovalDecisionRequest,
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         row = (await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == approval_id))).scalars().first()
         if not row:
             raise HTTPException(status_code=404, detail="approval not found")
+        owner_session = await session_mgr.get_session(db, session_id=row.session_id)
+        if not owner_session:
+            raise HTTPException(status_code=404, detail="session not found")
+        require_session_owner(owner_session, user)
         if (getattr(row, "subject_type", "step") or "step") == "graph":
             now = datetime.utcnow()
             if row.status == "APPROVED":
@@ -148,12 +165,16 @@ def build_approvals_router(
     async def reject_approval(
         approval_id: str,
         req: ApprovalDecisionRequest,
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         row = (await db.execute(select(ApprovalRow).where(ApprovalRow.approval_id == approval_id))).scalars().first()
         if not row:
             raise HTTPException(status_code=404, detail="approval not found")
+        owner_session = await session_mgr.get_session(db, session_id=row.session_id)
+        if not owner_session:
+            raise HTTPException(status_code=404, detail="session not found")
+        require_session_owner(owner_session, user)
         if (getattr(row, "subject_type", "step") or "step") == "graph":
             sess = await session_mgr.get_session(db, session_id=row.session_id)
             if not sess:

@@ -654,6 +654,7 @@ function isBackendUnavailableError(error) {
   const text = String(error || '').toLowerCase()
   return (
     text.includes('cannot reach factory-agent') ||
+    text.includes('cannot reach factory agent') ||
     text.includes('cannot connect to factory-agent') ||
     text.includes('service temporarily unavailable') ||
     text.includes('service unavailable') ||

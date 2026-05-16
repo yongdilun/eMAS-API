@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 
+import { redactSensitiveArtifactText } from './artifactRedaction.js'
+
 const port = Number(process.env.RELEASE_PROXY_PORT)
 const distDir = process.env.RELEASE_PROXY_DIST_DIR
 const artifactDir = process.env.RELEASE_PROXY_ARTIFACT_DIR
@@ -22,7 +24,7 @@ const faults = {
 
 function appendLog(entry) {
   fs.mkdirSync(path.dirname(logPath), { recursive: true })
-  fs.appendFileSync(logPath, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`)
+  fs.appendFileSync(logPath, `${redactSensitiveArtifactText({ at: new Date().toISOString(), ...entry })}\n`)
 }
 
 function send(res, status, body, headers = {}) {
@@ -240,7 +242,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (url.pathname === '/__release/logs') {
-    const body = fs.existsSync(logPath) ? fs.readFileSync(logPath) : ''
+    const body = fs.existsSync(logPath) ? redactSensitiveArtifactText(fs.readFileSync(logPath, 'utf8')) : ''
     send(res, 200, body, { 'content-type': 'text/plain; charset=utf-8' })
     return
   }

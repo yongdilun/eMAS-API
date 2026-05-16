@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import sessionmaker
 
+from factory_agent.api.dependencies import require_session_owner
 from factory_agent.observability.metrics import metrics
 from factory_agent.persistence.database import get_db
 from factory_agent.schemas import ActivityStepResponse, SessionSnapshotResponse, TimelineEventResponse
@@ -76,7 +77,7 @@ def build_events_router(
         request: Request,
         session_id: str,
         last_event_id: str | None = Header(None, alias="Last-Event-ID"),
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         """
@@ -92,6 +93,9 @@ def build_events_router(
             session_id=session_id,
             last_event_id=last_event_id,
         )
+        initial_for_auth = await load_session_snapshot(db=db, session_id=session_id)
+        if initial_for_auth is not None:
+            require_session_owner(initial_for_auth.session, user)
         session_factory = sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
         await db.close()
 
@@ -196,7 +200,7 @@ def build_events_router(
         request: Request,
         session_id: str,
         last_event_id: str | None = Header(None, alias="Last-Event-ID"),
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         """
@@ -212,6 +216,9 @@ def build_events_router(
             session_id=session_id,
             last_event_id=last_event_id,
         )
+        initial_for_auth = await load_session_snapshot(db=db, session_id=session_id)
+        if initial_for_auth is not None:
+            require_session_owner(initial_for_auth.session, user)
         session_factory = sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
         await db.close()
 
@@ -292,7 +299,7 @@ def build_events_router(
         request: Request,
         session_id: str,
         last_event_id: str | None = Header(None, alias="Last-Event-ID"),
-        _: dict[str, Any] = Depends(require_jwt),
+        user: dict[str, Any] = Depends(require_jwt),
         db: AsyncSession = Depends(get_db),
     ):
         """
@@ -307,6 +314,9 @@ def build_events_router(
             session_id=session_id,
             last_event_id=last_event_id,
         )
+        initial_for_auth = await load_session_snapshot(db=db, session_id=session_id)
+        if initial_for_auth is not None:
+            require_session_owner(initial_for_auth.session, user)
         session_factory = sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
         await db.close()
 

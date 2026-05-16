@@ -8,6 +8,7 @@ const FACTORY_AGENT_BASE_URL = (
 
 const STATIC_BEARER = import.meta.env?.VITE_FACTORY_AGENT_BEARER_TOKEN || ''
 const REQUEST_TIMEOUT_MS = Number(import.meta.env?.VITE_FACTORY_AGENT_REQUEST_TIMEOUT_MS || 30_000)
+const FACTORY_AGENT_USER_ID = import.meta.env?.VITE_FACTORY_AGENT_USER_ID || 'frontend-operator'
 
 export const factoryAgentStreamAuth = {
   hasBearerToken: Boolean(STATIC_BEARER),
@@ -42,6 +43,7 @@ async function parseErrorBody(res) {
 async function request(method, path, body, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
+    'X-User-Id': FACTORY_AGENT_USER_ID,
     ...(options.headers || {}),
   }
 
@@ -72,7 +74,12 @@ async function request(method, path, body, options = {}) {
       e.original = err
       throw e
     }
-    const e = new Error(normalizeFactoryAgentError(err, `Cannot connect to factory-agent: ${err?.message || 'network error'}`))
+    const e = new Error(
+      normalizeFactoryAgentError(
+        err,
+        `Cannot reach Factory Agent backend at ${FACTORY_AGENT_BASE_URL}. ${err?.message || 'Network error.'}`,
+      ),
+    )
     e.type = 'NETWORK'
     e.original = err
     throw e
