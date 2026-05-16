@@ -164,6 +164,179 @@ test('FactoryAgentChatPanel renders pending approval even when the approval time
   await view.unmount()
 })
 
+test('FactoryAgentChatPanel uses current pending approval copy when previous approval text is still in the turn', async () => {
+  const { factoryAgentApi } = await server.ssrLoadModule('/src/services/factoryAgentApi.js')
+  factoryAgentApi.listTools = async () => []
+  const { default: FactoryAgentChatPanel } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx')
+  const pendingApproval = {
+    approval_id: 'approval-2',
+    subject_type: 'tool',
+    tool_name: '__langgraph_commit__',
+    side_effect_level: 'HIGH',
+    risk_summary: 'Stage priority update for 11 high-priority job(s) in one approval bundle.',
+    args: {
+      bundle_ui: {
+        kind: 'job_priority_bundle',
+        headline: '11 jobs will be updated from high to low priority.',
+        previous_priority: 'high',
+        new_priority: 'low',
+        rows: [
+          { job_id: 'JOB-SEED-001', previous_priority: 'high', new_priority: 'low' },
+          { job_id: 'JOB-SEED-003', previous_priority: 'high', new_priority: 'low' },
+        ],
+      },
+    },
+  }
+  const chatState = createChatState({
+    session: { session_id: 'session-3', name: 'Cascade review', status: 'WAITING_APPROVAL' },
+    sessionList: [{ session_id: 'session-3', name: 'Cascade review', status: 'WAITING_APPROVAL' }],
+    activeSessionName: 'Cascade review',
+    pendingApproval,
+    turns: [
+      {
+        id: 'turn-3',
+        user: {
+          content: 'change all medium priority job to high then change all high priority job to low',
+          created_at: '2026-05-15T12:00:00Z',
+        },
+        summary: 'Approved request to change record.',
+        created_at: '2026-05-15T12:00:01Z',
+        approvals: [
+          {
+            event_type: 'approval_required',
+            approval_id: 'approval-1',
+            content: 'Waiting for your approval: 10 jobs will be updated from medium to high priority.',
+          },
+          {
+            event_type: 'approval_decided',
+            approval_id: 'approval-1',
+            content: 'Approved request to change record.',
+            status: 'APPROVED',
+          },
+        ],
+      },
+    ],
+    activitySteps: [
+      {
+        id: 'activity-approval-2',
+        timestamp: 2,
+        group: 'approval',
+        label: 'Waiting for approval',
+        detail: null,
+        state: 'waiting',
+      },
+    ],
+  })
+
+  const view = await render(
+    React.createElement(FactoryAgentChatPanel, {
+      useChatState: () => chatState,
+    }),
+  )
+
+  await waitFor(() => assert.match(view.text(), /11 jobs will be updated from high to low priority/))
+  assert.doesNotMatch(view.text(), /Approved request to change record/)
+  assert.doesNotMatch(view.text(), /10 jobs will be updated from medium to high priority/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel completed cascade shows final summary instead of stale approval bundle', async () => {
+  const { factoryAgentApi } = await server.ssrLoadModule('/src/services/factoryAgentApi.js')
+  factoryAgentApi.listTools = async () => []
+  const { default: FactoryAgentChatPanel } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx')
+  const finalSummary = [
+    '10 medium priority jobs changed to high.',
+    '11 original high priority jobs changed to low.',
+  ].join('\n')
+  const chatState = createChatState({
+    session: { session_id: 'session-4', name: 'Cascade complete', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-4', name: 'Cascade complete', status: 'COMPLETED' }],
+    activeSessionName: 'Cascade complete',
+    turns: [
+      {
+        id: 'turn-4',
+        user: {
+          content: 'change all medium priority job to high then change all high priority job to low',
+          created_at: '2026-05-15T12:00:00Z',
+        },
+        summary: finalSummary,
+        created_at: '2026-05-15T12:00:01Z',
+        terminal: {
+          event_type: 'session_completed',
+          content: finalSummary,
+          created_at: '2026-05-15T12:00:10Z',
+        },
+        approvals: [
+          {
+            event_type: 'approval_required',
+            approval_id: 'approval-1',
+            tool_name: '__langgraph_commit__',
+            content: 'Waiting for your approval: 10 jobs will be updated from medium to high priority.',
+          },
+          {
+            event_type: 'approval_decided',
+            approval_id: 'approval-1',
+            tool_name: '__langgraph_commit__',
+            content: 'Approved request to change record.',
+            status: 'APPROVED',
+          },
+          {
+            event_type: 'approval_required',
+            approval_id: 'approval-2',
+            tool_name: '__langgraph_commit__',
+            content: 'Waiting for your approval: 11 jobs will be updated from high to low priority.',
+            details: {
+              args: {
+                bundle_ui: {
+                  kind: 'job_priority_bundle',
+                  headline: '11 jobs will be updated from high to low priority.',
+                  rows: [
+                    { job_id: 'JOB-SEED-001', previous_priority: 'high', new_priority: 'low' },
+                    { job_id: 'JOB-SEED-003', previous_priority: 'high', new_priority: 'low' },
+                  ],
+                },
+              },
+            },
+          },
+          {
+            event_type: 'approval_decided',
+            approval_id: 'approval-2',
+            tool_name: '__langgraph_commit__',
+            content: 'Approved request to change record.',
+            status: 'APPROVED',
+          },
+        ],
+      },
+    ],
+    activitySteps: [
+      {
+        id: 'activity-complete',
+        timestamp: 3,
+        group: 'response',
+        label: 'Run complete',
+        detail: 'All steps finished. See the thread below.',
+        state: 'complete',
+      },
+    ],
+  })
+
+  const view = await render(
+    React.createElement(FactoryAgentChatPanel, {
+      useChatState: () => chatState,
+    }),
+  )
+
+  await waitFor(() => assert.match(view.text(), /10 medium priority jobs changed to high/))
+  await waitFor(() => assert.match(view.text(), /11 original high priority jobs changed to low/))
+  assert.doesNotMatch(view.text(), /Approved request to change record/)
+  assert.doesNotMatch(view.text(), /Please approve to continue/)
+  assert.doesNotMatch(view.text(), /Affected records \(2\)/)
+  assert.doesNotMatch(view.text(), /JOB-SEED-001/)
+
+  await view.unmount()
+})
+
 test('FactoryAgentChatPanel renders backend unavailable errors without fake success', async () => {
   const { default: FactoryAgentChatPanel } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx')
   let retryCount = 0

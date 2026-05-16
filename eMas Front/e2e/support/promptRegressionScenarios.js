@@ -27,6 +27,15 @@ export const phase19CascadeMatrix = Object.freeze([
     unchanged: ['low'],
   },
   {
+    name: 'medium-to-high then original-high-to-low',
+    prompt: 'Phase 11 prompt regression: change all medium priority job to high then change all high priority job to low',
+    changes: [
+      { source: 'medium', target: 'high' },
+      { source: 'high', target: 'low' },
+    ],
+    unchanged: ['low'],
+  },
+  {
     name: 'low-to-high then original-high-to-low',
     prompt: 'Phase 19 prompt regression: change all low priority job to high then change all high priority job to low',
     changes: [

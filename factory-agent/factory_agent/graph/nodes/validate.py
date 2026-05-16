@@ -150,10 +150,20 @@ def _commit_tool_outputs_from_state(state: AgentState) -> list[dict[str, Any]]:
     for idx, staged_write in enumerate(staged):
         operation = operation_by_index.get(idx, {})
         args = staged_write.get("args") if isinstance(staged_write.get("args"), dict) else {}
+        evidence = staged_write.get("evidence") if isinstance(staged_write.get("evidence"), dict) else {}
         op_data = operation.get("data") if isinstance(operation.get("data"), dict) else {}
         primary_id = str(operation.get("primary_id") or args.get("id") or args.get("job_id") or "").strip()
         result_data = dict(args)
         result_data.update(op_data)
+        previous_priority = evidence.get("previous_priority")
+        new_priority = evidence.get("new_priority")
+        source_state_basis = evidence.get("source_state_basis")
+        if previous_priority not in (None, "") and result_data.get("previous_priority") in (None, ""):
+            result_data["previous_priority"] = previous_priority
+        if new_priority not in (None, "") and result_data.get("priority") in (None, ""):
+            result_data["priority"] = new_priority
+        if source_state_basis not in (None, "") and result_data.get("source_state_basis") in (None, ""):
+            result_data["source_state_basis"] = source_state_basis
         if primary_id and not any(result_data.get(key) for key in ("id", "job_id", "machine_id", "product_id")):
             if "jobs" in str(staged_write.get("tool_name") or ""):
                 result_data["job_id"] = primary_id

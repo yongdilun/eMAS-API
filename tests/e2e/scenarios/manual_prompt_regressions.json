@@ -17,7 +17,7 @@
       "regression"
     ],
     "severity_values": ["critical", "high", "medium", "low"],
-    "coverage_categories": ["parser", "route", "seeded-workflow", "mocked-browser", "seeded-browser", "accepted-gap"]
+    "coverage_categories": ["parser", "route", "seeded-workflow", "mocked-browser", "seeded-browser", "real-langgraph-browser", "accepted-gap"]
   },
   "promotion_workflow": {
     "required_intake_fields": [
@@ -54,7 +54,7 @@
     ]
   },
   "triage_rule": {
-    "coverage_categories": ["parser", "route", "seeded-workflow", "browser", "accepted-gap"],
+    "coverage_categories": ["parser", "route", "seeded-workflow", "browser", "real-langgraph-browser", "accepted-gap"],
     "closure_requirement": "Every new manual prompt or workflow miss must be mapped to parser, route, seeded-workflow, browser, or accepted-gap coverage before closure, with a failing regression before closure unless it is explicitly accepted as a gap.",
     "accepted_gap_required_fields": ["owner", "severity", "risk", "target_date_or_phase", "reason", "temporary_workaround", "blocking_status"]
   },
@@ -238,6 +238,50 @@
         }
       },
       "coverage": ["parser", "route", "seeded-browser"]
+    },
+    {
+      "id": "phase11-medium-high-high-low-final-response",
+      "source_prompt": "change all medium priority job to high then change all high priority job to low",
+      "prompt": "change all medium priority job to high then change all high priority job to low",
+      "observed_failure": "The final response could show only the second write set, listing original medium jobs as previous high/new low and omitting the medium-to-high result. Later live UI projection misses showed approval 2's table while the activity timeline marked `Improving the response` as Current, the activity panel auto-expanded after manual collapse, and final completion still displayed stale approval-decision/waiting copy or an approval-2-only table.",
+      "expected_behavior": "Use original-state semantics for both clauses: original medium jobs become high, original high jobs become low, the pending approval view always matches the current pending approval id, the activity timeline current row remains Waiting for your approval while approval 2 is pending, manual collapse is respected across refreshes, and the final assistant response visibly summarizes both committed write sets without stale approval copy.",
+      "artifact_link": "docs/qa/manual_prompt_regression_bank.md#phase-11-aggregate-final-response-miss",
+      "selected_oracle": "SO-041",
+      "proposed_oracle": null,
+      "owner": "qa",
+      "severity": "high",
+      "lowest_test_layer": "seeded-workflow",
+      "browser_coverage": true,
+      "regression": {
+        "test_file": "factory-agent/tests/test_summary_bundle.py; factory-agent/tests/test_langgraph_state_machine_oracles.py; factory-agent/tests/test_phase7_api_ui_alignment.py; eMas Front/src/components/features/chat/factory-agent/activityTimeline.test.mjs; eMas Front/src/components/features/chat/factory-agent/ActivityTimeline.component.test.mjs; eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs; eMas Front/e2e/specs/real-langgraph-critical.spec.js",
+        "command": "Set-Location \"factory-agent\"; python -m pytest tests/test_phase7_api_ui_alignment.py tests/test_summary_bundle.py tests/test_langgraph_state_machine_oracles.py -q; Set-Location \"..\\eMas Front\"; npm test; npm run test:e2e:real-langgraph -- --grep \"SO-041\"",
+        "failing_before_closure_required": true,
+        "failure_evidence": "Phase 11 manual miss: final response described only the last write set.",
+        "passing_evidence": "Required after Phase 11 fix."
+      },
+      "test_layer": "seeded-workflow+real-langgraph-browser",
+      "expected": {
+        "primary_route": "tool.write.jobs.bulk_update_priority",
+        "required_final_state": "COMPLETED",
+        "required_write_sets": [
+          { "source_priority": "medium", "target_priority": "high", "state_basis": "original" },
+          { "source_priority": "high", "target_priority": "low", "state_basis": "original" }
+        ],
+        "required_answer_terms": [
+          "medium priority jobs changed to high",
+          "original high priority jobs changed to low",
+          "current pending approval copy matches current pending approval id",
+          "Waiting for your approval"
+        ],
+        "forbidden_answer_terms": [
+          "Updated 10 job(s).",
+          "newly high jobs changed to low",
+          "Improving the response Current",
+          "Approved request to change record.",
+          "Please approve to continue"
+        ]
+      },
+      "coverage": ["seeded-workflow", "seeded-browser", "real-langgraph-browser"]
     }
   ]
 }

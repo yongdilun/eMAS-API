@@ -91,6 +91,13 @@ Review cadence: the QA regression bank owner reviews new entries and accepted ga
 | `phase19-loto-parenthesized-m-cnc-01` | `For machine (M-CNC-01), what lockout procedure should I follow?` | Extract the parenthesized ID and route to LOTO/RAG without asking which machine. | Parser unit, route matrix, seeded fake-provider browser gate |
 | `phase19-loto-markdown-m-cnc-01` | `### Safety check` / `LOTO for \`M-CNC-01\` before touching the spindle.` | Extract the markdown-formatted ID and return the same controlled LOTO/RAG answer. | Parser unit, route matrix, seeded fake-provider browser gate |
 
+## Phase 11 Aggregate Final Response Miss
+
+| ID | Prompt | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `phase11-medium-high-high-low-final-response` | `change all medium priority job to high then change all high priority job to low` | Use original-state semantics for both write sets, commit original medium -> high and original high -> low under separate approvals, show approval 2 copy/table while approval 2 is pending, and make the final assistant response summarize both write sets instead of only the last approval. | SO-041 oracle, summary contract, LangGraph state-machine oracle, frontend pending-approval projection unit, seeded workflow, real LangGraph browser proof |
+| `phase11-so041-live-activity-final-ui-regression` | Same prompt, after approving approval 1 and while approval 2 is pending/final. | While approval 2 is pending, visible activity current state must be `Waiting for your approval`, not `Improving the response / Current`; collapsing the activity timeline must not auto-expand on refresh. After final completion, the visible response must show the aggregate final summary and must not show stale `Approved request to change record`, waiting-approval detail text, or an approval-2-only affected-records table as the final answer. | Backend activity projection pytest, frontend activity/turn/component tests, real LangGraph browser DOM assertions |
+
 ## Required Bank Schema
 
 Every bank entry must include `source_prompt`, `observed_failure`, `expected_behavior`, `owner`, `severity`, `lowest_test_layer`, and `browser_coverage`. Compatibility fields `prompt`, `expected`, and `coverage` remain present so older Phase 18 gates and Playwright support helpers can read the same bank.

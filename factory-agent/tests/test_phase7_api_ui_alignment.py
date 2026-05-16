@@ -636,6 +636,77 @@ def test_phase7_activity_adapter_skips_non_pending_approval_required():
     assert "Approval received" in labels
 
 
+def test_phase7_activity_waiting_approval_trims_later_replan_noise():
+    created_at = datetime(2026, 5, 13, 10, 0, 0)
+    snapshot = SessionSnapshotResponse(
+        session={
+            "session_id": "activity-waiting-trim",
+            "user_id": "u1",
+            "status": "WAITING_APPROVAL",
+            "plan_version": 0,
+            "current_step_index": 0,
+            "step_count": 1,
+            "replan_count": 1,
+            "llm_call_count": 1,
+            "session_started_at": created_at,
+            "created_at": created_at,
+            "updated_at": created_at + timedelta(seconds=5),
+        },
+        pending_approval={
+            "approval_id": "approval-2",
+            "session_id": "activity-waiting-trim",
+            "subject_type": "graph",
+            "subject_id": "tool-2",
+            "tool_name": "__langgraph_commit__",
+            "args": {},
+            "risk_summary": "11 jobs will be updated from high to low priority.",
+            "side_effect_level": "HIGH",
+            "status": "PENDING",
+            "expires_at": created_at + timedelta(hours=1),
+            "created_at": created_at + timedelta(seconds=3),
+        },
+        timeline=[
+            TimelineEventResponse(
+                event_id="ar:one",
+                event_type="approval_required",
+                content="Waiting for your approval: 10 jobs will be updated from medium to high priority.",
+                created_at=created_at + timedelta(seconds=1),
+                approval_id="approval-1",
+                status="PENDING",
+            ),
+            TimelineEventResponse(
+                event_id="ad:one",
+                event_type="approval_decided",
+                content="Approved request to change record.",
+                created_at=created_at + timedelta(seconds=2),
+                approval_id="approval-1",
+                status="APPROVED",
+            ),
+            TimelineEventResponse(
+                event_id="ar:two",
+                event_type="approval_required",
+                content="Waiting for your approval: 11 jobs will be updated from high to low priority.",
+                created_at=created_at + timedelta(seconds=3),
+                approval_id="approval-2",
+                status="PENDING",
+            ),
+            TimelineEventResponse(
+                event_id="replan:after-second-approval",
+                event_type="replan_requested",
+                content="Refining response copy after approval projection.",
+                created_at=created_at + timedelta(seconds=4),
+                status="PLANNING",
+            ),
+        ],
+    )
+
+    steps = _activity_steps_for_snapshot(snapshot)
+
+    assert steps[-1].label == "Waiting for your approval"
+    assert steps[-1].state == "waiting"
+    assert "Improving the response" not in [step.label for step in steps]
+
+
 def test_phase7_activity_does_not_merge_plan_created_across_different_plan_ids():
     created_at = datetime(2026, 5, 13, 11, 0, 0)
     snapshot = SessionSnapshotResponse(

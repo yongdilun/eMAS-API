@@ -477,6 +477,21 @@ def _activity_steps_for_snapshot(snapshot: SessionSnapshotResponse) -> list[Acti
             }
         )
 
+    if session_status == "WAITING_APPROVAL":
+        latest_waiting_approval_index = -1
+        for idx in range(len(raw_steps) - 1, -1, -1):
+            step = raw_steps[idx]
+            if (
+                step.get("group") == "approval"
+                and step.get("state") == "waiting"
+                and str(step.get("label") or "").lower()
+                in {"waiting for approval", "waiting for your approval"}
+            ):
+                latest_waiting_approval_index = idx
+                break
+        if latest_waiting_approval_index >= 0:
+            raw_steps = raw_steps[: latest_waiting_approval_index + 1]
+
     # Find the LAST terminal step (complete/error), not the first.
     # Noise events (e.g. replan_requested) that arrive after session_completed
     # must be truncated so the activity strip shows the terminal step last.

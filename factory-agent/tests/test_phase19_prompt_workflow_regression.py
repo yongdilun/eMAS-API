@@ -204,10 +204,14 @@ def test_phase19_scenarios_122_123_regression_bank_schema_and_triage_rule():
         "source_prompt",
         "observed_failure",
         "expected_behavior",
+        "artifact_link",
+        "selected_oracle",
+        "proposed_oracle",
         "owner",
         "severity",
         "lowest_test_layer",
         "browser_coverage",
+        "regression",
     }
     assert {"parser", "route", "seeded-workflow", "browser", "accepted-gap"} <= triage_categories
     assert bank["triage_rule"]["accepted_gap_required_fields"] == [
@@ -217,6 +221,7 @@ def test_phase19_scenarios_122_123_regression_bank_schema_and_triage_rule():
         "target_date_or_phase",
         "reason",
         "temporary_workaround",
+        "blocking_status",
     ]
 
     for entry in bank["prompts"]:

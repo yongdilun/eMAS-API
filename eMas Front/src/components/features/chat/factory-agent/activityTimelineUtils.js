@@ -77,10 +77,31 @@ export function stripPrematureTerminalActivitySteps(steps = [], sessionStatus = 
   const status = String(sessionStatus || '').toUpperCase()
   const rows = Array.isArray(steps) ? steps : []
   if (!ACTIVE_SESSION_STATUSES.has(status)) return rows
-  return rows.filter((step) => {
+  const withoutTerminal = rows.filter((step) => {
     const label = String(step?.label || '').toLowerCase()
     const group = String(step?.group || '').toLowerCase()
     return !(step?.state === 'complete' && group === 'response') && label !== 'run complete'
+  })
+  if (status !== 'WAITING_APPROVAL') return withoutTerminal
+
+  let latestWaitingApproval = -1
+  for (let i = withoutTerminal.length - 1; i >= 0; i -= 1) {
+    const step = withoutTerminal[i]
+    const label = String(step?.label || '').toLowerCase()
+    if (
+      step?.group === 'approval'
+      && (label === 'waiting for approval' || label === 'waiting for your approval')
+      && step?.state === 'waiting'
+    ) {
+      latestWaitingApproval = i
+      break
+    }
+  }
+  if (latestWaitingApproval < 0) return withoutTerminal
+
+  return withoutTerminal.slice(0, latestWaitingApproval + 1).map((step, index) => {
+    if (index >= latestWaitingApproval || !FINALIZED_STATES.has(step?.state)) return step
+    return { ...step, state: 'success' }
   })
 }
 
@@ -825,6 +846,7 @@ export function buildActivityStepsFromSnapshot(snapshot = {}) {
     steps = injectExecutionSummaryFromPlanSteps(steps, planSteps, plan)
   }
 
+  steps = stripPrematureTerminalActivitySteps(steps, status)
   return capActivitySteps(finalizeHistoricalActivityStates(mergeRepeatedActivitySteps(steps)))
 }
 

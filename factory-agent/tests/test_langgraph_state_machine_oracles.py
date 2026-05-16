@@ -424,6 +424,79 @@ async def test_so001_cascade_uses_original_state_for_second_approval(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_so041_medium_to_high_then_original_high_to_low(monkeypatch):
+    session_id = f"so041-original-state-{uuid.uuid4()}"
+    harness = StatefulOracleHarness.from_oracle_id("SO-041", session_id=session_id)
+    harness.start_operation(intent_count=2)
+    _install_harnessed_langgraph(monkeypatch, harness)
+
+    planner = LangGraphPlanner(_settings())
+    with pytest.raises(LangGraphPlannerApprovalRequired):
+        await planner.generate(
+            intent="change all medium priority job to high then change all high priority job to low",
+            scoped_tools=_priority_tools(),
+            context={"session_id": session_id},
+        )
+
+    assert [call["args"] for call in harness.read_requests if call["tool_name"] == "get__jobs"] == [
+        {"priority": "medium", "fields": "job_id,priority", "limit": 500},
+        {"priority": "high", "fields": "job_id,priority", "limit": 500},
+    ]
+    _assert_staged_write_args(
+        harness.dry_runs[0],
+        [
+            {"id": "JOB-SO041-MED-01", "priority": "high"},
+            {"id": "JOB-SO041-MED-02", "priority": "high"},
+        ],
+    )
+
+    with pytest.raises(LangGraphPlannerApprovalRequired):
+        await planner.resume_after_approval(session_id=session_id, approved=True)
+
+    assert harness.select_job_ids({"priority": "high"}, state_basis="current") == [
+        "JOB-SO041-HIGH-01",
+        "JOB-SO041-HIGH-02",
+        "JOB-SO041-MED-01",
+        "JOB-SO041-MED-02",
+    ]
+    _assert_staged_write_args(
+        harness.dry_runs[1],
+        [
+            {"id": "JOB-SO041-HIGH-01", "priority": "low"},
+            {"id": "JOB-SO041-HIGH-02", "priority": "low"},
+        ],
+    )
+
+    _draft, _contract, outputs = await planner.resume_after_approval(session_id=session_id, approved=True)
+
+    assert harness.commit_count_by_approval == {
+        "approval-so-041-1": 1,
+        "approval-so-041-2": 1,
+    }
+    assert_final_state_matches_oracle(harness, harness.oracle)
+    assert_audit_rows_match(harness, harness.oracle["expected_audit_rows"])
+    assert_unchanged_rows(harness, harness.oracle["expected_unchanged_rows"])
+    assert_timeline_contains_chain(harness, harness.oracle["expected_timeline"])
+    assert {row.get("args", {}).get("id") for row in outputs if row.get("tool_name") == "put__jobs_{id}"} == {
+        "JOB-SO041-MED-01",
+        "JOB-SO041-MED-02",
+        "JOB-SO041-HIGH-01",
+        "JOB-SO041-HIGH-02",
+    }
+    previous_by_id = {
+        row["args"]["id"]: row["result"]["data"].get("previous_priority")
+        for row in outputs
+        if row.get("tool_name") == "put__jobs_{id}"
+    }
+    assert previous_by_id == {
+        "JOB-SO041-MED-01": "medium",
+        "JOB-SO041-MED-02": "medium",
+        "JOB-SO041-HIGH-01": "high",
+        "JOB-SO041-HIGH-02": "high",
+    }
+
+
+@pytest.mark.asyncio
 async def test_so005_second_approval_rejection_stops_without_hidden_commit(monkeypatch):
     session_id = f"so005-reject-{uuid.uuid4()}"
     harness = StatefulOracleHarness.from_oracle_id("SO-005", session_id=session_id)

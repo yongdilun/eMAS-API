@@ -50,19 +50,24 @@ const ActivityTimeline = ({ steps = [] }) => {
     // still expand to review the full list).
     const [expanded, setExpanded] = useState(false)
     const wasTerminalRef = useRef(isTerminal)
+    const userCollapsedRef = useRef(false)
 
     useEffect(() => {
         const becameTerminal = isTerminal && !wasTerminalRef.current
         wasTerminalRef.current = isTerminal
 
         if (becameTerminal) {
+            userCollapsedRef.current = false
             setExpanded(false)
-        } else if (!isTerminal && rows.length > 1) {
+        } else if (!isTerminal && rows.length > 1 && !userCollapsedRef.current) {
             // While several steps are arriving (SSE + poll), keep the list open so
             // intermediates are visible; the header alone only reflects `latest`.
             setExpanded(true)
         } else if (!isTerminal && shouldAutoCollapseActivity(rows)) {
+            userCollapsedRef.current = false
             setExpanded(false)
+        } else if (rows.length <= 1) {
+            userCollapsedRef.current = false
         }
     }, [isTerminal, rows])
 
@@ -79,7 +84,11 @@ const ActivityTimeline = ({ steps = [] }) => {
         <div className="mb-3 rounded-md border border-hairline bg-surface-2/70 px-3 py-2 text-xs text-ink-muted">
             <button
                 type="button"
-                onClick={() => setExpanded((prev) => !prev)}
+                onClick={() => setExpanded((prev) => {
+                    const next = !prev
+                    userCollapsedRef.current = !next
+                    return next
+                })}
                 className="flex w-full items-center justify-between gap-3 text-left"
                 aria-expanded={expanded}
             >

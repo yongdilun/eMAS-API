@@ -7,7 +7,7 @@ import FactoryAgentChatComposer from './FactoryAgentChatComposer'
 import FactoryAgentSessionSidebar from './FactoryAgentSessionSidebar'
 import { useFactoryAgentChat } from './useFactoryAgentChat'
 import { FACTORY_AGENT_STATUS } from '../../../../services/factoryAgentApi'
-import { resolveApprovalTablePresentation } from './approvalInterruptDisplay.js'
+import { compactInterruptApprovalHeadline, resolveApprovalTablePresentation } from './approvalInterruptDisplay.js'
 import { TablePresentation } from '../turns/TurnBlocks'
 import { assistantAnswerAllowed, friendlySessionStatus } from './activityTimelineUtils'
 import {
@@ -132,8 +132,12 @@ function buildUserDetailLines(turn) {
     }
   }
 
+  const completed = terminal?.event_type === 'session_completed'
   for (const approval of approvals) {
-    if (approval?.content) lines.push(approval.content)
+    if (!approval?.content) continue
+    if (completed && approvalWaitSummary(approval.content)) continue
+    if (completed && /approved request to change record/i.test(approval.content)) continue
+    lines.push(approval.content)
   }
 
   if (terminal?.details?.reason) lines.push(`Reason: ${terminal.details.reason}`)
@@ -345,6 +349,19 @@ function completedVisibleSummary(turn, rawSummary) {
   return buildUserDetailLines(turn).find((line) => !approvalWaitSummary(line)) || rawSummary
 }
 
+function pendingApprovalVisibleSummary(approval) {
+  if (!approval) return null
+  const bundleUi = approval.args?.bundle_ui
+  if (bundleUi && typeof bundleUi === 'object' && bundleUi.headline) {
+    return String(bundleUi.headline)
+  }
+  const risk = String(approval.risk_summary || '').trim()
+  const compact = compactInterruptApprovalHeadline(risk)
+  if (compact) return compact
+  if (risk) return risk
+  return 'Waiting for approval.'
+}
+
 /** Snapshot table still all "low" while the bubble text is the approval bundle or claims high - hide. */
 function targetPriorityFromSummary(summaryText) {
   const s = String(summaryText || '').toLowerCase()
@@ -404,11 +421,7 @@ function bundleUiPresentationFromTurn(turn, pendingApproval, getStashedBundlePre
   const approvals = Array.isArray(turn?.approvals) ? turn.approvals : []
   const completed = turn?.terminal?.event_type === 'session_completed'
 
-  if (completed) {
-    const fromDecided = bundleFromDecidedApprovals(approvals, getStashed)
-    if (fromDecided) return fromDecided
-    return null
-  }
+  if (completed) return null
 
   if (approvals.some((a) => a?.event_type === 'approval_decided')) {
     const fromDecided = bundleFromDecidedApprovals(approvals, getStashed)
@@ -551,7 +564,7 @@ function AssistantTurnBubble({
   session,
   isLatestTurn,
 }) {
-  const rawSummary = completedVisibleSummary(turn, turn?.summary || 'Working...')
+  const rawSummary = pendingApprovalVisibleSummary(pendingApproval) || completedVisibleSummary(turn, turn?.summary || 'Working...')
   const summary = useStagedAssistantSummary(rawSummary)
   const summaryIsProgress = isProgressSummary(summary)
   const answerAllowed = assistantAnswerAllowed({
@@ -584,7 +597,7 @@ function AssistantTurnBubble({
     Array.isArray(turn?.approvals) &&
     turn.approvals.some((a) => a?.event_type === 'approval_decided'),
   )
-  const collapseBundleTable = Boolean(presentation && hasServerDecidedApproval)
+  const collapseBundleTable = Boolean(presentation && !pendingApproval && hasServerDecidedApproval)
 
   return (
     <ChatMessage
@@ -621,7 +634,7 @@ function AssistantTurnBubble({
               defaultCollapsed={collapseBundleTable}
             />
           ) : null}
-          {showDetails && !showApprovalCard ? <TurnDetails mode={mode} turn={turn} /> : null}
+          {showDetails && !pendingApproval ? <TurnDetails mode={mode} turn={turn} /> : null}
           <ConfirmationOptions turn={turn} onConfirm={decideConfirmation} disabled={isSending} />
           {showApprovalCard ? (
             <div className="mt-3">
@@ -912,17 +925,22 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown, useChatState = useF
             <>
               {(turns || []).map((turn, index) => {
                 const isLatestTurn = index === turns.length - 1
-                const hasApprovalCard =
+                const turnOwnsPendingApproval = Boolean(
                   pendingApproval &&
-                  !isResumingAfterApproval &&
-                  effectiveSessionStatus === FACTORY_AGENT_STATUS.WAITING_APPROVAL &&
                   (
                     (
                       Array.isArray(turn.approvals) &&
                       turn.approvals.some((a) => a?.event_type === 'approval_required' && a?.approval_id === pendingApproval.approval_id)
                     ) ||
                     isLatestTurn
-                  )
+                  ),
+                )
+                const pendingApprovalForTurn = turnOwnsPendingApproval ? pendingApproval : null
+                const hasApprovalCard =
+                  pendingApprovalForTurn &&
+                  !isResumingAfterApproval &&
+                  effectiveSessionStatus === FACTORY_AGENT_STATUS.WAITING_APPROVAL &&
+                  turnOwnsPendingApproval
 
                 const userTs = turn.user?.created_at ? formatFactoryAgentTime(turn.user.created_at) : null
                 const assistantTs = turn.created_at ? formatFactoryAgentTime(turn.created_at) : null
@@ -950,7 +968,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown, useChatState = useF
                         timestamp={assistantTs}
                         activitySteps={latestActivitySteps}
                         showApprovalCard={hasApprovalCard}
-                        pendingApproval={pendingApproval}
+                        pendingApproval={pendingApprovalForTurn}
                         getStashedBundlePresentation={getStashedBundlePresentation}
                         approvalReason={approvalReason}
                         setApprovalReason={setApprovalReason}

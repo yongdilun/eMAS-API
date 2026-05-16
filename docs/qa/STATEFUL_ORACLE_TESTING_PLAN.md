@@ -18,7 +18,9 @@ Recent bugs show these real gaps:
 | Intermediate-state gap | Tests checked final `COMPLETED`, not each approval/commit boundary. | Assert every transition: prompt, approval 1, commit 1, approval 2, commit 2, final response. |
 | Seeded-adapter gap | Seeded Playwright planner behaved differently from real LangGraph. | Add non-seeded LangGraph mechanic tests and at least one non-seeded browser/full-stack smoke for critical flows. |
 | Projection gap | Snapshot, SSE, timeline, final response, and UI can be generated from different logic. | Introduce operation invariants and eventually a canonical operation ledger. |
+| Live DOM projection gap | Backend snapshot/API evidence can be correct while the browser still renders a stale activity row, stale approval table, or stale final bubble. | Real browser proofs must assert visible DOM text and forbidden stale text, not only API final text. |
 | Final-response gap | Final assistant copy can claim success while DB/audit/approval evidence disagrees. | Final response must be derived only after committed state is verified. |
+| Aggregate final-response gap | A multi-approval workflow can commit more than one write set but the final assistant recap can describe only the last approval. | Final response oracles must require every committed write set, count, previous state, new state, approval id, and unchanged group to be represented. |
 | SSE/timeline gap | EventSource tests can show activity while timeline/snapshot semantics are wrong. | Contract-test SSE, timeline, and snapshot against the same expected event sequence. |
 | Prompt wording gap | Exact prompts passed while real operator wording routed differently. | Manual prompt misses must enter a regression bank with parser, route, workflow, and browser coverage. |
 | Test-validity gap | A passing test was treated as proof without asking if it could pass while product is wrong. | Every test must answer: what real bug would this catch, and what bug could still slip through? |
@@ -669,6 +671,89 @@ Reopen the durable ledger decision if any of these happen:
 - Seeded or real LangGraph gates start requiring brittle timestamp or ordering workarounds to keep projections aligned.
 - More than two Phase 10-style projection bugs appear in one release cycle.
 
+### Phase 11: Aggregate Final-Response Evidence Oracles
+
+Goal:
+
+Make final assistant responses prove the whole completed operation, not just the newest approval or the prettiest table.
+
+New manual miss that opens this phase:
+
+```text
+change all medium priority job to high then change all high priority job to low
+```
+
+Observed risk:
+
+- The prompt splits into two valid write intents: original medium -> high, then original high -> low.
+- The visible final response can report only the high -> low write set, for example "Updated 10 job(s)" with only previous high/new low rows.
+- If the first approval committed, this is a summary/projection defect. If the first approval did not commit, this is a graph execution defect. The phase must distinguish those two cases with evidence.
+- This is not expected to be an LLM-quality issue in deterministic mode because `summary_backend.py` formats completed job recaps from structured `tool_outputs`; the likely failure surfaces are missing/partial commit outputs, plan persistence, snapshot projection, or frontend turn assembly.
+
+Files likely touched:
+
+- `factory-agent/factory_agent/analysis/summary_backend.py`
+- `factory-agent/factory_agent/services/plan_creation_service.py`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/graph/planner_graph.py`
+- `factory-agent/factory_agent/graph/nodes/validate.py`
+- `factory-agent/tests/test_summary_bundle.py`
+- `factory-agent/tests/test_snapshot_timeline_final_response_contract.py`
+- `factory-agent/tests/test_langgraph_state_machine_oracles.py`
+- `eMas Front/src/components/features/chat/turns/turnAssembler.test.mjs`
+- `eMas Front/src/components/features/chat/factory-agent/activityTimeline.test.mjs`
+- `eMas Front/e2e/specs/real-langgraph-critical.spec.js`
+- `tests/e2e/scenarios/stateful_oracles/`
+- `tests/e2e/scenarios/manual_prompt_regressions.json`
+
+Implementation steps:
+
+- Add the manual miss to the prompt regression bank before changing product behavior.
+- Add a new oracle, `SO-041`, for medium -> high then original high -> low.
+- Reproduce at the lowest useful layer and record whether approval 1 actually commits:
+  - If DB/audit rows include medium -> high but final copy omits it, fix aggregate summary/projection.
+  - If DB/audit rows do not include medium -> high, fix LangGraph planning/execution before summary work.
+- Strengthen deterministic final-response generation so a completed multi-write-set operation includes:
+  - all committed write sets,
+  - row counts per write set,
+  - previous priority and new priority per write set,
+  - both approval ids,
+  - unchanged source groups when the oracle requires them,
+  - partial-failure or rejection wording when applicable.
+- Add a negative-control test proving a final response that only mentions the last approval fails.
+- Extend seeded cascade matrix coverage to include medium -> high then original high -> low if it is not already represented.
+- Add one real LangGraph browser proof for `SO-041` after the backend oracle is green.
+- Update frontend turn/activity tests so stale or partial final summaries cannot outrank complete aggregate terminal evidence.
+- Add server and frontend activity tests proving a pending approval remains the current activity row even if a later stale `replan_requested`/`Improving the response` event is present.
+- Add browser-visible assertions for approval 2 and final completion: no `Improving the response / Current` row while approval 2 is pending, no stale approval 1 text beside approval 2, and no final stale approval-decision/table copy after completion.
+
+Acceptance criteria:
+
+- The exact prompt above cannot pass with a final response that mentions only high -> low.
+- The final assistant response, activity timeline, SSE/snapshot terminal event, DB state, audit rows, and approval rows all agree on both write sets.
+- If original-state semantics are used, original medium jobs end high and original high jobs end low; newly-high rows from approval 1 are not included in approval 2.
+- A response that says only `Updated 10 job(s)` for the second approval fails the oracle when approval 1 also committed.
+- While approval 2 is pending, the visible browser summary, details, table, and approval card must all match approval 2. Stale approval 1 decision/waiting text must not be paired with approval 2's table.
+- While approval 2 is pending, the activity timeline current row must be `Waiting for your approval`; a later `Improving the response` row must not be marked `Current`.
+- Manual collapse of the active activity timeline must remain collapsed across snapshot/SSE refreshes until terminal state or a new user action changes the operation.
+- After final completion, the visible browser response must show the aggregate final summary and must not render `Approved request to change record`, `Waiting for your approval`, `Please approve to continue`, or an approval-2-only `Affected records (11)` table as the final result.
+- If the product intentionally chooses current-state semantics for this wording, the oracle must state that explicitly and prove the final response says the second step included newly changed rows. Silent ambiguity is not accepted.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_summary_bundle.py tests/test_snapshot_timeline_final_response_contract.py tests/test_langgraph_state_machine_oracles.py -q
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:real-langgraph -- --grep "SO-041"
+```
+
+Risks:
+
+- This may reopen the Phase 10 ledger decision if the only way to build a truthful aggregate final response is to reconstruct operation history from too many independent projections.
+- The first run should be expected to fail. Do not weaken the oracle to match the current output.
+
 ## First Critical Scenario Set
 
 Implement these before claiming manual chatbot testing is retired.
@@ -715,6 +800,7 @@ Implement these before claiming manual chatbot testing is retired.
 | SO-038 | Model returns malformed JSON. | Unsafe fallback or wrong mutation. | Pytest graph |
 | SO-039 | Too much context causes planner fallback. | Final answer hides context overflow. | Pytest graph, later LLM eval |
 | SO-040 | Long operation with heartbeats only. | Timeout or stuck UI. | SSE, Playwright |
+| SO-041 | Medium priority jobs to high, then original high priority jobs to low. | Final response reports only the last approval/write set or silently changes semantics. | Pytest graph, summary contract, seeded full-stack, real LangGraph browser |
 
 ## Definition of Done
 

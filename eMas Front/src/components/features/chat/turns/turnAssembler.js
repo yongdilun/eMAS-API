@@ -455,7 +455,7 @@ export function computeFactoryAgentTurnSummary(turn) {
     if (compact) return compact
     return raw || 'Waiting for approval.'
   }
-  if (lastApproval?.event_type === 'approval_decided' && approvalSupersedesTerminal) {
+  if (lastApproval?.event_type === 'approval_decided' && approvalSupersedesTerminal && !terminal) {
     return lastApproval.content || (String(lastApproval.status || '').toUpperCase() === 'REJECTED' ? 'Approval rejected.' : 'Approval decided.')
   }
 
@@ -498,7 +498,7 @@ export function computeFactoryAgentTurnSummary(turn) {
     if (compact) return compact
     return raw || 'Waiting for approval.'
   }
-  if (lastApproval?.event_type === 'approval_decided' && waitingOnApproval) {
+  if (lastApproval?.event_type === 'approval_decided' && waitingOnApproval && !terminal) {
     return lastApproval.content || (String(lastApproval.status || '').toUpperCase() === 'REJECTED' ? 'Approval rejected.' : 'Approval decided.')
   }
 

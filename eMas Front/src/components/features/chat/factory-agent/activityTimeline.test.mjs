@@ -10,6 +10,7 @@ import {
   normalizeActivityStep,
   shouldAutoCollapseActivity,
   shouldShowActivityTimeline,
+  stripPrematureTerminalActivitySteps,
 } from './activityTimelineUtils.js'
 
 test('assistantAnswerAllowed: defers until activity terminal when steps exist', () => {
@@ -426,6 +427,87 @@ test('second approval keeps activity waiting despite stale completion after appr
 
   assert.equal(steps.some((step) => step.label === 'Run complete'), false)
   assert.equal(steps.at(-1).label, 'Waiting for approval')
+  assert.equal(steps.at(-1).state, 'waiting')
+})
+
+test('pending approval suppresses later retry rows from stale snapshot projection', () => {
+  const steps = buildActivityStepsFromSnapshot({
+    session: { status: 'WAITING_APPROVAL', plan_id: 'plan-so-041', operation_id: 'plan-so-041' },
+    plan: { plan_id: 'plan-so-041' },
+    pending_approval: { approval_id: 'approval-so-041-2' },
+    steps: [],
+    timeline: [
+      {
+        event_type: 'user_message',
+        content: 'change all medium priority job to high then change all high priority job to low',
+        created_at: '2026-05-16T10:00:00.000Z',
+        turn_id: 't1',
+        operation_id: 'plan-so-041',
+      },
+      {
+        event_type: 'approval_required',
+        content: '10 medium jobs need approval.',
+        created_at: '2026-05-16T10:00:01.000Z',
+        turn_id: 't1',
+        approval_id: 'approval-so-041-1',
+        status: 'PENDING',
+        operation_id: 'plan-so-041',
+      },
+      {
+        event_type: 'approval_decided',
+        content: 'Approval approval-so-041-1 accepted.',
+        created_at: '2026-05-16T10:00:02.000Z',
+        turn_id: 't1',
+        approval_id: 'approval-so-041-1',
+        status: 'APPROVED',
+        operation_id: 'plan-so-041',
+      },
+      {
+        event_type: 'approval_required',
+        content: '11 high jobs need approval.',
+        created_at: '2026-05-16T10:00:03.000Z',
+        turn_id: 't1',
+        approval_id: 'approval-so-041-2',
+        status: 'PENDING',
+        operation_id: 'plan-so-041',
+      },
+      {
+        event_type: 'replan_requested',
+        content: 'Refining after approval 1.',
+        created_at: '2026-05-16T10:00:04.000Z',
+        turn_id: 't1',
+        operation_id: 'plan-so-041',
+      },
+    ],
+  })
+
+  assert.equal(steps.at(-1).label, 'Waiting for approval')
+  assert.equal(steps.at(-1).state, 'waiting')
+  assert.equal(steps.some((step) => step.label === 'Improving the response' && step.state === 'retry'), false)
+})
+
+test('server activity label for pending approval suppresses later retry rows', () => {
+  const steps = stripPrematureTerminalActivitySteps([
+    {
+      id: 'activity-1',
+      timestamp: 1,
+      group: 'approval',
+      label: 'Waiting for your approval',
+      detail: 'Reviewing approval requirements',
+      state: 'waiting',
+    },
+    {
+      id: 'activity-2',
+      timestamp: 2,
+      group: 'planning',
+      label: 'Improving the response',
+      detail: 'Refining the response with updated information',
+      state: 'retry',
+    },
+  ], 'WAITING_APPROVAL')
+
+  assert.equal(steps.length, 1)
+  assert.equal(steps.at(-1).label, 'Waiting for your approval')
   assert.equal(steps.at(-1).state, 'waiting')
 })
 

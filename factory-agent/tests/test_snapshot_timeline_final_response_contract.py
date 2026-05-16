@@ -319,6 +319,16 @@ def _run_so001_hard_regression() -> StatefulOracleHarness:
     return harness
 
 
+def _run_so041_aggregate_final_response_regression() -> StatefulOracleHarness:
+    harness = StatefulOracleHarness.from_oracle_id("SO-041")
+    harness.start_operation(intent_count=2)
+    harness.dry_run_oracle_intent(0)
+    assert harness.approve("approval-so-041-1", auto_complete=False).ok is True
+    harness.dry_run_oracle_intent(1)
+    assert harness.approve("approval-so-041-2").ok is True
+    return harness
+
+
 def test_so001_hard_regression_final_response_timeline_sse_audit_and_state_agree():
     harness = _run_so001_hard_regression()
 
@@ -335,6 +345,28 @@ def test_so001_hard_regression_final_response_timeline_sse_audit_and_state_agree
     assert [row["event"] for row in evidence.timeline_events].index("final_response_created") > [
         (row["event"], row.get("approval_id")) for row in evidence.timeline_events
     ].index(("commit_completed", "approval-so-001-2"))
+
+
+def test_so041_final_response_must_summarize_all_committed_write_sets():
+    harness = _run_so041_aggregate_final_response_regression()
+
+    assert_final_state_matches_oracle(harness, harness.oracle)
+    assert_audit_rows_match(harness, harness.oracle["expected_audit_rows"])
+
+    good = _evidence_from_harness(harness, final_response=_success_response_from_audit(harness))
+    assert_phase4_oracle_contract(good, harness.oracle)
+    assert "2 medium priority jobs changed to high" in good.final_response
+    assert "2 original high priority jobs changed to low" in good.final_response
+
+    last_write_only = _evidence_from_harness(
+        harness,
+        final_response=(
+            "Success. Updated 2 job(s). "
+            "2 original high priority jobs changed to low under approval approval-so-041-2."
+        ),
+    )
+    with pytest.raises(AssertionError, match="missing required phrase|must cite the actual approvals"):
+        assert_phase4_oracle_contract(last_write_only, harness.oracle)
 
 
 def test_so011_does_not_emit_final_completion_after_only_approval_one():

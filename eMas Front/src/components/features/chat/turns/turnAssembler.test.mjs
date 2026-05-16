@@ -321,6 +321,40 @@ test('completed approval turn prefers completed tool result over stale approval 
   )
 })
 
+test('completed multi-approval turn does not let approval decision text outrank final response', () => {
+  const turns = assembleFactoryAgentTurns([
+    {
+      ...userEvent,
+      content: 'change all medium priority job to high then change all high priority job to low',
+      created_at: '2026-05-16T10:00:00.000Z',
+    },
+    {
+      event_id: 'completed:1',
+      event_type: 'session_completed',
+      content: '10 medium priority jobs changed to high\n11 original high priority jobs changed to low',
+      created_at: '2026-05-16T10:00:05.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      status: 'COMPLETED',
+    },
+    {
+      event_id: 'approval:2-decided',
+      event_type: 'approval_decided',
+      content: 'Approved request to change record.',
+      created_at: '2026-05-16T10:00:06.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      approval_id: 'approval-so-041-2',
+      status: 'APPROVED',
+    },
+  ])
+
+  assert.equal(
+    computeFactoryAgentTurnSummary(turns[0]),
+    '10 medium priority jobs changed to high\n11 original high priority jobs changed to low',
+  )
+})
+
 test('new pending approval outranks stale terminal completion from previous approval', () => {
   const turns = assembleFactoryAgentTurns([
     {

@@ -28,6 +28,7 @@ Purpose: living execution tracker for the stateful oracle hardening plan. Future
 | 8 | Manual failure promotion workflow | Done | Manual misses now have a required intake template, oracle mapping, lowest-layer regression mapping, and failing-regression closure rule. |
 | 9 | CI gate restructure | Done | PR gate now runs fast backend stateful oracles, frontend unit tests, and mocked Chromium. Seeded stateful oracles are release/pre-merge/manual; real LangGraph and synthetic remain opt-in/read-only. |
 | 10 | Ledger refactor decision | Done | Durable operation ledger is not needed now; keep invariant-backed projections and reopen only on documented trigger conditions. |
+| 11 | Aggregate final-response evidence oracles | Done | SO-041 added and verified across summary contract, LangGraph oracle, snapshot/activity contract, frontend pending-approval/timeline/final-bubble projection tests, seeded browser, and real LangGraph browser DOM assertions. Root causes were missing aggregate commit evidence, stale pending-approval UI ownership, and server activity projection letting a later replan row outrank the current approval; not LLM behavior. |
 
 ## Phase 0 Checklist: Test Reality Audit
 
@@ -1196,12 +1197,13 @@ Expand real LangGraph browser coverage beyond SO-001 when the team is ready, and
 
 ## Current Blockers
 
-- No Phase 10 blockers remain.
-- The remaining backlog is real LangGraph expansion and QA regression bank ownership.
+- No Phase 11 blockers remain.
+- The QA regression bank owner question remains open from Phase 8.
 
 ## Open Questions
 
 - Should all cascading bulk mutations default to original-state semantics? Current plan says yes unless the oracle explicitly says current-state semantics.
+- Phase 11 resolved: approval 1 committed correctly in the deterministic graph path; the defect was in final-response evidence/aggregation, not in real LLM behavior.
 - Which additional scenarios should get non-seeded LangGraph browser coverage next? Proposed: SO-005, SO-011, SO-021, SO-034.
 - Who is the named QA regression bank owner for the documented weekly review cadence?
 
@@ -1224,39 +1226,181 @@ Expand real LangGraph browser coverage beyond SO-001 when the team is ready, and
 - Phase 7's first pass proves SO-001 only; the real LangGraph Playwright project stays opt-in and separate from the seeded adapter project.
 - Completed LangGraph bulk-write audit plans may exceed the generic draft step cap only when persisting concrete completed execution evidence.
 - Final completed graph responses should replace raw quick summaries with deterministic post-commit recaps when commit outputs are available.
+- Final completed graph responses must aggregate all committed write sets in a multi-approval operation; a recap that only describes the last approval is a test failure when earlier approvals committed.
 - Phase 8 manual failures close only as promoted regressions or accepted gaps; `tested manually only` is not an acceptable closure state.
 - New manual misses must capture exact prompt/action, artifact link, observed/expected behavior, oracle mapping, lowest useful layer, owner/severity, failing regression evidence, and passing-after-fix evidence.
 - Phase 9 PR gates include fast backend stateful oracles, frontend unit tests, and mocked Chromium only.
 - Seeded stateful oracles are release/pre-merge/manual gates; real LangGraph browser proof remains opt-in/release-gated and excluded from mocked Chromium collection.
 - Production synthetic checks stay opt-in and read-only, with local release harness as the default CI dispatch mode.
 - Phase 10 does not implement a durable operation ledger now; invariant-backed projections are acceptable until the documented reopen triggers occur.
+- Phase 11 confirms multi-approval final responses must be built from committed write evidence carrying previous state, new state, source-state basis, and approval context; deriving copy from final row state alone is insufficient.
+- Phase 11 also confirms current `pending_approval` from the snapshot owns the visible pending-approval summary/table/card. A stale approval 1 decision or waiting message must not render beside approval 2's table while approval 2 is pending.
+- Phase 11 live UI regression confirms server `activity_steps` must trim any rows after the latest pending approval when the session is `WAITING_APPROVAL`; otherwise `Improving the response` can become the false current row.
+- Phase 11 browser proof must assert visible DOM and forbidden stale text, not only final API text, because API evidence can be correct while the React bubble still renders stale timeline/table/details.
+- Activity timeline manual collapse is a user state and must not be overwritten by routine snapshot/SSE refresh while the operation is still active.
 
 ## Commands Run
 
-Latest Phase 10 implementation and verification:
+Latest Phase 11 implementation and verification:
 
 ```powershell
 git status --short --branch
 
 Set-Location "factory-agent"
-python -m pytest tests/test_snapshot_timeline_final_response_contract.py tests/test_event_stream_runtime.py -q
-python -m pytest tests/test_langgraph_state_machine_oracles.py -q
+python -m pytest tests/test_summary_bundle.py::test_phase11_completed_job_recap_aggregates_all_priority_write_sets -q
+python -m pytest tests/test_langgraph_state_machine_oracles.py::test_so041_medium_to_high_then_original_high_to_low -q
+python -m pytest tests/test_stateful_oracle_schema.py -q
+python -m pytest tests/test_snapshot_timeline_final_response_contract.py::test_so041_final_response_must_summarize_all_committed_write_sets -q
+python -m pytest tests/test_phase19_prompt_workflow_regression.py::test_phase19_scenarios_122_123_regression_bank_schema_and_triage_rule -q
+python -m pytest tests/test_summary_bundle.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py tests/test_stateful_oracle_schema.py tests/test_phase19_prompt_workflow_regression.py -q
+
+Set-Location "..\eMas Front"
+node --check "e2e/support/promptRegressionScenarios.js"; node --check "e2e/specs/real-langgraph-critical.spec.js"
+node --test --test-concurrency=1 "src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs"
+npm test
+New-Item -ItemType Directory -Force -Path 'test-results\real-langgraph-stack' | Out-Null
+npx playwright test --project=chromium-real-langgraph --grep "SO-041"
+npx playwright test e2e/specs/full-stack-prompt-workflow-regression.spec.js --project=chromium-seeded --grep "medium-to-high then original-high-to-low"
+
+# Phase 11 live UI regression follow-up after screenshot miss:
+Set-Location "eMas Front"
+node --test --test-concurrency=1 "src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs" "src/components/features/chat/factory-agent/activityTimeline.test.mjs" "src/components/features/chat/factory-agent/ActivityTimeline.component.test.mjs" "src/components/features/chat/turns/turnAssembler.test.mjs"
+npm test
+npm run test:e2e:real-langgraph -- --grep "SO-041"
+
+Set-Location "..\factory-agent"
+python -m pytest tests/test_phase7_api_ui_alignment.py -q
+python -m pytest tests/test_phase7_api_ui_alignment.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py tests/test_summary_bundle.py -q
+
+Set-Location "..\eMas Front"
+npm run test:backend-oracles
+npm run test:e2e:real-langgraph -- --grep "SO-041"
 ```
 
 ## Test Results
 
-Phase 10 verification passed:
+Phase 11 verification passed:
 
 ```text
-tests/test_snapshot_timeline_final_response_contract.py tests/test_event_stream_runtime.py: 13 passed, 1 warning in 1.23s.
-tests/test_langgraph_state_machine_oracles.py: 14 passed, 1 warning in 1.06s.
+summary Phase 11 targeted test: passed.
+SO-041 LangGraph state-machine oracle: passed.
+stateful oracle schema: 3 passed.
+SO-041 snapshot/final-response contract: passed.
+manual prompt regression bank schema: passed.
+combined backend Phase 11 cluster: 49 passed, 9 warnings in 1.44s.
+frontend node syntax checks: passed.
+FactoryAgentChatPanel focused component regression: 6 passed.
+eMas Front npm test: 54 passed.
+real LangGraph browser SO-041: 1 passed.
+seeded browser cascade scenario: 1 passed.
+Phase 11 live UI follow-up:
+  - New visible-DOM regressions initially failed on manual collapse and approval_decided outranking terminal final response.
+  - Real LangGraph SO-041 initially failed on the screenshot defect: `Improving the response / Current` was visible while approval 2 was pending.
+  - Backend activity projection was fixed so `WAITING_APPROVAL` trims rows after the latest pending approval.
+  - Focused frontend component/unit cluster: 44 passed.
+  - eMas Front npm test: 59 passed.
+  - factory-agent phase7 activity/snapshot contract: 11 passed, existing warnings only.
+  - backend focused Phase 11 cluster: 39 passed, existing warnings only.
+  - npm run test:backend-oracles: 23 passed, existing warning only.
+  - real LangGraph browser SO-041 after fix: 1 passed.
+  - seeded prompt workflow SO-041/SO-119 browser rerun: 1 passed.
 ```
+
+Intermediate note: a real LangGraph SO-041 rerun briefly failed after adding explicit `source_state_basis` because the first summary group was over-labeled as `original medium`. The formatter was corrected to reserve `original` for later ambiguous write sets; the final real LangGraph rerun passed.
+Intermediate note: a parallel real LangGraph/seeded browser run failed before test execution because `test-results\real-langgraph-stack\go-api.log` could not be opened while the web server booted. The log directory was recreated and the real LangGraph SO-041 proof passed on rerun.
 
 ## Files Changed
 
 - `docs/qa/STATEFUL_ORACLE_TESTING_PLAN.md`
 - `docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+- `tests/e2e/scenarios/manual_prompt_regressions.json`
+- `tests/e2e/scenarios/stateful_oracles/so-041_priority_medium_to_high_original_high_to_low.json`
+- `factory-agent/factory_agent/analysis/summary_backend.py`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/graph/nodes/tool_pipeline.py`
+- `factory-agent/factory_agent/graph/nodes/validate.py`
+- `factory-agent/tests/test_phase7_api_ui_alignment.py`
+- `factory-agent/tests/test_summary_bundle.py`
+- `factory-agent/tests/test_langgraph_state_machine_oracles.py`
+- `factory-agent/tests/test_snapshot_timeline_final_response_contract.py`
+- `factory-agent/tests/test_phase19_prompt_workflow_regression.py`
+- `eMas Front/src/components/features/chat/factory-agent/ActivityTimeline.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/activityTimelineUtils.js`
+- `eMas Front/src/components/features/chat/factory-agent/activityTimeline.test.mjs`
+- `eMas Front/src/components/features/chat/factory-agent/ActivityTimeline.component.test.mjs`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs`
+- `eMas Front/src/components/features/chat/turns/turnAssembler.js`
+- `eMas Front/src/components/features/chat/turns/turnAssembler.test.mjs`
+- `eMas Front/src/test/reactComponentTestUtils.mjs`
+- `eMas Front/e2e/support/promptRegressionScenarios.js`
+- `eMas Front/e2e/specs/real-langgraph-critical.spec.js`
 
 ## Next Action
 
-Expand real LangGraph browser coverage beyond SO-001 when prioritized, and assign the QA regression bank owner for the weekly review cadence.
+Commit the Phase 11 live UI regression fix before proceeding. Recommended next focus after commit: promote additional manual misses into the regression bank using the same pattern, especially routes where final response, activity timeline, visible UI, and DB/audit evidence can disagree.
+
+## Phase 11 Checklist: Aggregate Final-Response Evidence Oracles
+
+- [x] Add the manual miss to the prompt regression bank before changing product behavior.
+- [x] Add `SO-041` for `change all medium priority job to high then change all high priority job to low`.
+- [x] Reproduce at the lowest useful layer and record DB/audit/approval evidence after each approval.
+- [x] Decide root cause: graph skipped approval 1, plan persistence lost approval 1 outputs, snapshot projection hid approval 1, deterministic summary only read last outputs, or frontend turn assembly selected partial copy.
+- [x] Add a backend summary contract test that fails if the final response mentions only the last write set.
+- [x] Add a state/snapshot oracle that requires both write sets, both approval ids, and unchanged-row evidence.
+- [x] Add or extend seeded Playwright coverage for the new cascade wording.
+- [x] Add real LangGraph browser proof for `SO-041` after backend contracts are green.
+- [x] Update frontend turn/activity tests if UI selection can prefer partial final copy. Added a FactoryAgentChatPanel regression for the case where snapshot `pending_approval` has advanced to approval 2 but the timeline still contains approval 1 decision/waiting copy.
+- [x] Add live UI regression coverage for approval 2 activity state: `Improving the response / Current` must not outrank `Waiting for your approval`.
+- [x] Add UI regression coverage for active activity timeline manual collapse staying collapsed across refresh.
+- [x] Add UI regression coverage for final completed SO-041 bubble not showing stale approval-decision text or approval-2-only table.
+- [x] Rerun the focused backend, frontend, seeded, and real LangGraph verification commands.
+
+## Phase 11 Investigation Notes
+
+Manual miss observed:
+
+```text
+change all medium priority job to high then change all high priority job to low
+```
+
+Observed final response:
+
+```text
+Success
+
+Updated 10 job(s).
+
+No jobs were created or deleted.
+
+Affected records show only previous high -> new low rows.
+```
+
+Initial local investigation:
+
+- `split_user_intents()` splits the prompt into two job intents.
+- `_infer_bulk_job_priority_mutation()` detects `medium -> high` for the first clause and `high -> low` for the second clause.
+- `summary_backend.py` deterministic completed recap formats whatever job write `tool_outputs` it receives; it is not expected to call an LLM for this path.
+- Root cause confirmed: deterministic graph mechanics can stage and approve both write sets with original-state semantics, but committed job write outputs did not carry enough previous-priority evidence for final summary generation to aggregate both write sets reliably.
+- Product fix: staged writes now carry `previous_priority` evidence, committed outputs preserve that evidence, and deterministic completed job recaps group multi-write-set priority changes instead of reporting only a flat final table.
+- Follow-up UI root cause confirmed: snapshot `pending_approval` can advance to approval 2 before the matching `approval_required` timeline row is present. The table/card used approval 2 from snapshot state, but the assistant bubble summary/details could still use approval 1's `approval_decided` or waiting text from the turn. Product fix: only the turn that owns the current `pendingApproval.approval_id` receives the pending approval presentation, pending approval copy overrides stale turn summary text, and stale details are hidden while the pending approval is active.
+- Follow-up live screenshot root cause confirmed: server `activity_steps` finalized "all but the last row" when the session was `WAITING_APPROVAL`. If a stale `replan_requested` row arrived after approval 2, the latest pending approval row was turned into success and `Improving the response` became `Current`. Product fix: server and frontend activity projection trim rows after the latest pending approval while `WAITING_APPROVAL`, and real LangGraph browser coverage now asserts the visible DOM does not show `Improving the response / Current` during approval 2.
+- Final visible bubble root cause confirmed: frontend turn assembly could let a later `approval_decided` event outrank `session_completed`, and completed turns could render stashed approval-table presentation/details. Product fix: terminal completion outranks approval-decision copy, completed write-bundle turns no longer use old approval bundle tables as final presentation, and completed user details filter stale approval-wait/approval-decision text.
+
+Commands run for Phase 11 investigation:
+
+```powershell
+Set-Location "factory-agent"
+@'
+from factory_agent.planning.intent import split_user_intents
+from factory_agent.graph.planner_graph_helpers import _infer_bulk_job_priority_mutation
+p = "change all medium priority job to high then change all high priority job to low"
+for it in split_user_intents(p):
+    print(it.description, _infer_bulk_job_priority_mutation(it.description))
+'@ | python -
+```
+
+Current Phase 11 status:
+
+`Done`. SO-041 now has prompt-bank coverage, oracle JSON, backend summary contract coverage, LangGraph state-machine coverage, snapshot/final-response/activity contract coverage, frontend pending-approval/activity/final-bubble projection coverage, seeded browser coverage, and real LangGraph browser proof with visible-DOM stale-text assertions.

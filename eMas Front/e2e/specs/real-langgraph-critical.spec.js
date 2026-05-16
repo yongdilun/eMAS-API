@@ -29,6 +29,11 @@ const so001Changes = [
   { source: 'medium', target: 'high' },
   { source: 'high', target: 'medium' },
 ]
+const so041Prompt = 'change all medium priority job to high then change all high priority job to low'
+const so041Changes = [
+  { source: 'medium', target: 'high' },
+  { source: 'high', target: 'low' },
+]
 
 async function pendingApprovalWithRows(page, expectedJobIds) {
   await expect
@@ -193,5 +198,70 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
         tool_registry: { ok: true },
       },
     })
+  })
+
+  test('SO-041 aggregates both real LangGraph write sets in the final response', async ({ page }) => {
+    await openChat(page)
+    await sendPrompt(page, so041Prompt)
+    const sessionId = await activeSessionId(page)
+
+    const first = await pendingApprovalWithRows(page, originalMediumJobIds)
+    await expectGraphPriorityApproval(first, {
+      status: 'PENDING',
+      jobIds: originalMediumJobIds,
+      requestedPriority: 'high',
+      originalPriority: 'medium',
+    })
+    await page.getByRole('button', { name: 'Approve' }).click()
+
+    await expectJobsAtPriority(originalMediumJobIds, 'high')
+    await expect
+      .poll(async () => (await snapshotForPage(page)).session.status, { timeout: 30_000 })
+      .toBe('WAITING_APPROVAL')
+    await expect(page.getByText(/Run complete/i)).toHaveCount(0)
+
+    const second = await pendingApprovalWithRows(page, originalHighJobIds)
+    expect(second.approval_id).not.toBe(first.approval_id)
+    await expectGraphPriorityApproval(second, {
+      status: 'PENDING',
+      jobIds: originalHighJobIds,
+      requestedPriority: 'low',
+      originalPriority: 'high',
+    })
+    expect(bundleJobIds(second)).toEqual([...originalHighJobIds].sort())
+    for (const newlyMutatedId of originalMediumJobIds) {
+      expect(bundleJobIds(second)).not.toContain(newlyMutatedId)
+    }
+    await expect(page.getByText(`${originalHighJobIds.length} jobs will be updated from high to low priority.`).first()).toBeVisible()
+    const secondApprovalVisible = await visibleText(page)
+    expect(secondApprovalVisible).not.toMatch(/Improving the response\s+Current|Current\s+Improving the response/i)
+    expect(secondApprovalVisible).not.toContain(`${originalMediumJobIds.length} jobs will be updated from medium to high priority.`)
+    await page.getByRole('button', { name: 'Approve' }).click()
+
+    await expectJobsAtPriority(originalHighJobIds, 'low')
+    await expect
+      .poll(async () => (await snapshotForPage(page)).session.status, { timeout: 30_000 })
+      .toBe('COMPLETED')
+    await expectSnapshotApprovalState(page, { status: 'COMPLETED', pendingApprovalId: null })
+    expect(await currentPriorityMap()).toEqual(expectedPriorityMapForCascade(so041Changes))
+    await expect(page.getByText(`${originalMediumJobIds.length} medium priority jobs changed to high`).first()).toBeVisible()
+    await expect(page.getByText(`${originalHighJobIds.length} original high priority jobs changed to low`).first()).toBeVisible()
+    const finalVisible = await visibleText(page)
+    expect(finalVisible).not.toMatch(/Approved request to change record/i)
+    expect(finalVisible).not.toMatch(/Waiting for your approval|Please approve to continue/i)
+    expect(finalVisible).not.toMatch(/Affected records \(11\)/i)
+
+    const snapshot = await snapshotForPage(page)
+    const timelineApprovalIds = approvalIdsFromTimeline(snapshot)
+    expect(timelineApprovalIds.has(first.approval_id)).toBe(true)
+    expect(timelineApprovalIds.has(second.approval_id)).toBe(true)
+    expectPlanAuditMatchesRows(snapshot, { jobIds: originalMediumJobIds, requestedPriority: 'high' })
+    expectPlanAuditMatchesRows(snapshot, { jobIds: originalHighJobIds, requestedPriority: 'low' })
+
+    const finalText = await finalAssistantText(sessionId)
+    expect(finalText).toContain(`${originalMediumJobIds.length} medium priority jobs changed to high`)
+    expect(finalText).toContain(`${originalHighJobIds.length} original high priority jobs changed to low`)
+    expect(finalText).not.toContain(`Updated **${originalMediumJobIds.length}** job(s).`)
+    expect(finalText).not.toMatch(/Factory Agent needs attention/i)
   })
 })
