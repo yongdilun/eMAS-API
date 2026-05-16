@@ -12,6 +12,7 @@
     "verify-overlaps": "node scripts/verify-overlaps.js",
     "factory-agent-smoke": "node scripts/factory-agent-smoke.js",
     "test:e2e": "playwright test",
+    "test:e2e:synthetic": "playwright test --project=chromium-synthetic",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:report": "playwright show-report"

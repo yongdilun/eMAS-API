@@ -128,6 +128,69 @@ Troubleshooting notes:
 - If a bad env or schema mismatch is suspected, open `/__release/precheck` in the release proxy. The diagnostic page is intentionally visible and fails before browser smoke can claim success.
 - Keep this command out of default PR CI unless the team intentionally promotes L4. PR CI remains `npm test` plus `npm run test:e2e -- --project=chromium`.
 
+## Production Synthetic Monitoring L5
+
+Phase 11 adds an opt-in synthetic monitor project:
+
+```powershell
+Set-Location "eMas Front"
+npm run test:e2e -- --project=chromium-synthetic
+```
+
+By default, this runs against the local release-style harness so the command is safe to verify without real production/staging credentials. It still behaves like a production monitor: it opens the production-built app, uses `/agent` and `/api/v1` proxy paths, emits machine-readable results, and stores failure-only redacted artifacts.
+
+Live production/staging mode is explicit only:
+
+```powershell
+$env:PLAYWRIGHT_SYNTHETIC_LIVE = "1"
+$env:PLAYWRIGHT_SYNTHETIC_BASE_URL = "https://staging.example.com"
+$env:PLAYWRIGHT_SYNTHETIC_AUTH_TOKEN = "<synthetic read-only token>"
+$env:PLAYWRIGHT_SYNTHETIC_OWNER = "chatbot-oncall"
+npm run test:e2e -- --project=chromium-synthetic
+```
+
+Synthetic env vars:
+
+| Env var | Purpose |
+|---|---|
+| `PLAYWRIGHT_SYNTHETIC_LIVE=1` | Enables real production/staging mode. Without it, the local release harness is used. |
+| `PLAYWRIGHT_SYNTHETIC_BASE_URL` | Required in live mode. App root URL that exposes `/agent`. |
+| `PLAYWRIGHT_SYNTHETIC_AUTH_TOKEN` | Required in live mode. Synthetic read-only token used for readiness probes and credential lifecycle checks. |
+| `PLAYWRIGHT_SYNTHETIC_OWNER` | Required in live mode. Alert owner written into result records. |
+| `PLAYWRIGHT_SYNTHETIC_ALERT_WEBHOOK` | Optional downstream alert sink; the Playwright run writes local alert records either way. |
+| `PLAYWRIGHT_SYNTHETIC_*_PROMPT` | Optional safe read-only canary prompt overrides. Keep them read-only. |
+| `PLAYWRIGHT_SYNTHETIC_CHAT_OPEN_BUDGET_MS`, `PLAYWRIGHT_SYNTHETIC_FIRST_PROGRESS_BUDGET_MS`, `PLAYWRIGHT_SYNTHETIC_FINAL_ANSWER_BUDGET_MS`, `PLAYWRIGHT_SYNTHETIC_BURN_RATE_WARNING_MS` | Latency budgets and burn-rate warning threshold. |
+| `PLAYWRIGHT_SYNTHETIC_FAILURE_ARTIFACT_RETENTION`, `PLAYWRIGHT_SYNTHETIC_RESULT_RETENTION` | Retention notes written into result output. |
+
+Machine-readable output:
+
+- `test-results/synthetic-monitor/synthetic-results.json`
+- `test-results/synthetic-monitor/synthetic-results.ndjson`
+- `test-results/synthetic-monitor/synthetic-alerts.ndjson`
+
+Alert classifications include `synthetic_timeout`, `backend_unavailable`, `auth_failure`, `provider_outage`, `missing_final_answer`, and `latency_burn_rate`. Results redact bearer tokens, token/query secret fields, API keys, passwords, and secrets before attachments or result files are used for alerting/trend analysis.
+
+Safety and nondeterminism rules:
+
+- Synthetic prompts are read-only health/status/RAG canaries. They do not approve, reject, or execute mutating workflows.
+- The monitor never uses broad destructive approval flows in production/staging.
+- Real LLM/RAG output is asserted structurally: chat opens, progress appears, final answer is non-empty, optional source metadata is structurally valid, and no fake completion is shown on dependency failure.
+- Static bearer deployments may use polling fallback because browser `EventSource` cannot attach Authorization headers; scenario 74 accepts either SSE evidence or polling fallback evidence.
+
+Artifacts:
+
+- `chromium-synthetic` uses `trace: retain-on-failure`, automatic screenshots off, and video off.
+- On failure, the synthetic fixture attaches redacted console/network logs, machine-readable result files, and a masked page screenshot where feasible.
+- Retention defaults are 7 days for failure artifacts and 90 days for result history unless overridden by env vars.
+
+Troubleshooting notes:
+
+- If local synthetic startup fails, inspect `test-results/release-stack/env-fingerprint.json`, `factory-agent.log`, `go-api.log`, `release-proxy.log`, and `build.log`.
+- If live mode fails before tests start, confirm all three required live env vars are present.
+- If scenario 76 fails, rotate or replace the synthetic token and check whether the production/staging auth policy changed.
+- If scenario 77 alerts, inspect provider/RAG readiness before changing browser assertions; the canary is designed to avoid mutating production data during dependency outages.
+- Keep this command out of default PR CI. PR CI remains mocked `chromium`; `chromium-seeded`, `chromium-release`, and `chromium-synthetic` stay opt-in.
+
 ## CI Scope
 
 Phase 6 CI runs only the deterministic mocked frontend chatbot E2E suite:

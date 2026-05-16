@@ -51,6 +51,8 @@ export async function resetReleaseFaults() {
   return setReleaseFaults({
     goApiUnavailable: false,
     factoryAgentUnavailable: false,
+    authFailure: false,
+    providerUnavailable: false,
     schemaMismatch: false,
   })
 }

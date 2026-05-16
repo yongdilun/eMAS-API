@@ -15,6 +15,8 @@ const logPath = process.env.RELEASE_PROXY_LOG_PATH || path.join(artifactDir, 're
 const faults = {
   goApiUnavailable: false,
   factoryAgentUnavailable: false,
+  authFailure: false,
+  providerUnavailable: false,
   schemaMismatch: false,
 }
 
@@ -103,6 +105,25 @@ function precheckStatus(query) {
 }
 
 function proxyRequest(req, res, upstreamBase, stripPrefix, faultName) {
+  if (faultName === 'factoryAgentUnavailable' && faults.authFailure) {
+    appendLog({ kind: 'fault', faultName: 'authFailure', method: req.method, url: req.url })
+    send(res, 401, { error: 'auth token expired or revoked controlled release fault', no_fake_completion: true }, {
+      'content-type': 'application/json',
+    })
+    return
+  }
+  if (
+    faultName === 'factoryAgentUnavailable' &&
+    faults.providerUnavailable &&
+    req.method === 'POST' &&
+    /^\/agent\/sessions\/[^/]+\/plans$/.test(new URL(req.url, `http://${req.headers.host}`).pathname)
+  ) {
+    appendLog({ kind: 'fault', faultName: 'providerUnavailable', method: req.method, url: req.url })
+    send(res, 503, { error: 'model/RAG provider dependency unavailable controlled release fault', no_fake_completion: true }, {
+      'content-type': 'application/json',
+    })
+    return
+  }
   if (faults[faultName]) {
     appendLog({ kind: 'fault', faultName, method: req.method, url: req.url })
     send(res, 503, { error: `${faultName} controlled release fault`, no_fake_completion: true }, {

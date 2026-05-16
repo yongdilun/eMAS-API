@@ -30,8 +30,13 @@ Use one of:
 | 8 | L3 seeded full-stack foundation | Done | Completed with `chromium-seeded`, isolated seeded Go API + Factory Agent + Vite startup, deterministic fake planner/RAG adapters, L3 scenarios 31-38, failure artifacts, and local verification. |
 | 9 | L3 hard orchestration and break scenarios | Done | Completed with deterministic seeded L3 hard scenarios 39-52, product fixes for approval resume, partial failure, stale session recovery, duplicate submit, and SSE reconnect/drop behavior. |
 | 10 | L4 production-like release validation | Done | Completed with opt-in `chromium-release`, production-built frontend behind nginx-style `/`, `/agent`, and `/api/v1` proxy paths, static-bearer polling fallback, CORS/preflight checks, latency budgets, release artifacts, outage/precheck drills, mobile/keyboard/slow-network/rollback/cache/long-stream coverage, and deterministic seeded providers by default. |
-| 11 | L5 production synthetic monitoring | Not Started | Add safe read-only production/staging chatbot canaries with alerting, structural assertions, token-expiry checks, and provider-outage detection. |
+| 11 | L5 production synthetic monitoring | Done | Completed with opt-in `chromium-synthetic`, safe read-only canary prompts, live-mode env/token guardrails, machine-readable redacted results, alert classification, auth/provider fault drills, latency burn-rate reporting, and failure-only artifact policy. |
 | 12 | Manual testing retirement and governance | Not Started | Final gate for eliminating routine manual chatbot regression, with ownership, accepted gaps, scenario lifecycle rules, and replacement matrix audit. |
+| 13 | Normal-use production hardening | Not Started | Add realistic daily operator browser scenarios around long normal chats, session history, reloads, composer state, and modal lifecycle. |
+| 14 | Data integrity and side-effect safety | Not Started | Add exact DB/audit/UI/SSE checks for mutating chatbot workflows, including cascading priority updates and approval idempotency. |
+| 15 | Reliability, scale, and soak hardening | Not Started | Add concurrent read-only sessions, long streams, large results, slow-path behavior, and repeated soak cleanup checks. |
+| 16 | Security, privacy, and abuse hardening | Not Started | Add session tampering, unauthorized access, artifact redaction, oversized input, unsafe markdown, and tool allowlist checks. |
+| 17 | Production-grade operational readiness | Not Started | Final production-grade gate for alerts, rollback, emergency disable, environment recreation, and full gate matrix signoff. |
 
 ## Long-Term Scope Strategy
 
@@ -43,14 +48,16 @@ Use one of:
 | L3 Seeded full-stack foundation | Done | Vite plus seeded Go API and Factory Agent fake planner/model/RAG provider. | Phase 8 completed as opt-in L3 gate; not default PR requirement. |
 | L3 Hard orchestration | Done | Multi-step, multi-approval, concurrency, state recovery, SSE ordering, and service interruption against seeded services. | Phase 9 completed as opt-in `chromium-seeded --grep "@l3-hard"` gate. |
 | L4 Production-like release validation | Done | Compose/staging-style release validation with nginx paths, auth mode, polling fallback, slow network, mobile, and release artifacts. | Phase 10 completed as opt-in `chromium-release`; not default PR CI. |
-| L5 Production synthetic monitoring | Not Started | Safe read-only canary prompts, provider signals, alerting, health, and latency checks. | Phase 11. Post-deploy monitoring only. |
+| L5 Production synthetic monitoring | Done | Safe read-only canary prompts, provider signals, alerting, health, and latency checks. | Phase 11 completed as opt-in `chromium-synthetic`; not default PR CI. |
+| Production-grade hardening | Not Started | Normal-use, data integrity, reliability, security/privacy, and operational readiness gates. | Phases 13-17. Opt-in/scheduled until stable. |
 
 ## Phase Gate Rule
 
 - [ ] Phase 8 onward: if a reproducible defect is found, mark the phase `Blocked` or `In Progress`, fix the defect, add a regression assertion, rerun the current phase command plus `npm test` and mocked `chromium`, and record results before starting the next phase.
 - [ ] Any deferred failure must be recorded as an accepted gap with owner, severity, reason, target phase/date, risk, and temporary manual workaround.
-- [ ] Do not mark Phase 8, 9, 10, 11, or 12 `Done` while the phase verification command is failing.
+- [ ] Do not mark Phase 8 onward `Done` while the phase verification command is failing.
 - [ ] Do not claim manual testing is eliminated until the replacement matrix maps every old manual check to automation or an accepted gap.
+- [ ] Do not claim production-grade hardening until Phase 17 passes with no critical/high accepted gaps.
 
 ## First-Wave Scenario Portfolio
 
@@ -89,9 +96,9 @@ Target: about 30 meaningful, non-redundant scenarios. Implement them gradually; 
 | 29 | Approval reject flow returns to idle with rejection state and no fake completion. | Not Started | L2/L3 |
 | 30 | Confirmation-required flow shows choices, user selects one, and follow-up execution completes. | Not Started | L2/L3 |
 
-## L3-L5 Hard Scenario Expansion
+## L3-L5 and Production-Grade Scenario Expansion
 
-These scenarios extend the original 30 into seeded full-stack, failure-seeking orchestration, production-like release validation, and production synthetic monitoring so routine manual release/post-deploy chatbot testing can be retired. Scenarios 39-52 are intentionally hard and should block phase promotion when they reveal real defects.
+These scenarios extend the original 30 into seeded full-stack, failure-seeking orchestration, production-like release validation, production synthetic monitoring, governance, and production-grade hardening. Scenarios 39-52 and 86-100 are intentionally hard and should block phase promotion when they reveal real defects.
 
 | # | Scenario | Status | Layer |
 |---|---|---|---|
@@ -135,16 +142,41 @@ These scenarios extend the original 30 into seeded full-stack, failure-seeking o
 | 68 | Release rollback candidate can run the same smoke command against previous build URL. | Done | L4 |
 | 69 | Browser cache/version mismatch does not load stale frontend against incompatible backend schema. | Done | L4 |
 | 70 | Long-running stream stays within memory/log limits and still reaches a terminal state or timeout. | Done | L4 |
-| 71 | Production synthetic health check opens chat and confirms composer availability. | Not Started | L5 |
-| 72 | Production synthetic read-only machine status canary completes with non-empty final response. | Not Started | L5 |
-| 73 | Production synthetic RAG/source canary returns structurally valid answer and optional source metadata. | Not Started | L5 |
-| 74 | Production synthetic SSE-or-polling canary observes progress then completion. | Not Started | L5 |
-| 75 | Production synthetic alerting fires on timeout, backend unavailable, auth failure, or missing final answer. | Not Started | L5 |
-| 76 | Synthetic auth token expiry or revocation fails clearly and alerts the owner. | Not Started | L5 |
-| 77 | Synthetic provider outage canary detects model/RAG dependency failure without mutating data. | Not Started | L5 |
-| 78 | Synthetic latency burn-rate check reports degraded performance before hard outage. | Not Started | L5 |
-| 79 | Production trace/screenshot redaction prevents leaking sensitive operational data on failure. | Not Started | L5 |
+| 71 | Production synthetic health check opens chat and confirms composer availability. | Done | L5 |
+| 72 | Production synthetic read-only machine status canary completes with non-empty final response. | Done | L5 |
+| 73 | Production synthetic RAG/source canary returns structurally valid answer and optional source metadata. | Done | L5 |
+| 74 | Production synthetic SSE-or-polling canary observes progress then completion. | Done | L5 |
+| 75 | Production synthetic alerting fires on timeout, backend unavailable, auth failure, or missing final answer. | Done | L5 |
+| 76 | Synthetic auth token expiry or revocation fails clearly and alerts the owner. | Done | L5 |
+| 77 | Synthetic provider outage canary detects model/RAG dependency failure without mutating data. | Done | L5 |
+| 78 | Synthetic latency burn-rate check reports degraded performance before hard outage. | Done | L5 |
+| 79 | Production trace/screenshot redaction prevents leaking sensitive operational data on failure. | Done | L5 |
 | 80 | Manual replacement matrix audit confirms every old manual chatbot check has an automated gate or accepted gap. | Not Started | Governance |
+| 81 | Ten-turn normal operator chat mixes machine status, jobs, LOTO/RAG, and follow-up questions without stale answers or lost UI state. | Not Started | Production hardening |
+| 82 | Session list with many historical sessions loads, selects, and restores the correct transcript. | Not Started | Production hardening |
+| 83 | Browser reload after a completed run restores final answer, sources/details, and non-busy composer state. | Not Started | Production hardening |
+| 84 | User edits a draft, switches mode, and submits once with the final text and mode. | Not Started | Production hardening |
+| 85 | Repeatedly open/close the chat across completed, failed, and cancelled sessions without leaked streams, timers, or stale banners. | Not Started | Production hardening |
+| 86 | Cascading priority update changes all original high-priority jobs to low, then all original low-priority jobs to medium, with separate approvals and exact final DB state. | Not Started | Data integrity |
+| 87 | Bulk update partial failure records exact per-row outcomes and does not claim all jobs succeeded. | Not Started | Data integrity |
+| 88 | Approval double-click, refresh, or replay does not apply the same mutation twice. | Not Started | Data integrity |
+| 89 | Expired or stale approval cannot mutate data after the session changes state. | Not Started | Data integrity |
+| 90 | Audit log, DB state, SSE timeline, and final assistant summary agree for every mutating job. | Not Started | Data integrity |
+| 91 | Ten concurrent read-only browser sessions complete without cross-session leakage. | Not Started | Reliability |
+| 92 | Long stream with many activity events reaches terminal state without duplicate rows, high memory, or stuck busy UI. | Not Started | Reliability |
+| 93 | Large structured result and many sources render with stable layout and usable controls. | Not Started | Reliability |
+| 94 | Slow API/tool response shows progress, respects timeout, and preserves retry/cancel controls. | Not Started | Reliability |
+| 95 | Repeated soak run completes the core mocked, seeded, and release smoke suites without leaked ports or orphan processes. | Not Started | Reliability |
+| 96 | Tampered local storage or session id cannot expose another user's session. | Not Started | Security/privacy |
+| 97 | Unauthorized REST, polling, and EventSource access are denied with safe visible diagnostics. | Not Started | Security/privacy |
+| 98 | Logs, traces, screenshots, and reports redact tokens, secrets, and sensitive operational fields. | Not Started | Security/privacy |
+| 99 | Very large pasted input and unsafe markdown render safely without script execution or layout collapse. | Not Started | Security/privacy |
+| 100 | Tool allowlist and approval gates block requests that try to perform unsupported or unsafe actions. | Not Started | Security/privacy |
+| 101 | Synthetic failure creates the expected alert, owner, severity, and runbook link. | Not Started | Operational readiness |
+| 102 | Rollback validation command passes against the previous known-good build URL. | Not Started | Operational readiness |
+| 103 | Chatbot feature flag or emergency disable path leaves the rest of the app usable with a clear diagnostic. | Not Started | Operational readiness |
+| 104 | Recreated environment with seeded DB and synthetic account can run the release/synthetic gates from scratch. | Not Started | Operational readiness |
+| 105 | Production-grade gate matrix runs PR, seeded, hard, release, synthetic, security/privacy, and reliability checks with no critical failures. | Not Started | Operational readiness |
 
 ## Phase Task Checklists
 
@@ -326,24 +358,28 @@ Phase 5 note: static bearer mode remains a later L2 expansion item because the r
 
 ### Phase 11: L5 Production Synthetic Monitoring
 
-- [ ] Define safe read-only synthetic user/token.
-- [ ] Add `chromium-synthetic` Playwright project or standalone monitor command.
-- [ ] Add synthetic environment config helper with secret redaction.
-- [ ] Add machine-readable synthetic reporter.
-- [ ] Implement scenario 71.
-- [ ] Implement scenario 72.
-- [ ] Implement scenario 73.
-- [ ] Implement scenario 74.
-- [ ] Implement scenario 75.
-- [ ] Implement scenario 76.
-- [ ] Implement scenario 77.
-- [ ] Implement scenario 78.
-- [ ] Implement scenario 79.
-- [ ] Emit machine-readable monitor results.
-- [ ] Configure alert thresholds for timeout, auth failure, backend unavailable, provider outage, missing final response, and latency.
-- [ ] Document alert routing, owner rotation, and triage.
-- [ ] Confirm screenshots/traces are captured only on failure with retention/redaction rules.
-- [ ] Backfill closest deterministic L0-L4 regression test for any synthetic defect found.
+- [x] Define safe read-only synthetic user/token.
+- [x] Add `chromium-synthetic` Playwright project or standalone monitor command.
+- [x] Add synthetic environment config helper with secret redaction.
+- [x] Add machine-readable synthetic reporter.
+- [x] Implement scenario 71.
+- [x] Implement scenario 72.
+- [x] Implement scenario 73.
+- [x] Implement scenario 74.
+- [x] Implement scenario 75.
+- [x] Implement scenario 76.
+- [x] Implement scenario 77.
+- [x] Implement scenario 78.
+- [x] Implement scenario 79.
+- [x] Emit machine-readable monitor results.
+- [x] Configure alert thresholds for timeout, auth failure, backend unavailable, provider outage, missing final response, and latency.
+- [x] Document alert routing, owner rotation, and triage.
+- [x] Confirm screenshots/traces are captured only on failure with retention/redaction rules.
+- [x] Backfill closest deterministic L0-L4 regression test for any synthetic defect found.
+- [x] Run `npm test`.
+- [x] Run `npm run test:e2e -- --project=chromium`.
+- [x] Run `npm run test:e2e -- --project=chromium-release`.
+- [x] Run `npm run test:e2e -- --project=chromium-synthetic`.
 
 ### Phase 12: Manual Testing Retirement and Governance
 
@@ -358,19 +394,89 @@ Phase 5 note: static bearer mode remains a later L2 expansion item because the r
 - [ ] Record accepted gaps and non-automated human-review areas.
 - [ ] Confirm no routine manual chatbot regression remains required for PR, release, or post-deploy smoke.
 
+### Phase 13: Normal-Use Production Hardening
+
+- [ ] Add `@normal-use` scenario tag and file structure.
+- [ ] Implement scenario 81.
+- [ ] Implement scenario 82.
+- [ ] Implement scenario 83.
+- [ ] Implement scenario 84.
+- [ ] Implement scenario 85.
+- [ ] Run `npm test`.
+- [ ] Run `npm run test:e2e -- --project=chromium --grep "@normal-use"`.
+- [ ] Run `npm run test:e2e -- --project=chromium-seeded --grep "@normal-use"`.
+- [ ] Record defects, fixes, accepted gaps, and files changed.
+
+### Phase 14: Data Integrity and Side-Effect Safety
+
+- [ ] Add seeded fixtures for mutating job-priority workflows.
+- [ ] Define original-state semantics for cascading priority updates.
+- [ ] Implement scenario 86.
+- [ ] Implement scenario 87.
+- [ ] Implement scenario 88.
+- [ ] Implement scenario 89.
+- [ ] Implement scenario 90.
+- [ ] Assert DB state, audit log, SSE timeline, approval ids, and visible final summary agree.
+- [ ] Run `npm test`.
+- [ ] Run `npm run test:e2e -- --project=chromium-seeded --grep "@data-integrity"`.
+- [ ] Record defects, fixes, accepted gaps, and files changed.
+
+### Phase 15: Reliability, Scale, and Soak Hardening
+
+- [ ] Add `@reliability` scenarios and opt-in/scheduled job plan.
+- [ ] Implement scenario 91.
+- [ ] Implement scenario 92.
+- [ ] Implement scenario 93.
+- [ ] Implement scenario 94.
+- [ ] Implement scenario 95.
+- [ ] Add checks for leaked ports, orphan child processes, orphan streams, and teardown timing.
+- [ ] Run `npm run test:e2e -- --project=chromium --grep "@reliability"`.
+- [ ] Run `npm run test:e2e -- --project=chromium-seeded --grep "@reliability"`.
+- [ ] Record flake rate, timing, defects, fixes, accepted gaps, and files changed.
+
+### Phase 16: Security, Privacy, and Abuse Hardening
+
+- [ ] Add `@security` and `@privacy` scenarios.
+- [ ] Implement scenario 96.
+- [ ] Implement scenario 97.
+- [ ] Implement scenario 98.
+- [ ] Implement scenario 99.
+- [ ] Implement scenario 100.
+- [ ] Add artifact redaction scan for configured token/secret patterns.
+- [ ] Run `npm test`.
+- [ ] Run `npm run test:e2e -- --project=chromium --grep "@security|@privacy"`.
+- [ ] Run `npm run test:e2e -- --project=chromium-release --grep "@security|@privacy"`.
+- [ ] Record defects, fixes, accepted gaps, and files changed.
+
+### Phase 17: Production-Grade Operational Readiness
+
+- [ ] Add operational readiness scenario structure.
+- [ ] Implement scenario 101.
+- [ ] Implement scenario 102.
+- [ ] Implement scenario 103.
+- [ ] Implement scenario 104.
+- [ ] Implement scenario 105.
+- [ ] Define critical/high/medium/low gate severity rules.
+- [ ] Add one final production-grade gate command or workflow.
+- [ ] Run the full gate matrix.
+- [ ] Confirm no critical/high accepted gaps remain open.
+- [ ] Record final signoff result, owners, commands, failures, fixes, and accepted gaps.
+
 ## Current Blockers
 
-- None for Phase 10.
+- None for Phase 11.
 
 ## Accepted Gaps
 
-- None for Phase 10.
+- None recorded through Phase 11. Phase 12-17 gaps must be added here before any phase is marked `Done`.
 
-Phase 10-12 implementation risks to resolve:
+Phase 10-17 implementation risks to resolve:
 
 - Release and synthetic projects must stay opt-in and separate from default PR CI unless deliberately promoted.
 - Real LLM connectivity should not run before Phase 10 and must be explicitly enabled with structural assertions only.
 - Production synthetic checks must remain safe and read-only.
+- Phase 13-17 reliability, security/privacy, and production-grade gates may need scheduled or opt-in workflows before they become blocking.
+- Mutating data-integrity scenarios must run only against seeded/resettable environments.
 - Any reproducible defect found in Phase 10 onward blocks phase promotion until fixed or recorded as an accepted gap.
 
 ## Open Questions
@@ -386,6 +492,8 @@ Phase 10-12 implementation risks to resolve:
 | Can manual testing be fully eliminated? | Routine chatbot regression and post-deploy smoke can be automated by L0-L5. Human review may remain for exploratory testing, product judgment, compliance sign-off, or semantic quality audits. |
 | What happens when Phase 8+ finds an error? | Fix it before starting the next phase, add regression coverage, rerun the current phase command plus fast PR tests, and record commands/results in this tracker. |
 | Should hard scenarios be expected to pass immediately? | No. Phase 9 is intentionally failure-seeking. A discovered defect is useful only if it is fixed or explicitly accepted with owner and risk. |
+| Do Phase 13-17 include model-quality evaluation? | No. Phase 13-17 stay focused on Playwright/browser, backend, deterministic provider, reliability, data integrity, privacy, and operations hardening. |
+| Can Phase 14 mutating tests run against production? | No. Mutating data-integrity scenarios must use seeded/resettable environments only. |
 
 ## Decisions Made
 
@@ -408,7 +516,10 @@ Phase 10-12 implementation risks to resolve:
 | Phase 10 is the first stage where real LLM connectivity can be tested. | Provider connectivity is release risk, not PR regression risk; assertions must be structural and opt-in. |
 | Phase 10 release validation is opt-in only. | `chromium-release` builds a production-like frontend behind local nginx-style proxy paths and is intended for release gates, not default PR CI. |
 | Phase 11 uses only safe read-only production/staging canaries. | Production synthetic monitoring must not mutate operational data. |
+| Phase 11 synthetic monitoring is opt-in only. | `chromium-synthetic` requires explicit project selection and live production/staging mode requires explicit URL/token/owner env vars. |
 | Phase 12 is required before claiming manual testing is fully eliminated. | It creates the replacement matrix, ownership, scenario lifecycle, accepted-gap record, and final retirement gate. |
+| Phase 13-17 extend beyond manual-test retirement into production-grade hardening. | They add normal-use, data-integrity, reliability, security/privacy, and operational readiness gates so the chatbot is harder to break in daily use. |
+| Scenario 86 uses original-state semantics for cascading priority updates. | This avoids accidentally converting jobs changed from high to low during step one into medium during step two unless the product explicitly chooses current-state semantics later. |
 
 ## Commands Run During Discovery
 
@@ -488,6 +599,15 @@ rg -n "Phase 8|Phase 9|Phase 10|Phase 11|L3-L5|Scenario Expansion|Manual-Testing
 rg -n "Phase 8|Phase 9|Phase 10|Phase 11|Scenario|blocker|error|Defect|Next action|Decisions made|L3-L5" TRACK.md
 git status --short --branch
 git diff --stat -- PLAN.md TRACK.md
+```
+
+Production-grade hardening planning update commands:
+
+```powershell
+Get-Content C:\Users\dilun\.codex\skills\awt-e2e-testing\SKILL.md
+rg -n "Phase 1|Phase 8|Phase 9|Phase 10|Phase 11|Phase 12|Recommended Current Implementation Step|Next Action|Scenario|Production" PLAN.md
+rg -n "Phase Status|Phase 8|Phase 9|Phase 10|Phase 11|Phase 12|L3-L5|Scenario|Current Blockers|Open Questions|Decisions Made|Next Action" TRACK.md
+git status --short --branch
 ```
 
 ## Test Results
@@ -616,6 +736,30 @@ Phase 10 defect/fix notes:
 - Product diagnostic fix: release proxy backend-unavailable faults now classify as `Factory Agent backend unavailable` instead of a generic attention banner. Scenario 61 covers the visible diagnostic.
 - Assertion hardening: refresh during active work now accepts either completed recovery or safe non-terminal abandon, while asserting no duplicate user turn. Mobile approval validates completed backend state, visible completion text, and no dialog overflow without depending on hidden duplicate DOM nodes.
 - No accepted gaps were recorded for Phase 10.
+
+Phase 11:
+
+- `git status --short --branch`: branch `codex/playwright-e2e-plan`; showed pre-existing `PLAN.md`/`TRACK.md` modifications plus Phase 11 working tree changes.
+- `node --check e2e/support/syntheticEnv.js; node --check e2e/support/syntheticReporter.js; node --check e2e/support/syntheticArtifacts.js; node --check e2e/support/syntheticScenarios.js; node --check e2e/specs/production-synthetic.spec.js; node --check playwright.config.js; node --check e2e/support/releaseProxyServer.js; node --check e2e/support/releaseScenarios.js`: passed.
+- `npm run test:e2e -- --project=chromium-synthetic`: passed 9 Chromium synthetic Playwright tests.
+- `npm test`: passed, 49 tests.
+- First `npm run test:e2e -- --project=chromium`: failed because `production-synthetic.spec.js` was unintentionally included in the default mocked `chromium` project. Fix: excluded `production-synthetic.spec.js` from the default mocked project, keeping synthetic opt-in only.
+- Second `npm run test:e2e -- --project=chromium`: failed on a strict locator in the existing happy-path progress assertion because two visible progress labels matched. Fix: scope the assertion to the first matching visible progress label.
+- Third `npm run test:e2e -- --project=chromium`: hit the known intermittent SSE activity timing issue noted in Phase 10; immediate rerun passed.
+- Final `npm run test:e2e -- --project=chromium`: passed, 13 mocked Chromium Playwright tests.
+- Final `npm run test:e2e -- --project=chromium-release`: passed, 18 Chromium release Playwright tests.
+- Final `npm run test:e2e -- --project=chromium-synthetic`: passed, 9 Chromium synthetic Playwright tests.
+
+Phase 11 defect/fix notes:
+
+- Configuration defect: the new synthetic spec initially leaked into default PR `chromium` runs. Fix: update the `chromium` project `testIgnore` to exclude `production-synthetic.spec.js`; `chromium-synthetic` remains opt-in.
+- Assertion gap: the mocked happy-path progress assertion used a strict locator that could match both the status row and compact activity label. Fix: assert the first matching progress label.
+- No production/staging data mutation, broad approval flow, real LLM exact-text assertion, or accepted gap was introduced for Phase 11.
+
+Phase 13-17 planning update:
+
+- Documentation-only update. No application tests were run.
+- Added production-grade hardening phases and scenarios 81-105.
 
 Discovery command notes:
 
@@ -754,8 +898,30 @@ Phase 10 implementation:
 - `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx`
 - `factory-agent/factory_agent/testing_seeded_adapters.py`
 
+Phase 11 implementation:
+
+- `TRACK.md`
+- `eMas Front/package.json`
+- `eMas Front/playwright.config.js`
+- `eMas Front/e2e/README.md`
+- `eMas Front/e2e/specs/chat-happy-path.spec.js`
+- `eMas Front/e2e/specs/production-synthetic.spec.js`
+- `eMas Front/e2e/support/releaseProxyServer.js`
+- `eMas Front/e2e/support/releaseScenarios.js`
+- `eMas Front/e2e/support/syntheticArtifacts.js`
+- `eMas Front/e2e/support/syntheticEnv.js`
+- `eMas Front/e2e/support/syntheticReporter.js`
+- `eMas Front/e2e/support/syntheticScenarios.js`
+
+Phase 13-17 planning update:
+
+- `PLAN.md`
+- `TRACK.md`
+
 ## Next Action
 
-Phase 10 is complete. Do not start Phase 11 unless explicitly requested; keep the default PR CI on the mocked `chromium` suite, keep `chromium-seeded` as the opt-in L3 full-stack foundation/hard-orchestration gate, and keep `chromium-release` as an opt-in L4 release-candidate gate.
+Phase 11 is complete. Do not start Phase 12 unless explicitly requested. Phase 13-17 remain the later production-grade hardening track after governance.
+
+Keep the default PR CI on the mocked `chromium` suite, keep `chromium-seeded` as the opt-in L3 full-stack foundation/hard-orchestration gate, keep `chromium-release` as an opt-in L4 release-candidate gate, keep `chromium-synthetic` as the opt-in L5 post-deploy monitor, and keep Phase 13-17 reliability/security/operational gates opt-in or scheduled until stable.
 
 Do not remove the existing Go/Python E2E pipeline. Do not add Go backend, Docker, real Factory Agent, release proxy, or real LLM dependencies to the default Playwright suite.
