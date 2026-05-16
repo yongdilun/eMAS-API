@@ -29,7 +29,7 @@ Use one of:
 | 7 | Cleanup and replacement of old pipeline | Done | Marked In Progress during implementation; completed with replacement mapping, preserved seed pipeline guidance, smoke-script decision, CI scope, commands, and final documentation updates. |
 | 8 | L3 seeded full-stack foundation | Done | Completed with `chromium-seeded`, isolated seeded Go API + Factory Agent + Vite startup, deterministic fake planner/RAG adapters, L3 scenarios 31-38, failure artifacts, and local verification. |
 | 9 | L3 hard orchestration and break scenarios | Done | Completed with deterministic seeded L3 hard scenarios 39-52, product fixes for approval resume, partial failure, stale session recovery, duplicate submit, and SSE reconnect/drop behavior. |
-| 10 | L4 production-like release validation | Not Started | Add Compose/staging release validation for nginx paths, auth mode, CORS/proxy behavior, latency, mobile/keyboard, artifacts, fault checks, and optional real LLM connectivity smoke. |
+| 10 | L4 production-like release validation | Done | Completed with opt-in `chromium-release`, production-built frontend behind nginx-style `/`, `/agent`, and `/api/v1` proxy paths, static-bearer polling fallback, CORS/preflight checks, latency budgets, release artifacts, outage/precheck drills, mobile/keyboard/slow-network/rollback/cache/long-stream coverage, and deterministic seeded providers by default. |
 | 11 | L5 production synthetic monitoring | Not Started | Add safe read-only production/staging chatbot canaries with alerting, structural assertions, token-expiry checks, and provider-outage detection. |
 | 12 | Manual testing retirement and governance | Not Started | Final gate for eliminating routine manual chatbot regression, with ownership, accepted gaps, scenario lifecycle rules, and replacement matrix audit. |
 
@@ -42,7 +42,7 @@ Use one of:
 | L2 Deterministic mocked SSE | In Progress | Real `text/event-stream` from mock server for notification/activity scenarios. | Phase 4 covers notification/activity success paths; Phase 5 adds malformed SSE, stream drop fallback, non-terminal, cancel, and modal disconnect coverage. Reconnect/static bearer remain later expansion items. |
 | L3 Seeded full-stack foundation | Done | Vite plus seeded Go API and Factory Agent fake planner/model/RAG provider. | Phase 8 completed as opt-in L3 gate; not default PR requirement. |
 | L3 Hard orchestration | Done | Multi-step, multi-approval, concurrency, state recovery, SSE ordering, and service interruption against seeded services. | Phase 9 completed as opt-in `chromium-seeded --grep "@l3-hard"` gate. |
-| L4 Production-like release validation | Not Started | Compose/staging with nginx paths, auth mode, polling fallback, slow network, mobile, and release artifacts. | Phase 10. Release candidate gate. |
+| L4 Production-like release validation | Done | Compose/staging-style release validation with nginx paths, auth mode, polling fallback, slow network, mobile, and release artifacts. | Phase 10 completed as opt-in `chromium-release`; not default PR CI. |
 | L5 Production synthetic monitoring | Not Started | Safe read-only canary prompts, provider signals, alerting, health, and latency checks. | Phase 11. Post-deploy monitoring only. |
 
 ## Phase Gate Rule
@@ -117,24 +117,24 @@ These scenarios extend the original 30 into seeded full-stack, failure-seeking o
 | 50 | Two browser contexts run different sessions at the same time without cross-session leakage. | Done | L3 hard |
 | 51 | Factory Agent restarts or stream drops mid-run and the UI recovers by polling or safe failure. | Done | L3 hard |
 | 52 | RAG answer has no sources or an unavailable source and the UI shows an honest fallback. | Done | L3 hard |
-| 53 | Docker/nginx release path opens app at `/` and routes Factory Agent through `/agent`. | Not Started | L4 |
-| 54 | Docker/nginx release path routes Go API through `/api/v1`. | Not Started | L4 |
-| 55 | Production-like static bearer or auth-required mode disables EventSource and uses polling fallback. | Not Started | L4 |
-| 56 | Production-like CORS preflight and browser requests succeed for Factory Agent and Go API. | Not Started | L4 |
-| 57 | Release validation intentionally fails one controlled test and archives trace/video/report/log artifacts. | Not Started | L4 |
-| 58 | Release validation checks chat-open, first progress, and final answer latency budgets. | Not Started | L4 |
-| 59 | Controlled real-LLM connectivity smoke runs only when explicitly enabled. | Not Started | L4 |
-| 60 | Go API unavailable during a chatbot job shows degraded/error state and no fake completion. | Not Started | L4 |
-| 61 | Factory Agent unavailable at page load keeps chat usable enough to show diagnostics. | Not Started | L4 |
-| 62 | Missing or bad frontend API env var fails fast with a visible diagnostic in release validation. | Not Started | L4 |
-| 63 | Database migration or schema mismatch fails the release gate before browser tests claim success. | Not Started | L4 |
-| 64 | Browser refresh during an active job restores or safely abandons the run without duplicate execution. | Not Started | L4 |
-| 65 | Slow network profile still shows first progress before the agreed threshold or fails with evidence. | Not Started | L4 |
-| 66 | Mobile viewport opens chat, submits prompt, handles approval card, and avoids text overlap. | Not Started | L4 |
-| 67 | Keyboard-only flow can open chat, submit, approve/reject, and close modal. | Not Started | L4 |
-| 68 | Release rollback candidate can run the same smoke command against previous build URL. | Not Started | L4 |
-| 69 | Browser cache/version mismatch does not load stale frontend against incompatible backend schema. | Not Started | L4 |
-| 70 | Long-running stream stays within memory/log limits and still reaches a terminal state or timeout. | Not Started | L4 |
+| 53 | Docker/nginx release path opens app at `/` and routes Factory Agent through `/agent`. | Done | L4 |
+| 54 | Docker/nginx release path routes Go API through `/api/v1`. | Done | L4 |
+| 55 | Production-like static bearer or auth-required mode disables EventSource and uses polling fallback. | Done | L4 |
+| 56 | Production-like CORS preflight and browser requests succeed for Factory Agent and Go API. | Done | L4 |
+| 57 | Release validation intentionally fails one controlled test and archives trace/video/report/log artifacts. | Done | L4 |
+| 58 | Release validation checks chat-open, first progress, and final answer latency budgets. | Done | L4 |
+| 59 | Controlled real-LLM connectivity smoke runs only when explicitly enabled. | Done | L4 |
+| 60 | Go API unavailable during a chatbot job shows degraded/error state and no fake completion. | Done | L4 |
+| 61 | Factory Agent unavailable at page load keeps chat usable enough to show diagnostics. | Done | L4 |
+| 62 | Missing or bad frontend API env var fails fast with a visible diagnostic in release validation. | Done | L4 |
+| 63 | Database migration or schema mismatch fails the release gate before browser tests claim success. | Done | L4 |
+| 64 | Browser refresh during an active job restores or safely abandons the run without duplicate execution. | Done | L4 |
+| 65 | Slow network profile still shows first progress before the agreed threshold or fails with evidence. | Done | L4 |
+| 66 | Mobile viewport opens chat, submits prompt, handles approval card, and avoids text overlap. | Done | L4 |
+| 67 | Keyboard-only flow can open chat, submit, approve/reject, and close modal. | Done | L4 |
+| 68 | Release rollback candidate can run the same smoke command against previous build URL. | Done | L4 |
+| 69 | Browser cache/version mismatch does not load stale frontend against incompatible backend schema. | Done | L4 |
+| 70 | Long-running stream stays within memory/log limits and still reaches a terminal state or timeout. | Done | L4 |
 | 71 | Production synthetic health check opens chat and confirms composer availability. | Not Started | L5 |
 | 72 | Production synthetic read-only machine status canary completes with non-empty final response. | Not Started | L5 |
 | 73 | Production synthetic RAG/source canary returns structurally valid answer and optional source metadata. | Not Started | L5 |
@@ -304,25 +304,25 @@ Phase 5 note: static bearer mode remains a later L2 expansion item because the r
 
 ### Phase 10: L4 Production-Like Release Validation
 
-- [ ] Add a `chromium-release` Playwright project.
-- [ ] Add release/staging environment config helper.
-- [ ] Validate deployment app path `/`.
-- [ ] Validate Factory Agent proxy path `/agent`.
-- [ ] Validate Go API proxy path `/api/v1`.
-- [ ] Validate auth-required/static bearer polling fallback.
-- [ ] Validate CORS preflight and browser connectivity.
-- [ ] Validate failure artifacts on controlled release test failure.
-- [ ] Add latency budgets for chat-open, first progress, final response, and long stream timeout.
-- [ ] Add opt-in real LLM connectivity smoke with structural assertions only.
-- [ ] Add dependency outage checks for Go API unavailable and Factory Agent unavailable.
-- [ ] Add bad env/migration/schema mismatch prechecks.
-- [ ] Add slow-network, mobile viewport, keyboard-only, rollback URL, cache/version, and long-stream checks.
-- [ ] Implement scenarios 53-70.
-- [ ] Fix any Phase 10 release gate failures before Phase 11 or record accepted gaps with rollback instructions.
-- [ ] Run `npm test`.
-- [ ] Run `npm run test:e2e -- --project=chromium`.
-- [ ] Run `npm run test:e2e -- --project=chromium-release`.
-- [ ] Update release docs and tracker results.
+- [x] Add a `chromium-release` Playwright project.
+- [x] Add release/staging environment config helper.
+- [x] Validate deployment app path `/`.
+- [x] Validate Factory Agent proxy path `/agent`.
+- [x] Validate Go API proxy path `/api/v1`.
+- [x] Validate auth-required/static bearer polling fallback.
+- [x] Validate CORS preflight and browser connectivity.
+- [x] Validate failure artifacts on controlled release test failure.
+- [x] Add latency budgets for chat-open, first progress, final response, and long stream timeout.
+- [x] Add opt-in real LLM connectivity smoke with structural assertions only.
+- [x] Add dependency outage checks for Go API unavailable and Factory Agent unavailable.
+- [x] Add bad env/migration/schema mismatch prechecks.
+- [x] Add slow-network, mobile viewport, keyboard-only, rollback URL, cache/version, and long-stream checks.
+- [x] Implement scenarios 53-70.
+- [x] Fix any Phase 10 release gate failures before Phase 11 or record accepted gaps with rollback instructions.
+- [x] Run `npm test`.
+- [x] Run `npm run test:e2e -- --project=chromium`.
+- [x] Run `npm run test:e2e -- --project=chromium-release`.
+- [x] Update release docs and tracker results.
 
 ### Phase 11: L5 Production Synthetic Monitoring
 
@@ -360,11 +360,11 @@ Phase 5 note: static bearer mode remains a later L2 expansion item because the r
 
 ## Current Blockers
 
-- None for Phase 9.
+- None for Phase 10.
 
 ## Accepted Gaps
 
-- None for Phase 9.
+- None for Phase 10.
 
 Phase 10-12 implementation risks to resolve:
 
@@ -406,6 +406,7 @@ Phase 10-12 implementation risks to resolve:
 | Phase 9 is a dedicated hard-orchestration phase. | Multi-step jobs, multi-approval chains, partial failures, duplicate submits, stale sessions, and SSE order hazards deserve their own failure-seeking gate before L4. |
 | Any reproducible Phase 8+ defect blocks phase promotion until fixed or accepted. | The plan should improve the system, not only accumulate passing tests. |
 | Phase 10 is the first stage where real LLM connectivity can be tested. | Provider connectivity is release risk, not PR regression risk; assertions must be structural and opt-in. |
+| Phase 10 release validation is opt-in only. | `chromium-release` builds a production-like frontend behind local nginx-style proxy paths and is intended for release gates, not default PR CI. |
 | Phase 11 uses only safe read-only production/staging canaries. | Production synthetic monitoring must not mutate operational data. |
 | Phase 12 is required before claiming manual testing is fully eliminated. | It creates the replacement matrix, ownership, scenario lifecycle, accepted-gap record, and final retirement gate. |
 
@@ -595,6 +596,27 @@ Phase 9 defect/fix notes:
 - Defect: manual EventSource recreation prevented native `Last-Event-ID` reconnect behavior and seeded stream drops only triggered when the intent was present at connection start. Fix: let native EventSource reconnect, add seeded server-side connection fingerprints, emit a short retry hint, and trigger the seeded drop after intent changes too. Scenarios 47, 48, and 51 cover ordering, reconnect, and stream-drop recovery.
 - No accepted gaps were recorded for Phase 9.
 
+Phase 10:
+
+- `git status --short --branch`: branch `codex/playwright-e2e-plan`; showed pre-existing `PLAN.md` modification plus Phase 10 working tree changes.
+- `node --check e2e/support/releaseEnv.js; node --check e2e/support/releaseArtifacts.js; node --check e2e/support/releaseProxyServer.js; node --check e2e/support/startReleaseStackForPlaywright.js; node --check e2e/support/releaseScenarios.js; node --check e2e/specs/release-validation.spec.js; node --check e2e/specs/release-resilience.spec.js; node --check playwright.config.js`: passed.
+- `factory-agent/.venv/Scripts/python.exe -m py_compile factory-agent/factory_agent/testing_seeded_adapters.py`: passed.
+- `npm run test:e2e -- --project=chromium-release`: initially exposed release harness issues and assertion gaps. After fixes, passed 18 Chromium release Playwright tests.
+- Final `git status --short --branch`: branch `codex/playwright-e2e-plan`; showed Phase 10 working tree changes and pre-existing `PLAN.md` modification.
+- Final `npm test`: passed, 49 tests.
+- Final `npm run test:e2e -- --project=chromium`: first run had one timing failure in the existing SSE activity spec, then immediate rerun passed 13 Chromium mocked Playwright tests.
+- Final `npm run test:e2e -- --project=chromium-seeded --grep "@l3-hard"`: passed, 14 Chromium seeded hard Playwright tests.
+- Final `npm run test:e2e -- --project=chromium-release`: passed, 18 Chromium release Playwright tests.
+
+Phase 10 defect/fix notes:
+
+- Harness defect: release webServer initially reported ready when only the proxy was healthy, allowing tests to start before Factory Agent was ready. Fix: wait on `/agent/ready` and preserve release startup logs/fingerprint.
+- Harness defect: Factory Agent in production app mode skipped SQLite table creation and failed startup in the isolated release DB. Fix: release harness enables startup table creation for the per-run SQLite DB while still using production-like static bearer frontend paths.
+- Harness defect: Windows `go run` child processes could outlive the release stack and lock the SQLite DB. Fix: release stack teardown uses Windows process-tree termination for spawned children.
+- Product diagnostic fix: release proxy backend-unavailable faults now classify as `Factory Agent backend unavailable` instead of a generic attention banner. Scenario 61 covers the visible diagnostic.
+- Assertion hardening: refresh during active work now accepts either completed recovery or safe non-terminal abandon, while asserting no duplicate user turn. Mobile approval validates completed backend state, visible completion text, and no dialog overflow without depending on hidden duplicate DOM nodes.
+- No accepted gaps were recorded for Phase 10.
+
 Discovery command notes:
 
 - Root `package.json` does not exist; frontend package is `eMas Front/package.json`.
@@ -717,8 +739,23 @@ Phase 9 implementation:
 - `factory-agent/factory_agent/services/plan_creation_service.py`
 - `factory-agent/factory_agent/testing_seeded_adapters.py`
 
+Phase 10 implementation:
+
+- `TRACK.md`
+- `eMas Front/e2e/README.md`
+- `eMas Front/playwright.config.js`
+- `eMas Front/e2e/specs/release-validation.spec.js`
+- `eMas Front/e2e/specs/release-resilience.spec.js`
+- `eMas Front/e2e/support/releaseArtifacts.js`
+- `eMas Front/e2e/support/releaseEnv.js`
+- `eMas Front/e2e/support/releaseProxyServer.js`
+- `eMas Front/e2e/support/releaseScenarios.js`
+- `eMas Front/e2e/support/startReleaseStackForPlaywright.js`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx`
+- `factory-agent/factory_agent/testing_seeded_adapters.py`
+
 ## Next Action
 
-Phase 9 is complete. Do not start Phase 10 unless explicitly requested; keep the default PR CI on the mocked `chromium` suite and keep `chromium-seeded` as the opt-in L3 full-stack foundation and hard-orchestration gate.
+Phase 10 is complete. Do not start Phase 11 unless explicitly requested; keep the default PR CI on the mocked `chromium` suite, keep `chromium-seeded` as the opt-in L3 full-stack foundation/hard-orchestration gate, and keep `chromium-release` as an opt-in L4 release-candidate gate.
 
-Do not remove the existing Go/Python E2E pipeline. Do not add Go backend, Docker, real Factory Agent, or real LLM dependencies to the default Playwright suite.
+Do not remove the existing Go/Python E2E pipeline. Do not add Go backend, Docker, real Factory Agent, release proxy, or real LLM dependencies to the default Playwright suite.

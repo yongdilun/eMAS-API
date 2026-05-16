@@ -81,6 +81,53 @@ Troubleshooting notes:
 - Do not run these hard scenarios against real LLM/RAG credentials; Phase 9 expects deterministic fake planner/provider/RAG behavior.
 - Keep default PR validation on `npm run test:e2e -- --project=chromium`; `chromium-seeded --grep "@l3-hard"` is an opt-in L3 gate.
 
+## Release Validation L4
+
+Phase 10 adds an opt-in production-like release gate:
+
+```powershell
+Set-Location "eMas Front"
+npm run test:e2e -- --project=chromium-release
+```
+
+`chromium-release` builds the frontend with release-style paths, then starts a local nginx-style proxy in front of the seeded Go API and Factory Agent:
+
+| Path | Release behavior |
+|---|---|
+| `/` | Serves the production Vite build from `dist/`. |
+| `/agent` | Proxies to Factory Agent with the `/agent` prefix stripped. |
+| `/api/v1` | Proxies to the seeded Go API. |
+| `/__release/precheck` | Release helper diagnostics for env/schema/readiness checks. |
+| `/__release/version` | Build/cache/schema compatibility check. |
+| `/__release/faults` | Test-only fault toggles for Go API, Factory Agent, and schema mismatch drills. |
+
+The release frontend is compiled with:
+
+```text
+VITE_FACTORY_AGENT_BASE_URL=/agent
+VITE_API_BASE_URL=/api/v1
+VITE_FACTORY_AGENT_BEARER_TOKEN=<test static bearer>
+```
+
+The static bearer is intentional: browser `EventSource` cannot attach Authorization headers, so the release gate asserts that EventSource is disabled and snapshot polling remains enabled. The Factory Agent still runs with deterministic Playwright seeded planner/RAG adapters by default; real LLM/RAG calls are not used.
+
+Optional env vars:
+
+- `PLAYWRIGHT_RELEASE_REAL_LLM_SMOKE=1` enables the structural real-provider connectivity smoke. Leave unset for normal release validation.
+- `PLAYWRIGHT_RELEASE_ROLLBACK_BASE_URL=<url>` runs the rollback smoke against a previous build URL. Defaults to the current local release proxy.
+- `PLAYWRIGHT_RELEASE_CHAT_OPEN_BUDGET_MS`, `PLAYWRIGHT_RELEASE_FIRST_PROGRESS_BUDGET_MS`, `PLAYWRIGHT_RELEASE_FINAL_ANSWER_BUDGET_MS`, and `PLAYWRIGHT_RELEASE_LONG_STREAM_BUDGET_MS` tune latency budgets.
+- `PLAYWRIGHT_RELEASE_PORT_BASE`, `PLAYWRIGHT_RELEASE_GO_API_PORT`, `PLAYWRIGHT_RELEASE_FACTORY_AGENT_PORT`, and `PLAYWRIGHT_RELEASE_PROXY_PORT` can be used when local ports collide.
+
+Release failure artifacts are under `test-results/` and include Playwright traces, screenshots, video, browser console/network failure attachments, plus release stack files from `test-results/release-stack/`: `env-fingerprint.json`, `go-api.log`, `factory-agent.log`, `release-proxy.log`, `release-stack.log`, and `build.log`.
+
+Troubleshooting notes:
+
+- If startup fails, inspect `test-results/release-stack/env-fingerprint.json` first, then `factory-agent.log`, `go-api.log`, and `release-proxy.log`.
+- If `/agent/ready` is not reachable, the release project will not start browser tests.
+- If static bearer fallback fails, look for EventSource requests in the Playwright trace; the release suite expects none.
+- If a bad env or schema mismatch is suspected, open `/__release/precheck` in the release proxy. The diagnostic page is intentionally visible and fails before browser smoke can claim success.
+- Keep this command out of default PR CI unless the team intentionally promotes L4. PR CI remains `npm test` plus `npm run test:e2e -- --project=chromium`.
+
 ## CI Scope
 
 Phase 6 CI runs only the deterministic mocked frontend chatbot E2E suite:

@@ -652,7 +652,14 @@ function statusLoadingText(status) {
 
 function isBackendUnavailableError(error) {
   const text = String(error || '').toLowerCase()
-  return text.includes('cannot reach factory-agent') || text.includes('cannot connect to factory-agent') || text.includes('service temporarily unavailable')
+  return (
+    text.includes('cannot reach factory-agent') ||
+    text.includes('cannot connect to factory-agent') ||
+    text.includes('service temporarily unavailable') ||
+    text.includes('service unavailable') ||
+    text.includes('factoryagentunavailable') ||
+    text.includes('controlled release fault')
+  )
 }
 
 function FactoryAgentDiagnostics({ error, streamDiagnostics = [], retrying, onRetryConnection }) {

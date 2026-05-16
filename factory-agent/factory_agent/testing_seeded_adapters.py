@@ -238,6 +238,48 @@ class SeededPlaywrightPlanner:
                 risk="Read-only seeded stream-drop recovery fixture.",
             )
 
+        if "phase 10 refresh during active job" in lowered:
+            self._scenario_by_session[session_id] = "phase10_refresh_recovery"
+            if call_index == 1:
+                return self._draft_only(
+                    intent=intent,
+                    scoped_tools=scoped_tools,
+                    tool_name="get__machines_{id}",
+                    args={"id": "M-CNC-01"},
+                    summary="Phase 10 refresh recovery run is staged and ready to execute.",
+                )
+            await asyncio.sleep(2.5)
+            return await self._completed_with_summary(
+                intent=intent,
+                scoped_tools=scoped_tools,
+                tool_name="get__machines_{id}",
+                args={"id": "M-CNC-01"},
+                result={"data": {"machine_id": "M-CNC-01", "status": "RUNNING", "refresh_recovered": True}},
+                summary="Phase 10 refresh recovery completed once without duplicate execution.",
+                risk="Read-only release refresh recovery fixture.",
+            )
+
+        if "phase 10 long-running stream" in lowered:
+            self._scenario_by_session[session_id] = "phase10_long_running_stream"
+            if call_index == 1:
+                return self._draft_only(
+                    intent=intent,
+                    scoped_tools=scoped_tools,
+                    tool_name="get__machines_{id}",
+                    args={"id": "M-CNC-01"},
+                    summary="Phase 10 long-running stream is staged and will complete through polling.",
+                )
+            await asyncio.sleep(6.0)
+            return await self._completed_with_summary(
+                intent=intent,
+                scoped_tools=scoped_tools,
+                tool_name="get__machines_{id}",
+                args={"id": "M-CNC-01"},
+                result={"data": {"machine_id": "M-CNC-01", "status": "RUNNING", "long_stream_terminal": True}},
+                summary="Phase 10 long-running stream reached a terminal state within release limits.",
+                risk="Read-only release long-stream fixture.",
+            )
+
         if "phase 9 large structured result" in lowered:
             self._scenario_by_session[session_id] = "large_structured_result"
             return await self._large_structured_result(intent=intent, scoped_tools=scoped_tools)
