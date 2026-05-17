@@ -13,6 +13,7 @@ from factory_agent.planning.intent import intent_constraint_values, semantic_fra
 from factory_agent.planner import PlannerApprovalRequired
 from factory_agent.schemas import PlanDraft, PlanStepDraft, ToolInfo
 from factory_agent.services.planner_service import PlannerResult
+from factory_agent.testing_seeded_scenarios import SeededScenarioInterpreter
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,8 @@ class SeededPlaywrightRAGPipeline:
 class SeededPlaywrightPlanner:
     """Deterministic L3 planner that calls the seeded Go API but never calls an LLM."""
 
+    is_seeded_playwright_adapter = True
+
     def __init__(self, settings: Settings):
         self._settings = settings
         self._calls_by_session: dict[str, int] = {}
@@ -109,6 +112,10 @@ class SeededPlaywrightPlanner:
         self._approval_counts_by_session: dict[str, int] = {}
         self._phase14_state_by_session: dict[str, dict[str, Any]] = {}
         self._data_integrity_audit: list[dict[str, Any]] = []
+        self._scenario_interpreter = SeededScenarioInterpreter()
+
+    def handles_seeded_intent(self, intent: str) -> bool:
+        return self._scenario_interpreter.handles_intent(intent)
 
     def _scenario_for_resume(self, session_id: str) -> str | None:
         scenario = self._scenario_by_session.get(session_id)
@@ -133,26 +140,16 @@ class SeededPlaywrightPlanner:
         bundle_ui = payload.get("bundle_ui") if isinstance(payload.get("bundle_ui"), dict) else {}
         bundle_kind = str(bundle_ui.get("kind") or "")
         approval_id = str(payload.get("_approval_id") or payload.get("approval_id") or "").strip()
-        phase14_by_kind = {
-            "phase14_cascade_priority": "phase14_cascade",
-            "phase14_partial_failure": "phase14_partial_failure",
-            "phase14_idempotent_replay": "phase14_idempotent_replay",
-            "phase14_refresh_active_approval": "phase14_refresh_active_approval",
-            "phase14_stream_drop_commit": "phase14_stream_drop_commit",
-            "phase14_go_api_500": "phase14_go_api_500",
-            "phase14_stale_approval": "phase14_stale_approval",
-            "phase14_expired_approval": "phase14_expired_approval",
-            "phase14_agreement": "phase14_agreement",
-        }
-        if bundle_kind in phase14_by_kind:
-            self._scenario_by_session[session_id] = phase14_by_kind[bundle_kind]
+        scenario_marker = self._scenario_interpreter.marker_for_bundle_kind(bundle_kind)
+        if scenario_marker and scenario_marker != "multi_approval_chain":
+            self._scenario_by_session[session_id] = scenario_marker
             state = self._phase14_state_by_session.setdefault(session_id, {})
             if approval_id:
                 state["current_approval_id"] = approval_id
                 state.setdefault("approval_ids", []).append(approval_id)
             if bundle_ui.get("write_set"):
                 state["current_write_set"] = bundle_ui.get("write_set")
-        if "phase 9 multi approval chain" in intent.lower() or bundle_ui.get("kind") == "phase9_approval_chain":
+        if "phase 9 multi approval chain" in intent.lower() or scenario_marker == "multi_approval_chain":
             self._scenario_by_session[session_id] = "multi_approval_chain"
             self._approval_counts_by_session.setdefault(session_id, 0)
             log_event(
@@ -174,6 +171,16 @@ class SeededPlaywrightPlanner:
         call_index = self._calls_by_session.get(session_id, 0) + 1
         if session_id:
             self._calls_by_session[session_id] = call_index
+
+        scenario_result = await self._scenario_interpreter.generate(
+            self,
+            intent=intent,
+            scoped_tools=scoped_tools,
+            session_id=session_id,
+            call_index=call_index,
+        )
+        if scenario_result is not None:
+            return scenario_result
 
         if "phase 9 multi-step ordered" in lowered:
             self._scenario_by_session[session_id] = "multi_step_ordered"
@@ -392,10 +399,6 @@ class SeededPlaywrightPlanner:
             self._scenario_by_session[session_id] = "phase14_agreement"
             return await self._phase14_start_agreement(session_id=session_id)
 
-        if "phase 9 large structured result" in lowered:
-            self._scenario_by_session[session_id] = "large_structured_result"
-            return await self._large_structured_result(intent=intent, scoped_tools=scoped_tools)
-
         if "phase 9 isolation alpha" in lowered:
             self._scenario_by_session[session_id] = "isolation_alpha"
             return await self._completed_with_summary(
@@ -565,8 +568,6 @@ class SeededPlaywrightPlanner:
         for ch in "-_/.,;:":
             text = text.replace(ch, " ")
         text = " ".join(text.split())
-        if "phase 14 cascading priority update" in text:
-            return [("high", "low"), ("low", "medium")]
 
         matches = re.finditer(
             r"\b(?:change|update|set|move)\s+(?:all\s+)?(?:original\s+)?"

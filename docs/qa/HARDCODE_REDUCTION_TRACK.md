@@ -12,7 +12,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 | 2 | Capability-based tool selection | Complete | Codex | Semantic route tool selection now uses capability metadata before legacy endpoint-name fallback. |
 | 3 | Knowledge policy registry | Complete | Codex | Moved OSHA/LOTO fallback answer, sources, and safety content into a route-scoped RAG knowledge policy registry. |
 | 4 | SSE fault injection Adapter | Complete | Codex | Seeded duplicate/out-of-order/drop/reconnect hooks now live behind `factory_agent.testing.fault_injection`; production router uses the no-op adapter by default. |
-| 5 | Data-driven seeded scenario engine | Not Started | Next agent | Highest effort. Migrate scenario branches incrementally. |
+| 5 | Data-driven seeded scenario engine | In Progress | Codex | Added a small seeded scenario schema/interpreter and migrated SO-031 plus the SO-005/SO-041 medium->high/original-high->low cascade start path to scenario data. Legacy branches remain for unmigrated scenarios. |
 | 6 | Typed snapshot presentation contract | Not Started | Next agent | Backend contract needed before frontend cleanup. |
 | 7 | Frontend typed presentation rendering | Not Started | Next agent | Remove primary dependence on text phrase inference. |
 | 8 | Hardcode guardrails in CI | Not Started | Next agent | Resume scenario growth after this. |
@@ -45,6 +45,8 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 - Phase 3 keeps curated OSHA/LOTO fallback knowledge product-owned behind `factory_agent.rag.knowledge_policy`; the first policy is route-scoped to LOTO/safety RAG routes and does not apply to unrelated procedure prompts.
 - Phase 4 keeps normal SSE stream semantics in `factory_agent.api.routers.events`; seeded Playwright SSE diagnostics and fault behavior are isolated behind `factory_agent.testing.fault_injection`.
 - Phase 4 exposed and fixed related product bugs: bare `run` wording no longer implies a job mutation without a write verb; synthetic completion projection now preserves operator-facing tool result messages, uses step index as a tie-breaker for same-timestamp tool results, and the frontend sorts same-timestamp tool rows plus surfaces extra answer-model fields beside tables.
+- Phase 5 is proceeding incrementally: migrated scenario prompt matching now lives in `factory_agent.testing_seeded_scenarios`, while `testing_seeded_adapters.py` delegates execution to existing seeded helper methods. No production behavior changes are intended.
+- Phase 5 exposed and fixed an import-order product bug where importing `factory_agent.api.response_mappers` could eagerly import routes and circularly re-enter `session_snapshot_service`; `factory_agent.api.build_router` is now lazy. It also exposed a seeded-mode routing bug where semantic clarification intercepted known seeded Phase 14 oracle prompts before the seeded planner could handle them; normal production planners still clarify those prompts, while the seeded planner now advertises the fixture prompts it owns.
 
 ## Phase 0 Inventory
 
@@ -144,15 +146,32 @@ Inventory command families used:
 
 ### Phase 5: Data-Driven Seeded Scenario Engine
 
-- [ ] Define seeded scenario schema.
-- [ ] Implement generic interpreter for read-only result scenario.
-- [ ] Migrate one simple scenario.
-- [ ] Implement approval-chain interpreter.
-- [ ] Migrate one approval-chain scenario.
+- [x] Define seeded scenario schema.
+- [x] Implement generic interpreter for read-only result scenario.
+- [x] Migrate one simple scenario.
+- [x] Implement approval-chain interpreter.
+- [x] Migrate one approval-chain scenario.
 - [ ] Implement partial failure/stale approval interpreters.
 - [ ] Migrate remaining high-risk branches in batches.
-- [ ] Add guardrail against new phase-prompt branches in `testing_seeded_adapters.py`.
-- [ ] Run seeded oracle suite after each batch.
+- [x] Add guardrail against new phase-prompt branches in `testing_seeded_adapters.py`.
+- [x] Run seeded oracle suite after this batch.
+
+#### Phase 5 Migrated Seeded Branches
+
+| Scenario data id | Oracle coverage | Previous adapter branch/prompt dependency | New data-driven behavior |
+| --- | --- | --- | --- |
+| `so031_large_structured_result` | SO-031 | `if "phase 9 large structured result" in lowered` | Prompt metadata selects the read-only large structured result action; adapter executes the existing helper. |
+| `so005_so041_medium_high_original_high_low` | SO-005, SO-041 | Generic cascade prompt parsing for the exact medium->high then original high->low chain | Scenario metadata supplies the two original-state write sets and audit scenario; legacy parser remains for other cascade wordings. |
+| `phase14_cascade_default_high_low_low_medium` | SO-002-compatible default marker | `if "phase 14 cascading priority update" in text` inside the cascade parser | Scenario metadata preserves the old marker behavior without a prompt branch in the adapter. |
+
+#### Phase 5 Legacy Seeded Branches Remaining
+
+These remain intentionally unmigrated until later Phase 5 batches:
+
+- Phase 9 branches: multi-step ordered, multi-approval chain, approval timeout, read-only partial failure, schema mismatch, duplicate submit, out-of-order/duplicate SSE, Last-Event-ID reconnect, stream drop recovery, isolation alpha/beta.
+- Phase 10 branches: refresh during active job, long-running stream.
+- Phase 14 branches: bulk partial failure, idempotent approval replay, refresh during active approval, stream drop commit recovery, Go API 500 commit failure, stale approval, expired approval, agreement audit timeline summary.
+- Generic fallback branches: low-priority approval workflow, cancel, SSE/activity/stream, job lookup, job collection, low-priority job list, machine status.
 
 ### Phase 6: Typed Snapshot Presentation Contract
 
@@ -208,6 +227,10 @@ python -m pytest tests/test_event_stream_runtime.py -q
 python -m pytest tests/test_event_stream_runtime.py tests/test_intent_splitter.py tests/test_snapshot_timeline_final_response_contract.py -q
 npm test -- --runInBand
 npm run test:e2e -- --project=chromium-seeded --grep "@sse|stream drop|Last-Event-ID|out-of-order"
+python -m pytest tests/test_seeded_scenario_engine.py -q
+python -m pytest tests/test_stateful_oracle_schema.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py -q
+python -m pytest tests/test_seeded_scenario_engine.py tests/test_stateful_oracle_schema.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py -q
+npm run test:e2e:seeded-oracles
 git status --short --branch
 git diff --check
 ```
@@ -238,6 +261,12 @@ git diff --check
   - `npm test -- --runInBand`: 66 passed.
   - `npm run test:e2e -- --project=chromium-seeded --grep "@sse|stream drop|Last-Event-ID|out-of-order"`: 5 passed.
   - New coverage proves the production/no-op adapter does not inject seeded activity faults, the seeded Playwright adapter injects duplicate/out-of-order activity frames, notification stream drop happens once, Last-Event-ID reconnect continues with snapshot invalidation, and `events.py` no longer contains seeded phase prompt branches.
+- Phase 5 focused verification:
+  - `python -m pytest tests/test_seeded_scenario_engine.py -q`: 6 passed, 2 warnings.
+  - `python -m pytest tests/test_stateful_oracle_schema.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py -q`: 64 passed, 1 warning.
+  - `python -m pytest tests/test_seeded_scenario_engine.py tests/test_stateful_oracle_schema.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py -q`: 70 passed, 2 warnings.
+  - First `npm run test:e2e:seeded-oracles` run: 22 passed, 2 failed. The failures were SO-007/SO-018 scenario 88 and SO-006/SO-008/SO-027 scenario 89; both showed known seeded Phase 14 prompts being clarified before the seeded planner handled them.
+  - After the seeded-planner ownership fix, `npm run test:e2e:seeded-oracles`: 24 passed.
 - Baseline reported by user for semantic routing commit:
   - `python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q`: 63 passed
   - Compatibility checks: 20 passed
@@ -254,6 +283,9 @@ git diff --check
 - `factory-agent/factory_agent/planning/tool_intent_profile.py`
 - `factory-agent/factory_agent/planning/tool_selector.py`
 - `factory-agent/factory_agent/services/plan_creation_service.py`
+- `factory-agent/factory_agent/testing_seeded_scenarios.py`
+- `factory-agent/factory_agent/testing_seeded_adapters.py`
+- `factory-agent/factory_agent/api/__init__.py`
 - `factory-agent/factory_agent/api/routers/events.py`
 - `factory-agent/factory_agent/services/session_snapshot_service.py`
 - `factory-agent/factory_agent/testing/__init__.py`
@@ -265,6 +297,7 @@ git diff --check
 - `factory-agent/tests/test_api_endpoints.py`
 - `factory-agent/tests/test_event_stream_runtime.py`
 - `factory-agent/tests/test_rag_knowledge_policy.py`
+- `factory-agent/tests/test_seeded_scenario_engine.py`
 - `factory-agent/tests/test_snapshot_timeline_final_response_contract.py`
 - `factory-agent/tests/test_tool_selector.py`
 

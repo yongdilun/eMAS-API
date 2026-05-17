@@ -274,6 +274,10 @@ class PlanCreationService:
             )
         return "I need one more detail before I can route this safely. Please provide the missing required field."
 
+    def _seeded_planner_handles_intent(self, intent: str) -> bool:
+        handles = getattr(self._planner, "handles_seeded_intent", None)
+        return bool(handles(intent)) if callable(handles) else False
+
     async def _answer_knowledge_question_as_plan(self,
         *,
         db: AsyncSession,
@@ -857,7 +861,11 @@ class PlanCreationService:
         backend_used = "langgraph" if req.draft is None else "client"
         draft = req.draft
 
-        if semantic_frame.route.startswith("clarification.") and semantic_frame.missing_required_entities:
+        if (
+            semantic_frame.route.startswith("clarification.")
+            and semantic_frame.missing_required_entities
+            and not self._seeded_planner_handles_intent(intent)
+        ):
             plan_resp = await self._persist_conversation_reply_as_empty_plan(
                 db=db,
                 sess=sess,
