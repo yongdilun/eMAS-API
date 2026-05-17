@@ -466,6 +466,11 @@ async def test_create_plan_answers_osha_loto_knowledge_question_without_tool_pla
         assert body["created_by"] == "system"
         assert "29 CFR 1910.147" in body["plan_explanation"]
         assert body["sources"][0]["organization"] == "OSHA"
+        assert {source["doc_id"] for source in body["sources"]} == {
+            "osha_3120_lockout_tagout",
+            "29_cfr_1910_147",
+        }
+        assert "approved SOP" in body["safety_content"]
 
         steps = await client.get(f"/sessions/{session_id}/steps")
         assert steps.status_code == 200
@@ -473,6 +478,85 @@ async def test_create_plan_answers_osha_loto_knowledge_question_without_tool_pla
 
     assert rag.calls
     assert rag.calls[0]["route"] == "RAG_ONLY"
+
+
+@pytest.mark.asyncio
+async def test_create_plan_uses_osha_loto_policy_fallback_when_rag_is_empty(sessionmaker_override):
+    class FakeRAGPipeline:
+        async def run(self, *, query, session_id=None, route="RAG_ONLY", api_data=None):
+            del query, session_id, route, api_data
+            return type(
+                "Result",
+                (),
+                {
+                    "answer": "No relevant documents or data found for this query.",
+                    "sources": [],
+                    "safety_content": None,
+                },
+            )()
+
+    app, _ = await _make_app(sessionmaker_override, rag_pipeline_adapter=FakeRAGPipeline())
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        session_id = (await client.post("/sessions", json={"user_id": "u1"})).json()["session_id"]
+        await client.post(
+            f"/sessions/{session_id}/messages",
+            json={
+                "role": "user",
+                "content": (
+                    "What is the purpose of Lockout/Tagout (LOTO) procedures according to OSHA? "
+                    "Is there any specific OSHA regulation or standard that defines this?"
+                ),
+                "mode": "normal",
+            },
+        )
+
+        created = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert created.status_code == 200
+        body = created.json()
+        assert "29 CFR 1910.147" in body["plan_explanation"]
+        assert {source["doc_id"] for source in body["sources"]} == {
+            "osha_3120_lockout_tagout",
+            "29_cfr_1910_147",
+        }
+        assert "consult your safety officer" in body["safety_content"]
+
+
+@pytest.mark.asyncio
+async def test_create_plan_unknown_non_loto_procedure_does_not_borrow_osha_policy(sessionmaker_override):
+    class FakeRAGPipeline:
+        async def run(self, *, query, session_id=None, route="RAG_ONLY", api_data=None):
+            del query, session_id, route, api_data
+            return type(
+                "Result",
+                (),
+                {
+                    "answer": "No relevant documents or data found for this query.",
+                    "sources": [],
+                    "safety_content": None,
+                },
+            )()
+
+    app, _ = await _make_app(sessionmaker_override, rag_pipeline_adapter=FakeRAGPipeline())
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        session_id = (await client.post("/sessions", json={"user_id": "u1"})).json()["session_id"]
+        await client.post(
+            f"/sessions/{session_id}/messages",
+            json={
+                "role": "user",
+                "content": "What SOP applies before cleaning Line 2?",
+                "mode": "normal",
+            },
+        )
+
+        created = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert created.status_code == 200
+        body = created.json()
+        assert "29 CFR 1910.147" not in body["plan_explanation"]
+        assert "Lockout/Tagout" not in body["plan_explanation"]
+        assert body["sources"] == []
+        assert body["safety_content"] is None
 
 
 @pytest.mark.asyncio

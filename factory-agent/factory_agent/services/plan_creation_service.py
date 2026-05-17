@@ -41,6 +41,7 @@ from factory_agent.planning.intent import (
 from factory_agent.planning.plan_validator import validate_plan
 from factory_agent.planning.tool_output_alignment import align_tool_outputs_to_steps
 from factory_agent.planning.tool_selector import ToolSelector
+from factory_agent.rag.knowledge_policy import default_knowledge_policy_registry
 from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import PlanCreateRequest, PlanResponse, ToolInfo
 from factory_agent.security.permissions import filter_tools_for_role, role_from_claims
@@ -71,6 +72,7 @@ class PlanCreationService:
         self._tool_registry = tool_registry
         self._rag_pipeline = rag_pipeline
         self._generate_uuid = uuid_factory
+        self._knowledge_policy_registry = default_knowledge_policy_registry()
 
     def _should_enforce_registry_health(self) -> bool:
         if not self._settings.enforce_tool_registry_health:
@@ -256,52 +258,6 @@ class PlanCreationService:
             context_to_keep=context_to_keep,
         )
 
-    def _fallback_knowledge_answer(self, query: str) -> dict[str, Any] | None:
-        lowered = (query or "").lower()
-        if "loto" not in lowered and "lockout" not in lowered and "tagout" not in lowered:
-            return None
-        if "osha" not in lowered and "1910.147" not in lowered and "hazardous energy" not in lowered:
-            return None
-        return {
-            "answer": (
-                "According to OSHA, Lockout/Tagout (LOTO) procedures are used to control hazardous energy "
-                "during servicing or maintenance so machines and equipment are isolated, prevented from "
-                "unexpected startup or energization, and rendered safe before work begins. The OSHA general "
-                "industry standard that defines this is 29 CFR 1910.147, The Control of Hazardous Energy "
-                "(lockout/tagout). OSHA's energy-control program requirements include energy-control "
-                "procedures, employee training, and periodic inspections."
-            ),
-            "sources": [
-                {
-                    "source_number": 1,
-                    "doc_id": "osha_3120_lockout_tagout",
-                    "title": "Control of Hazardous Energy Lockout/Tagout",
-                    "organization": "OSHA",
-                    "authority_level": "official_public_guidance",
-                    "version": "2002 (Revised)",
-                    "license": "public",
-                },
-                {
-                    "source_number": 2,
-                    "doc_id": "29_cfr_1910_147",
-                    "title": "29 CFR 1910.147 - The control of hazardous energy (lockout/tagout)",
-                    "organization": "OSHA",
-                    "authority_level": "regulation",
-                    "license": "public",
-                },
-            ],
-            "safety_content": (
-                "This topic involves high-risk industrial procedures. Always follow your site's approved SOP, "
-                "obtain required permits, and consult your safety officer before proceeding."
-            ),
-        }
-
-    def _source_doc_id(self, source: Any) -> str:
-        data = source.model_dump() if hasattr(source, "model_dump") else source
-        if not isinstance(data, dict):
-            return ""
-        return str(data.get("doc_id") or "")
-
     def _loto_machine_clarification_reply(self) -> str:
         return (
             "Which machine ID should I use for the LOTO procedure? "
@@ -326,6 +282,7 @@ class PlanCreationService:
         tools_by_name: dict[str, ToolInfo],
         intent: str,
         context_to_keep: dict[str, Any] | None = None,
+        semantic_frame: Any | None = None,
     ) -> PlanResponse:
         answer = ""
         sources: list[Any] = []
@@ -347,27 +304,19 @@ class PlanCreationService:
                 error=str(exc),
             )
 
-        fallback = self._fallback_knowledge_answer(intent)
-        if fallback and (
-            not answer
-            or answer.lower().startswith("no relevant documents")
-            or answer.lower().startswith("unable to generate")
-        ):
-            answer = str(fallback["answer"])
-            sources = list(fallback["sources"])
-            safety_content = str(fallback["safety_content"])
-        elif fallback:
-            if "29 cfr 1910.147" not in answer.lower():
-                answer = (
-                    answer.rstrip()
-                    + "\n\nThe specific OSHA general industry standard is 29 CFR 1910.147, "
-                    "The Control of Hazardous Energy (lockout/tagout)."
-                )
-            existing_doc_ids = {self._source_doc_id(source) for source in sources}
-            for fallback_source in fallback["sources"]:
-                if fallback_source.get("doc_id") not in existing_doc_ids:
-                    sources.append(fallback_source)
-            safety_content = safety_content or str(fallback["safety_content"])
+        semantic_frame = semantic_frame or semantic_frame_for_text(intent)
+        route_family = str(getattr(semantic_frame, "route", "") or "unknown")
+        policy_application = self._knowledge_policy_registry.apply(
+            route_family=route_family,
+            query=intent,
+            answer=answer,
+            sources=sources,
+            safety_content=safety_content,
+            semantic_frame=semantic_frame,
+        )
+        answer = policy_application.answer or ""
+        sources = policy_application.sources
+        safety_content = policy_application.safety_content
 
         if not answer:
             answer = "I could not find enough relevant knowledge-base material to answer that safely."
@@ -932,6 +881,7 @@ class PlanCreationService:
                 tools_by_name=tools_by_name,
                 intent=loto_rag_intent if resolved_loto_machine_id else intent,
                 context_to_keep=context_to_keep,
+                semantic_frame=semantic_frame,
             )
             metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
             return plan_resp
@@ -944,6 +894,7 @@ class PlanCreationService:
                     mode=mode,
                     tools_by_name=tools_by_name,
                     intent=intent,
+                    semantic_frame=semantic_frame,
                 )
                 metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
                 return plan_resp

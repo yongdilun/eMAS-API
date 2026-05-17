@@ -10,7 +10,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 | 0 | Hardcode inventory and classification | Complete | Codex | Completed as docs-only inventory. No product or test behavior changes. Next action is Phase 1. |
 | 1 | Guard semantic routing against overfitting | Complete | Codex | Added route-family semantic contract matrix, production hardcode guard, and fixed job-id fragment entity leakage. |
 | 2 | Capability-based tool selection | Complete | Codex | Semantic route tool selection now uses capability metadata before legacy endpoint-name fallback. |
-| 3 | Knowledge policy registry | Not Started | Next agent | Move OSHA/LOTO fallback out of service code. |
+| 3 | Knowledge policy registry | Complete | Codex | Moved OSHA/LOTO fallback answer, sources, and safety content into a route-scoped RAG knowledge policy registry. |
 | 4 | SSE fault injection Adapter | Not Started | Next agent | Move Playwright seeded fault hooks out of production SSE route logic. |
 | 5 | Data-driven seeded scenario engine | Not Started | Next agent | Highest effort. Migrate scenario branches incrementally. |
 | 6 | Typed snapshot presentation contract | Not Started | Next agent | Backend contract needed before frontend cleanup. |
@@ -26,7 +26,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 ## Open Questions
 
 - Should route-family definitions live in Python data structures first or external JSON/YAML registry?
-- Should curated knowledge fallbacks be product-owned content or test-owned seeded content?
+- Should curated knowledge fallbacks eventually be product-owned content in external data instead of Python registry data?
 - What typed presentation schema should be considered stable enough for frontend use?
 - Which seeded planner scenarios should migrate first: approval chains, SSE faults, or RAG/source flows?
 - Should hardcode guardrails start as blocking CI or warning-only?
@@ -42,6 +42,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 - Fixture constants remain accepted only when they live in fixture/spec support paths and do not drive product routing.
 - Phase 1 found and fixed a product routing bug where a hyphenated job id such as `JOB-ABC-123` could leak an inner `ABC-123` machine id into `normalized_entities`.
 - Phase 2 found and fixed product routing bugs where individual job deletes were classified as dangerous bulk deletes, `JOB-*` IDs without digits were not normalized, create-job shorthand such as `create job P-005` did not preserve the product id, and read-style schedule explanation prompts were treated as incomplete job mutations.
+- Phase 3 keeps curated OSHA/LOTO fallback knowledge product-owned behind `factory_agent.rag.knowledge_policy`; the first policy is route-scoped to LOTO/safety RAG routes and does not apply to unrelated procedure prompts.
 
 ## Phase 0 Inventory
 
@@ -124,11 +125,11 @@ Inventory command families used:
 
 ### Phase 3: Knowledge Policy Registry
 
-- [ ] Create knowledge policy registry Interface.
-- [ ] Move OSHA/LOTO fallback answer/source/safety content into registry data.
-- [ ] Refactor `PlanCreationService` to call the registry.
-- [ ] Add tests for route-scoped fallback behavior.
-- [ ] Add tests proving unrelated unknown document prompts do not get OSHA/LOTO fallback.
+- [x] Create knowledge policy registry Interface.
+- [x] Move OSHA/LOTO fallback answer/source/safety content into registry data.
+- [x] Refactor `PlanCreationService` to call the registry.
+- [x] Add tests for route-scoped fallback behavior.
+- [x] Add tests proving unrelated unknown document prompts do not get OSHA/LOTO fallback.
 
 ### Phase 4: SSE Fault Injection Adapter
 
@@ -196,6 +197,13 @@ python -m pytest tests/test_intent_splitter.py -q
 python -m pytest tests/test_tool_selector.py -q
 python -m pytest tests/test_tool_intent_profile.py -q
 python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q
+python -m pytest tests/test_rag_knowledge_policy.py -q
+python -m pytest tests/test_api_endpoints.py::test_create_plan_answers_osha_loto_knowledge_question_without_tool_plan tests/test_api_endpoints.py::test_create_plan_uses_osha_loto_policy_fallback_when_rag_is_empty tests/test_api_endpoints.py::test_create_plan_unknown_non_loto_procedure_does_not_borrow_osha_policy -q
+python -m pytest tests/test_phase19_prompt_workflow_regression.py -q
+python -m pytest tests/test_rag_* -q
+python -m pytest tests/test_rag_generation.py tests/test_rag_ingestion.py tests/test_rag_live_llm.py tests/test_rag_retrieval.py tests/test_rag_reranking.py tests/test_rag_knowledge_policy.py -q
+git status --short --branch
+git diff --check
 ```
 
 ## Test Results
@@ -210,6 +218,14 @@ python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflo
   - `python -m pytest tests/test_tool_selector.py -q`: 21 passed, 12 warnings.
   - `python -m pytest tests/test_tool_intent_profile.py -q`: 10 passed, 1 warning.
   - `python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q`: 77 passed, 1 warning.
+- Phase 3 focused verification:
+  - `python -m pytest tests/test_rag_knowledge_policy.py -q`: 4 passed, 3 warnings.
+  - `python -m pytest tests/test_api_endpoints.py::test_create_plan_answers_osha_loto_knowledge_question_without_tool_plan tests/test_api_endpoints.py::test_create_plan_uses_osha_loto_policy_fallback_when_rag_is_empty tests/test_api_endpoints.py::test_create_plan_unknown_non_loto_procedure_does_not_borrow_osha_policy -q`: 3 passed, 42 warnings.
+  - `python -m pytest tests/test_phase19_prompt_workflow_regression.py -q`: 42 passed, 3 warnings.
+  - `python -m pytest tests/test_rag_* -q`: failed before collection because PowerShell passed the wildcard literally; pytest reported `file or directory not found: tests/test_rag_*`.
+  - `python -m pytest tests/test_rag_generation.py tests/test_rag_ingestion.py tests/test_rag_live_llm.py tests/test_rag_retrieval.py tests/test_rag_reranking.py tests/test_rag_knowledge_policy.py -q`: first run hit `WinError 5` creating pytest temp dirs under the user temp path; rerun with `TMP`/`TEMP` pointed at a workspace temp dir passed with 29 passed, 1 skipped, 3 warnings.
+  - `git diff --check`: passed with CRLF normalization warnings only.
+  - No Phase 3 product bug was found.
 - Baseline reported by user for semantic routing commit:
   - `python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q`: 63 passed
   - Compatibility checks: 20 passed
@@ -222,11 +238,15 @@ python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflo
 - `docs/qa/HARDCODE_REDUCTION_PLAN.md`
 - `docs/qa/HARDCODE_REDUCTION_TRACK.md`
 - `factory-agent/factory_agent/planning/intent.py`
+- `factory-agent/factory_agent/rag/knowledge_policy.py`
 - `factory-agent/factory_agent/planning/tool_intent_profile.py`
 - `factory-agent/factory_agent/planning/tool_selector.py`
+- `factory-agent/factory_agent/services/plan_creation_service.py`
 - `factory-agent/tests/test_intent_splitter.py`
+- `factory-agent/tests/test_api_endpoints.py`
+- `factory-agent/tests/test_rag_knowledge_policy.py`
 - `factory-agent/tests/test_tool_selector.py`
 
 ## Next Action
 
-Start Phase 3. Move OSHA/LOTO fallback answer and source policy out of `PlanCreationService` into a route-scoped knowledge policy registry.
+Start Phase 4. Move Playwright seeded SSE fault hooks out of production SSE router logic.
