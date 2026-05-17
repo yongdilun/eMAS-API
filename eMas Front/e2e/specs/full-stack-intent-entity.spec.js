@@ -92,16 +92,22 @@ test.describe('Phase 18 seeded intent/entity and RAG routing @intent-entity @rag
     expect(snapshot.steps[0].args.priority).toBe('high')
   })
 
-  test('scenario 109: missing LOTO machine ID asks for clarification', async ({ page }) => {
+  test('SO-022 scenario 109 @prompt-regression: missing LOTO machine ID asks for a specific id without inventing one', async ({ page }) => {
     await openChat(page)
     await sendPrompt(page, phase18MissingMachinePrompt)
 
     await expect(page.getByText(/Which machine ID should I use for the LOTO procedure/i).first()).toBeVisible()
-    await expect(page.getByText(/M-CNC-01/i).first()).toBeVisible()
+    await expect(page.getByText(/exact machine ID/i).first()).toBeVisible()
+    await expect(page.getByText(/M-CNC-01/i)).toHaveCount(0)
+    await expect(page.getByText(/Controlled seeded RAG answer/i)).toHaveCount(0)
+    await expect(page.getByText('Knowledge sources')).toHaveCount(0)
+    await expect(page.getByText('Factory Agent needs attention')).toHaveCount(0)
     const snapshot = await snapshotForPage(page)
     expect(snapshot.session.status).toBe('COMPLETED')
     expect(snapshot.steps).toHaveLength(0)
+    expect(sourcesFromSnapshot(snapshot)).toEqual([])
     expect(textFromSnapshot(snapshot)).toContain('which machine id')
+    expect(textFromSnapshot(snapshot)).not.toContain('m-cnc-01')
   })
 
   test('scenario 110: multi-entity LOTO prompt preserves machine and job IDs on the RAG route', async ({ page }) => {

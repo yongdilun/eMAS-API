@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -22,6 +23,17 @@ from factory_agent.persistence.models import Plan as PlanRow
 from factory_agent.persistence.models import PlanStep as PlanStepRow
 from factory_agent.persistence.models import Session as SessionRow
 from factory_agent.schemas import MessageCreateRequest, MessageResponse
+
+
+_CANCEL_COMMAND_RE = re.compile(
+    r"^\s*(?:"
+    r"stop\b.*|"
+    r"cancel(?:\s+(?:the\s+)?(?:current\s+)?(?:run|request|session|operation|job|it|this))?\b.*|"
+    r"don't\s+do\s+this\b.*|"
+    r"do\s+not\s+do\s+this\b.*"
+    r")$",
+    re.IGNORECASE,
+)
 
 
 def build_messages_router(
@@ -86,7 +98,7 @@ def build_messages_router(
             lowered = req.content.strip().lower()
             current_plan = await _load_current_plan(db=db, session_id=session_id)
             is_langgraph = await is_graph_native_session(db, sess, plan=current_plan)
-            if any(token in lowered for token in ("stop", "cancel", "don't do this", "do not do this")):
+            if _CANCEL_COMMAND_RE.match(lowered):
                 if not is_langgraph:
                     step_rows = (
                         await db.execute(

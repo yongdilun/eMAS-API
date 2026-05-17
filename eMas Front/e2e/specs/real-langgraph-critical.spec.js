@@ -266,4 +266,32 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
     expect(finalText).not.toContain(`Updated **${originalMediumJobIds.length}** job(s).`)
     expect(finalText).not.toMatch(/Factory Agent needs attention/i)
   })
+
+  test('SO-026 resolves a LOTO follow-up pronoun before the real LangGraph route gate', async ({ page }) => {
+    await openChat(page)
+    await sendPrompt(page, 'What is the status of M-CNC-01?')
+    const sessionId = await activeSessionId(page)
+
+    await expect(page.getByText(/Machine M-CNC-01/i).first()).toBeVisible({ timeout: 30_000 })
+    await expect
+      .poll(async () => (await snapshotForPage(page)).session.status, { timeout: 30_000 })
+      .toBe('COMPLETED')
+    const firstFinal = await finalAssistantText(sessionId)
+    expect(firstFinal).toMatch(/M-CNC-01/i)
+
+    await sendPrompt(page, 'What LOTO procedure applies before working on it?')
+    await expect
+      .poll(async () => await finalAssistantText(sessionId), { timeout: 45_000 })
+      .not.toBe(firstFinal)
+
+    const snapshot = await snapshotForPage(page)
+    expect(snapshot.session.status).toBe('COMPLETED')
+    expect(snapshot.session.current_intent).toContain('Machine ID: M-CNC-01')
+    expect(snapshot.session.current_intent).toContain('What LOTO procedure applies before working on it?')
+    const finalText = await finalAssistantText(sessionId)
+    expect(finalText).not.toMatch(/Which machine|provide the exact machine|Factory Agent needs attention/i)
+    expect(finalText).not.toBe(firstFinal)
+    const finalVisible = await visibleText(page)
+    expect(finalVisible).not.toMatch(/Which machine ID should I use|Factory Agent needs attention/i)
+  })
 })

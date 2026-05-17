@@ -254,7 +254,7 @@
       "browser_coverage": true,
       "regression": {
         "test_file": "factory-agent/tests/test_phase19_prompt_workflow_regression.py; eMas Front/e2e/specs/full-stack-prompt-workflow-regression.spec.js",
-        "command": "Set-Location \"factory-agent\"; python -m pytest tests/test_phase19_prompt_workflow_regression.py::test_so021_so025_prompt_oracles_route_loto_to_rag_with_machine_id -q; Set-Location \"..\\eMas Front\"; npx playwright test e2e/specs/full-stack-prompt-workflow-regression.spec.js --project=chromium-seeded --grep \"SO-025\"",
+        "command": "Set-Location \"factory-agent\"; python -m pytest tests/test_phase19_prompt_workflow_regression.py::test_so021_so023_so025_prompt_oracles_route_loto_to_rag_with_machine_id -q; Set-Location \"..\\eMas Front\"; npx playwright test e2e/specs/full-stack-prompt-workflow-regression.spec.js --project=chromium-seeded --grep \"SO-025\"",
         "failing_before_closure_required": true,
         "failure_evidence": "Required for new manual misses before closure; SO-025 is now tied to route pytest plus browser-visible seeded LOTO/source assertions.",
         "passing_evidence": "Phase 12 executable enforcement reruns the SO-025 route pytest and seeded browser proof."
@@ -269,6 +269,80 @@
         "required_final_state": "COMPLETED",
         "required_answer_terms": ["Controlled seeded RAG answer", "M-CNC-01", "lockout", "tagout"],
         "forbidden_answer_terms": ["Status: running", "machine status only"],
+        "required_source": {
+          "machine_id": "M-CNC-01",
+          "procedure_id": "LOTO-M-CNC-01"
+        }
+      },
+      "coverage": ["parser", "route", "seeded-browser"]
+    },
+    {
+      "id": "phase16-so022-loto-missing-machine-id",
+      "source_prompt": "What LOTO procedure applies before working on the CNC machine?",
+      "prompt": "What LOTO procedure applies before working on the CNC machine?",
+      "observed_failure": "A missing-machine LOTO prompt could default to M-CNC-01, claim source metadata, or complete as a successful LOTO answer.",
+      "expected_behavior": "Ask for the specific machine ID without inventing M-CNC-01, without source metadata, and without generic failure copy.",
+      "artifact_link": "docs/qa/manual_prompt_regression_bank.md#phase-16-remaining-normal-use-breakage-scenarios",
+      "selected_oracle": "SO-022",
+      "proposed_oracle": null,
+      "owner": "qa",
+      "severity": "high",
+      "lowest_test_layer": "route",
+      "browser_coverage": true,
+      "regression": {
+        "test_file": "factory-agent/tests/test_phase19_prompt_workflow_regression.py; eMas Front/e2e/specs/full-stack-intent-entity.spec.js",
+        "command": "Set-Location \"factory-agent\"; python -m pytest tests/test_phase19_prompt_workflow_regression.py::test_so022_prompt_oracle_clarifies_missing_loto_machine_without_default_id -q; Set-Location \"..\\eMas Front\"; npx playwright test e2e/specs/full-stack-intent-entity.spec.js --project=chromium-seeded --grep \"SO-022\"",
+        "failing_before_closure_required": true,
+        "failure_evidence": "Phase 16 found the clarification copy named M-CNC-01 as an example, which violated the no-invented-machine evidence rule.",
+        "passing_evidence": "Required after Phase 16 focused route and seeded browser runs."
+      },
+      "test_layer": "route+seeded-browser",
+      "expected": {
+        "primary_route": "clarification",
+        "machine_ids": [],
+        "job_ids": [],
+        "clarification_expected": true,
+        "required_final_state": "COMPLETED",
+        "required_answer_terms": ["Which machine ID", "exact machine ID"],
+        "forbidden_answer_terms": [
+          "M-CNC-01",
+          "Controlled seeded RAG answer",
+          "Knowledge sources",
+          "Factory Agent needs attention",
+          "LOTO-M-CNC-01"
+        ]
+      },
+      "coverage": ["parser", "route", "seeded-browser"]
+    },
+    {
+      "id": "phase16-so023-loto-lowercase-punctuation-m-cnc-01",
+      "source_prompt": "need lockout tagout for m-cnc-01 before service",
+      "prompt": "need lockout tagout for m-cnc-01 before service",
+      "observed_failure": "Plain lowercase lockout tagout wording could lose m-cnc-01 or ask for the machine ID again.",
+      "expected_behavior": "Normalize m-cnc-01 to M-CNC-01, choose the LOTO/RAG route, and return source metadata for LOTO-M-CNC-01 without clarification.",
+      "artifact_link": "docs/qa/manual_prompt_regression_bank.md#phase-16-remaining-normal-use-breakage-scenarios",
+      "selected_oracle": "SO-023",
+      "proposed_oracle": null,
+      "owner": "qa",
+      "severity": "high",
+      "lowest_test_layer": "parser",
+      "browser_coverage": true,
+      "regression": {
+        "test_file": "factory-agent/tests/test_phase18_manual_prompt_bank.py; factory-agent/tests/test_phase19_prompt_workflow_regression.py; eMas Front/e2e/specs/full-stack-prompt-workflow-regression.spec.js",
+        "command": "Set-Location \"factory-agent\"; python -m pytest tests/test_phase18_manual_prompt_bank.py tests/test_phase19_prompt_workflow_regression.py::test_so021_so023_so025_prompt_oracles_route_loto_to_rag_with_machine_id -q; Set-Location \"..\\eMas Front\"; npx playwright test e2e/specs/full-stack-prompt-workflow-regression.spec.js --project=chromium-seeded --grep \"SO-023\"",
+        "failing_before_closure_required": true,
+        "failure_evidence": "Required before closure for future misses; Phase 16 promotes this phrase to parser, route, and seeded browser coverage.",
+        "passing_evidence": "Required after Phase 16 focused route and seeded browser runs."
+      },
+      "test_layer": "parser+route+seeded-browser",
+      "expected": {
+        "primary_route": "rag_loto",
+        "machine_ids": ["M-CNC-01"],
+        "job_ids": [],
+        "clarification_expected": false,
+        "forbidden_clarification_terms": ["which machine", "machine id", "provide the exact machine"],
+        "required_final_state": "COMPLETED",
+        "required_answer_terms": ["Controlled seeded RAG answer", "M-CNC-01", "LOTO procedure"],
         "required_source": {
           "machine_id": "M-CNC-01",
           "procedure_id": "LOTO-M-CNC-01"

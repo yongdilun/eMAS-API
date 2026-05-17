@@ -107,6 +107,13 @@ class ExecutionService:
         if intent_contract:
             context["intent_contract"] = intent_contract
         context.pop("langgraph_pending_approval", None)
+        await db.refresh(sess)
+        if self._plan_service._is_cancelled_session(sess):
+            log_event(
+                "background_execution_result_ignored_after_cancel",
+                session_id=sess.session_id,
+            )
+            return sess
         sess.replan_context = context
         sess.llm_call_count += selection.llm_calls + generated.llm_calls
         await self._plan_service._persist_plan(
@@ -122,6 +129,9 @@ class ExecutionService:
             tool_outputs=getattr(generated, "tool_outputs", None),
         )
         sess = await self._session_mgr.get_session(db, session_id=sess.session_id) or sess
+        await db.refresh(sess)
+        if self._plan_service._is_cancelled_session(sess):
+            return sess
         if sess.status != "FAILED":
             sess.status = "COMPLETED"
             sess.completed_at = datetime.utcnow()

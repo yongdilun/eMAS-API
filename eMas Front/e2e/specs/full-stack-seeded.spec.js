@@ -1,6 +1,14 @@
 import { seededRuntimeEnv } from '../support/fullStackEnv.js'
 import { expect, test } from '../support/seededArtifacts.js'
 import { chatSelectors } from '../fixtures/selectors.js'
+import {
+  activityText,
+  currentPriorityMap,
+  dataIntegrityAudit,
+  expectNoSuccessfulAudit,
+  sessionMessages,
+  timelineText,
+} from '../support/dataIntegrityScenarios.js'
 
 const seededEnv = seededRuntimeEnv()
 
@@ -105,8 +113,11 @@ test.describe('L3 seeded full-stack foundation @l3-foundation', () => {
     await expect(page.getByRole('button', { name: 'Approve' })).toHaveCount(0)
   })
 
-  test('scenario 37: cancel during execution returns to idle cancelled state', async ({ page }) => {
+  test('SO-028 scenario 37 @sse: cancel during execution returns to idle without hidden continuation', async ({ page }) => {
+    test.setTimeout(75_000)
+    const initialPriorities = await currentPriorityMap()
     await openChat(page)
+    await page.getByRole('button', { name: 'New Session' }).click()
     await sendPrompt(page, 'Start a seeded cancel jobs run and keep it executing')
 
     const cancel = page.getByRole('button', { name: 'Cancel current run' })
@@ -119,6 +130,27 @@ test.describe('L3 seeded full-stack foundation @l3-foundation', () => {
     const snapshot = await factoryAgentJson(`/sessions/${sessionId}/snapshot`)
     expect(snapshot.session.status).toBe('IDLE')
     expect(snapshot.session.error).toMatch(/Cancelled/i)
+    expect(activityText(snapshot)).not.toContain('Run complete')
+    expect(timelineText(snapshot)).not.toMatch(/low-priority seeded jobs|Run complete/i)
+    await expect(page.getByText(/Run cancelled by operator request/i).first()).toBeVisible()
+    await expect(page.getByText(/low-priority seeded jobs|Seeded cancellable run completed/i)).toHaveCount(0)
+    await expect(page.getByText('Run complete')).toHaveCount(0)
+    expectNoSuccessfulAudit(await dataIntegrityAudit(sessionId))
+
+    await page.waitForTimeout(32_500)
+    const laterSnapshot = await factoryAgentJson(`/sessions/${sessionId}/snapshot`)
+    expect(laterSnapshot.session.status).toBe('IDLE')
+    expect(laterSnapshot.session.error).toMatch(/Cancelled/i)
+    expect(activityText(laterSnapshot)).not.toContain('Run complete')
+    expect(timelineText(laterSnapshot)).not.toMatch(/low-priority seeded jobs|Run complete/i)
+    expect(await currentPriorityMap()).toEqual(initialPriorities)
+    expectNoSuccessfulAudit(await dataIntegrityAudit(sessionId))
+    const messages = await sessionMessages(sessionId)
+    const assistantText = messages
+      .filter((message) => message.role === 'assistant')
+      .map((message) => message.content)
+      .join('\n')
+    expect(assistantText).not.toMatch(/Run complete|low-priority seeded jobs|all requested changes completed/i)
   })
 
   test('scenario 38: notification and activity SSE open and reach final snapshot', async ({ page }) => {

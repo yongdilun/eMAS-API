@@ -268,7 +268,7 @@ async function runCascadeInvariant(page, scenario, testInfo) {
 test.describe('Phase 19 seeded prompt/workflow regression gate @prompt-regression @data-integrity', () => {
   test.describe.configure({ timeout: 150_000 })
 
-  test('SO-021 scenario 116/124/125: LOTO regression bank routes through seeded RAG without generic diagnostics', async ({ page }) => {
+  test('SO-021/SO-023 scenario 116/124/125: LOTO regression bank routes through seeded RAG without generic diagnostics', async ({ page }) => {
     expect(phase19LotoRegressionEntries.length).toBeGreaterThanOrEqual(5)
 
     for (const [index, entry] of phase19LotoRegressionEntries.entries()) {
@@ -309,6 +309,71 @@ test.describe('Phase 19 seeded prompt/workflow regression gate @prompt-regressio
     await expect(page.getByText(/Status:\s*running|machine status only|Which machine/i)).toHaveCount(0)
     await expect(page.getByText('Factory Agent needs attention')).toHaveCount(0)
     await expect(page.getByText('Run complete').first()).toBeVisible()
+  })
+
+  test('SO-026 multi-turn LOTO follow-up resolves it to the previous machine before routing to RAG', async ({ page }) => {
+    await openChat(page)
+    await sendPrompt(page, 'What is the status of M-CNC-01?')
+
+    await expect(page.getByText(/Machine M-CNC-01/i).first()).toBeVisible()
+    await expect(page.getByText('Run complete').first()).toBeVisible()
+    const sessionId = await activeSessionId(page)
+    expect(sessionId).toBeTruthy()
+
+    await sendPrompt(page, 'What LOTO procedure applies before working on it?')
+
+    await expect(page.getByText(/Controlled seeded RAG answer/i).first()).toBeVisible()
+    await expect(page.getByText(/M-CNC-01/i).first()).toBeVisible()
+    await expect(page.getByText('Knowledge sources')).toBeVisible()
+    await expect(page.getByText(/Seeded LOTO Procedure for M-CNC-01/i).first()).toBeVisible()
+    await expect(page.getByText(/Which machine ID/i)).toHaveCount(0)
+    await expect(page.getByText('Factory Agent needs attention')).toHaveCount(0)
+    await waitForSessionStatus(page, 'COMPLETED')
+
+    const snapshot = await snapshotForPage(page)
+    const sources = sourcesFromSnapshot(snapshot)
+    expect(snapshot.session.status).toBe('COMPLETED')
+    expect(snapshot.session.current_intent).toContain('Machine ID: M-CNC-01')
+    expect(snapshot.steps).toHaveLength(0)
+    expect(sources[0].machine_id).toBe('M-CNC-01')
+    expect(sources[0].procedure_id).toBe('LOTO-M-CNC-01')
+
+    const finalText = await finalAssistantText(sessionId)
+    expectFinalSummaryClaimsOnly(finalText, {
+      mustInclude: ['Controlled seeded RAG answer', 'M-CNC-01'],
+      mustExclude: [/Which machine/i, /seeded Go API data/i, /Machine M-CNC-01 is RUNNING/i, /Factory Agent needs attention/i],
+    })
+  })
+
+  test('SO-031 large structured result keeps terminal state visible and details controls usable', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 820 })
+    await openChat(page)
+    await sendPrompt(page, 'List jobs for Phase 9 large structured result')
+
+    await expect(page.getByText(/Phase 9 large structured result rendered 80 seeded rows/i).first()).toBeVisible()
+    await expect(page.getByRole('table').first()).toBeVisible()
+    await expect(page.getByText('Showing 20 of 80 rows.')).toBeVisible()
+    await expect(page.getByText(/JOB-SEED-LARGE-001/i).first()).toBeVisible()
+    await expect(page.getByText('Run complete').first()).toBeVisible()
+    await expect(page.locator('[role="status"][aria-busy="true"]')).toHaveCount(0)
+    await expect(page.getByText(/Gathering information\.\.\.|Working\.\.\.|Understanding your request\.\.\./i)).toHaveCount(0)
+    await expect(page.getByText('Factory Agent needs attention')).toHaveCount(0)
+
+    const activityToggle = page.getByRole('button', { name: /Run complete/i }).first()
+    await expect(activityToggle).toBeVisible()
+    await activityToggle.click()
+    await expect(page.getByText(/Phase 9 large structured result rendered 80 seeded rows/i).first()).toBeVisible()
+    await page.getByRole('button', { name: /Session activity/i }).first().click()
+    await expect(page.getByText(/Phase 9 large structured result rendered 80 seeded rows/i).first()).toBeVisible()
+
+    const dialogOverflows = await page.getByRole('dialog').evaluate((dialog) => dialog.scrollWidth > dialog.clientWidth + 1)
+    expect(dialogOverflows).toBe(false)
+    const snapshot = await snapshotForPage(page)
+    expect(snapshot.session.status).toBe('COMPLETED')
+    expect(snapshot.steps[0].result.data).toHaveLength(80)
+    expect(snapshot.steps[0].result.data.at(-1).job_id).toBe('JOB-SEED-LARGE-080')
+    expect(activityText(snapshot)).toContain('Run complete')
+    expect(timelineText(snapshot)).toContain('Phase 9 large structured result rendered 80 seeded rows')
   })
 
   for (const scenario of phase19CascadeMatrix) {

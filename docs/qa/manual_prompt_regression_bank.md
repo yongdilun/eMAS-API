@@ -139,6 +139,20 @@ Phase 15 does not add new prompt scenarios. It assigns every fixed or newly foun
 
 Routine manual chatbot release regression remains retired. Manual work is limited to nuanced answer quality, compliance/sign-off, exploratory discovery, and emergency incident diagnosis, and those become release blockers only when an owner records an accepted gap or release exception.
 
+## Phase 16 Remaining Normal-Use Breakage Scenarios
+
+Phase 16 adds a small high-risk normal-use batch after the release-lane work. It keeps LOTO wording volume out of browser coverage unless the UI/final-state evidence can diverge from parser evidence.
+
+| ID | Prompt / flow | Expected deterministic behavior | Coverage | Coverage category |
+|---|---|---|---|---|
+| `phase16-so022-loto-missing-machine-id` | `What LOTO procedure applies before working on the CNC machine?` | Ask for the specific machine ID without inventing `M-CNC-01`, without source metadata, without generic failure copy, and without completing as a successful LOTO answer. | SO-022 oracle, route pytest, seeded browser visible-DOM proof | `canonical` |
+| `phase16-so023-loto-lowercase-punctuation-m-cnc-01` | `need lockout tagout for m-cnc-01 before service` | Normalize `m-cnc-01` to `M-CNC-01`, route to LOTO/RAG, return `LOTO-M-CNC-01` source evidence, and avoid another machine-ID clarification. | SO-023 oracle, parser/manual-bank gate, route pytest, seeded browser via the LOTO bank loop | `canonical` |
+| `SO-026` | Ask `What is the status of M-CNC-01?`, then `What LOTO procedure applies before working on it?` | Resolve `it` from the immediately previous completed turn, route to LOTO/RAG, and make the latest assistant response the LOTO answer rather than stale status or generic clarification. | SO-026 oracle, contextual route pytest, seeded browser, real LangGraph browser | `canonical` |
+| `SO-028` | Start the seeded cancellable run, then click `Cancel current run` while executing. | Session remains cancelled, no hidden continuation reaches success, no audit/mutation appears later, and final UI/snapshot show safe cancellation. | SO-028 oracle, seeded full-stack browser using the existing cancel fixture | `canonical` |
+| `SO-031` | `List jobs for Phase 9 large structured result` | The 80-row deterministic table remains usable, terminal state/final response stay visible, activity expand/collapse works, and stale loading/current state is absent. | SO-031 oracle, seeded full-stack browser using the existing large-result fixture | `canonical` |
+
+No accepted gaps were planned for this batch. A failure can close only through the same promotion rule above: failing regression evidence, product or test fix, passing focused command, tracker update, and no "tested manually only" closure.
+
 ## Future Scenario Quality Gate
 
 Before adding a new prompt or SO scenario, answer these questions in the bank entry, oracle file, or tracker:

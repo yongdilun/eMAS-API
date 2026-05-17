@@ -1,7 +1,13 @@
 import { manualPromptBankEntries } from './intentEntityScenarios.js'
 
 export const phase19LotoRegressionEntries = manualPromptBankEntries.filter(
-  (entry) => entry.id === 'phase18-loto-m-cnc-01' || String(entry.id || '').startsWith('phase19-loto-'),
+  (entry) =>
+    (
+      entry.id === 'phase18-loto-m-cnc-01' ||
+      String(entry.id || '').startsWith('phase19-loto-') ||
+      entry.selected_oracle === 'SO-023'
+    ) &&
+    entry.expected?.primary_route === 'rag_loto',
 )
 
 export const phase19UnknownPrompt = 'Phase 19 unsupported prompt: calibrate the moonlight queue'

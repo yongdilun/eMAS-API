@@ -165,7 +165,7 @@
   "executable_enforcement": {
     "pytest": [
       "factory-agent/tests/test_snapshot_timeline_final_response_contract.py::test_all_stateful_oracle_files_have_executable_snapshot_final_response_contract",
-      "factory-agent/tests/test_phase19_prompt_workflow_regression.py::test_so021_so025_prompt_oracles_route_loto_to_rag_with_machine_id"
+      "factory-agent/tests/test_phase19_prompt_workflow_regression.py::test_so021_so023_so025_prompt_oracles_route_loto_to_rag_with_machine_id"
     ],
     "playwright": [
       "eMas Front/e2e/specs/full-stack-prompt-workflow-regression.spec.js::SO-025 route confusion prompt"

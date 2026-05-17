@@ -3,10 +3,12 @@ from pathlib import Path
 
 import pytest
 
+from factory_agent.api.routers.messages import _CANCEL_COMMAND_RE
 from factory_agent.config import Settings
 from factory_agent.planning.intent import (
     assess_intent,
     intent_constraint_values,
+    resolve_contextual_loto_machine_id,
     should_clarify_loto_machine,
     should_route_loto_to_rag,
 )
@@ -107,7 +109,12 @@ def test_phase19_scenario_116_loto_wording_matrix_uses_same_rag_route():
     loto_entries = [
         entry
         for entry in bank["prompts"]
-        if entry["id"] == "phase18-loto-m-cnc-01" or entry["id"].startswith("phase19-loto-")
+        if (
+            entry["id"] == "phase18-loto-m-cnc-01"
+            or entry["id"].startswith("phase19-loto-")
+            or entry.get("selected_oracle") == "SO-023"
+        )
+        and entry["expected"]["primary_route"] == "rag_loto"
     ]
 
     assert len(loto_entries) >= 5
@@ -133,6 +140,7 @@ def test_phase19_scenario_116_loto_wording_matrix_uses_same_rag_route():
         ("machine (M-CNC-01) for work order (JOB-SEED-001)", ["M-CNC-01"], ["JOB-SEED-001"]),
         ("### IDs\n- machine: `m-cnc-01`\n- job: **job-seed-001**", ["M-CNC-01"], ["JOB-SEED-001"]),
         ("Machine:\nM-CNC-01\nJob:\nJOB-SEED-001", ["M-CNC-01"], ["JOB-SEED-001"]),
+        ("need lockout tagout for m-cnc-01 before service", ["M-CNC-01"], []),
     ],
 )
 def test_phase19_scenario_117_machine_and_job_id_extraction_matrix(prompt, expected_machine_ids, expected_job_ids):
@@ -179,8 +187,8 @@ def test_phase19_scenario_118_loto_route_selection_short_circuits_to_rag():
     assert assessment.entity == "machine"
 
 
-@pytest.mark.parametrize("oracle_id", ["SO-021", "SO-025"])
-def test_so021_so025_prompt_oracles_route_loto_to_rag_with_machine_id(oracle_id):
+@pytest.mark.parametrize("oracle_id", ["SO-021", "SO-023", "SO-025"])
+def test_so021_so023_so025_prompt_oracles_route_loto_to_rag_with_machine_id(oracle_id):
     oracle = load_oracle(oracle_id)
     prompt = oracle["prompt"]
     route = oracle["expected_route"]
@@ -196,6 +204,48 @@ def test_so021_so025_prompt_oracles_route_loto_to_rag_with_machine_id(oracle_id)
     assert route["route"] == "rag.loto_procedure"
     forbidden_routes = route.get("must_not_route_to") or route.get("negative_route_assertions") or []
     assert "tool.read.machine_status" in forbidden_routes
+
+
+def test_so022_prompt_oracle_clarifies_missing_loto_machine_without_default_id():
+    oracle = load_oracle("SO-022")
+    prompt = oracle["prompt"]
+
+    assert intent_constraint_values(prompt, "machine_id") == []
+    assert should_clarify_loto_machine(prompt) is True
+    assert should_route_loto_to_rag(prompt) is False
+
+    assessment = assess_intent(prompt)
+    assert assessment.kind == "operations"
+    assert assessment.entity == "machine"
+    assert oracle["expected_route"]["route"] == "clarification.machine_id_missing"
+    assert "M-CNC-01" in oracle["expected_route"]["must_not_invent"]
+    assert "M-CNC-01" in oracle["expected_final_response"]["must_not_include"]
+
+
+def test_so026_loto_followup_resolves_machine_id_from_immediately_previous_turn():
+    oracle = load_oracle("SO-026")
+    second_prompt = oracle["prompt_sequence"][1]["prompt"]
+    previous_texts = [
+        "Machine M-CNC-01 is RUNNING from seeded Go API data.",
+        oracle["prompt_sequence"][0]["prompt"],
+    ]
+
+    resolved = resolve_contextual_loto_machine_id(second_prompt, previous_texts)
+    assert resolved == "M-CNC-01"
+
+    contextual_prompt = f"{second_prompt} Machine ID: {resolved}"
+    assert intent_constraint_values(contextual_prompt, "machine_id") == ["M-CNC-01"]
+    assert should_clarify_loto_machine(contextual_prompt) is False
+    assert should_route_loto_to_rag(contextual_prompt) is True
+    assert resolve_contextual_loto_machine_id("What LOTO procedure applies before working on M-CNC-01?", previous_texts) is None
+
+
+def test_so028_seeded_cancel_fixture_prompt_is_not_a_cancel_command():
+    assert _CANCEL_COMMAND_RE.match("cancel the current run")
+    assert _CANCEL_COMMAND_RE.match("stop this operation")
+    assert _CANCEL_COMMAND_RE.match("do not do this")
+    assert not _CANCEL_COMMAND_RE.match("Start a seeded cancel jobs run and keep it executing")
+    assert not _CANCEL_COMMAND_RE.match("Show cancellation history for job JOB-SEED-001")
 
 
 @pytest.mark.parametrize(

@@ -29,7 +29,7 @@ export const phase18MockRagSource = {
   procedure_id: 'LOTO-M-CNC-01',
 }
 
-export const phase18MissingMachinePrompt = 'What LOTO procedure applies before working on the machine?'
+export const phase18MissingMachinePrompt = 'What LOTO procedure applies before working on the CNC machine?'
 
 export const phase18LotoVariantPrompts = [
   'what loto procedure applies before working on m-cnc-01',

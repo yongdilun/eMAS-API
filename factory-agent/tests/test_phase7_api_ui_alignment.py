@@ -461,6 +461,197 @@ async def test_phase7_completed_session_without_completed_at_gets_terminal_timel
 
 
 @pytest.mark.asyncio
+async def test_phase7_snapshot_steps_are_scoped_to_current_plan_after_followup(sessionmaker_override, db_session):
+    session_id = "phase7-followup-current-plan-steps"
+    old_plan_id = "phase7-followup-old-plan"
+    new_plan_id = "phase7-followup-new-plan"
+    created_at = datetime(2026, 5, 17, 9, 0, 0)
+    old_plan_at = created_at + timedelta(seconds=1)
+    new_plan_at = created_at + timedelta(seconds=5)
+
+    db_session.add(
+        Session(
+            session_id=session_id,
+            user_id="u1",
+            status="COMPLETED",
+            current_intent="What LOTO procedure applies before working on it? Machine ID: M-CNC-01",
+            plan_id=new_plan_id,
+            plan_version=2,
+            plan_hash="phase7-followup-new-hash",
+            current_step_index=0,
+            step_count=0,
+            llm_call_count=0,
+            session_started_at=created_at,
+            created_at=created_at,
+            updated_at=new_plan_at,
+            completed_at=new_plan_at,
+        )
+    )
+    db_session.add_all(
+        [
+            Plan(
+                plan_id=old_plan_id,
+                session_id=session_id,
+                version=1,
+                kind="execution",
+                status="INVALIDATED",
+                dependency_graph={"0": []},
+                parallel_groups=[],
+                plan_hash="phase7-followup-old-hash",
+                plan_explanation="Machine M-CNC-01 status lookup.",
+                risk_summary="Read-only machine status.",
+                created_at=old_plan_at,
+                created_by="langgraph",
+                invalidated_at=new_plan_at,
+                invalidated_reason="Replanned",
+            ),
+            Plan(
+                plan_id=new_plan_id,
+                session_id=session_id,
+                version=2,
+                kind="execution",
+                status="COMPLETED",
+                dependency_graph={},
+                parallel_groups=[],
+                plan_hash="phase7-followup-new-hash",
+                plan_explanation="Controlled seeded RAG answer for M-CNC-01 LOTO.",
+                risk_summary="No tool execution required.",
+                created_at=new_plan_at,
+                created_by="system",
+                sources=[{"machine_id": "M-CNC-01", "procedure_id": "LOTO-M-CNC-01"}],
+            ),
+        ]
+    )
+    db_session.add(
+        PlanStep(
+            step_id="phase7-followup-stale-step",
+            plan_id=old_plan_id,
+            session_id=session_id,
+            step_index=0,
+            tool_name="get__machines_{id}",
+            args={"id": "M-CNC-01"},
+            bindings=[],
+            status="DONE",
+            idempotency_key="phase7-followup-stale-idempotency",
+            requires_approval=False,
+            retry_count=0,
+            max_retries=3,
+            completed_at=old_plan_at,
+            result_summary="Machine M-CNC-01 is running in the seeded Go API data.",
+        )
+    )
+    db_session.add_all(
+        [
+            Message(
+                message_id="phase7-followup-user-1",
+                session_id=session_id,
+                role="user",
+                content="What is the status of M-CNC-01?",
+                mode="normal",
+                created_at=created_at,
+            ),
+            Message(
+                message_id="phase7-followup-user-2",
+                session_id=session_id,
+                role="user",
+                content="What LOTO procedure applies before working on it?",
+                mode="normal",
+                created_at=new_plan_at - timedelta(milliseconds=20),
+            ),
+            Message(
+                message_id="phase7-followup-assistant-2",
+                session_id=session_id,
+                role="assistant",
+                content="Controlled seeded RAG answer for M-CNC-01 LOTO.",
+                mode="normal",
+                tool_name="__conversation__",
+                created_at=new_plan_at,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    app = await _make_phase7_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(f"/sessions/{session_id}/snapshot")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session"]["current_intent"].endswith("Machine ID: M-CNC-01")
+    assert body["plan"] is None
+    assert body["steps"] == []
+    assert "seeded Go API data" not in json.dumps(body["steps"])
+
+
+@pytest.mark.asyncio
+async def test_phase7_cancelled_idle_session_projects_terminal_cancel_event(sessionmaker_override, db_session):
+    session_id = "phase7-cancelled-idle-terminal"
+    plan_id = "phase7-cancelled-plan"
+    created_at = datetime(2026, 5, 17, 10, 0, 0)
+    cancelled_at = created_at + timedelta(seconds=3)
+
+    db_session.add(
+        Session(
+            session_id=session_id,
+            user_id="u1",
+            status="IDLE",
+            current_intent="Start a seeded cancel jobs run and keep it executing",
+            plan_id=plan_id,
+            plan_version=1,
+            plan_hash="phase7-cancelled-hash",
+            current_step_index=0,
+            step_count=1,
+            llm_call_count=0,
+            session_started_at=created_at,
+            created_at=created_at,
+            updated_at=cancelled_at,
+            completed_at=None,
+            error="Cancelled",
+        )
+    )
+    db_session.add(
+        Message(
+            message_id="phase7-cancelled-user",
+            session_id=session_id,
+            role="user",
+            content="Start a seeded cancel jobs run and keep it executing",
+            mode="normal",
+            created_at=created_at,
+        )
+    )
+    db_session.add(
+        Plan(
+            plan_id=plan_id,
+            session_id=session_id,
+            version=1,
+            kind="execution",
+            status="DRAFT",
+            dependency_graph={"0": []},
+            parallel_groups=[],
+            plan_hash="phase7-cancelled-hash",
+            plan_explanation="Seeded cancellable run is staged and ready to execute.",
+            risk_summary="Seeded L3 test draft; execution is intentionally backgrounded.",
+            created_at=created_at + timedelta(seconds=1),
+            created_by="seeded-fake",
+        )
+    )
+    await db_session.commit()
+
+    app = await _make_phase7_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(f"/sessions/{session_id}/snapshot")
+
+    assert response.status_code == 200
+    body = response.json()
+    cancelled_events = [event for event in body["timeline"] if event["event_type"] == "session_failed"]
+    assert cancelled_events
+    assert cancelled_events[-1]["content"] == "Run cancelled by operator request."
+    assert cancelled_events[-1]["details"]["reason"] == "cancelled_by_user"
+    assert body["activity_steps"][-1]["label"] == "Run cancelled"
+    assert body["activity_steps"][-1]["detail"] == "Cancelled by operator request"
+
+
+@pytest.mark.asyncio
 async def test_phase7_failed_session_plan_event_uses_failure_guidance_not_stale_success(sessionmaker_override, db_session):
     session_id = "phase7-failed-no-stale-success"
     plan_id = "phase7-failed-plan"

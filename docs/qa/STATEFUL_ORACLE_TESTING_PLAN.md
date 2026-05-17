@@ -992,6 +992,52 @@ node --check "playwright.config.js"
 node --check "e2e/support/operationalGate.js"
 ```
 
+### Phase 16: Remaining Normal-Use Breakage Scenarios
+
+Goal:
+
+Add a small, high-risk normal-use batch that covers remaining parser/route, multi-turn context, cancellation, and large-result breakage after Phase 15. This phase follows the Phase 13 quality gate and does not add redundant browser tests for wording-only variations.
+
+Intended scope:
+
+| SO | Distinct product bug it catches | Existing gap | Lowest useful layer | Browser required | Real LangGraph required | Coverage category |
+|---|---|---|---|---|---|---|
+| SO-022 | Missing-machine LOTO prompt invents `M-CNC-01`, claims sources, or completes as a successful LOTO answer. | Successful LOTO tests all include a machine id. | Parser/route | Yes, because final visible copy and source chrome can diverge from backend route evidence. | No. | `canonical` |
+| SO-023 | Lowercase punctuation-free `m-cnc-01` LOTO wording loses normalization or asks for the ID again. | Prior lowercase bank entry used slash wording and was not a named SO-023 oracle. | Parser/route | Yes through the existing LOTO bank browser loop, because source chrome/final text are user-visible. | Optional only if parser/route cannot prove real planner normalization. | `canonical` |
+| SO-026 | Follow-up `it` after a completed machine-status turn clarifies, reuses stale status, or routes to machine status instead of LOTO/RAG. | Single-turn LOTO tests cannot prove previous-turn context is applied before the LOTO short-circuit. | Parser/context route | Yes, because stale final response and snapshot/UI can diverge from route evidence. | Yes after seeded passes. | `canonical` |
+| SO-028 | Cancelling an executing seeded graph leaves a hidden continuation that later fabricates success or mutates state. | Mocked cancel/navigation tests do not prove backend state after the long-running seeded fixture would have completed. | Seeded full-stack | Yes, because cancel button, busy state, final copy, snapshot, and mutation evidence must agree. | No. | `canonical` |
+| SO-031 | Large structured results hide terminal state, leave stale loading/current state, or break table/activity controls. | Existing reliability coverage was outside the seeded oracle prompt-regression gate. | Seeded full-stack | Yes, because the risk is layout/visibility/control behavior. | No. | `canonical` |
+
+Required positive evidence:
+
+- SO-022: missing `machine_id` detected; clarification route selected; visible response asks for exact machine ID; no sources/steps; state unchanged.
+- SO-023: `m-cnc-01` normalizes to `M-CNC-01`; LOTO/RAG selected; source metadata tied to `LOTO-M-CNC-01`; no clarification.
+- SO-026: first turn identifies `M-CNC-01`; second turn resolves `it`; latest answer routes to LOTO/RAG; seeded browser and real LangGraph evidence do not reuse stale status.
+- SO-028: cancel visible while executing; terminal snapshot stays `IDLE`/cancelled after the long fixture delay; no audit rows or mutations; final UI says cancelled safely.
+- SO-031: 80-row deterministic fixture returns; table and activity controls work; `Run complete` and final response remain visible; snapshot is terminal.
+
+Forbidden stale evidence:
+
+- SO-022: `M-CNC-01`, source metadata, seeded RAG answer, knowledge sources, generic diagnostics, or successful LOTO answer.
+- SO-023: machine-ID clarification, machine-status route/copy, or generic diagnostics.
+- SO-026: stale machine-status final response as the latest answer, stale snapshot reuse, generic clarification, or status route on the follow-up.
+- SO-028: `Run complete`, low-priority completion text, hidden continuation, successful audit rows, busy spinner, or cancel button after terminal cancel.
+- SO-031: stale loading/current state, hidden final response, unusable activity/table controls, or generic error UI.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_stateful_oracle_schema.py tests/test_phase18_manual_prompt_bank.py tests/test_snapshot_timeline_final_response_contract.py tests/test_phase19_prompt_workflow_regression.py tests/test_phase7_api_ui_alignment.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:seeded-oracles
+npx playwright test e2e/specs/full-stack-prompt-workflow-regression.spec.js --project=chromium-seeded --grep "SO-022|SO-023|SO-026|SO-031"
+npx playwright test e2e/specs/full-stack-seeded.spec.js --project=chromium-seeded --grep "SO-028"
+npm run test:e2e:real-langgraph -- --grep "SO-026"
+```
+
 ## First Critical Scenario Set
 
 Implement these before claiming manual chatbot testing is retired.
@@ -1020,15 +1066,15 @@ Implement these before claiming manual chatbot testing is retired.
 | SO-020 | Empty final response. | UI shows stale text or fake success. | Frontend unit, Playwright |
 | SO-021 | LOTO with `M-CNC-01`. | Machine ID extracted but backend asks again. | Parser, route, seeded browser |
 | SO-022 | LOTO missing machine id. | Should clarify honestly. | Parser, route, browser |
-| SO-023 | Lowercase/punctuation machine IDs. | Entity extraction failure. | Parser |
+| SO-023 | Lowercase/punctuation machine IDs. | Entity extraction failure. | Parser, route, seeded browser |
 | SO-024 | Job ID in markdown/quotes/newlines. | Entity extraction failure. | Parser |
 | SO-025 | Route confusion: LOTO vs machine status. | Wrong RAG/tool route. | Route pytest, seeded |
-| SO-026 | Multi-turn follow-up after completion. | New turn reuses old snapshot. | Frontend unit, Playwright |
+| SO-026 | Multi-turn follow-up after completion. | New turn reuses old snapshot. | Parser/context route, seeded browser, real LangGraph browser |
 | SO-027 | User sends revision while waiting approval. | Pending approval not invalidated. | Pytest API, browser |
-| SO-028 | Cancel during executing graph. | Hidden continuation after cancel. | Pytest graph, browser |
+| SO-028 | Cancel during executing graph. | Hidden continuation after cancel. | Seeded full-stack, browser |
 | SO-029 | Go API 500 mid-run. | Generic success after backend error. | Seeded |
 | SO-030 | Factory Agent restart or stream drop mid-run. | Infinite busy UI. | Seeded, Playwright |
-| SO-031 | Large structured result plus final completion. | Layout hides final state. | Playwright |
+| SO-031 | Large structured result plus final completion. | Layout hides final state. | Seeded full-stack, Playwright |
 | SO-032 | Two browser sessions same user. | Cross-session leakage. | Playwright seeded |
 | SO-033 | Two users with same prompt. | Session owner leakage. | API, Playwright |
 | SO-034 | Tool registry empty/unhealthy. | Misleading "No tools allowed" message. | API, Playwright |

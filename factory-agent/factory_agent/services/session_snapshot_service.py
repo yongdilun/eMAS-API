@@ -328,6 +328,9 @@ def _safe_activity_domain_label(ev: TimelineEventResponse) -> str:
 
 def _activity_detail_for_event(ev: TimelineEventResponse, *, label: str) -> str | None:
     domain = _safe_activity_domain_label(ev)
+    if ev.event_type == "session_failed" and isinstance(ev.details, dict):
+        if str(ev.details.get("reason") or "").lower() == "cancelled_by_user":
+            return "Cancelled by operator request"
     if ev.event_type == "plan_created":
         return "Reviewing your request and recent context"
     if ev.event_type == "execution_started":
@@ -384,6 +387,9 @@ def _activity_base_for_timeline_event(ev: TimelineEventResponse) -> dict[str, st
     if event_type == "replan_requested":
         return {"group": "planning", "label": "Improving the response", "state": "retry"}
     if event_type in {"session_failed", "session_blocked"}:
+        if event_type == "session_failed" and isinstance(ev.details, dict):
+            if str(ev.details.get("reason") or "").lower() == "cancelled_by_user":
+                return {"group": "system", "label": "Run cancelled", "state": "complete"}
         return {"group": "system", "label": "Something needs attention", "state": "error"}
     if event_type == "session_completed":
         return {"group": "response", "label": "Run complete", "state": "complete"}
@@ -712,10 +718,7 @@ class SessionSnapshotService:
         unscoped_plan_messages = [row for row in plan_messages if not row.step_id]
         conversation_messages = [row for row in assistant_messages if row.tool_name == "__conversation__"]
         confirmation_messages = [row for row in assistant_messages if row.tool_name == "__confirmation__"]
-        snapshot_step_rows = step_rows if allow_step_projection else []
-        step_ids_by_plan: dict[str, list[str]] = {}
-        for step in snapshot_step_rows:
-            step_ids_by_plan.setdefault(step.plan_id, []).append(step.step_id)
+        snapshot_step_rows: list[PlanStepRow] = []
 
         user_messages_sorted = sorted(user_messages, key=lambda m: m.created_at)
 
@@ -746,6 +749,15 @@ class SessionSnapshotService:
             if isinstance(_raw_plan_id, str) and _raw_plan_id.strip()
             else None
         )
+        if allow_step_projection:
+            snapshot_step_rows = (
+                [step for step in step_rows if step.plan_id == snapshot_plan_id]
+                if snapshot_plan_id
+                else list(step_rows)
+            )
+        step_ids_by_plan: dict[str, list[str]] = {}
+        for step in snapshot_step_rows:
+            step_ids_by_plan.setdefault(step.plan_id, []).append(step.step_id)
 
         def _step_ctx(extra: dict[str, Any] | None = None) -> dict[str, Any]:
             base: dict[str, Any] = {**_session_ctx(), **(extra or {})}
@@ -1314,6 +1326,19 @@ class SessionSnapshotService:
                     status=sess.status,
                     turn_id=_turn_id_for_time(sess.updated_at),
                     step_context=_session_ctx(),
+                )
+            )
+        if sess.status == "IDLE" and str(sess.error or "").lower().startswith("cancelled"):
+            events.append(
+                _timeline_event(
+                    event_id=f"cancelled:{session_id}",
+                    event_type="session_failed",
+                    content="Run cancelled by operator request.",
+                    created_at=sess.updated_at,
+                    status=sess.status,
+                    turn_id=_turn_id_for_time(sess.updated_at),
+                    step_context=_session_ctx(),
+                    details={"reason": "cancelled_by_user"},
                 )
             )
         latest_user_at = user_messages_sorted[-1].created_at if user_messages_sorted else None

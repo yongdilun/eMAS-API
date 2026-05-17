@@ -32,7 +32,12 @@ from factory_agent.planner import (
     PlannerConfirmationRequired,
     PlannerPlanRejected,
 )
-from factory_agent.planning.intent import assess_intent, should_clarify_loto_machine, should_route_loto_to_rag
+from factory_agent.planning.intent import (
+    assess_intent,
+    resolve_contextual_loto_machine_id,
+    should_clarify_loto_machine,
+    should_route_loto_to_rag,
+)
 from factory_agent.planning.plan_validator import validate_plan
 from factory_agent.planning.tool_output_alignment import align_tool_outputs_to_steps
 from factory_agent.planning.tool_selector import ToolSelector
@@ -81,11 +86,84 @@ class PlanCreationService:
             )
         ).scalars().first()
 
+    async def _recent_message_context(
+        self,
+        *,
+        db: AsyncSession,
+        session_id: str,
+        latest_message_id: str | None,
+    ) -> list[str]:
+        stmt = (
+            select(MessageRow)
+            .where(MessageRow.session_id == session_id)
+            .where(MessageRow.role.in_(["user", "assistant"]))
+            .order_by(MessageRow.created_at.desc())
+            .limit(8)
+        )
+        if latest_message_id:
+            stmt = stmt.where(MessageRow.message_id != latest_message_id)
+        rows = (await db.execute(stmt)).scalars().all()
+        return [str(row.content or "") for row in rows if str(row.content or "").strip()]
+
+    async def _contextualize_loto_intent(
+        self,
+        *,
+        db: AsyncSession,
+        sess: SessionRow,
+        latest_user: MessageRow | None,
+        intent: str,
+    ) -> str:
+        previous_texts = await self._recent_message_context(
+            db=db,
+            session_id=sess.session_id,
+            latest_message_id=latest_user.message_id if latest_user else None,
+        )
+        machine_id = resolve_contextual_loto_machine_id(intent, previous_texts)
+        if not machine_id:
+            return intent
+        contextual_intent = f"{intent.rstrip()} Machine ID: {machine_id}"
+        context = dict(sess.replan_context or {})
+        context["contextual_resolution"] = {
+            "machine_id": machine_id,
+            "source": "previous_turn",
+            "original_intent": intent,
+        }
+        sess.replan_context = context
+        sess.current_intent = contextual_intent
+        log_event(
+            "loto_contextual_machine_resolved",
+            session_id=sess.session_id,
+            machine_id=machine_id,
+        )
+        return contextual_intent
+
     async def _load_current_plan(self, *, db: AsyncSession, session_id: str) -> PlanRow | None:
         sess = await self._session_mgr.get_session(db, session_id=session_id)
         if not sess or not sess.plan_id:
             return None
         return (await db.execute(select(PlanRow).where(PlanRow.plan_id == sess.plan_id))).scalars().first()
+
+    def _is_cancelled_session(self, sess: SessionRow) -> bool:
+        return str(sess.status or "").upper() == "IDLE" and str(sess.error or "").lower().startswith("cancelled")
+
+    async def _cancelled_plan_response_if_needed(
+        self,
+        *,
+        db: AsyncSession,
+        sess: SessionRow,
+    ) -> PlanResponse | None:
+        await db.refresh(sess)
+        if not self._is_cancelled_session(sess):
+            return None
+        current = await self._load_current_plan(db=db, session_id=sess.session_id)
+        if current:
+            log_event(
+                "plan_generation_result_ignored_after_cancel",
+                session_id=sess.session_id,
+                plan_id=current.plan_id,
+            )
+            return plan_to_response(current)
+        raise HTTPException(status_code=409, detail="session was cancelled")
 
     def _plan_validation_step_limit(
         self,
@@ -212,7 +290,7 @@ class PlanCreationService:
     def _loto_machine_clarification_reply(self) -> str:
         return (
             "Which machine ID should I use for the LOTO procedure? "
-            "Please provide the exact machine ID, for example M-CNC-01."
+            "Please provide the exact machine ID from the equipment label or work order."
         )
 
     async def _answer_knowledge_question_as_plan(self,
@@ -786,6 +864,12 @@ class PlanCreationService:
         intent = sess.current_intent or ""
         latest_user = await self._latest_user_message(db=db, session_id=session_id)
         mode = latest_user.mode if latest_user else "normal"
+        intent = await self._contextualize_loto_intent(
+            db=db,
+            sess=sess,
+            latest_user=latest_user,
+            intent=intent,
+        )
         assessment = assess_intent(intent)
 
         tools_by_name = await self._tool_registry.get_tools_by_name(db)
@@ -961,6 +1045,10 @@ class PlanCreationService:
 
         plan_kind = "discovery" if mode == "plan" else "execution"
         plan_status = "COMPLETED" if (backend_used == "langgraph" and plan_kind == "execution") else "DRAFT"
+        cancelled_response = await self._cancelled_plan_response_if_needed(db=db, sess=sess)
+        if cancelled_response:
+            metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
+            return cancelled_response
         validation = validate_plan(
             draft,
             tools_by_name,

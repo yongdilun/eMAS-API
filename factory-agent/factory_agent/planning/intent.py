@@ -95,6 +95,10 @@ _LOTO_PROCEDURE_CONTEXT_RE = re.compile(
     r"\b(?:procedure|sop|appl(?:y|ies)|before\s+(?:working|servicing|maintenance|touching)|working\s+on|service|servicing|maintenance)\b",
     re.IGNORECASE,
 )
+_CONTEXTUAL_MACHINE_REF_RE = re.compile(
+    r"\b(?:it|that\s+(?:machine|equipment|asset)|the\s+(?:machine|equipment|asset))\b",
+    re.IGNORECASE,
+)
 _STATUS_MACHINE_REQUEST_RE = re.compile(
     r"\b(?:show|check|get|view|inspect|read)\b(?:(?!\b(?:and then|then|next|after that|afterwards|finally)\b).){0,120}\bstatus\b|\bstatus\b(?:(?!\b(?:and then|then|next|after that|afterwards|finally)\b).){0,120}\b(?:machine|equipment|asset|cnc|line|station|unit)\b",
     re.IGNORECASE | re.DOTALL,
@@ -437,6 +441,19 @@ def should_route_loto_to_rag(text: str) -> bool:
         or _QUESTION_RE.search(raw)
         or _LOTO_PROCEDURE_CONTEXT_RE.search(raw)
     )
+
+
+def resolve_contextual_loto_machine_id(text: str, previous_texts: Sequence[str]) -> str | None:
+    raw = text or ""
+    if not should_clarify_loto_machine(raw):
+        return None
+    if not _CONTEXTUAL_MACHINE_REF_RE.search(raw):
+        return None
+    for previous in previous_texts:
+        machine_ids = intent_constraint_values(previous or "", "machine_id")
+        if machine_ids:
+            return machine_ids[0]
+    return None
 
 
 def assess_intent(text: str) -> IntentAssessment:

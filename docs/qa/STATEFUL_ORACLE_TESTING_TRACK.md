@@ -33,6 +33,83 @@ Purpose: living execution tracker for the stateful oracle hardening plan. Future
 | 13 | Test quality gate and redundancy control | Done | Added coverage categories, current SO risk-group map, duplicate-candidate review, future scenario authoring gate, and lean PR/release/nightly lane split. No tests were deleted. |
 | 14 | Release gate validation | Done | Full automated release sweep is green after fixes. One product bug and two release-smoke test bugs were found and fixed; no routine manual release checks remain as blockers. |
 | 15 | CI/release enforcement and ownership | Done | Final PR, release, nightly, and synthetic lanes are documented with commands, owners, blocking levels, and triage rules. CI now enforces the full backend oracle PR alias plus seeded, real LangGraph, and release validation on release/pre-merge branches; synthetic remains read-only and opt-in. |
+| 16 | Remaining normal-use breakage scenarios | Done | Added SO-022, SO-023, SO-026, SO-028, and SO-031 with Phase 13 quality-gate metadata, parser/route/backend regressions, seeded browser proof, and SO-026 real LangGraph proof. Fixed missing-machine clarification, multi-turn LOTO context resolution, stale snapshot steps, cancellation terminal evidence, over-broad cancel-command detection, and hidden background completion after cancel. |
+
+## Phase 16 Remaining Normal-Use Breakage Scenarios
+
+Completed: 2026-05-17
+
+Scenarios changed:
+
+| SO | Coverage category | Distinct bug / gap | Lowest useful layer | Browser required | Real LangGraph required |
+|---|---|---|---|---|---|
+| SO-022 | `canonical` | Missing-machine LOTO prompts could mention/invent `M-CNC-01` and look like a successful source-backed answer. Existing successful LOTO tests all supplied a machine id. | Parser/route | Yes, visible clarification/source chrome can diverge. | No |
+| SO-023 | `canonical` | Plain lowercase `need lockout tagout for m-cnc-01 before service` could lose normalization or clarify again. Existing lowercase bank entry used different slash wording and was not a named SO-023 oracle. | Parser/route | Yes through the LOTO browser bank loop. | No |
+| SO-026 | `canonical` | The LOTO short-circuit ran before previous-turn context resolution, so `it` could clarify or reuse stale status; snapshot also exposed previous-turn steps after the follow-up. Single-turn LOTO tests would miss this. | Parser/context route and snapshot contract | Yes, final visible turn and snapshot can diverge. | Yes |
+| SO-028 | `canonical` | Cancellation could be hidden by three defects: a fixture prompt containing `cancel` was treated as a cancel command, cancelled sessions lacked terminal visible evidence, and the background executor could later overwrite cancel with `COMPLETED`. Mocked cancel tests did not prove backend state after the long-running fixture delay. | Seeded full-stack | Yes, cancel button, busy state, final copy, snapshot, audit, and later state must agree. | No |
+| SO-031 | `canonical` | Large structured results can hide terminal state or leave stale loading/current UI. Existing reliability coverage was outside the seeded oracle prompt-regression lane. | Seeded full-stack | Yes, layout/visibility/control behavior is the risk. | No |
+
+Files changed:
+
+- `factory-agent/factory_agent/planning/intent.py`
+- `factory-agent/factory_agent/services/plan_creation_service.py`
+- `factory-agent/factory_agent/services/execution_service.py`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/api/routers/messages.py`
+- `factory-agent/tests/test_phase19_prompt_workflow_regression.py`
+- `factory-agent/tests/test_phase7_api_ui_alignment.py`
+- `factory-agent/tests/test_snapshot_timeline_final_response_contract.py`
+- `eMas Front/e2e/specs/full-stack-intent-entity.spec.js`
+- `eMas Front/e2e/specs/full-stack-prompt-workflow-regression.spec.js`
+- `eMas Front/e2e/specs/full-stack-seeded.spec.js`
+- `eMas Front/e2e/specs/real-langgraph-critical.spec.js`
+- `eMas Front/e2e/support/intentEntityScenarios.js`
+- `eMas Front/e2e/support/promptRegressionScenarios.js`
+- `tests/e2e/scenarios/stateful_oracles/so-022_loto_missing_machine_id.json`
+- `tests/e2e/scenarios/stateful_oracles/so-023_loto_lowercase_punctuation_machine_id.json`
+- `tests/e2e/scenarios/stateful_oracles/so-026_multiturn_loto_followup_after_completion.json`
+- `tests/e2e/scenarios/stateful_oracles/so-028_cancel_during_executing_graph.json`
+- `tests/e2e/scenarios/stateful_oracles/so-031_large_structured_result_layout_final_state.json`
+- `tests/e2e/scenarios/manual_prompt_regressions.json`
+- `docs/qa/STATEFUL_ORACLE_TESTING_PLAN.md`
+- `docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+
+Commands and results:
+
+| Command | Result |
+|---|---|
+| `Set-Location "factory-agent"; python -m pytest tests/test_stateful_oracle_schema.py tests/test_phase18_manual_prompt_bank.py tests/test_snapshot_timeline_final_response_contract.py tests/test_phase19_prompt_workflow_regression.py tests/test_phase7_api_ui_alignment.py -q` | Passed: `89 passed, 26 warnings` |
+| `Set-Location "eMas Front"; npm test` | Passed: `64 passed` |
+| `Set-Location "eMas Front"; npx playwright test e2e/specs/full-stack-intent-entity.spec.js --project=chromium-seeded --grep "SO-022"` | Passed: `1 passed` |
+| `Set-Location "eMas Front"; npx playwright test e2e/specs/full-stack-prompt-workflow-regression.spec.js --project=chromium-seeded --grep "SO-022|SO-023|SO-026|SO-031"` | Passed: `3 passed` (`SO-022` is enforced in `full-stack-intent-entity.spec.js`; this file contains SO-023/SO-026/SO-031) |
+| `Set-Location "eMas Front"; npx playwright test e2e/specs/full-stack-seeded.spec.js --project=chromium-seeded --grep "SO-028"` | Passed: `1 passed` |
+| `Set-Location "eMas Front"; npm run test:e2e:real-langgraph -- --grep "SO-026"` | Passed: `1 passed` |
+| `Set-Location "eMas Front"; npm run test:e2e:seeded-oracles` | Passed: `24 passed` |
+
+Bugs found and fixed:
+
+| ID | Severity | Scenario | Root cause | Fix |
+|---|---|---|---|---|
+| P16-001 | High safety-answer risk | SO-022 | Missing-machine clarification named `M-CNC-01` as an example, violating the no-invented-machine rule. | Clarification now asks for the exact machine ID from the equipment label/work order without naming a default. |
+| P16-002 | High route/context risk | SO-026 | LOTO clarification/RAG short-circuit ran before previous-turn context could resolve `it`. | Added contextual LOTO machine resolution from recent session messages before LOTO route checks. |
+| P16-003 | High stale-snapshot risk | SO-026 | Current session snapshot exposed previous-plan steps after a follow-up no-step RAG answer. | Snapshot step projection is now scoped to the current plan. |
+| P16-004 | Medium cancel-command risk | SO-028 | Any user message containing `cancel` triggered cancellation, including the seeded cancellable fixture prompt. | Cancel detection now matches explicit cancel/stop commands instead of arbitrary mentions. |
+| P16-005 | High cancellation-state risk | SO-028 | Cancelled `IDLE` sessions lacked terminal cancellation timeline/activity evidence, leaving stale in-progress UI. | Snapshot projection now synthesizes a `session_failed` terminal event with `reason=cancelled_by_user` and a safe `Run cancelled` activity row. |
+| P16-006 | High hidden-continuation risk | SO-028 | Background execution could finish after cancel and overwrite the session with `COMPLETED`. | Plan creation and background execution now refresh cancellation state and ignore late planner results after cancel. |
+
+Accepted gaps:
+
+- None.
+
+Remaining risks:
+
+- SO-031 uses the existing visible table plus activity expand/collapse and snapshot row-count evidence; the current product does not render the large read-only table behind a separate details disclosure.
+- SO-026 real LangGraph proof focuses on previous-turn context and no stale clarification/status answer. Source availability remains covered by seeded RAG/source projection, not by live RAG content quality.
+
+Next action:
+
+Continue with the next Phase 13-ranked group only if it catches a distinct product bug that is not already represented by the current parser/route, seeded full-stack, real LangGraph, or release lanes. Avoid adding more LOTO wording browser variants unless seeded adapters or visible source projection hide a new failure mode.
 
 ## Phase 14 Release Gate Validation
 
