@@ -502,6 +502,93 @@ Rollback notes:
 
 - Start with warnings or targeted allowlist, then promote to blocking.
 
+### Phase 9: Route-To-Execution Validation And Loop Guard
+
+Goal: Close the gap where semantic routing and tool selection are correct, but the LangGraph planner/decision guard still produces invalid tool args and loops until timeout. The triggering manual failure is `What is the status of M-CNC-01?`, where the decision guard reports `constraint_violation`, preserves the hard constraint `machine_id = M-CNC-01`, skips tool execution, and routes back to `continue_planner` repeatedly.
+
+Status: Complete. The failure reproduced at the decision guard with semantic route `tool.read.machine_status`, selected capability `get__machines_{id}`, wrong proposed args `{"id": "5"}`, preserved hard constraint `machine_id = M-CNC-01`, and `next_route=continue_planner`. The fix is schema/profile-driven repair in `planner_graph_helpers.py`: explicit entity constraints are copied into compatible read-only entity lookup args before the guard can loop. Repeated decision-guard constraint failures now terminate through a typed diagnostic in `planner_loop.py` instead of timing out.
+
+Phase 9 also exposed two adjacent product/test-infra issues during browser proof:
+
+- Seeded scenario machine-status workflows were invoking the runtime helper with scenario marker prompts that omitted a machine id. Scenario data now supplies explicit runtime intent text for those fixtures; missing ids are still not defaulted.
+- Completed real LangGraph mutation snapshots could replace a rich final assistant recap with a stale read-tool summary. Snapshot completion now preserves rich mutation summaries, and the frontend turn assembler prevents event-local tool presentations from overwriting terminal/snapshot presentations.
+
+Files likely touched:
+
+- `factory-agent/factory_agent/planning/intent.py`
+- `factory-agent/factory_agent/planning/tool_selector.py`
+- `factory-agent/factory_agent/graph/nodes/planner_loop.py`
+- `factory-agent/factory_agent/graph/nodes/validate.py`
+- `factory-agent/factory_agent/graph/planner_graph_helpers.py`
+- `factory-agent/factory_agent/services/plan_creation_service.py`
+- `factory-agent/tests/test_intent_splitter.py`
+- `factory-agent/tests/test_tool_selector.py`
+- `factory-agent/tests/test_route_to_execution_contract.py`
+- `factory-agent/tests/test_planner_phase3.py`
+- `factory-agent/tests/test_hardcode_guardrails.py`
+- `eMas Front/e2e/specs/full-stack-prompt-workflow-regression.spec.js`
+- `eMas Front/e2e/specs/real-langgraph-critical.spec.js`
+
+Implementation steps:
+
+- Reproduce the failure at the lowest useful backend layer before touching product logic. Capture the semantic frame, selected tool capability, pending decision, proposed tool args, decision guard result, failed strategy, and loop/repair count.
+- Add a route-to-execution contract harness that verifies this chain for read-only operational prompts: semantic route -> scoped capability tools -> generated domain decision -> sanitized args -> decision guard pass -> tool execution or bounded typed diagnostic.
+- Add the canonical failing case: `What is the status of M-CNC-01?`.
+- Add wording variants that should use the same route without new prompt branches:
+  - `Show status for machine M-CNC-01`
+  - `Is M-CNC-01 running?`
+  - `What is the current condition of m-cnc-01?`
+  - `Show machine M-CNC-01 health`
+- Add adjacent route controls so this phase does not overfit machine status:
+  - `What is the status of job JOB-SEED-001?`
+  - `Show high priority jobs`
+  - `What LOTO procedure applies before working on M-CNC-01?`
+- Assert hard constraints are preserved in the actual executable args. For machine status, the executed tool args must carry `M-CNC-01` through an accepted alias such as `id`, `machine_id`, `machine_ref`, or the tool profile's machine id path/query field.
+- If the planner selects the wrong domain object, for example a `slot` route/summary for a machine status prompt, fix the semantic-to-decision mapping or tool capability profile. Do not add prompt text branches.
+- If the planner proposes wrong or missing args, fix the arg mapper/repair seam so explicit constraints are copied into the executable tool call before the guard loops.
+- Add a bounded-loop test proving repeated `decision_guard` constraint failures terminate with a typed diagnostic instead of timing out.
+- Add one seeded browser proof and one real LangGraph critical proof for the canonical machine-status prompt when runtime cost allows.
+- Keep existing Phase 8 hardcode guardrails green after the fix.
+
+Acceptance criteria:
+
+- `What is the status of M-CNC-01?` reaches a terminal answer or a safe typed diagnostic without planner timeout.
+- The decision guard no longer blocks a valid machine-status prompt because the machine id was dropped or mapped to the wrong field.
+- Read-only route-to-execution tests cover machine status, job status/list, and LOTO/RAG controls.
+- A wrong-domain planner decision such as "slot status" for a machine status prompt fails a test before browser timeout.
+- Repeated guard failures are bounded and produce a typed diagnostic with repair evidence.
+- No production code branches on the exact failing prompt or seeded fixture ids.
+
+Completion evidence:
+
+- `factory-agent/tests/test_route_to_execution_contract.py` covers the canonical prompt, four machine-status wording variants, job status/list controls, LOTO/RAG control, guard repair from wrong args, and bounded typed diagnostics for repeated guard failures.
+- `factory-agent/tests/test_phase7_api_ui_alignment.py` now guards rich completed mutation summaries against stale read-tool summaries.
+- `eMas Front/src/components/features/chat/turns/turnAssembler.test.mjs` now guards terminal typed presentations against later event-local tool presentations.
+- Real LangGraph critical proof passed for `SO-026`, which starts with `What is the status of M-CNC-01?`, and for `SO-041`, which caught the stale final-summary product bug.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_intent_splitter.py tests/test_tool_selector.py tests/test_route_to_execution_contract.py tests/test_planner_phase3.py tests/test_hardcode_guardrails.py -q
+
+Set-Location "..\eMas Front"
+npm run test:backend-oracles
+npm run test:e2e:seeded-oracles
+npm run test:e2e:real-langgraph -- --grep "machine status|M-CNC-01|@critical"
+```
+
+Risks or unknowns:
+
+- The real failure may live in one of several seams: capability selection, LLM planner decision text, arg sanitation, alias mapping, decision guard repair, or final graph validation.
+- Seeded tests may pass while real LangGraph still loops, so at least one real LangGraph proof is required for the canonical prompt.
+- A too-broad deterministic repair can hide unsafe planner behavior. Repairs must only copy explicit user constraints into compatible tool args.
+
+Rollback notes:
+
+- Keep the failing route-to-execution test as a blocker if the first fix regresses other route families.
+- Prefer reverting only the risky repair logic while leaving the new diagnostic/loop-bound tests in place.
+
 ## Extra Tests Needed
 
 These tests should be added before or during the refactor phases:
@@ -517,6 +604,7 @@ These tests should be added before or during the refactor phases:
 | Snapshot typed presentation contract | Pytest | Prove final/timeline state does not depend on text phrases. |
 | Frontend wording-insensitive render test | Vitest/node | Prove UI renders state correctly when text wording changes. |
 | Browser stale-text negative test | Playwright | Prove hidden stale approval/success text cannot override typed state. |
+| Route-to-execution contract | Pytest + Playwright | Prove semantic route, selected capability, generated args, decision guard, execution, snapshot, and UI all agree or fail fast without planner loops. |
 
 ## Stop Conditions
 
@@ -532,7 +620,7 @@ Stop and fix before proceeding when:
 
 Return to new scenario hunting only after:
 
-- Phases 0 through 8 are either complete or explicitly accepted as partial.
+- Phases 0 through 9 are either complete or explicitly accepted as partial.
 - Product hardcode guardrails are active.
 - Seeded planner additions are data-driven or justified in the tracker.
 - Frontend no longer needs text phrases as the primary state Interface.

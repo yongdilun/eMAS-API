@@ -16,10 +16,12 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 | 6 | Typed snapshot presentation contract | Complete | Codex | Backend snapshots and terminal timeline events now include typed `presentation` evidence for approvals, mutations, partial failures, diagnostics, cancellation, rejected/expired approvals, and source-backed knowledge answers. |
 | 7 | Frontend typed presentation rendering | Complete | Codex | Frontend turn summaries, final tables/sources/diagnostics, pending approval copy, and activity timeline now prefer typed `presentation` state before legacy text parsing. |
 | 8 | Hardcode guardrails in CI | Complete | Codex | Added blocking pytest guardrails to the backend oracle command. Resume scenario growth after this. |
+| 9 | Route-to-execution validation and loop guard | Complete | Codex | Added route-to-execution contracts, schema/profile-driven read-only entity-id repair, bounded decision-guard diagnostics, seeded machine-status fixture runtime intent, and real LangGraph proof for `What is the status of M-CNC-01?`. |
 
 ## Current Blockers
 
-- None confirmed.
+- Manual failure confirmed after Phase 8: `What is the status of M-CNC-01?` can loop at `decision_guard` because generated tool args violate the hard `machine_id = M-CNC-01` constraint.
+- The failure must be fixed before broad new scenario discovery resumes; otherwise more tests can still pass at semantic/seeded layers while real LangGraph times out.
 - None confirmed for Phase 2. Capability metadata is sufficient for the semantic route families covered here; endpoint fallback remains for untagged legacy tools.
 - Potential blocker: frontend may need legacy text parsing for old sessions until typed presentation is fully deployed.
 
@@ -30,6 +32,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 - What typed presentation schema should be considered stable enough for frontend use?
 - Which seeded planner scenarios should migrate first: approval chains, SSE faults, or RAG/source flows?
 - Answered: hardcode guardrails are blocking in `npm run test:backend-oracles` because the focused allowlist kept false positives low.
+- Phase 9 root cause: semantic routing and tool selection were correct, but deterministic planner repair did not copy explicit entity constraints into compatible read-only entity lookup args after the model produced a wrong-domain/wrong-id decision. The decision guard preserved `machine_id = M-CNC-01`, blocked execution, and repeatedly routed to planner repair with no bounded terminal diagnostic.
 
 ## Decisions Made
 
@@ -52,6 +55,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 - Phase 7 migrated frontend rendering to prefer typed `presentation` evidence while keeping legacy phrase parsing for snapshots without `presentation`. It exposed and fixed a product bug where a terse typed failed diagnostic (`HTTP 500`) could hide richer safe recovery guidance (`Please retry`) already present in the failed plan explanation; typed failed state remains authoritative, but safe diagnostic prose is preserved.
 - Phase 8 guardrails are blocking through `eMas Front/package.json` `test:backend-oracles`. They scan product/runtime code for Phase 9/10/14/19 prompt branches, seeded phase strings in product routes, missing-entity defaults to `M-CNC-01`/`JOB-SEED-*`, and new frontend phrase-based state fallbacks outside the explicit allowlist.
 - Phase 8 exposed and fixed a seeded adapter issue: generic seeded machine/job status paths defaulted missing machine/job IDs to `M-CNC-01` and `JOB-SEED-001`. The adapter now requires explicit IDs, while existing Phase 10 release machine-status prompts are represented as fixture data in `testing_seeded_scenarios.py`.
+- Phase 9 was added because Phase 1/2/8 proved routing/tool-selection/hardcode safety, but did not prove that the real LangGraph planner preserves explicit constraints through executable tool args and decision guard acceptance.
 
 ## Phase 0 Inventory
 
@@ -260,6 +264,47 @@ These remain intentionally in the adapter as non-phase fallback or resume mechan
 | Missing entity defaults | Runtime and seeded adapter paths must not turn missing `machine_id`/`job_id` into `M-CNC-01` or `JOB-SEED-*`. | Explicit fixture IDs may remain in scenario data, tests, e2e fixtures, and docs. |
 | Frontend phrase state | Core chat rendering files may not add new `please approve`, `will be updated from`, `risk summary`, `run complete`, or `all requested changes completed` state fallbacks beyond the explicit count/reason allowlist. | Existing legacy fallback helpers and typed presentation display labels remain documented until old snapshots no longer need them. |
 
+### Phase 9: Route-To-Execution Validation And Loop Guard
+
+- [x] Reproduce `What is the status of M-CNC-01?` at the lowest useful backend layer.
+- [x] Capture semantic frame, selected scoped tools, pending decision, proposed tool args, decision guard output, failed strategies, and planner loop count for the failing prompt.
+- [x] Add a route-to-execution contract test harness for semantic route -> selected capability -> generated decision -> sanitized args -> decision guard -> execution/final diagnostic.
+- [x] Add canonical machine-status coverage for `What is the status of M-CNC-01?`.
+- [x] Add wording variants for the same route without adding production prompt branches.
+- [x] Add adjacent controls for job status/list and LOTO/RAG so the fix cannot overfit machine status.
+- [x] Add a bounded-loop test proving repeated decision-guard constraint failures produce typed diagnostics instead of timeout.
+- [x] Fix the actual seam: wrong-domain decision, arg propagation, alias mapping, arg sanitation, or repair logic.
+- [x] Add seeded browser proof for the canonical prompt.
+- [x] Add real LangGraph critical proof for the canonical prompt when runtime cost allows.
+- [x] Run backend oracle, hardcode guardrail, seeded browser, and focused real LangGraph commands.
+
+#### Phase 9 Initial Failure Evidence
+
+| Prompt | Observed result | What this proves | Required blocker test |
+| --- | --- | --- | --- |
+| `What is the status of M-CNC-01?` | `next_route=continue_planner`, `kind=constraint_violation`, `phase=decision_guard`, `summary=Skipped tool execution; routing to planner for repair.`, hard constraint `machine_id = M-CNC-01`, pending summary says `Querying the status of slot for machine M-CNC-01`, and `tool_calls=[]` after guard blocking. | Existing tests verify extraction, route selection, typed rendering, and hardcode policy, but not that the real planner preserves explicit constraints in executable args accepted by the decision guard. | The route-to-execution contract must fail when a read-only machine-status prompt reaches decision guard with missing/wrong machine args, wrong-domain `slot` planning, or repeated repair loops. |
+
+#### Phase 9 Route Matrix Candidates
+
+| Prompt | Expected route family | Required executable evidence |
+| --- | --- | --- |
+| `What is the status of M-CNC-01?` | `tool.read.machine_status` | Machine read call preserves `M-CNC-01` through `id`, `machine_id`, `machine_ref`, or a profiled machine id alias; terminal response is a machine-status answer or typed diagnostic. |
+| `Show status for machine M-CNC-01` | `tool.read.machine_status` | Same as canonical case, with no wording-specific branch. |
+| `Is M-CNC-01 running?` | `tool.read.machine_status` | Same as canonical case, with live-state wording. |
+| `What is the current condition of m-cnc-01?` | `tool.read.machine_status` | Same as canonical case, case-normalized. |
+| `Show machine M-CNC-01 health` | `tool.read.machine_status` | Same as canonical case, synonym wording. |
+| `What is the status of job JOB-SEED-001?` | `tool.read.jobs` | Job read call preserves `JOB-SEED-001`; no machine-status repair path is used. |
+| `Show high priority jobs` | `tool.read.jobs` | Job list/read call preserves priority filter when available or returns a safe typed diagnostic. |
+| `What LOTO procedure applies before working on M-CNC-01?` | `rag.loto_procedure` | RAG/procedure route still bypasses machine live-status execution and renders typed source evidence. |
+
+#### Phase 9 Results
+
+- Backend reproduction matched the manual failure: semantic route `tool.read.machine_status`, selected tool `get__machines_{id}`, bad proposed args `{"id": "5"}`, hard constraint `machine_id = M-CNC-01`, decision guard `kind=constraint_violation`, `next_route=continue_planner`, and `tool_calls=[]`.
+- Product fix: `planner_graph_helpers.py` now performs generic schema/profile-driven read-only entity lookup repair, copying explicit intent entity IDs into required lookup args only when the tool profile is compatible. It does not branch on `What is the status of M-CNC-01?` and does not default missing ids.
+- Loop guard fix: `planner_loop.py` now counts repeated decision-guard constraint failures for the current intent and emits a typed diagnostic after the configured repair limit instead of recursing until timeout.
+- Seeded fixture fix: Phase 9 seeded machine-status scenarios now provide explicit `runtime_intent` fixture text so the seeded helper exercises explicit-id behavior without reintroducing `M-CNC-01` defaults.
+- Browser proof exposed an adjacent product bug: rich completed mutation summaries could be overwritten by stale read-tool summaries. `session_snapshot_service.py` now preserves rich mutation completions, and `turnAssembler.js` ranks terminal/snapshot typed presentations above later event-local tool presentations.
+
 ## Commands Run
 
 ```powershell
@@ -301,6 +346,15 @@ npx playwright test e2e/specs/chat-happy-path.spec.js e2e/specs/chat-sse-activit
 npm run test:e2e:mocked
 npx playwright test e2e/specs/full-stack-data-integrity.spec.js --project=chromium-seeded --grep "SO-029"
 npm run test:e2e:seeded-oracles
+python -m pytest tests/test_route_to_execution_contract.py -q
+python -m pytest tests/test_seeded_scenario_engine.py tests/test_route_to_execution_contract.py -q
+python -m pytest tests/test_intent_splitter.py tests/test_tool_selector.py tests/test_route_to_execution_contract.py tests/test_planner_phase3.py tests/test_hardcode_guardrails.py -q
+npm test -- --test-name-pattern "terminal typed presentation|completed multi-approval|completed cascade"
+npm run test:backend-oracles
+npx playwright test e2e/specs/real-langgraph-critical.spec.js --project=chromium-real-langgraph --grep "SO-026|M-CNC-01|machine status"
+npx playwright test e2e/specs/real-langgraph-critical.spec.js --project=chromium-real-langgraph --grep "SO-041"
+npm run test:e2e:seeded-oracles
+npm run test:e2e:real-langgraph -- --grep "machine status|M-CNC-01|@critical"
 git status --short --branch
 git diff --check
 ```
@@ -366,6 +420,16 @@ git diff --check
   - Final `npm run test:backend-oracles`: 153 passed, 30 warnings.
   - `npm test`: 75 passed.
   - `git diff --check`: passed with CRLF normalization warnings only.
+- Phase 9 focused verification:
+  - `python -m pytest tests/test_route_to_execution_contract.py -q`: 9 passed, 19 warnings.
+  - `python -m pytest tests/test_seeded_scenario_engine.py tests/test_route_to_execution_contract.py -q`: 37 passed, 20 warnings.
+  - `python -m pytest tests/test_intent_splitter.py tests/test_tool_selector.py tests/test_route_to_execution_contract.py tests/test_planner_phase3.py tests/test_hardcode_guardrails.py -q`: 88 passed, 43 warnings.
+  - `npm test -- --test-name-pattern "terminal typed presentation|completed multi-approval|completed cascade"`: 76 passed.
+  - `npm run test:backend-oracles`: 154 passed, 32 warnings.
+  - First `npm run test:e2e:seeded-oracles`: 23 passed, 1 failed; `SO-014` Last-Event-ID reconnect exposed a seeded machine-status fixture prompt without an explicit runtime machine id. After adding explicit scenario `runtime_intent`, focused `npx playwright test e2e/specs/full-stack-sse-hard.spec.js --project=chromium-seeded --grep "Last-Event-ID|scenario 48"` passed, and final `npm run test:e2e:seeded-oracles` passed with 24 passed.
+  - Focused real LangGraph machine-status proof: `npx playwright test e2e/specs/real-langgraph-critical.spec.js --project=chromium-real-langgraph --grep "SO-026|M-CNC-01|machine status"`: 1 passed.
+  - First real LangGraph critical grep exposed stale browser final-summary rendering in `SO-041`. After preserving rich mutation summaries in snapshots and terminal presentation rank in the frontend, focused `npx playwright test e2e/specs/real-langgraph-critical.spec.js --project=chromium-real-langgraph --grep "SO-041"` passed.
+  - Final `npm run test:e2e:real-langgraph -- --grep "machine status|M-CNC-01|@critical"`: 3 passed.
 - Baseline reported by user for semantic routing commit:
   - `python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q`: 63 passed
   - Compatibility checks: 20 passed
@@ -387,6 +451,8 @@ git diff --check
 - `factory-agent/factory_agent/api/__init__.py`
 - `factory-agent/factory_agent/api/routers/events.py`
 - `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/graph/nodes/planner_loop.py`
+- `factory-agent/factory_agent/graph/planner_graph_helpers.py`
 - `factory-agent/factory_agent/schemas.py`
 - `factory-agent/factory_agent/testing/__init__.py`
 - `factory-agent/factory_agent/testing/fault_injection.py`
@@ -410,9 +476,11 @@ git diff --check
 - `factory-agent/tests/test_typed_snapshot_presentation_contract.py`
 - `factory-agent/tests/test_tool_selector.py`
 - `factory-agent/tests/test_hardcode_guardrails.py`
+- `factory-agent/tests/test_phase7_api_ui_alignment.py`
+- `factory-agent/tests/test_route_to_execution_contract.py`
 - `eMas Front/e2e/README.md`
 - `eMas Front/package.json`
 
 ## Next Action
 
-Phase 8 is complete. Scenario growth may resume under the new hardcode guardrails.
+Phase 9 is complete. Next hardcode-reduction work should begin from the remaining open risk table items rather than the machine-status decision-guard loop, which is now covered by route-to-execution contracts and real LangGraph proof.

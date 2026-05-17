@@ -268,10 +268,26 @@ function timelineOrderKey(item) {
   return [safeTime, Number.isFinite(stepIndex) ? stepIndex : -1]
 }
 
-function mergeTypedPresentationIntoTurn(turn, rawPresentation) {
+function presentationMergeRank(presentation, source) {
+  if (!presentation) return 0
+  if (source === 'snapshot') return 120
+  if (['session_completed', 'session_failed', 'session_blocked'].includes(source)) return 100
+  if (presentation.kind === 'approval_required' && presentation.state === 'pending') return 80
+  if (['rejected', 'expired', 'cancelled', 'partial_failure', 'diagnostic'].includes(presentation.kind)) return 75
+  if (presentation.state === 'failed') return 75
+  if (source === 'tool_result' || source === 'tool_started') return 40
+  if (source === 'plan_created') return 20
+  return 10
+}
+
+function mergeTypedPresentationIntoTurn(turn, rawPresentation, source = null) {
   const presentation = normalizeTypedPresentation(rawPresentation)
   if (!presentation) return
+  const nextRank = presentationMergeRank(presentation, source)
+  const currentRank = Number.isFinite(turn.presentationRank) ? turn.presentationRank : 0
+  if (turn.presentation && nextRank < currentRank) return
   turn.presentation = presentation
+  turn.presentationRank = nextRank
   turn.typedTablePresentation = tablePresentationFromTypedPresentation(presentation)
   turn.diagnostics = presentation.diagnostics || {}
   turn.invariants = presentation.invariants || {}
@@ -302,6 +318,7 @@ export function assembleFactoryAgentTurns(timeline = [], options = {}) {
       sources: [],
       safetyContent: null,
       presentation: null,
+      presentationRank: 0,
       typedTablePresentation: null,
       diagnostics: {},
       invariants: {},
@@ -331,7 +348,7 @@ export function assembleFactoryAgentTurns(timeline = [], options = {}) {
         ? (e.event_id || e.id)
         : pickLatestTurnIdByTime(userEvents, e.created_at))
     const turn = getOrCreateTurn(turnId, e.created_at)
-    mergeTypedPresentationIntoTurn(turn, e.presentation)
+    mergeTypedPresentationIntoTurn(turn, e.presentation, e.event_type)
 
     if (e.event_type === 'user_message') {
       turn.user = {
@@ -474,7 +491,7 @@ export function assembleFactoryAgentTurns(timeline = [], options = {}) {
 
   const snapshotPresentation = normalizeTypedPresentation(options.snapshotPresentation || options.presentation)
   if (snapshotPresentation && turns.length) {
-    mergeTypedPresentationIntoTurn(turns[turns.length - 1], snapshotPresentation)
+    mergeTypedPresentationIntoTurn(turns[turns.length - 1], snapshotPresentation, 'snapshot')
   }
 
   return turns

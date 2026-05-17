@@ -182,6 +182,18 @@ def _is_success_like_plan_text(value: str | None) -> bool:
     )
 
 
+def _is_rich_operator_completion_text(value: str | None) -> bool:
+    text = (value or "").strip().lower()
+    if not text:
+        return False
+    return (
+        "write set" in text
+        or "affected records:" in text
+        or "changed to" in text
+        or "created or deleted" in text
+    )
+
+
 def _is_failure_guidance_text(value: str | None) -> bool:
     text = (value or "").strip().lower()
     if not text:
@@ -2260,7 +2272,10 @@ class SessionSnapshotService:
             if useful_tool_result_event and (
                 not useful_completion_message
                 or _is_plan_like_completion_text(useful_completion_message.content)
-                or _is_success_like_plan_text(useful_completion_message.content)
+                or (
+                    _is_success_like_plan_text(useful_completion_message.content)
+                    and not _is_rich_operator_completion_text(useful_completion_message.content)
+                )
                 or _is_approval_wait_text(useful_completion_message.content)
                 or _looks_like_raw_json_text(useful_completion_message.content)
             ):

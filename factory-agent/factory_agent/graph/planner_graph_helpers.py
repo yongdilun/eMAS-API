@@ -360,6 +360,53 @@ def _infer_enum_status_update(intent: str, scoped_tools: list[ToolInfo]) -> Agen
     return None
 
 
+def _infer_entity_lookup_read(intent: str, scoped_tools: list[ToolInfo]) -> AgentPlanOutput | None:
+    """Infer an explicit entity-id lookup for the selected read-only item tool.
+
+    This is deliberately schema/profile driven: it only copies an ID that is
+    present in the user text into a required lookup arg for the same endpoint
+    entity. It does not invent fixture IDs and it does not choose broad reads.
+    """
+    bindings = _extract_intent_entity_bindings(intent)
+    if not bindings:
+        return None
+
+    for tool in scoped_tools:
+        if tool.method != "GET" or not tool.is_read_only or tool.requires_approval:
+            continue
+        required = [str(field) for field in ((tool.input_schema or {}).get("required") or [])]
+        if not required:
+            required = [str(field) for field in (tool.path_params or [])]
+        if not required:
+            continue
+
+        for entity, entity_id in bindings:
+            if not _is_entity_lookup_tool(tool, entity=entity):
+                continue
+            args, evidence = _inject_entity_id_required_args(
+                tool=tool,
+                entity=entity,
+                entity_id=entity_id,
+                args={},
+                evidence={},
+            )
+            if missing_required_fields(tool, args):
+                continue
+            return AgentPlanOutput(
+                plan_explanation=f"Look up {entity} `{entity_id}`.",
+                risk_summary="Read-only lookup with no data changes.",
+                steps=[
+                    AgentPlanStep(
+                        tool_name=tool.name,
+                        args=args,
+                        evidence=evidence or {next(iter(args.keys()), "id"): entity_id},
+                        confidence=0.94,
+                    )
+                ],
+            )
+    return None
+
+
 def _candidate_id_prefixes_for_path_arg(*, tool: ToolInfo, field: str, entity: str) -> list[str]:
     prefixes: list[str] = []
     properties = (tool.input_schema or {}).get("properties")
@@ -789,6 +836,10 @@ def _deterministic_plan_repair(
         return inferred
 
     inferred = _infer_compound_entity_followup_read(intent, scoped_tools, context=context)
+    if inferred is not None:
+        return inferred
+
+    inferred = _infer_entity_lookup_read(intent, scoped_tools)
     if inferred is not None:
         return inferred
 

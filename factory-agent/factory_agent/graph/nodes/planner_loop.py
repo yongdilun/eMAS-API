@@ -734,6 +734,88 @@ def _fallback_decision_from_repair(
     )
 
 
+def _decision_guard_failure_count(
+    state: AgentState,
+    *,
+    intent_id: str,
+    reason: str = "constraint_violation",
+) -> int:
+    count = 0
+    for item in state.get("failed_strategies") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("phase") != "decision_guard":
+            continue
+        if item.get("reason") != reason:
+            continue
+        if intent_id and str(item.get("intent_id") or "") not in {"", intent_id}:
+            continue
+        count += 1
+    return count
+
+
+def _bounded_guard_failure_diagnostic(
+    *,
+    state: AgentState,
+    working: list[dict[str, Any]],
+    cursor: int,
+    current: dict[str, Any],
+    previous_decisions: list[dict[str, Any]],
+    settings: Settings,
+) -> dict[str, Any] | None:
+    intent_id = str(current.get("intent_id") or "unknown")
+    attempts = _decision_guard_failure_count(state, intent_id=intent_id)
+    limit = max(1, int(settings.max_repair_attempts or 3))
+    if attempts < limit:
+        return None
+
+    summary = (
+        "Decision guard rejected repeated planner repairs because the proposed "
+        "tool args did not preserve explicit user constraints."
+    )
+    current["status"] = "failed"
+    current["failure_reason"] = summary
+    working[cursor] = current
+    _cascade_cancel_dependents(working, intent_id, reason=summary)
+    later = _next_active_intent_index(working, 0)
+    diagnostic = {
+        "phase": "decision_guard",
+        "intent_id": intent_id,
+        "reason": "constraint_violation_loop",
+        "kind": "typed_diagnostic",
+        "attempts": attempts,
+        "limit": limit,
+        "detail": "Planner repair loop stopped before graph recursion timeout.",
+    }
+    decision = PlannerDecision(
+        intent_id=intent_id,
+        kind="intent_failed",
+        tool_calls=[],
+        decision_summary=summary,
+        risk_level="read",
+    )
+    out: dict[str, Any] = {
+        "working_intents": working,
+        "intent_cursor": later if later is not None else cursor,
+        "current_intent": working[later] if later is not None else current,
+        "pending_decision": None,
+        "decisions": previous_decisions + [decision.model_dump(mode="json")],
+        "failed_strategies": [diagnostic],
+        "completed_actions": [
+            {
+                "phase": "planner",
+                "intent_id": intent_id,
+                "kind": "typed_diagnostic",
+                "summary": summary,
+            }
+        ],
+        "errors": ["decision_guard_constraint_repair_limit"],
+        "next_route": "continue_planner" if later is not None else "synthesize_plan",
+        "status": "planning" if later is not None else "validating",
+    }
+    return out
+
+
 def make_planner_node(settings: Settings):
     async def planner_node(state: AgentState) -> dict[str, Any]:
         staged_existing = [x for x in (state.get("staged_writes") or []) if isinstance(x, dict)]
@@ -846,6 +928,18 @@ def make_planner_node(settings: Settings):
             current["status"] = "in_progress"
         working[cursor] = current
         prev_decisions = list(state.get("decisions") or [])
+
+        bounded_diagnostic = _bounded_guard_failure_diagnostic(
+            state=state,
+            working=working,
+            cursor=cursor,
+            current=current,
+            previous_decisions=prev_decisions,
+            settings=settings,
+        )
+        if bounded_diagnostic is not None:
+            bounded_diagnostic["planner_iteration"] = iteration
+            return bounded_diagnostic
 
         bulk_decision = _bulk_job_priority_decision(
             state=state,

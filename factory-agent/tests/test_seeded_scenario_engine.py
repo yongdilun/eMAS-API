@@ -21,6 +21,7 @@ from factory_agent.testing_seeded_scenarios import REJECTED_APPROVAL
 from factory_agent.testing_seeded_scenarios import SSE_FAULT_MARKER
 from factory_agent.testing_seeded_scenarios import SUPPORTED_SCENARIO_CAPABILITIES
 from factory_agent.testing_seeded_scenarios import TWO_STEP_APPROVAL_CHAIN
+from factory_agent.schemas import ToolInfo
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -145,6 +146,45 @@ async def test_large_structured_result_is_driven_by_scenario_data():
     assert output["summary"] == "Phase 9 large structured result rendered 80 seeded rows without losing completion state."
     assert output["result"]["total"] == 80
     assert len(output["result"]["data"]) == 80
+
+
+@pytest.mark.asyncio
+async def test_draft_then_call_machine_status_uses_fixture_runtime_intent(monkeypatch):
+    planner = SeededPlaywrightPlanner(_settings())
+    tool = ToolInfo(
+        name="get__machines_{id}",
+        description="Get machine by ID",
+        endpoint="/machines/{id}",
+        method="GET",
+        input_schema={"type": "object", "required": ["id"], "properties": {"id": {"type": "string"}}},
+        path_params=["id"],
+        param_sources={"id": "path"},
+        is_read_only=True,
+        capability_tags=["machine", "lookup"],
+    )
+    calls: list[str] = []
+
+    async def fake_get_json(path: str, params: dict[str, Any] | None = None):
+        calls.append(path)
+        return {"data": {"machine_id": "M-CNC-01", "machine_name": "CNC Mill 01", "status": "RUNNING"}}
+
+    monkeypatch.setattr(planner, "_get_json", fake_get_json)
+
+    first = await planner.generate_plan(
+        intent="Run Phase 9 Last-Event-ID reconnect seeded machine workflow",
+        scoped_tools=[tool],
+        context={"session_id": "scenario-last-event-id"},
+    )
+    second = await planner.generate_plan(
+        intent="Run Phase 9 Last-Event-ID reconnect seeded machine workflow",
+        scoped_tools=[tool],
+        context={"session_id": "scenario-last-event-id"},
+    )
+
+    assert first.draft.steps[0].args == {"id": "M-CNC-01"}
+    assert calls == ["/machines/M-CNC-01"]
+    assert second.tool_outputs[0]["args"] == {"id": "M-CNC-01"}
+    assert "Machine M-CNC-01" in second.draft.plan_explanation
 
 
 @pytest.mark.asyncio

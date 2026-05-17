@@ -891,6 +891,144 @@ async def test_phase7_completed_graph_checkpoint_prefers_result_summary_over_pla
     assert "Operators can" not in completed_events[-1]["content"]
 
 
+@pytest.mark.asyncio
+async def test_phase7_completed_mutation_keeps_rich_final_summary_over_read_tool_summary(sessionmaker_override, db_session):
+    session_id = "phase7-rich-mutation-final"
+    plan_id = "phase7-rich-mutation-plan"
+    created_at = datetime(2026, 5, 17, 17, 42, 12)
+    final_summary = (
+        "**Success**\n\n"
+        "Updated **21** job(s) across **2** write set(s).\n\n"
+        "- 10 medium priority jobs changed to high\n"
+        "- 11 original high priority jobs changed to low\n\n"
+        "No jobs were created or deleted."
+    )
+    stale_read_summary = (
+        "Found 11 high-priority jobs: JOB-SEED-001, JOB-SEED-003, +9 more. "
+        "Details are shown in the table below."
+    )
+
+    db_session.add(
+        Session(
+            session_id=session_id,
+            user_id="u1",
+            status="COMPLETED",
+            current_intent="change all medium priority job to high then change all high priority job to low",
+            plan_id=plan_id,
+            plan_version=1,
+            plan_hash="phase7-rich-mutation-hash",
+            current_step_index=0,
+            step_count=2,
+            llm_call_count=0,
+            session_started_at=created_at,
+            created_at=created_at,
+            updated_at=created_at + timedelta(seconds=3),
+            completed_at=created_at + timedelta(seconds=3),
+            replan_context={"intent_contract": {"backend": "langgraph"}},
+        )
+    )
+    db_session.add(
+        Plan(
+            plan_id=plan_id,
+            session_id=session_id,
+            version=1,
+            kind="execution",
+            status="COMPLETED",
+            dependency_graph={"0": [], "1": [0]},
+            parallel_groups=[],
+            plan_hash="phase7-rich-mutation-hash",
+            plan_explanation="Stage priority update for high-priority jobs.",
+            risk_summary="Review tool calls before execution.",
+            created_at=created_at + timedelta(seconds=1),
+            created_by="langgraph",
+        )
+    )
+    db_session.add(
+        Message(
+            message_id="phase7-rich-user",
+            session_id=session_id,
+            role="user",
+            content="change all medium priority job to high then change all high priority job to low",
+            created_at=created_at + timedelta(milliseconds=100),
+        )
+    )
+    db_session.add(
+        Message(
+            message_id="phase7-rich-final",
+            session_id=session_id,
+            role="assistant",
+            content=final_summary,
+            tool_name="__plan__",
+            step_id=plan_id,
+            created_at=created_at + timedelta(seconds=3, milliseconds=1),
+        )
+    )
+    db_session.add_all(
+        [
+            PlanStep(
+                step_id="phase7-rich-read",
+                plan_id=plan_id,
+                session_id=session_id,
+                step_index=0,
+                tool_name="get__jobs",
+                args={"priority": "high"},
+                bindings=[],
+                status="DONE",
+                idempotency_key="phase7-rich-read-key",
+                requires_approval=False,
+                retry_count=0,
+                max_retries=0,
+                result={
+                    "success": True,
+                    "data": [
+                        {"job_id": "JOB-SEED-001", "priority": "high"},
+                        {"job_id": "JOB-SEED-003", "priority": "high"},
+                    ],
+                },
+                result_summary=stale_read_summary,
+                completed_at=created_at + timedelta(seconds=3),
+            ),
+            PlanStep(
+                step_id="phase7-rich-write",
+                plan_id=plan_id,
+                session_id=session_id,
+                step_index=1,
+                tool_name="put__jobs_{id}",
+                args={"id": "JOB-SEED-001", "priority": "low"},
+                bindings=[],
+                status="DONE",
+                idempotency_key="phase7-rich-write-key",
+                requires_approval=True,
+                retry_count=0,
+                max_retries=0,
+                result={
+                    "success": True,
+                    "data": {
+                        "job_id": "JOB-SEED-001",
+                        "priority": "low",
+                        "previous_priority": "high",
+                    },
+                },
+                result_summary='{"success": true}',
+                completed_at=created_at + timedelta(seconds=3),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    app = await _make_phase7_app(sessionmaker_override)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(f"/sessions/{session_id}/snapshot")
+
+    assert response.status_code == 200
+    body = response.json()
+    completed_events = [event for event in body["timeline"] if event["event_type"] == "session_completed"]
+    assert completed_events[-1]["content"] == final_summary
+    assert body["presentation"]["kind"] == "mutation_result"
+    assert body["presentation"]["summary"] == final_summary
+    assert stale_read_summary not in completed_events[-1]["content"]
+
+
 def test_phase7_semantic_skips_non_pending_approval_required_event():
     ev = TimelineEventResponse(
         event_id="ar:x",

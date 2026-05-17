@@ -590,6 +590,68 @@ test('completed multi-approval turn does not let approval decision text outrank 
   )
 })
 
+test('terminal typed presentation outranks later tool table presentations', () => {
+  const finalSummary = '10 medium priority jobs changed to high\n11 original high priority jobs changed to low'
+  const turns = assembleFactoryAgentTurns([
+    {
+      ...userEvent,
+      content: 'change all medium priority job to high then change all high priority job to low',
+      created_at: '2026-05-16T10:00:00.000Z',
+    },
+    {
+      event_id: 'completed:1',
+      event_type: 'session_completed',
+      content: finalSummary,
+      created_at: '2026-05-16T10:00:05.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      status: 'COMPLETED',
+      presentation: {
+        kind: 'mutation_result',
+        state: 'completed',
+        summary: finalSummary,
+        rows: [
+          { job_id: 'JOB-SEED-002', previous_priority: 'medium', priority: 'high' },
+          { job_id: 'JOB-SEED-001', previous_priority: 'high', priority: 'low' },
+        ],
+      },
+    },
+    {
+      event_id: 'step:late-read',
+      event_type: 'tool_result',
+      content: 'Found 11 high-priority jobs: JOB-SEED-001, JOB-SEED-003, +9 more. Details are shown in the table below.',
+      created_at: '2026-05-16T10:00:06.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      step_id: 'step-late-read',
+      tool_name: 'get__jobs',
+      status: 'DONE',
+      details: {
+        args: { priority: 'high' },
+        result: {
+          success: true,
+          data: [
+            { job_id: 'JOB-SEED-001', priority: 'high' },
+            { job_id: 'JOB-SEED-003', priority: 'high' },
+          ],
+        },
+      },
+      presentation: {
+        kind: 'answer',
+        state: 'completed',
+        summary: 'Found 11 high-priority jobs: JOB-SEED-001, JOB-SEED-003, +9 more. Details are shown in the table below.',
+        rows: [
+          { job_id: 'JOB-SEED-001', priority: 'high' },
+          { job_id: 'JOB-SEED-003', priority: 'high' },
+        ],
+      },
+    },
+  ])
+
+  assert.equal(turns[0].presentation.kind, 'mutation_result')
+  assert.equal(computeFactoryAgentTurnSummary(turns[0]), finalSummary)
+})
+
 test('new pending approval outranks stale terminal completion from previous approval', () => {
   const turns = assembleFactoryAgentTurns([
     {

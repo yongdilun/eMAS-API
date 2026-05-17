@@ -205,6 +205,7 @@ MIGRATED_SEEDED_SCENARIOS: tuple[SeededScenario, ...] = (
                 },
                 "delay_seconds": 0.8,
                 "method": "_machine_status",
+                "runtime_intent": "Show status for machine M-CNC-01",
             },
         ),
         description="Duplicate submit fixture with a staged first response.",
@@ -245,6 +246,7 @@ MIGRATED_SEEDED_SCENARIOS: tuple[SeededScenario, ...] = (
                 },
                 "delay_seconds": 5.0,
                 "method": "_machine_status",
+                "runtime_intent": "Show status for machine M-CNC-01",
             },
         ),
         description="Last-Event-ID reconnect fixture marker.",
@@ -608,10 +610,11 @@ class SeededScenarioInterpreter:
                 draft = dict(action.params.get("draft") or {})
                 return runtime._draft_only(intent=intent, scoped_tools=scoped_tools, **draft)  # type: ignore[attr-defined]
             await asyncio.sleep(float(action.params.get("delay_seconds") or 0))
+            runtime_intent = str(action.params.get("runtime_intent") or intent)
             return await self._call_runtime(
                 runtime,
                 method_name=str(action.params["method"]),
-                intent=intent,
+                intent=runtime_intent,
                 scoped_tools=scoped_tools,
                 session_id=session_id,
                 call_index=call_index,
