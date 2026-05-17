@@ -783,6 +783,85 @@ python -m pytest tests/test_phase19_prompt_workflow_regression.py::test_so021_so
 
 Browser tests must assert visible DOM text and forbidden stale text. Snapshot JSON or final assistant API text alone is not enough for browser closure.
 
+### Phase 13: Test Quality Gate and Redundancy Control
+
+Goal:
+
+Keep the growing oracle suite sharp enough to find real bugs without becoming slow, repetitive, or hard to debug.
+
+This phase does not delete existing coverage by default. It classifies coverage, keeps useful cross-layer overlap, and blocks future scenario additions that do not prove a distinct risk.
+
+Files likely touched:
+
+- `docs/qa/STATEFUL_ORACLE_TESTING_PLAN.md`
+- `docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+- `tests/e2e/scenarios/manual_prompt_regressions.json`
+- `tests/e2e/scenarios/stateful_oracles/*.json`
+- `factory-agent/tests/test_stateful_oracle_schema.py`
+- `factory-agent/tests/test_snapshot_timeline_final_response_contract.py`
+- `eMas Front/e2e/specs/full-stack-data-integrity.spec.js`
+- `eMas Front/e2e/specs/full-stack-prompt-workflow-regression.spec.js`
+- `eMas Front/e2e/specs/real-langgraph-critical.spec.js`
+
+Implementation steps:
+
+- Build a coverage map for every current SO id:
+  - primary risk,
+  - lowest useful layer,
+  - backend enforcement command,
+  - browser enforcement command if UI can diverge,
+  - real LangGraph requirement if seeded coverage can hide planner behavior,
+  - whether the scenario is smoke, contract, regression, release, or diagnostic.
+- Mark each test as one of:
+  - `canonical`: the main proof for this risk,
+  - `supporting`: catches a different layer of the same risk,
+  - `smoke`: useful for broad confidence but not proof,
+  - `duplicate_candidate`: appears to check the same layer and same assertion as another test.
+- Do not remove a test unless another test proves the same risk at the same or stronger layer and the tracker records why removal is safe.
+- Add an authoring rule for future SO and manual prompt entries:
+  - every new scenario must state the real bug it would catch,
+  - the lowest useful layer must fail first,
+  - browser tests are required only when visible DOM can differ from backend evidence,
+  - real LangGraph is required only when seeded adapters can hide planning/routing/tool-selection behavior,
+  - every browser proof must include at least one positive visible assertion and one forbidden stale-text assertion when stale UI is a known risk.
+- Split future CI expectations into three lanes:
+  - fast PR gate: schema, backend oracle contracts, frontend unit/component, mocked Chromium smoke,
+  - deterministic release/pre-merge gate: seeded Playwright stateful oracles,
+  - opt-in/nightly gate: real LangGraph, synthetic/read-only production checks, and slow visual/debug sweeps.
+- Add a short scenario-author checklist to the manual prompt regression bank so future agents know how to add useful cases without rediscovering the test strategy.
+- Record any deliberate redundancy as useful only when it catches a different failure mode, for example backend DB/audit evidence vs. visible browser stale timeline.
+
+Acceptance criteria:
+
+- The tracker names the canonical enforcement layer for every current high-risk group before more scenarios are added.
+- Future agents can decide whether a new scenario belongs in parser, route, graph, snapshot, seeded browser, real LangGraph, or production synthetic coverage without asking.
+- Redundant tests are classified before deletion; no useful cross-layer guard is removed.
+- Each new scenario must answer: "What product bug would this test catch that existing tests would miss?"
+- SO browser tests continue to assert visible DOM and forbidden stale text where UI projection is a risk.
+- Slow real LangGraph tests remain targeted to planner/routing/execution risks, not used as a blanket duplicate of seeded flows.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_stateful_oracle_schema.py tests/test_phase18_manual_prompt_bank.py tests/test_snapshot_timeline_final_response_contract.py::test_all_stateful_oracle_files_have_executable_snapshot_final_response_contract -q
+Set-Location "..\eMas Front"
+node --check "e2e/specs/full-stack-data-integrity.spec.js"
+node --check "e2e/specs/full-stack-prompt-workflow-regression.spec.js"
+```
+
+Risks:
+
+- Over-deduplication can remove the exact layer that catches UI-only or projection-only bugs.
+- Keeping every similar test forever will slow CI and make failures harder to triage.
+- Real LangGraph coverage is expensive and should be selected by risk, not by a desire for more test count.
+
+Rollback notes:
+
+- If this phase accidentally weakens confidence, restore the removed or downgraded test and record why the overlap was useful.
+- If a future manual bug escapes because a test was classified as duplicate, reopen Phase 13 and promote that failure into a canonical or supporting oracle.
+
 ## First Critical Scenario Set
 
 Implement these before claiming manual chatbot testing is retired.

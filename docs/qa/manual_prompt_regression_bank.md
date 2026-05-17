@@ -105,6 +105,31 @@ Review cadence: the QA regression bank owner reviews new entries and accepted ga
 |---|---|---|---|
 | `phase12-so005-medium-high-high-low-reject-approval-2` | Same prompt, approve approval 1, reject approval 2. | Original medium jobs commit to high, original high jobs remain high instead of changing to low, approval 2 is `REJECTED`, visible UI says the second approval was rejected or stopped, no stale full-success text is shown, and no approval-2 audit rows exist. | SO-005 oracle, backend graph/snapshot contracts, dedicated seeded browser DOM/data-integrity proof |
 
+## Future Scenario Quality Gate
+
+Before adding a new prompt or SO scenario, answer these questions in the bank entry, oracle file, or tracker:
+
+| Question | Required answer |
+|---|---|
+| What real product bug would this catch? | Name the bug class, for example stale approval mutation, wrong route, missing source metadata, false final success, hidden partial failure, or visible stale UI. |
+| What existing test would miss it? | Name the existing layer or test weakness. If no existing test would miss it, the new scenario is probably redundant. |
+| What is the lowest useful layer? | Parser, route, LangGraph state machine, API/snapshot contract, seeded browser, real LangGraph browser, or production synthetic. |
+| Is browser coverage required? | Yes only when visible DOM, timeline, details, table/card rendering, screenshots, or stale text can differ from backend evidence. |
+| Is real LangGraph required? | Yes only when seeded adapters could hide planner, route, tool-selection, approval sequencing, or live integration behavior. |
+| What positive evidence is required? | DB rows, audit rows, approval ids, snapshot, timeline, source metadata, final text, or visible UI. |
+| What forbidden stale evidence is required? | Text or state that must not appear, such as `Run complete` before terminal state, stale approval 1 copy beside approval 2, generic diagnostics on expected success, or false `all succeeded` wording. |
+
+Coverage category must be one of:
+
+| Category | Use when |
+|---|---|
+| `canonical` | This is the main executable proof for the risk. |
+| `supporting` | This catches a distinct layer or failure mode for an already-covered risk. |
+| `smoke` | This checks wiring or broad confidence but is not counted as oracle closure. |
+| `duplicate_candidate` | This appears to repeat the same layer and assertions as an existing test; review before adding. |
+
+Do not add a new browser test only because the prompt wording is slightly different. Add wording variants to parser/route matrices first, then promote to browser only when rendering, approval state, SSE, or final response behavior can break differently.
+
 ## Required Bank Schema
 
 Every bank entry must include `source_prompt`, `observed_failure`, `expected_behavior`, `owner`, `severity`, `lowest_test_layer`, and `browser_coverage`. Compatibility fields `prompt`, `expected`, and `coverage` remain present so older Phase 18 gates and Playwright support helpers can read the same bank.

@@ -29,6 +29,8 @@ Purpose: living execution tracker for the stateful oracle hardening plan. Future
 | 9 | CI gate restructure | Done | PR gate now runs fast backend stateful oracles, frontend unit tests, and mocked Chromium. Seeded stateful oracles are release/pre-merge/manual; real LangGraph and synthetic remain opt-in/read-only. |
 | 10 | Ledger refactor decision | Done | Durable operation ledger is not needed now; keep invariant-backed projections and reopen only on documented trigger conditions. |
 | 11 | Aggregate final-response evidence oracles | Done | SO-041 added and verified across summary contract, LangGraph oracle, snapshot/activity contract, frontend pending-approval/timeline/final-bubble projection tests, seeded browser, and real LangGraph browser DOM assertions. Root causes were missing aggregate commit evidence, stale pending-approval UI ownership, and server activity projection letting a later replan row outrank the current approval; not LLM behavior. |
+| 12 | Executable enforcement closure | Done | Every current SO oracle now has executable enforcement metadata, a backend contract mapping, and browser-visible proof where UI can diverge. SO-005 has a dedicated browser rejection proof. |
+| 13 | Test quality gate and redundancy control | Done | Added coverage categories, current SO risk-group map, duplicate-candidate review, future scenario authoring gate, and lean PR/release/nightly lane split. No tests were deleted. |
 
 ## Phase 0 Checklist: Test Reality Audit
 
@@ -1323,6 +1325,131 @@ Intermediate findings:
 - Running the manual prompt bank gate exposed that the existing Phase 11 cascade bank entry was missing parser-compatibility fields. Added `machine_ids: []`, `job_ids: []`, and `clarification_expected: false` to that entry and the new SO-005 rejection variant.
 
 Remaining gaps: none for current SO oracle enforcement metadata. Full seeded/release/real-LangGraph suites remain broader release gates, but the focused Phase 12 enforcement checks above are green.
+
+## Phase 13 Checklist: Test Quality Gate and Redundancy Control
+
+- [x] Add Phase 13 to the plan and tracker before adding more scenario volume.
+- [x] Define canonical, supporting, smoke, and duplicate-candidate coverage categories.
+- [x] Document when redundancy is useful: backend state proof, browser visible-DOM proof, and real LangGraph planner/routing proof are different risks.
+- [x] Document when redundancy is wasteful: same layer, same fixture, same assertions, and no new failure mode.
+- [x] Add future scenario authoring rules to the manual prompt regression bank.
+- [x] Build the current SO coverage map with one primary risk and canonical enforcement command per high-risk group.
+- [x] Mark duplicate candidates in existing Playwright specs without deleting them yet.
+- [x] Propose a lean PR/release/nightly command split from the coverage map.
+- [x] Decide not to add schema checks yet; keep Phase 13 as a documentation gate until the next scenario batch proves which metadata should become mandatory.
+- [x] Commit this documentation pass before the next scenario implementation batch.
+
+## Phase 13 Implementation: Test Quality Gate and Redundancy Control
+
+Status: Done.
+
+Purpose: reduce future false confidence and test bloat. Phase 12 made the SO files enforceable; Phase 13 makes future additions disciplined so agents do not add five tests that all prove the same seeded happy path.
+
+Coverage classification rule:
+
+| Category | Meaning | Keep? |
+|---|---|---|
+| `canonical` | The main proof for a risk at the lowest useful layer. | Yes. Required. |
+| `supporting` | Same scenario, different failure mode or layer, such as browser DOM vs. backend snapshot. | Yes, if it names the distinct risk. |
+| `smoke` | Broad confidence or release wiring check; useful but not proof of state correctness. | Yes, but do not count as oracle closure. |
+| `duplicate_candidate` | Same layer, same fixture, same assertions, no new failure mode. | Review before keeping; merge or delete only after a replacement command is documented. |
+
+Useful redundancy examples:
+
+- Backend graph/state oracle proves approval ids, DB rows, audit rows, and final state.
+- Snapshot/final-response contract proves projection and wording cannot lie about state.
+- Seeded browser proves visible UI, table/card/details rendering, and stale text behavior deterministically.
+- Real LangGraph proves the real planner/router/tool path does not diverge from seeded adapters.
+
+Wasteful redundancy examples:
+
+- Two seeded browser tests drive the same prompt variant and assert only `Run complete`.
+- A route parser test and a seeded browser test both assert only that a string contains `M-CNC-01`.
+- A release smoke repeats the seeded stateful oracle but does not add auth/proxy/polling evidence.
+
+Current decisions:
+
+- Do not delete existing tests during this documentation pass.
+- Do not weaken Phase 12 executable enforcement.
+- Add more scenarios only after the author can state the distinct product bug and lowest useful layer.
+- Real LangGraph coverage should be reserved for planner, route, graph, and live integration risks. It should not duplicate every seeded browser case.
+- Keep the current overlapping SO tests for now, because the recent SO-041 bug proved backend-correct evidence can still render incorrectly in the browser.
+
+Current SO coverage map:
+
+| Risk group | SO ids | Canonical proof | Supporting proof to keep | Redundancy decision |
+|---|---|---|---|---|
+| Original-state multi-approval cascades | SO-001, SO-002, SO-003, SO-004, SO-041 | `test_snapshot_timeline_final_response_contract.py` plus `test_langgraph_state_machine_oracles.py` for original-state mechanics. | Seeded browser for deterministic UI/data proof; real LangGraph for SO-001/SO-035 and SO-041 live planner/DOM proof. | Keep cross-layer overlap. Review older broad seeded cascade cases only if they assert the same prompt, same rows, and no distinct visible-DOM/stale-text risk. |
+| Approval rejection, timeout, stale approval, replay, refresh | SO-005, SO-006, SO-007, SO-008, SO-018, SO-027 | Backend snapshot/final-response contract plus focused graph/API tests where present. | Dedicated SO-005 seeded rejection browser proof; shared seeded stale/expired/replay browser specs. | Keep SO-005 dedicated browser proof. Shared browser scenarios are acceptable only while they assert distinct visible states: rejection, expiry/conflict, stale invalidation, replay idempotency, or refresh restore. |
+| Commit truthfulness and audit integrity | SO-009, SO-010 | Backend contract must fail on false full success or missing audit evidence. | Seeded data-integrity browser checks for visible partial failure, audit rows, and final text. | Keep; this is not redundant because final copy, audit evidence, and DB state can disagree independently. |
+| Premature final response and projection ordering | SO-011, SO-012, SO-013, SO-019, SO-020 | Backend snapshot/final-response and API/UI projection contracts. | Frontend component tests and targeted browser DOM assertions for stale final text, missing approval timeline, terminal gating, restore, and empty final response. | Keep frontend tests when they prove React turn assembly or activity timeline behavior that backend tests cannot see. |
+| SSE, reconnect, polling, disconnect, and stream recovery | SO-014, SO-015, SO-016, SO-017, SO-029, SO-030 | Backend contract plus SSE/runtime tests where available. | Browser transport specs for duplicate/out-of-order events, malformed payload recovery, modal close disconnect, static bearer polling, Go API 500, and stream-drop polling. | Keep transport-level overlap if each test names a distinct transport failure. Merge only tests that assert only generic completion after a stream change. |
+| LOTO/RAG routing and entity extraction | SO-021, SO-025 | Parser/route pytest plus backend prompt workflow regression. | One seeded browser proof for visible answer/source metadata; route-confusion browser proof for status-vs-LOTO. | Do not make every wording variant a browser test. Wording variants belong in parser/route matrices unless UI/source rendering can break differently. |
+| Seeded adapter divergence | SO-035 | LangGraph state-machine oracle and real LangGraph browser critical suite. | Seeded browser remains useful for deterministic data/UI proof, but does not close real planner risk. | Keep targeted real LangGraph proofs only for planner/routing/multi-approval risks. Do not mirror the full seeded suite in real LangGraph. |
+
+Duplicate-candidate review:
+
+| Candidate area | Current judgment | Next action |
+|---|---|---|
+| Cascade matrix browser tests vs. data-integrity cascade tests | Potentially repetitive when both assert only the same final DB rows. Useful when one asserts prompt wording/visible stale text and the other asserts DB/audit/approval evidence. | Keep for now. When adding a new cascade, pick one canonical seeded browser test and add parser/graph variants before another browser variant. |
+| LOTO wording matrix browser coverage | Browser tests become redundant if every wording variant renders the same source answer. | Keep one canonical browser for `M-CNC-01` and one route-confusion browser case. Add most future wording variants to parser/route only. |
+| SO-030 stream-drop coverage in data-integrity and chat-stream-errors specs | Useful if one proves polling terminal snapshot and the other proves notification/stream error handling. | Keep if both distinct assertions remain. Merge if either becomes only a `Run complete` check. |
+| SO-019 normal-use restore scenarios | Useful if one checks restoring completed state and the other checks no stale previous turn bleed. | Keep only if both risks are explicit in titles/assertions. |
+| Release smoke tests overlapping seeded stateful tests | Useful only for auth/proxy/polling wiring, not state correctness. | Classify as `smoke`; do not count as oracle closure. |
+
+Lean command split:
+
+| Lane | Purpose | Commands |
+|---|---|---|
+| Fast PR | Catch schema, backend oracle, and frontend projection regressions quickly. | `python -m pytest tests/test_stateful_oracle_schema.py tests/test_snapshot_timeline_final_response_contract.py tests/test_langgraph_state_machine_oracles.py -q`; `npm test`; mocked Chromium smoke if configured. |
+| Deterministic release/pre-merge | Prove seeded browser UI/data/SSE behavior without real LLM. | `npm run test:e2e:seeded-oracles`; focused `chromium-seeded --grep "SO-..."` for changed scenarios. |
+| Opt-in/nightly | Catch real planner/routing/live integration drift. | `npm run test:e2e:real-langgraph -- --grep "@critical"` plus selected production synthetic read-only checks. |
+| Manual-failure closure | Prove a manual miss became an executable regression. | Focused pytest/browser command named in the bank entry plus the fast PR lane. |
+
+Commands run:
+
+```powershell
+git status --short --branch
+rg -n "Phase|phase|Next action|redund|dedup|quality|SO-005|SO-041" docs/qa/STATEFUL_ORACLE_TESTING_PLAN.md docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md docs/qa/manual_prompt_regression_bank.md
+Get-Content -Path "docs/qa/STATEFUL_ORACLE_TESTING_PLAN.md" -TotalCount 220
+Get-Content -Path "docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md" -TotalCount 260
+Get-Content -Path "docs/qa/STATEFUL_ORACLE_TESTING_PLAN.md" -Tail 180
+Get-Content -Path "docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md" -Tail 260
+Get-Content -Path "docs/qa/manual_prompt_regression_bank.md" -Tail 140
+Get-ChildItem -Path "tests/e2e/scenarios/stateful_oracles" -Filter "so-*.json" | Sort-Object Name | ForEach-Object { $json = Get-Content -Raw -LiteralPath $_.FullName | ConvertFrom-Json; [PSCustomObject]@{ File=$_.Name; Id=$json.id; Title=$json.title; Risk=$json.risk; RequiredLayers=($json.required_layers -join ', '); Enforcement=($json.executable_enforcement.PSObject.Properties.Name -join ', ') } } | Format-Table -AutoSize
+Get-ChildItem -Path "tests/e2e/scenarios/stateful_oracles" -Filter "so-*.json" | Sort-Object Name | ForEach-Object { $json = Get-Content -Raw -LiteralPath $_.FullName | ConvertFrom-Json; $enf = $json.executable_enforcement; [PSCustomObject]@{ Id=$json.id; Title=$json.title; Pytest=if($enf.pytest){($enf.pytest -join '; ')}else{''}; Playwright=if($enf.playwright){($enf.playwright -join '; ')}else{''}; VisibleDOM=$enf.visible_dom_assertions_required; Manual=if($enf.manual_prompt_regression){($enf.manual_prompt_regression -join '; ')}else{''} } } | ConvertTo-Csv -NoTypeInformation
+git diff --check
+Set-Location "factory-agent"
+python -m pytest tests/test_stateful_oracle_schema.py tests/test_phase18_manual_prompt_bank.py tests/test_snapshot_timeline_final_response_contract.py::test_all_stateful_oracle_files_have_executable_snapshot_final_response_contract -q
+Set-Location "..\eMas Front"
+node --check "e2e/specs/full-stack-data-integrity.spec.js"
+node --check "e2e/specs/full-stack-prompt-workflow-regression.spec.js"
+```
+
+Test results:
+
+```text
+Documentation-only update. Focused backend/schema/manual-bank/oracle gate passed: `35 passed, 1 warning`. Frontend syntax checks passed for `full-stack-data-integrity.spec.js` and `full-stack-prompt-workflow-regression.spec.js`. `git diff --check` passed with line-ending warnings only.
+```
+
+Files changed in this phase so far:
+
+- `docs/qa/STATEFUL_ORACLE_TESTING_PLAN.md`
+- `docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+
+Current blockers:
+
+- None.
+
+Open questions:
+
+- Should the next scenario batch make `coverage_category` and `primary_risk` mandatory in every SO oracle JSON, or is the tracker-level map enough?
+- Which existing Playwright tests should be downgraded to `smoke` after one full release cycle without related failures?
+
+Next action:
+
+Start the next scenario implementation batch using the Phase 13 quality gate: add a new scenario only when it names a distinct product bug, lowest useful layer, required evidence, and forbidden stale evidence.
 
 ## Commands Run
 
