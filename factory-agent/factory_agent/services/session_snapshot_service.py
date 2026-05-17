@@ -28,6 +28,14 @@ from factory_agent.schemas import (
     TimelineEventResponse,
     ToolInfo,
 )
+from factory_agent.session_state import (
+    USER_CANCELLED_ACTIVITY_DETAIL,
+    USER_CANCELLED_ACTIVITY_LABEL,
+    USER_CANCELLED_REASON,
+    USER_CANCELLED_TIMELINE_CONTENT,
+    is_user_cancelled_session,
+    timeline_details_indicate_user_cancelled,
+)
 
 def _timeline_event(
     *,
@@ -329,8 +337,8 @@ def _safe_activity_domain_label(ev: TimelineEventResponse) -> str:
 def _activity_detail_for_event(ev: TimelineEventResponse, *, label: str) -> str | None:
     domain = _safe_activity_domain_label(ev)
     if ev.event_type == "session_failed" and isinstance(ev.details, dict):
-        if str(ev.details.get("reason") or "").lower() == "cancelled_by_user":
-            return "Cancelled by operator request"
+        if timeline_details_indicate_user_cancelled(ev.details):
+            return USER_CANCELLED_ACTIVITY_DETAIL
     if ev.event_type == "plan_created":
         return "Reviewing your request and recent context"
     if ev.event_type == "execution_started":
@@ -388,8 +396,8 @@ def _activity_base_for_timeline_event(ev: TimelineEventResponse) -> dict[str, st
         return {"group": "planning", "label": "Improving the response", "state": "retry"}
     if event_type in {"session_failed", "session_blocked"}:
         if event_type == "session_failed" and isinstance(ev.details, dict):
-            if str(ev.details.get("reason") or "").lower() == "cancelled_by_user":
-                return {"group": "system", "label": "Run cancelled", "state": "complete"}
+            if timeline_details_indicate_user_cancelled(ev.details):
+                return {"group": "system", "label": USER_CANCELLED_ACTIVITY_LABEL, "state": "complete"}
         return {"group": "system", "label": "Something needs attention", "state": "error"}
     if event_type == "session_completed":
         return {"group": "response", "label": "Run complete", "state": "complete"}
@@ -1328,17 +1336,17 @@ class SessionSnapshotService:
                     step_context=_session_ctx(),
                 )
             )
-        if sess.status == "IDLE" and str(sess.error or "").lower().startswith("cancelled"):
+        if is_user_cancelled_session(sess):
             events.append(
                 _timeline_event(
                     event_id=f"cancelled:{session_id}",
                     event_type="session_failed",
-                    content="Run cancelled by operator request.",
+                    content=USER_CANCELLED_TIMELINE_CONTENT,
                     created_at=sess.updated_at,
                     status=sess.status,
                     turn_id=_turn_id_for_time(sess.updated_at),
                     step_context=_session_ctx(),
-                    details={"reason": "cancelled_by_user"},
+                    details={"reason": USER_CANCELLED_REASON},
                 )
             )
         latest_user_at = user_messages_sorted[-1].created_at if user_messages_sorted else None

@@ -8,13 +8,14 @@ from factory_agent.config import Settings
 from factory_agent.planning.intent import (
     assess_intent,
     intent_constraint_values,
+    loto_query_with_resolved_machine_context,
     resolve_contextual_loto_machine_id,
     should_clarify_loto_machine,
     should_route_loto_to_rag,
 )
 from factory_agent.planning.tool_selector import ToolSelector
 from factory_agent.schemas import ToolInfo
-from factory_agent.testing_seeded_adapters import SeededPlaywrightPlanner
+from factory_agent.testing_seeded_adapters import SeededPlaywrightPlanner, SeededPlaywrightRAGPipeline
 from tests.support.stateful_oracle_harness import load_oracle
 
 
@@ -222,6 +223,16 @@ def test_so022_prompt_oracle_clarifies_missing_loto_machine_without_default_id()
     assert "M-CNC-01" in oracle["expected_final_response"]["must_not_include"]
 
 
+@pytest.mark.asyncio
+async def test_so022_seeded_rag_does_not_default_missing_loto_machine_to_cnc_fixture():
+    oracle = load_oracle("SO-022")
+    result = await SeededPlaywrightRAGPipeline().run(query=oracle["prompt"], session_id="so022-rag-default")
+
+    assert "M-CNC-01" not in result.answer
+    assert "Seeded LOTO Procedure for M-CNC-01" not in result.answer
+    assert result.sources == []
+
+
 def test_so026_loto_followup_resolves_machine_id_from_immediately_previous_turn():
     oracle = load_oracle("SO-026")
     second_prompt = oracle["prompt_sequence"][1]["prompt"]
@@ -233,11 +244,12 @@ def test_so026_loto_followup_resolves_machine_id_from_immediately_previous_turn(
     resolved = resolve_contextual_loto_machine_id(second_prompt, previous_texts)
     assert resolved == "M-CNC-01"
 
-    contextual_prompt = f"{second_prompt} Machine ID: {resolved}"
+    contextual_prompt = loto_query_with_resolved_machine_context(second_prompt, resolved)
     assert intent_constraint_values(contextual_prompt, "machine_id") == ["M-CNC-01"]
     assert should_clarify_loto_machine(contextual_prompt) is False
     assert should_route_loto_to_rag(contextual_prompt) is True
     assert resolve_contextual_loto_machine_id("What LOTO procedure applies before working on M-CNC-01?", previous_texts) is None
+    assert "Machine ID:" not in contextual_prompt
 
 
 def test_so028_seeded_cancel_fixture_prompt_is_not_a_cancel_command():

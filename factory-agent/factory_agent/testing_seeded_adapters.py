@@ -9,7 +9,7 @@ import httpx
 
 from factory_agent.config import Settings
 from factory_agent.observability.telemetry import log_event
-from factory_agent.planning.intent import intent_constraint_values
+from factory_agent.planning.intent import intent_constraint_values, should_clarify_loto_machine
 from factory_agent.planner import PlannerApprovalRequired
 from factory_agent.schemas import PlanDraft, PlanStepDraft, ToolInfo
 from factory_agent.services.planner_service import PlannerResult
@@ -28,8 +28,37 @@ class SeededPlaywrightRAGPipeline:
         lowered = query.lower()
         machine_ids = intent_constraint_values(query, "machine_id")
         job_ids = intent_constraint_values(query, "job_id")
-        requested_machine_id = machine_ids[0] if machine_ids else "M-CNC-01"
+        requested_machine_id = machine_ids[0] if machine_ids else None
         requested_job_id = job_ids[0] if job_ids else None
+        if requested_machine_id is None:
+            if should_clarify_loto_machine(query):
+                return _FakeRagResult(
+                    answer=(
+                        "Controlled seeded RAG cannot return a machine-specific LOTO procedure "
+                        "without an exact machine ID."
+                    ),
+                    sources=[],
+                    safety_content=(
+                        "No machine ID was provided for the seeded machine-specific LOTO lookup."
+                    ),
+                )
+            return _FakeRagResult(
+                answer=(
+                    "Controlled seeded RAG answer: Lockout/Tagout controls hazardous energy during "
+                    "servicing or maintenance. Use the site-approved procedure for the specific equipment."
+                ),
+                sources=[
+                    {
+                        "source_number": 1,
+                        "doc_id": "seeded-general-loto-guidance",
+                        "title": "Seeded General LOTO Guidance",
+                        "organization": "eMas Safety",
+                        "authority_level": "controlled_test_fixture",
+                        "license": "internal-test",
+                    }
+                ],
+                safety_content="Controlled fake RAG output for Playwright L3; verify the site procedure before acting.",
+            )
         if (
             "no-source" in lowered
             or "no source" in lowered

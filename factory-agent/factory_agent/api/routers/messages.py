@@ -23,6 +23,7 @@ from factory_agent.persistence.models import Plan as PlanRow
 from factory_agent.persistence.models import PlanStep as PlanStepRow
 from factory_agent.persistence.models import Session as SessionRow
 from factory_agent.schemas import MessageCreateRequest, MessageResponse
+from factory_agent.session_state import USER_CANCELLED_MESSAGE
 
 
 _CANCEL_COMMAND_RE = re.compile(
@@ -113,7 +114,7 @@ def build_messages_router(
                         if step.status not in ("SKIPPED", "FAILED", "AMBIGUOUS"):
                             step.status = "SKIPPED"
                             step.completed_at = step.completed_at or datetime.utcnow()
-                            step.last_error = step.last_error or "Cancelled by user message"
+                            step.last_error = step.last_error or USER_CANCELLED_MESSAGE
                             _log_step_status(sess, step, step.status)
                 else:
                     pending_graph_approvals = (
@@ -128,9 +129,9 @@ def build_messages_router(
                         ap.status = "REJECTED"
                         ap.decided_by = "system"
                         ap.decided_at = datetime.utcnow()
-                        ap.rejection_reason = "Cancelled by user message"
+                        ap.rejection_reason = USER_CANCELLED_MESSAGE
                 sess.status = "IDLE"
-                sess.error = "Cancelled by user message"
+                sess.error = USER_CANCELLED_MESSAGE
                 sess.pending_user_message = None
                 sess.version += 1
                 await event_bus.publish(

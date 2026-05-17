@@ -34,6 +34,7 @@ from factory_agent.planner import (
 )
 from factory_agent.planning.intent import (
     assess_intent,
+    loto_query_with_resolved_machine_context,
     resolve_contextual_loto_machine_id,
     should_clarify_loto_machine,
     should_route_loto_to_rag,
@@ -44,6 +45,7 @@ from factory_agent.planning.tool_selector import ToolSelector
 from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import PlanCreateRequest, PlanResponse, ToolInfo
 from factory_agent.security.permissions import filter_tools_for_role, role_from_claims
+from factory_agent.session_state import is_user_cancelled_session
 from factory_agent.tools.arguments import compute_idempotency_key
 
 
@@ -86,56 +88,70 @@ class PlanCreationService:
             )
         ).scalars().first()
 
-    async def _recent_message_context(
+    async def _previous_turn_message_context(
         self,
         *,
         db: AsyncSession,
         session_id: str,
-        latest_message_id: str | None,
+        latest_user: MessageRow | None,
     ) -> list[str]:
         stmt = (
             select(MessageRow)
             .where(MessageRow.session_id == session_id)
             .where(MessageRow.role.in_(["user", "assistant"]))
-            .order_by(MessageRow.created_at.desc())
-            .limit(8)
+            .order_by(MessageRow.created_at.asc(), MessageRow.message_id.asc())
         )
-        if latest_message_id:
-            stmt = stmt.where(MessageRow.message_id != latest_message_id)
+        if latest_user:
+            stmt = stmt.where(MessageRow.message_id != latest_user.message_id)
+            stmt = stmt.where(MessageRow.created_at <= latest_user.created_at)
         rows = (await db.execute(stmt)).scalars().all()
-        return [str(row.content or "") for row in rows if str(row.content or "").strip()]
+        if not rows:
+            return []
 
-    async def _contextualize_loto_intent(
+        previous_user_idx = next(
+            (idx for idx in range(len(rows) - 1, -1, -1) if rows[idx].role == "user"),
+            None,
+        )
+        if previous_user_idx is None:
+            return []
+        previous_turn = rows[previous_user_idx:]
+        return [str(row.content or "") for row in previous_turn if str(row.content or "").strip()]
+
+    def _loto_query_with_resolved_machine(self, intent: str, machine_id: str | None) -> str:
+        return loto_query_with_resolved_machine_context(intent, machine_id)
+
+    async def _resolve_loto_machine_context(
         self,
         *,
         db: AsyncSession,
         sess: SessionRow,
         latest_user: MessageRow | None,
         intent: str,
-    ) -> str:
-        previous_texts = await self._recent_message_context(
+    ) -> tuple[str | None, dict[str, Any] | None]:
+        previous_texts = await self._previous_turn_message_context(
             db=db,
             session_id=sess.session_id,
-            latest_message_id=latest_user.message_id if latest_user else None,
+            latest_user=latest_user,
         )
         machine_id = resolve_contextual_loto_machine_id(intent, previous_texts)
         if not machine_id:
-            return intent
-        contextual_intent = f"{intent.rstrip()} Machine ID: {machine_id}"
+            return None, sess.replan_context if isinstance(sess.replan_context, dict) else None
+        rag_query = self._loto_query_with_resolved_machine(intent, machine_id)
         context = dict(sess.replan_context or {})
         context["contextual_resolution"] = {
+            "entity_type": "machine",
             "machine_id": machine_id,
             "source": "previous_turn",
             "original_intent": intent,
+            "rag_query": rag_query,
         }
         sess.replan_context = context
-        sess.current_intent = contextual_intent
         log_event(
             "loto_contextual_machine_resolved",
             session_id=sess.session_id,
             machine_id=machine_id,
         )
-        return contextual_intent
+        return machine_id, context
 
     async def _load_current_plan(self, *, db: AsyncSession, session_id: str) -> PlanRow | None:
         sess = await self._session_mgr.get_session(db, session_id=session_id)
@@ -144,7 +160,7 @@ class PlanCreationService:
         return (await db.execute(select(PlanRow).where(PlanRow.plan_id == sess.plan_id))).scalars().first()
 
     def _is_cancelled_session(self, sess: SessionRow) -> bool:
-        return str(sess.status or "").upper() == "IDLE" and str(sess.error or "").lower().startswith("cancelled")
+        return is_user_cancelled_session(sess)
 
     async def _cancelled_plan_response_if_needed(
         self,
@@ -300,6 +316,7 @@ class PlanCreationService:
         mode: str,
         tools_by_name: dict[str, ToolInfo],
         intent: str,
+        context_to_keep: dict[str, Any] | None = None,
     ) -> PlanResponse:
         answer = ""
         sources: list[Any] = []
@@ -355,6 +372,7 @@ class PlanCreationService:
             intent=intent,
             sources=sources,
             safety_content=safety_content,
+            context_to_keep=context_to_keep,
         )
 
     def _remember_negative_predicate_bindings(self,
@@ -864,20 +882,21 @@ class PlanCreationService:
         intent = sess.current_intent or ""
         latest_user = await self._latest_user_message(db=db, session_id=session_id)
         mode = latest_user.mode if latest_user else "normal"
-        intent = await self._contextualize_loto_intent(
+        resolved_loto_machine_id, resolved_loto_context = await self._resolve_loto_machine_context(
             db=db,
             sess=sess,
             latest_user=latest_user,
             intent=intent,
         )
-        assessment = assess_intent(intent)
+        loto_rag_intent = self._loto_query_with_resolved_machine(intent, resolved_loto_machine_id)
+        assessment = assess_intent(loto_rag_intent if resolved_loto_machine_id else intent)
 
         tools_by_name = await self._tool_registry.get_tools_by_name(db)
         tools_by_name = filter_tools_for_role(tools_by_name, role=role_from_claims(user))
         backend_used = "langgraph" if req.draft is None else "client"
         draft = req.draft
 
-        if should_clarify_loto_machine(intent):
+        if should_clarify_loto_machine(intent) and not resolved_loto_machine_id:
             plan_resp = await self._persist_conversation_reply_as_empty_plan(
                 db=db,
                 sess=sess,
@@ -889,13 +908,14 @@ class PlanCreationService:
             metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
             return plan_resp
 
-        if should_route_loto_to_rag(intent):
+        if resolved_loto_machine_id or should_route_loto_to_rag(intent):
             plan_resp = await self._answer_knowledge_question_as_plan(
                 db=db,
                 sess=sess,
                 mode=mode,
                 tools_by_name=tools_by_name,
-                intent=intent,
+                intent=loto_rag_intent if resolved_loto_machine_id else intent,
+                context_to_keep=resolved_loto_context,
             )
             metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
             return plan_resp

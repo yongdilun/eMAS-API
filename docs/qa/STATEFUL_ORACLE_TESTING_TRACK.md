@@ -91,11 +91,11 @@ Bugs found and fixed:
 
 | ID | Severity | Scenario | Root cause | Fix |
 |---|---|---|---|---|
-| P16-001 | High safety-answer risk | SO-022 | Missing-machine clarification named `M-CNC-01` as an example, violating the no-invented-machine rule. | Clarification now asks for the exact machine ID from the equipment label/work order without naming a default. |
-| P16-002 | High route/context risk | SO-026 | LOTO clarification/RAG short-circuit ran before previous-turn context could resolve `it`. | Added contextual LOTO machine resolution from recent session messages before LOTO route checks. |
+| P16-001 | High safety-answer risk | SO-022 | Missing-machine clarification and the seeded RAG fixture could name/default to `M-CNC-01`, violating the no-invented-machine rule. | Clarification now asks for the exact machine ID from the equipment label/work order, and seeded RAG no longer defaults machine-specific LOTO lookups to the CNC fixture when no machine ID is extracted. |
+| P16-002 | High route/context risk | SO-026 | LOTO clarification/RAG short-circuit ran before previous-turn context could resolve `it`. | Resolve the machine from the immediately previous turn, store it as structured `replan_context.contextual_resolution`, and augment only the private RAG query instead of mutating `session.current_intent`. |
 | P16-003 | High stale-snapshot risk | SO-026 | Current session snapshot exposed previous-plan steps after a follow-up no-step RAG answer. | Snapshot step projection is now scoped to the current plan. |
 | P16-004 | Medium cancel-command risk | SO-028 | Any user message containing `cancel` triggered cancellation, including the seeded cancellable fixture prompt. | Cancel detection now matches explicit cancel/stop commands instead of arbitrary mentions. |
-| P16-005 | High cancellation-state risk | SO-028 | Cancelled `IDLE` sessions lacked terminal cancellation timeline/activity evidence, leaving stale in-progress UI. | Snapshot projection now synthesizes a `session_failed` terminal event with `reason=cancelled_by_user` and a safe `Run cancelled` activity row. |
+| P16-005 | High cancellation-state risk | SO-028 | Cancelled `IDLE` sessions lacked terminal cancellation timeline/activity evidence, leaving stale in-progress UI. | Snapshot projection now uses shared cancellation lifecycle helpers to synthesize a `session_failed` terminal event with `reason=cancelled_by_user` and a safe `Run cancelled` activity row. |
 | P16-006 | High hidden-continuation risk | SO-028 | Background execution could finish after cancel and overwrite the session with `COMPLETED`. | Plan creation and background execution now refresh cancellation state and ignore late planner results after cancel. |
 
 Accepted gaps:

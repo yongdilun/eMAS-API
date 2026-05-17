@@ -456,6 +456,17 @@ def resolve_contextual_loto_machine_id(text: str, previous_texts: Sequence[str])
     return None
 
 
+def loto_query_with_resolved_machine_context(text: str, machine_id: str | None) -> str:
+    raw = text or ""
+    normalized_machine_id = (machine_id or "").strip().upper()
+    if not normalized_machine_id:
+        return raw
+    return (
+        f"{raw.rstrip()}\n\n"
+        f"Resolved context from the immediately previous turn: machine {normalized_machine_id}."
+    )
+
+
 def assess_intent(text: str) -> IntentAssessment:
     """
     Legacy API for tool scoping and API gating. Delegates to :func:`split_user_intents`

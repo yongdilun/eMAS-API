@@ -474,7 +474,19 @@ async def test_phase7_snapshot_steps_are_scoped_to_current_plan_after_followup(s
             session_id=session_id,
             user_id="u1",
             status="COMPLETED",
-            current_intent="What LOTO procedure applies before working on it? Machine ID: M-CNC-01",
+            current_intent="What LOTO procedure applies before working on it?",
+            replan_context={
+                "contextual_resolution": {
+                    "entity_type": "machine",
+                    "machine_id": "M-CNC-01",
+                    "source": "previous_turn",
+                    "original_intent": "What LOTO procedure applies before working on it?",
+                    "rag_query": (
+                        "What LOTO procedure applies before working on it?\n\n"
+                        "Resolved context from the immediately previous turn: machine M-CNC-01."
+                    ),
+                }
+            },
             plan_id=new_plan_id,
             plan_version=2,
             plan_hash="phase7-followup-new-hash",
@@ -577,7 +589,8 @@ async def test_phase7_snapshot_steps_are_scoped_to_current_plan_after_followup(s
 
     assert response.status_code == 200
     body = response.json()
-    assert body["session"]["current_intent"].endswith("Machine ID: M-CNC-01")
+    assert body["session"]["current_intent"] == "What LOTO procedure applies before working on it?"
+    assert body["session"]["replan_context"]["contextual_resolution"]["machine_id"] == "M-CNC-01"
     assert body["plan"] is None
     assert body["steps"] == []
     assert "seeded Go API data" not in json.dumps(body["steps"])
