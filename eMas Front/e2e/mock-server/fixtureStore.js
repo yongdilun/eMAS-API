@@ -29,6 +29,9 @@ import {
   sessionSummary,
   snapshotFromSession,
   streamDropPrompt,
+  typedKnowledgeSourcePrompt,
+  typedPendingApprovalPrompt,
+  typedRejectedPrompt,
   toolResultEvent,
   userMessageEvent,
 } from '../fixtures/factoryAgentFixtures.js'
@@ -780,6 +783,224 @@ export const scenarioCatalog = {
           state: 'waiting',
         },
       ])
+    },
+  },
+
+  typedPresentationPendingApproval: {
+    name: 'typedPresentationPendingApproval',
+    description: 'Phase 7 typed pending approval renders without approval phrase matching.',
+    prompts: [typedPendingApprovalPrompt],
+    onMessage(session, content) {
+      const turnId = addUserTurn(session, content || typedPendingApprovalPrompt, 'pw-turn-typed-pending')
+      session.typed_pending_turn_id = turnId
+    },
+    onPlan(session) {
+      const turnId = session.typed_pending_turn_id || session.current_turn_id || 'pw-turn-typed-pending'
+      session.status = 'WAITING_APPROVAL'
+      session.operation_id = 'pw-plan-typed-pending'
+      session.presentation = {
+        kind: 'approval_required',
+        state: 'pending',
+        operation_id: 'pw-plan-typed-pending',
+        approval_id: 'pw-approval-typed-pending',
+        summary: 'Review the proposed priority update batch.',
+        rows: [
+          { job_id: 'JOB-SEED-005', previous_priority: 'low', new_priority: 'high', outcome: 'pending' },
+        ],
+      }
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: 'pw-plan-typed-pending',
+        objective: 'Typed pending approval fixture.',
+        stepId: 'pw-step-typed-pending',
+        toolName: 'typed_priority_update',
+        status: 'PENDING_APPROVAL',
+      })
+      session.steps = session.plan.steps.map((step) => ({ ...step, status: 'WAITING_APPROVAL' }))
+      session.pending_approval = {
+        approval_id: 'pw-approval-typed-pending',
+        session_id: session.session_id,
+        subject_type: 'tool',
+        tool_name: 'typed_priority_update',
+        side_effect_level: 'HIGH',
+        risk_summary: 'Operator review required for one low-priority job.',
+        args: { job_id: 'JOB-SEED-005', priority: 'high' },
+        status: 'PENDING',
+        created_at: fixtureTime(3),
+        expires_at: fixtureTime(300),
+      }
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId,
+          eventId: 'pw-typed-pending-plan-created',
+          planId: 'pw-plan-typed-pending',
+          content: 'Preparing a typed approval contract.',
+          status: 'PENDING_APPROVAL',
+        }),
+      )
+      appendTimeline(session, {
+        event_id: 'pw-typed-pending-approval-required',
+        turn_id: turnId,
+        event_type: 'approval_required',
+        approval_id: session.pending_approval.approval_id,
+        tool_name: session.pending_approval.tool_name,
+        content: 'Operator review required for one low-priority job.',
+        status: 'PENDING',
+        operation_id: 'pw-plan-typed-pending',
+        details: {
+          args: session.pending_approval.args,
+          side_effect_level: session.pending_approval.side_effect_level,
+        },
+        presentation: session.presentation,
+        created_at: fixtureTime(3),
+      })
+      appendTimeline(
+        session,
+        sessionCompletedEvent({
+          turnId,
+          eventId: 'pw-typed-pending-stale-completed',
+          planId: 'pw-plan-typed-pending',
+          content: 'All requested changes completed.',
+          reason: 'stale_success_detail',
+          offsetSeconds: 4,
+        }),
+      )
+      return { status: 200, body: { status: 'WAITING_APPROVAL', plan_id: 'pw-plan-typed-pending' } }
+    },
+    async onExecute() {
+      return { status: 200, body: { status: 'WAITING_APPROVAL', session_id: null } }
+    },
+    snapshot(session) {
+      return snapshotFromSession(session)
+    },
+  },
+
+  typedPresentationRejectedStaleSuccess: {
+    name: 'typedPresentationRejectedStaleSuccess',
+    description: 'Phase 7 typed rejected state suppresses stale success details.',
+    prompts: [typedRejectedPrompt],
+    onMessage(session, content) {
+      addUserTurn(session, content || typedRejectedPrompt, 'pw-turn-typed-rejected')
+    },
+    onPlan(session) {
+      const turnId = session.current_turn_id || 'pw-turn-typed-rejected'
+      session.status = 'EXECUTING'
+      session.operation_id = 'pw-plan-typed-rejected'
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: 'pw-plan-typed-rejected',
+        objective: 'Render typed rejected presentation.',
+        stepId: 'pw-step-typed-rejected',
+        toolName: 'typed_rejected_fixture',
+      })
+      session.steps = [...session.plan.steps]
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId,
+          eventId: 'pw-typed-rejected-plan-created',
+          planId: 'pw-plan-typed-rejected',
+          content: 'Checking typed rejected state.',
+        }),
+      )
+      return { status: 200, body: { status: 'EXECUTING', plan_id: 'pw-plan-typed-rejected' } }
+    },
+    async onExecute(session, sleep) {
+      const turnId = session.current_turn_id || 'pw-turn-typed-rejected'
+      await sleep(120)
+      session.status = 'FAILED'
+      completeSteps(session)
+      session.presentation = {
+        kind: 'rejected',
+        state: 'rejected',
+        operation_id: 'pw-plan-typed-rejected',
+        approval_id: 'pw-approval-typed-rejected',
+        summary: 'Operator rejected the requested priority update.',
+        diagnostics: { reason: 'operator_rejected' },
+        invariants: { full_success_forbidden: true },
+      }
+      appendTimeline(
+        session,
+        sessionCompletedEvent({
+          turnId,
+          eventId: 'pw-typed-rejected-stale-completed',
+          planId: 'pw-plan-typed-rejected',
+          content: 'All requested changes completed. Run complete.',
+          reason: 'stale_success_detail',
+          details: { hidden_details: 'Updated **99** jobs successfully.' },
+          offsetSeconds: 4,
+        }),
+      )
+      return { status: 200, body: { status: 'FAILED', session_id: session.session_id } }
+    },
+    snapshot(session) {
+      return snapshotFromSession(session)
+    },
+  },
+
+  typedPresentationKnowledgeSources: {
+    name: 'typedPresentationKnowledgeSources',
+    description: 'Phase 7 typed knowledge_answer sources render without details.sources fallback.',
+    prompts: [typedKnowledgeSourcePrompt],
+    onMessage(session, content) {
+      addUserTurn(session, content || typedKnowledgeSourcePrompt, 'pw-turn-typed-knowledge')
+    },
+    onPlan(session) {
+      const turnId = session.current_turn_id || 'pw-turn-typed-knowledge'
+      session.status = 'EXECUTING'
+      session.operation_id = 'pw-plan-typed-knowledge'
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: 'pw-plan-typed-knowledge',
+        objective: 'Render typed knowledge answer sources.',
+        stepId: 'pw-step-typed-knowledge',
+        toolName: 'typed_knowledge_fixture',
+      })
+      session.steps = [...session.plan.steps]
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId,
+          eventId: 'pw-typed-knowledge-plan-created',
+          planId: 'pw-plan-typed-knowledge',
+          content: 'Preparing typed knowledge answer.',
+        }),
+      )
+      return { status: 200, body: { status: 'EXECUTING', plan_id: 'pw-plan-typed-knowledge' } }
+    },
+    async onExecute(session, sleep) {
+      const turnId = session.current_turn_id || 'pw-turn-typed-knowledge'
+      await sleep(120)
+      session.status = 'COMPLETED'
+      completeSteps(session)
+      session.presentation = {
+        kind: 'knowledge_answer',
+        state: 'completed',
+        operation_id: 'pw-plan-typed-knowledge',
+        summary: 'Use the cited LOTO procedure before lockout.',
+        sources: [
+          {
+            source_number: 1,
+            title: 'Typed LOTO Procedure',
+            doc_id: 'LOTO-M-CNC-01',
+            machine_id: 'M-CNC-01',
+          },
+        ],
+      }
+      appendTimeline(
+        session,
+        sessionCompletedEvent({
+          turnId,
+          eventId: 'pw-typed-knowledge-completed',
+          planId: 'pw-plan-typed-knowledge',
+          content: 'Knowledge response ready.',
+          reason: 'typed_knowledge_fixture',
+          offsetSeconds: 4,
+        }),
+      )
+      session.timeline[session.timeline.length - 1].presentation = session.presentation
+      return { status: 200, body: { status: 'COMPLETED', session_id: session.session_id } }
+    },
+    snapshot(session) {
+      return snapshotFromSession(session)
     },
   },
 

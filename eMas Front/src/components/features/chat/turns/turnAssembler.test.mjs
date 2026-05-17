@@ -650,3 +650,167 @@ test('new pending approval outranks stale terminal completion from previous appr
     '1 job will be updated from high to medium priority.',
   )
 })
+
+test('typed pending approval renders from presentation despite changed approval wording', () => {
+  const turns = assembleFactoryAgentTurns([
+    userEvent,
+    {
+      event_id: 'appr:typed',
+      event_type: 'approval_required',
+      content: 'Operator gate is open for review.',
+      created_at: '2026-05-16T10:00:01.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      approval_id: 'approval-typed-1',
+      status: 'PENDING',
+      presentation: {
+        kind: 'approval_required',
+        state: 'pending',
+        approval_id: 'approval-typed-1',
+        summary: 'Review the proposed job priority update.',
+      },
+    },
+  ])
+
+  assert.equal(computeFactoryAgentTurnSummary(turns[0]), 'Review the proposed job priority update.')
+})
+
+test('typed terminal states override stale success text', () => {
+  const cases = [
+    ['rejected', 'rejected', 'Operator rejected this request.'],
+    ['expired', 'expired', 'Approval expired before execution.'],
+    ['partial_failure', 'failed', 'Updated 1 job; 1 job failed validation.'],
+    ['diagnostic', 'failed', 'The backend returned an empty final response.'],
+  ]
+
+  for (const [kind, state, summary] of cases) {
+    const turns = assembleFactoryAgentTurns([
+      {
+        ...userEvent,
+        turn_id: `turn-${kind}`,
+      },
+      {
+        event_id: `completed:${kind}`,
+        event_type: 'session_completed',
+        content: 'All requested changes completed. Run complete.',
+        created_at: '2026-05-16T10:00:02.000Z',
+        role: 'assistant',
+        turn_id: `turn-${kind}`,
+        status: 'COMPLETED',
+        details: {
+          hidden_details: 'Updated **99** jobs successfully.',
+        },
+        presentation: {
+          kind,
+          state,
+          summary,
+          diagnostics: { reason: `${kind}_contract` },
+        },
+      },
+    ])
+
+    const actual = computeFactoryAgentTurnSummary(turns[0])
+    assert.equal(actual, summary)
+    assert.doesNotMatch(actual, /All requested changes completed|Updated \*\*99\*\* jobs/)
+  }
+})
+
+test('typed failed diagnostic keeps richer safe recovery guidance when typed summary is terse', () => {
+  const turns = assembleFactoryAgentTurns([
+    userEvent,
+    {
+      event_id: 'plan:failed-guidance',
+      event_type: 'plan_created',
+      content: 'Intent: update job. Risk summary: approval required.',
+      created_at: '2026-05-16T10:00:01.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      details: {
+        status: 'COMPLETED',
+        plan_explanation:
+          'Could not complete the requested job priority update because the Go API returned HTTP 500: database unavailable. No job rows were changed and no audit rows were created. Please retry after the backend recovers.',
+      },
+    },
+    {
+      event_id: 'failed:typed',
+      event_type: 'session_failed',
+      content: 'HTTP 500: database unavailable',
+      created_at: '2026-05-16T10:00:02.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      status: 'FAILED',
+      presentation: {
+        kind: 'diagnostic',
+        state: 'failed',
+        summary: 'HTTP 500: database unavailable',
+        diagnostics: { reason: 'session_failed' },
+      },
+    },
+  ])
+
+  const summary = computeFactoryAgentTurnSummary(turns[0])
+  assert.match(summary, /Could not complete/)
+  assert.match(summary, /Please retry/)
+  assert.doesNotMatch(summary, /Risk summary/)
+})
+
+test('typed mutation result provides stable affected rows when wording changes', () => {
+  const turns = assembleFactoryAgentTurns([
+    userEvent,
+    {
+      event_id: 'completed:mutation',
+      event_type: 'session_completed',
+      content: 'Done.',
+      created_at: '2026-05-16T10:00:02.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      status: 'COMPLETED',
+      presentation: {
+        kind: 'mutation_result',
+        state: 'completed',
+        summary: 'Priority update finished.',
+        rows: [
+          { job_id: 'JOB-SEED-005', previous_priority: 'low', new_priority: 'high', outcome: 'updated' },
+          { job_id: 'JOB-SEED-009', previous_priority: 'low', new_priority: 'high', outcome: 'updated' },
+        ],
+      },
+    },
+  ])
+
+  assert.equal(computeFactoryAgentTurnSummary(turns[0]), 'Priority update finished.')
+  assert.deepEqual(
+    turns[0].typedTablePresentation.table.rows.map((row) => row.job_id),
+    ['JOB-SEED-005', 'JOB-SEED-009'],
+  )
+})
+
+test('typed knowledge answer carries sources independently of exact answer text', () => {
+  const turns = assembleFactoryAgentTurns([
+    userEvent,
+    {
+      event_id: 'completed:knowledge',
+      event_type: 'session_completed',
+      content: 'Guidance is ready.',
+      created_at: '2026-05-16T10:00:02.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      status: 'COMPLETED',
+      presentation: {
+        kind: 'knowledge_answer',
+        state: 'completed',
+        summary: 'Follow the machine-specific LOTO notification procedure.',
+        sources: [
+          {
+            source_number: 1,
+            title: 'LOTO Procedure M-CNC-01',
+            doc_id: 'LOTO-M-CNC-01',
+            machine_id: 'M-CNC-01',
+          },
+        ],
+      },
+    },
+  ])
+
+  assert.equal(computeFactoryAgentTurnSummary(turns[0]), 'Follow the machine-specific LOTO notification procedure.')
+  assert.equal(turns[0].sources[0].doc_id, 'LOTO-M-CNC-01')
+})

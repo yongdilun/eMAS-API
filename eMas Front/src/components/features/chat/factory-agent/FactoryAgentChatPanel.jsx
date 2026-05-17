@@ -11,6 +11,10 @@ import { compactInterruptApprovalHeadline, resolveApprovalTablePresentation } fr
 import { TablePresentation } from '../turns/TurnBlocks'
 import { assistantAnswerAllowed, friendlySessionStatus } from './activityTimelineUtils'
 import {
+  diagnosticFactsForPresentation,
+  tablePresentationFromTypedPresentation,
+} from './presentationContract.js'
+import {
   formatInlineCitationLabel,
   stripSourceFootnoteDefinitions,
 } from '../sourceFormatting'
@@ -121,6 +125,7 @@ function buildUserDetailLines(turn) {
   const terminal = turn?.terminal || null
 
   const lines = []
+  lines.push(...diagnosticFactsForPresentation(turn?.presentation))
   const planExplanation = thinking[thinking.length - 1]?.details?.plan_explanation || thinking[thinking.length - 1]?.content
   if (isUserVisibleDetailText(planExplanation)) {
     lines.push(planExplanation)
@@ -440,6 +445,12 @@ function bundleUiPresentationFromTurn(turn, pendingApproval, getStashedBundlePre
 }
 
 function getLatestToolPresentation(turn) {
+  const typedPresentation = tablePresentationFromTypedPresentation(turn?.presentation)
+  const typedKind = String(turn?.presentation?.kind || '')
+  if (typedPresentation && ['mutation_result', 'partial_failure'].includes(typedKind)) {
+    return typedPresentation
+  }
+
   const bundle = turnHasLangGraphWriteBundle(turn)
   const completed = turn?.terminal?.event_type === 'session_completed'
   if (bundle && !completed) {
@@ -579,7 +590,9 @@ function AssistantTurnBubble({
   session,
   isLatestTurn,
 }) {
-  const rawSummary = pendingApprovalVisibleSummary(pendingApproval) || completedVisibleSummary(turn, turn?.summary || 'Working...')
+  const rawSummary = turn?.presentation
+    ? completedVisibleSummary(turn, turn?.summary || 'Working...')
+    : pendingApprovalVisibleSummary(pendingApproval) || completedVisibleSummary(turn, turn?.summary || 'Working...')
   const summary = useStagedAssistantSummary(rawSummary)
   const summaryIsProgress = isProgressSummary(summary)
   const answerAllowed = assistantAnswerAllowed({

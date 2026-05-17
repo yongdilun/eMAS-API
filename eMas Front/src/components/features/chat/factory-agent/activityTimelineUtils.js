@@ -1,5 +1,11 @@
 export const ACTIVITY_STATES = ['running', 'success', 'retry', 'waiting', 'error', 'complete']
 
+import {
+  activityStepFromTypedPresentation,
+  normalizeTypedPresentation,
+  typedPresentationIsAuthoritative,
+} from './presentationContract.js'
+
 /**
  * When the activity timeline is enabled for the latest turn, defer assistant
  * prose, tables, and stream-gated extras until the strip shows a terminal step,
@@ -139,6 +145,8 @@ function safeDomainLabel(event) {
 }
 
 function activityBaseForEvent(event) {
+  const typedStep = typedActivityStepForEvent(event)
+  if (typedStep) return [typedStep.group, typedStep.label, typedStep.state]
   const type = event?.event_type || event?.eventType
   const status = String(event?.status || '').toUpperCase()
   if (type === 'plan_created') return ['planning', 'Understanding your request', 'success']
@@ -166,6 +174,8 @@ function activityBaseForEvent(event) {
 }
 
 function detailForEvent(event, label) {
+  const typedStep = typedActivityStepForEvent(event)
+  if (typedStep) return typedStep.detail
   const type = event?.event_type || event?.eventType
   const domain = safeDomainLabel(event)
   if (type === 'plan_created') return 'Reviewing your request and recent context'
@@ -192,6 +202,19 @@ function toEventTime(event) {
 
 function getEventType(event) {
   return event?.event_type || event?.eventType || ''
+}
+
+function typedActivityStepForEvent(event) {
+  const presentation = normalizeTypedPresentation(event?.presentation)
+  if (!typedPresentationIsAuthoritative(presentation)) return null
+  const type = getEventType(event)
+  if (!['session_completed', 'session_failed', 'session_blocked', 'approval_required', 'approval_decided'].includes(type)) {
+    return null
+  }
+  return activityStepFromTypedPresentation(presentation, {
+    id: `typed:${event?.event_id || event?.id || type}`,
+    timestamp: toEventTime(event) / 1000,
+  })
 }
 
 export function resolveOperationIdFromSnapshot(snapshot = {}) {
@@ -458,6 +481,12 @@ function buildStepsFromEventsOperational(events) {
 
     if (t === 'user_message') continue
     if (t === 'tool_started') continue
+
+    const typedStep = typedActivityStepForEvent(event)
+    if (typedStep) {
+      push(typedStep.group, typedStep.label, typedStep.state, typedStep.detail, ts)
+      continue
+    }
 
     if (t === 'plan_created') {
       if (!seenUnderstanding) {
@@ -744,10 +773,13 @@ export function buildActivityStepsFromSnapshot(snapshot = {}) {
   const planSteps = Array.isArray(snapshot?.steps) ? snapshot.steps : []
   const status = String(session?.status || '').toUpperCase()
   const hasPendingApproval = Boolean(snapshot?.pending_approval)
+  const snapshotPresentation = normalizeTypedPresentation(snapshot?.presentation)
+  const typedAuthoritative = typedPresentationIsAuthoritative(snapshotPresentation)
+  const typedIsNonCompletedTerminal = Boolean(typedAuthoritative && snapshotPresentation?.state !== 'completed')
 
   // Suppress session_completed timeline events while the session is still active.
   // showing "Run complete" before the session is terminal is misleading.
-  const suppressCompletion = hasPendingApproval || ACTIVE_SESSION_STATUSES.has(status)
+  const suppressCompletion = hasPendingApproval || ACTIVE_SESSION_STATUSES.has(status) || typedIsNonCompletedTerminal
   const timeline = suppressCompletion
     ? rawTimeline.filter((e) => (e?.event_type || e?.eventType) !== 'session_completed')
     : rawTimeline
@@ -820,7 +852,7 @@ export function buildActivityStepsFromSnapshot(snapshot = {}) {
     })
   }
 
-  if (status === 'FAILED' || status === 'BLOCKED') {
+  if ((status === 'FAILED' || status === 'BLOCKED') && !typedIsNonCompletedTerminal) {
     steps = appendStep(steps, {
       id: `snapshot_activity_${steps.length + 1}`,
       timestamp: now,
@@ -831,7 +863,7 @@ export function buildActivityStepsFromSnapshot(snapshot = {}) {
     })
   }
 
-  if (status === 'COMPLETED') {
+  if (status === 'COMPLETED' && !typedIsNonCompletedTerminal) {
     steps = appendStep(steps, {
       id: `snapshot_activity_${steps.length + 1}`,
       timestamp: now,
@@ -842,7 +874,21 @@ export function buildActivityStepsFromSnapshot(snapshot = {}) {
     })
   }
 
-  if (['COMPLETED', 'FAILED', 'BLOCKED'].includes(status)) {
+  if (typedIsNonCompletedTerminal) {
+    const typedStep = activityStepFromTypedPresentation(snapshotPresentation, {
+      id: `snapshot_activity_typed_${snapshotPresentation.kind}_${snapshotPresentation.state}`,
+      timestamp: now,
+    })
+    if (typedStep) {
+      steps = steps.filter((step) => {
+        const label = String(step?.label || '')
+        return label !== 'Run complete' && label !== 'Improving the response'
+      })
+      steps = appendStep(steps, typedStep)
+    }
+  }
+
+  if (['COMPLETED', 'FAILED', 'BLOCKED'].includes(status) && !typedIsNonCompletedTerminal) {
     steps = injectExecutionSummaryFromPlanSteps(steps, planSteps, plan)
   }
 

@@ -6,6 +6,9 @@ import {
   emptyAssistantPrompt,
   machineStatusAnswer,
   machineStatusPrompt,
+  typedKnowledgeSourcePrompt,
+  typedPendingApprovalPrompt,
+  typedRejectedPrompt,
 } from '../fixtures/factoryAgentFixtures.js'
 
 const mockBaseUrl = `http://127.0.0.1:${Number(process.env.PLAYWRIGHT_FACTORY_AGENT_PORT || 8015)}`
@@ -74,5 +77,44 @@ test.describe('Factory Agent chat scenario fixtures', () => {
         )
       })
       .toBe(true)
+  })
+
+  test('typed rejected presentation suppresses stale success details', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: chatSelectors.openAssistantButtonName }).click()
+    await expect(page.getByRole('dialog', { name: chatSelectors.dialogName })).toBeVisible()
+
+    await sendChatPrompt(page, typedRejectedPrompt)
+
+    await expect(page.getByText('Operator rejected the requested priority update.').first()).toBeVisible()
+    await expect(page.getByText('Run complete')).toHaveCount(0)
+    await expect(page.getByText(/All requested changes completed/i)).toHaveCount(0)
+    await expect(page.getByText(/Updated \*\*99\*\* jobs successfully/i)).toHaveCount(0)
+  })
+
+  test('typed pending approval remains pending despite stale completion text', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: chatSelectors.openAssistantButtonName }).click()
+    await expect(page.getByRole('dialog', { name: chatSelectors.dialogName })).toBeVisible()
+
+    await sendChatPrompt(page, typedPendingApprovalPrompt)
+
+    await expect(page.getByText('Review the proposed priority update batch.').first()).toBeVisible()
+    await expect(page.getByText('Approval required')).toBeVisible()
+    await expect(page.getByText('Operator review required for one low-priority job.')).toBeVisible()
+    await expect(page.getByText('Run complete')).toHaveCount(0)
+    await expect(page.getByText(/All requested changes completed/i)).toHaveCount(0)
+  })
+
+  test('typed knowledge answer renders source metadata', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: chatSelectors.openAssistantButtonName }).click()
+    await expect(page.getByRole('dialog', { name: chatSelectors.dialogName })).toBeVisible()
+
+    await sendChatPrompt(page, typedKnowledgeSourcePrompt)
+
+    await expect(page.getByText('Use the cited LOTO procedure before lockout.').first()).toBeVisible()
+    await expect(page.getByText('Knowledge sources')).toBeVisible()
+    await expect(page.getByText('Typed LOTO Procedure - Source 1')).toBeVisible()
   })
 })

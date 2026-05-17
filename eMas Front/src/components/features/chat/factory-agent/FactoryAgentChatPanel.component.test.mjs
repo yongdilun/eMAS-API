@@ -489,6 +489,130 @@ test('FactoryAgentChatPanel empty final response safe diagnostic', async () => {
   await view.unmount()
 })
 
+test('FactoryAgentChatPanel renders typed mutation rows when final wording changes', async () => {
+  const { default: FactoryAgentChatPanel } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx')
+  const chatState = createChatState({
+    session: { session_id: 'session-typed-mutation', name: 'Typed mutation', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-typed-mutation', name: 'Typed mutation', status: 'COMPLETED' }],
+    activeSessionName: 'Typed mutation',
+    turns: [
+      {
+        id: 'turn-typed-mutation',
+        created_at: '2026-05-16T10:00:00.000Z',
+        user: {
+          content: 'change low priority jobs to high',
+          created_at: '2026-05-16T10:00:00.000Z',
+        },
+        summary: 'Priority update finished.',
+        terminal: { event_type: 'session_completed', content: 'Done.', status: 'COMPLETED' },
+        presentation: {
+          kind: 'mutation_result',
+          state: 'completed',
+          summary: 'Priority update finished.',
+          rows: [
+            { job_id: 'JOB-SEED-005', previous_priority: 'low', new_priority: 'high', outcome: 'updated' },
+          ],
+        },
+        typedTablePresentation: {
+          render_hint: 'table',
+          table: {
+            columns: [
+              { key: 'job_id', label: 'Job ID' },
+              { key: 'previous_priority', label: 'Previous priority' },
+              { key: 'new_priority', label: 'New priority' },
+              { key: 'outcome', label: 'Outcome' },
+            ],
+            rows: [
+              { job_id: 'JOB-SEED-005', previous_priority: 'low', new_priority: 'high', outcome: 'updated' },
+            ],
+            displayed_rows: 1,
+            total_rows: 1,
+          },
+        },
+      },
+    ],
+    activitySteps: [
+      {
+        id: 'complete',
+        timestamp: 1,
+        group: 'response',
+        label: 'Run complete',
+        detail: 'All steps finished. See the thread below.',
+        state: 'complete',
+      },
+    ],
+  })
+
+  const view = await render(
+    React.createElement(FactoryAgentChatPanel, {
+      useChatState: () => chatState,
+    }),
+  )
+
+  await waitFor(() => assert.match(view.text(), /Priority update finished/))
+  assert.match(view.text(), /JOB-SEED-005/)
+  assert.match(view.text(), /Previous priority/)
+  assert.match(view.text(), /high/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel renders typed knowledge sources without exact answer wording', async () => {
+  const { default: FactoryAgentChatPanel } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx')
+  const chatState = createChatState({
+    session: { session_id: 'session-typed-rag', name: 'Typed RAG', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-typed-rag', name: 'Typed RAG', status: 'COMPLETED' }],
+    activeSessionName: 'Typed RAG',
+    turns: [
+      {
+        id: 'turn-typed-rag',
+        created_at: '2026-05-16T10:00:00.000Z',
+        user: {
+          content: 'what does the LOTO procedure require',
+          created_at: '2026-05-16T10:00:00.000Z',
+        },
+        summary: 'Use the cited LOTO procedure before lockout.',
+        terminal: { event_type: 'session_completed', content: 'Answer ready.', status: 'COMPLETED' },
+        sources: [
+          {
+            source_number: 1,
+            title: 'Machine LOTO Procedure',
+            doc_id: 'LOTO-M-CNC-01',
+            machine_id: 'M-CNC-01',
+          },
+        ],
+        presentation: {
+          kind: 'knowledge_answer',
+          state: 'completed',
+          summary: 'Use the cited LOTO procedure before lockout.',
+        },
+      },
+    ],
+    activitySteps: [
+      {
+        id: 'complete',
+        timestamp: 1,
+        group: 'response',
+        label: 'Run complete',
+        detail: 'All steps finished. See the thread below.',
+        state: 'complete',
+      },
+    ],
+  })
+
+  const view = await render(
+    React.createElement(FactoryAgentChatPanel, {
+      useChatState: () => chatState,
+    }),
+  )
+
+  await waitFor(() => assert.match(view.text(), /Knowledge sources/))
+  assert.match(view.text(), /Machine LOTO Procedure/)
+  assert.match(view.text(), /Use the cited LOTO procedure/)
+
+  await view.unmount()
+})
+
 test('FactoryAgentChatPanel renders stream diagnostics without hiding the chat', async () => {
   const { default: FactoryAgentChatPanel } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx')
   const chatState = createChatState({

@@ -1,4 +1,11 @@
 import { compactInterruptApprovalHeadline } from '../factory-agent/approvalInterruptDisplay.js'
+import {
+  diagnosticFactsForPresentation,
+  normalizeTypedPresentation,
+  summaryFromTypedPresentation,
+  tablePresentationFromTypedPresentation,
+  typedPresentationIsAuthoritative,
+} from '../factory-agent/presentationContract.js'
 
 export const getReadableAction = (toolName) => {
   const raw = String(toolName || '').trim()
@@ -261,7 +268,17 @@ function timelineOrderKey(item) {
   return [safeTime, Number.isFinite(stepIndex) ? stepIndex : -1]
 }
 
-export function assembleFactoryAgentTurns(timeline = []) {
+function mergeTypedPresentationIntoTurn(turn, rawPresentation) {
+  const presentation = normalizeTypedPresentation(rawPresentation)
+  if (!presentation) return
+  turn.presentation = presentation
+  turn.typedTablePresentation = tablePresentationFromTypedPresentation(presentation)
+  turn.diagnostics = presentation.diagnostics || {}
+  turn.invariants = presentation.invariants || {}
+  if (presentation.sources.length) turn.sources = presentation.sources
+}
+
+export function assembleFactoryAgentTurns(timeline = [], options = {}) {
   const events = Array.isArray(timeline) ? timeline : []
   const userEvents = events.filter((e) => e?.event_type === 'user_message')
 
@@ -284,6 +301,10 @@ export function assembleFactoryAgentTurns(timeline = []) {
       debug: [],
       sources: [],
       safetyContent: null,
+      presentation: null,
+      typedTablePresentation: null,
+      diagnostics: {},
+      invariants: {},
     }
     turnsById.set(key, next)
     return next
@@ -310,6 +331,7 @@ export function assembleFactoryAgentTurns(timeline = []) {
         ? (e.event_id || e.id)
         : pickLatestTurnIdByTime(userEvents, e.created_at))
     const turn = getOrCreateTurn(turnId, e.created_at)
+    mergeTypedPresentationIntoTurn(turn, e.presentation)
 
     if (e.event_type === 'user_message') {
       turn.user = {
@@ -326,8 +348,9 @@ export function assembleFactoryAgentTurns(timeline = []) {
         content: e.content,
         created_at: e.created_at,
         details: e.details || null,
+        presentation: normalizeTypedPresentation(e.presentation),
       })
-      if (e.details?.sources) turn.sources = e.details.sources
+      if (e.details?.sources && !normalizeTypedPresentation(e.presentation)?.sources?.length) turn.sources = e.details.sources
       if (e.details?.safety_content) turn.safetyContent = e.details.safety_content
       continue
     }
@@ -343,6 +366,7 @@ export function assembleFactoryAgentTurns(timeline = []) {
         created_at: e.created_at,
         step_context: e.step_context || null,
         details: e.details || null,
+        presentation: normalizeTypedPresentation(e.presentation),
       })
       continue
     }
@@ -358,6 +382,7 @@ export function assembleFactoryAgentTurns(timeline = []) {
         created_at: e.created_at,
         step_context: e.step_context || null,
         details: e.details || null,
+        presentation: normalizeTypedPresentation(e.presentation),
       })
       continue
     }
@@ -373,6 +398,7 @@ export function assembleFactoryAgentTurns(timeline = []) {
         content: e.content,
         created_at: e.created_at,
         details: e.details || null,
+        presentation: normalizeTypedPresentation(e.presentation),
       })
       continue
     }
@@ -397,6 +423,7 @@ export function assembleFactoryAgentTurns(timeline = []) {
         created_at: e.created_at,
         status: e.status || null,
         details: e.details || null,
+        presentation: normalizeTypedPresentation(e.presentation),
       }
       turn.status.push(item)
       if (e.event_type === 'session_blocked' || e.event_type === 'session_failed' || e.event_type === 'session_completed') {
@@ -407,7 +434,10 @@ export function assembleFactoryAgentTurns(timeline = []) {
       // of the timeline by the backend).
       if (e.event_type === 'session_completed') {
         const detailSources = Array.isArray(e.details?.sources) ? e.details.sources : null
-        if (detailSources && detailSources.length && (!turn.sources || turn.sources.length === 0)) {
+        const typedSources = normalizeTypedPresentation(e.presentation)?.sources || []
+        if (typedSources.length) {
+          turn.sources = typedSources
+        } else if (detailSources && detailSources.length && (!turn.sources || turn.sources.length === 0)) {
           turn.sources = detailSources
         }
         if (e.details?.safety_content && !turn.safetyContent) {
@@ -442,6 +472,11 @@ export function assembleFactoryAgentTurns(timeline = []) {
 
   turns.sort((a, b) => safeStr(a.user?.created_at || a.created_at).localeCompare(safeStr(b.user?.created_at || b.created_at)))
 
+  const snapshotPresentation = normalizeTypedPresentation(options.snapshotPresentation || options.presentation)
+  if (snapshotPresentation && turns.length) {
+    mergeTypedPresentationIntoTurn(turns[turns.length - 1], snapshotPresentation)
+  }
+
   return turns
 }
 
@@ -463,6 +498,22 @@ function stripApprovalWaitPhrases(text) {
 
 export function computeFactoryAgentTurnSummary(turn) {
   if (!turn) return 'Working...'
+  const typedSummary = summaryFromTypedPresentation(turn.presentation)
+  const typedKind = String(turn.presentation?.kind || '')
+  const typedState = String(turn.presentation?.state || '')
+  if (typedSummary && typedPresentationIsAuthoritative(turn.presentation)) {
+    if (typedKind === 'diagnostic' || typedKind === 'partial_failure' || typedState === 'failed') {
+      const richerDiagnostic = diagnosticSummaryForFailedTurn(turn)
+      if (
+        richerDiagnostic
+        && richerDiagnostic.length > typedSummary.length
+        && /could not|failed|unavailable|retry|no .*changed|no .*created/i.test(richerDiagnostic)
+      ) {
+        return richerDiagnostic
+      }
+    }
+    return typedSummary
+  }
 
   const toTs = (value) => {
     const ts = Date.parse(value || '')
@@ -504,12 +555,14 @@ export function computeFactoryAgentTurnSummary(turn) {
   // when tool/checkpoint timestamps precede `approval_decided`, which wrongly surfaced
   // interrupt-era "Please approve…" copy even after `session_completed`.
   if (terminal?.event_type === 'session_blocked' || terminal?.event_type === 'session_failed') {
+    if (typedSummary) return typedSummary
     if (String(terminal?.details?.reason || '').toLowerCase() === 'cancelled_by_user') {
       return terminal.content || 'Run cancelled by operator request.'
     }
     return diagnosticSummaryForFailedTurn(turn) || terminal.content || lastTool?.content || 'Execution stopped.'
   }
   if (terminal?.event_type === 'session_completed') {
+    if (typedSummary) return typedSummary
     const lastPlan = latestPlanForAnswer(turn)
     const planText = visiblePlanText(lastPlan)
     const terminalContent = String(terminal.content || '').trim()
@@ -581,6 +634,7 @@ export function computeFactoryAgentTurnSummary(turn) {
     return stripApprovalWaitPhrases(lastPlan.content)
   }
 
+  if (lastToolDone && typedSummary) return typedSummary
   if (lastToolDone && toolSummary) return stripApprovalWaitPhrases(toolSummary)
   if (lastTool || turn.status?.length) {
     const label = readableToolTarget(lastTool?.tool_name)
@@ -591,6 +645,11 @@ export function computeFactoryAgentTurnSummary(turn) {
   if (turn.user?.content) return 'Understanding your request...'
 
   return 'Working...'
+}
+
+export function typedPresentationDetails(turn) {
+  const facts = diagnosticFactsForPresentation(turn?.presentation)
+  return facts.length ? facts : []
 }
 
 export function assembleLegacyTurns(messages = []) {

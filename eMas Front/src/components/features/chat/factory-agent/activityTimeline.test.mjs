@@ -888,3 +888,69 @@ test('terminal snapshot fallback uses full timeline across user turns', () => {
   assert.equal(steps.at(-1).label, 'Run complete')
   assert.equal(steps.at(-1).state, 'complete')
 })
+
+test('typed rejected presentation suppresses stale completion activity', () => {
+  const steps = buildActivityStepsFromSnapshot({
+    session: { status: 'COMPLETED' },
+    presentation: {
+      kind: 'rejected',
+      state: 'rejected',
+      summary: 'Operator rejected the pending priority change.',
+    },
+    timeline: [
+      {
+        event_type: 'user_message',
+        content: 'change priority',
+        created_at: '2026-05-16T10:00:00Z',
+        turn_id: 't1',
+      },
+      {
+        event_type: 'session_completed',
+        content: 'All requested changes completed.',
+        created_at: '2026-05-16T10:00:02Z',
+        turn_id: 't1',
+        status: 'COMPLETED',
+      },
+    ],
+  })
+
+  assert.equal(steps.some((step) => step.label === 'Run complete'), false)
+  assert.equal(steps.at(-1).label, 'Approval declined')
+  assert.equal(steps.at(-1).state, 'error')
+})
+
+test('typed pending presentation keeps timeline waiting despite stale success and retry rows', () => {
+  const steps = buildActivityStepsFromSnapshot({
+    session: { status: 'COMPLETED' },
+    presentation: {
+      kind: 'approval_required',
+      state: 'pending',
+      summary: 'Approval is still pending.',
+    },
+    timeline: [
+      {
+        event_type: 'user_message',
+        content: 'change priority',
+        created_at: '2026-05-16T10:00:00Z',
+        turn_id: 't1',
+      },
+      {
+        event_type: 'session_completed',
+        content: 'Run complete.',
+        created_at: '2026-05-16T10:00:01Z',
+        turn_id: 't1',
+      },
+      {
+        event_type: 'replan_requested',
+        content: 'Improving stale response.',
+        created_at: '2026-05-16T10:00:02Z',
+        turn_id: 't1',
+      },
+    ],
+  })
+
+  assert.equal(steps.some((step) => step.label === 'Run complete'), false)
+  assert.equal(steps.some((step) => step.label === 'Improving the response'), false)
+  assert.equal(steps.at(-1).label, 'Waiting for approval')
+  assert.equal(steps.at(-1).state, 'waiting')
+})

@@ -111,6 +111,7 @@ export function useFactoryAgentChat() {
   const [plan, setPlan] = useState(null)
   const [steps, setSteps] = useState([])
   const [timeline, setTimeline] = useState([])
+  const [presentation, setPresentation] = useState(null)
   const [activitySteps, setActivitySteps] = useState([])
   const [sessionList, setSessionList] = useState([])
   const [input, setInput] = useState('')
@@ -199,6 +200,7 @@ export function useFactoryAgentChat() {
     setSteps(Array.isArray(snapshot?.steps) ? snapshot.steps : [])
     const nextTimeline = Array.isArray(snapshot?.timeline) ? snapshot.timeline : []
     setTimeline(nextTimeline)
+    setPresentation(snapshot?.presentation || null)
 
     if (ACTIVITY_TIMELINE_ENABLED) {
       setActivitySteps((prev) => {
@@ -257,6 +259,7 @@ export function useFactoryAgentChat() {
             steps: Array.isArray(snapshot?.steps) ? snapshot.steps : [],
             timeline: nextTimeline,
             pending_approval: snapshot?.pending_approval || null,
+            presentation: snapshot?.presentation || null,
           })
           if (built.length) {
             result = finalizeHistoricalActivityStates(built)
@@ -303,6 +306,7 @@ export function useFactoryAgentChat() {
     setPlan(null)
     setSteps([])
     setTimeline([])
+    setPresentation(null)
     setActivitySteps([])
     setPendingApproval(null)
     setResumeHint(null)
@@ -815,7 +819,9 @@ export function useFactoryAgentChat() {
   }, [optimisticMessages, timeline])
 
   const turns = useMemo(() => {
-    const assembled = assembleFactoryAgentTurns(Array.isArray(timeline) ? timeline : [])
+    const assembled = assembleFactoryAgentTurns(Array.isArray(timeline) ? timeline : [], {
+      snapshotPresentation: presentation,
+    })
     const mapped = assembled.map((t) => ({
       ...t,
       summary: computeFactoryAgentTurnSummary(t),
@@ -842,7 +848,7 @@ export function useFactoryAgentChat() {
       }
     }
     return mapped
-  }, [clientProgress, isSending, session?.session_id, timeline])
+  }, [clientProgress, isSending, presentation, session?.session_id, timeline])
 
   const activeSessionName = useMemo(() => {
     if (session?.name) return session.name
@@ -854,6 +860,7 @@ export function useFactoryAgentChat() {
     plan,
     steps,
     timeline,
+    presentation,
     activitySteps,
     messages,
     turns,

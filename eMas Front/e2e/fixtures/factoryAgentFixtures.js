@@ -10,6 +10,12 @@ export const emptyAssistantPrompt = 'Return an empty completed answer'
 export const emptyAssistantFallbackAnswer =
   'Unable to render final response. The run completed, but the backend returned empty assistant content.'
 
+export const typedRejectedPrompt = 'Render typed rejected presentation with stale success details'
+
+export const typedPendingApprovalPrompt = 'Render typed pending approval with changed wording'
+
+export const typedKnowledgeSourcePrompt = 'Render typed knowledge answer with source metadata'
+
 export const notificationSsePrompt = 'Validate notification SSE refresh for M-CNC-01'
 
 export const notificationSseAnswer =
@@ -233,6 +239,7 @@ export function snapshotFromSession(session, activitySteps = []) {
     activity_steps: activitySteps,
     pending_approval: session.pending_approval || null,
     resume_hint: null,
+    ...(session.presentation ? { presentation: session.presentation } : {}),
   }
 }
 

@@ -14,7 +14,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 | 4 | SSE fault injection Adapter | Complete | Codex | Seeded duplicate/out-of-order/drop/reconnect hooks now live behind `factory_agent.testing.fault_injection`; production router uses the no-op adapter by default. |
 | 5 | Data-driven seeded scenario engine | Complete | Codex | Explicit Phase 9/10/14/19 seeded prompt selectors now live in `testing_seeded_scenarios.py`; `testing_seeded_adapters.py` delegates to scenario data and keeps only generic non-phase fallback/resume handling. |
 | 6 | Typed snapshot presentation contract | Complete | Codex | Backend snapshots and terminal timeline events now include typed `presentation` evidence for approvals, mutations, partial failures, diagnostics, cancellation, rejected/expired approvals, and source-backed knowledge answers. |
-| 7 | Frontend typed presentation rendering | Not Started | Next agent | Remove primary dependence on text phrase inference. |
+| 7 | Frontend typed presentation rendering | Complete | Codex | Frontend turn summaries, final tables/sources/diagnostics, pending approval copy, and activity timeline now prefer typed `presentation` state before legacy text parsing. |
 | 8 | Hardcode guardrails in CI | Not Started | Next agent | Resume scenario growth after this. |
 
 ## Current Blockers
@@ -49,6 +49,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 - Phase 5 exposed and fixed an import-order product bug where importing `factory_agent.api.response_mappers` could eagerly import routes and circularly re-enter `session_snapshot_service`; `factory_agent.api.build_router` is now lazy. It also exposed a seeded-mode routing bug where semantic clarification intercepted known seeded Phase 14 oracle prompts before the seeded planner could handle them; normal production planners still clarify those prompts, while the seeded planner now advertises the fixture prompts it owns.
 - Phase 5 follow-up removed the remaining explicit `if "phase ..."` prompt selectors from `SeededPlaywrightPlanner.generate_plan`. The remaining adapter conditionals are scenario-marker resume dispatch or generic fallback behavior, not phase-prompt routing.
 - Phase 6 added an additive typed presentation contract to backend snapshot payloads and terminal timeline events. Legacy text fields remain in place, but contract tests now assert state from `presentation.kind`, `presentation.state`, ids, row outcomes, sources, diagnostics, and invariant flags before checking display text compatibility. No frontend Phase 7 rendering migration was done.
+- Phase 7 migrated frontend rendering to prefer typed `presentation` evidence while keeping legacy phrase parsing for snapshots without `presentation`. It exposed and fixed a product bug where a terse typed failed diagnostic (`HTTP 500`) could hide richer safe recovery guidance (`Please retry`) already present in the failed plan explanation; typed failed state remains authoritative, but safe diagnostic prose is preserved.
 
 ## Phase 0 Inventory
 
@@ -221,12 +222,23 @@ These remain intentionally in the adapter as non-phase fallback or resume mechan
 
 ### Phase 7: Frontend Typed Presentation Rendering
 
-- [ ] Teach turn assembler to prefer typed presentation blocks.
-- [ ] Teach activity timeline to prefer typed state.
-- [ ] Keep legacy text parser as fallback.
-- [ ] Add component tests with changed wording but same typed state.
-- [ ] Add browser test proving stale hidden text cannot override typed state.
-- [ ] Run frontend unit and seeded browser suites.
+- [x] Teach turn assembler to prefer typed presentation blocks.
+- [x] Teach activity timeline to prefer typed state.
+- [x] Keep legacy text parser as fallback.
+- [x] Add component tests with changed wording but same typed state.
+- [x] Add browser test proving stale hidden text cannot override typed state.
+- [x] Run frontend unit and seeded browser suites.
+
+#### Phase 7 Typed Frontend Coverage
+
+| Frontend area | Typed evidence now preferred |
+| --- | --- |
+| Turn summary | `presentation.kind/state/summary` decide pending, completed, rejected, expired, cancelled, failed, knowledge answer, and answer copy before phrase checks. |
+| Mutation table | `presentation.rows` builds the affected-record table for mutation results and partial failures, independent of summary wording. |
+| Source chrome | `presentation.sources` populates source chips and inline citation metadata for knowledge answers without relying on `details.sources` or exact answer text. |
+| Diagnostics | `presentation.diagnostics` and failed typed state prevent stale success text from showing; richer safe failure guidance remains visible when the typed summary is only a terse error. |
+| Activity timeline | Snapshot/event `presentation.state` suppresses stale `Run complete`, stale `Improving the response`, and stale `Current` rows for pending/rejected/failed/expired/cancelled states. |
+| Legacy fallback | `isApprovalWaitText`, `isPlanLikeAnswer`, approval phrase cleanup, and old table/source details remain for snapshots without `presentation`. |
 
 ### Phase 8: Hardcode Guardrails In CI
 
@@ -271,6 +283,13 @@ python -m pytest tests/test_seeded_scenario_engine.py tests/test_stateful_oracle
 npm run test:e2e:seeded-oracles
 python -m pytest tests/test_typed_snapshot_presentation_contract.py -q
 python -m pytest tests/test_snapshot_timeline_final_response_contract.py tests/test_phase7_api_ui_alignment.py -q
+node --test "src/components/features/chat/turns/turnAssembler.test.mjs" "src/components/features/chat/factory-agent/activityTimeline.test.mjs" "src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs"
+npm test
+npx playwright test e2e/specs/chat-fixtures.spec.js --project=chromium
+npx playwright test e2e/specs/chat-happy-path.spec.js e2e/specs/chat-sse-activity.spec.js --project=chromium
+npm run test:e2e:mocked
+npx playwright test e2e/specs/full-stack-data-integrity.spec.js --project=chromium-seeded --grep "SO-029"
+npm run test:e2e:seeded-oracles
 git status --short --branch
 git diff --check
 ```
@@ -317,6 +336,16 @@ git diff --check
   - `python -m pytest tests/test_stateful_oracle_schema.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py -q`: 64 passed, 1 warning.
   - `git status --short --branch`: confirmed branch `codex/playwright-e2e-plan`; only Phase 6 docs/backend/test files were changed.
   - `git diff --check`: passed with CRLF normalization warnings only.
+- Phase 7 focused verification:
+  - `node --test "src/components/features/chat/turns/turnAssembler.test.mjs" "src/components/features/chat/factory-agent/activityTimeline.test.mjs" "src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs"`: 57 passed.
+  - `npm test`: 75 passed.
+  - First `npm run test:e2e:mocked`: 20 passed, 4 failed. Two failures were new assertion issues in the typed mocked specs, and two existing timing-sensitive mocked specs passed on focused rerun.
+  - `npx playwright test e2e/specs/chat-fixtures.spec.js --project=chromium`: 5 passed.
+  - `npx playwright test e2e/specs/chat-happy-path.spec.js e2e/specs/chat-sse-activity.spec.js --project=chromium`: 2 passed.
+  - Final `npm run test:e2e:mocked`: 24 passed.
+  - First `npm run test:e2e:seeded-oracles`: 23 passed, 1 failed. SO-029 exposed a product bug where typed failed presentation hid the richer safe retry guidance.
+  - `npx playwright test e2e/specs/full-stack-data-integrity.spec.js --project=chromium-seeded --grep "SO-029"` after the fix: 1 passed.
+  - Final `npm run test:e2e:seeded-oracles`: 24 passed.
 - Baseline reported by user for semantic routing commit:
   - `python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q`: 63 passed
   - Compatibility checks: 20 passed
@@ -342,8 +371,16 @@ git diff --check
 - `factory-agent/factory_agent/testing/__init__.py`
 - `factory-agent/factory_agent/testing/fault_injection.py`
 - `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs`
+- `eMas Front/src/components/features/chat/factory-agent/activityTimelineUtils.js`
+- `eMas Front/src/components/features/chat/factory-agent/activityTimeline.test.mjs`
+- `eMas Front/src/components/features/chat/factory-agent/presentationContract.js`
+- `eMas Front/src/components/features/chat/factory-agent/useFactoryAgentChat.js`
 - `eMas Front/src/components/features/chat/turns/turnAssembler.js`
 - `eMas Front/src/components/features/chat/turns/turnAssembler.test.mjs`
+- `eMas Front/e2e/fixtures/factoryAgentFixtures.js`
+- `eMas Front/e2e/mock-server/fixtureStore.js`
+- `eMas Front/e2e/specs/chat-fixtures.spec.js`
 - `factory-agent/tests/test_intent_splitter.py`
 - `factory-agent/tests/test_api_endpoints.py`
 - `factory-agent/tests/test_event_stream_runtime.py`
@@ -355,4 +392,4 @@ git diff --check
 
 ## Next Action
 
-Start Phase 7. Teach frontend rendering to prefer typed presentation fields while keeping legacy text parsing as fallback.
+Start Phase 8. Add hardcode guardrails in CI now that frontend rendering no longer primarily depends on text phrase inference.
