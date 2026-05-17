@@ -481,6 +481,9 @@ export function computeFactoryAgentTurnSummary(turn) {
   // when tool/checkpoint timestamps precede `approval_decided`, which wrongly surfaced
   // interrupt-era "Please approve…" copy even after `session_completed`.
   if (terminal?.event_type === 'session_blocked' || terminal?.event_type === 'session_failed') {
+    if (String(terminal?.details?.reason || '').toLowerCase() === 'cancelled_by_user') {
+      return terminal.content || 'Run cancelled by operator request.'
+    }
     return diagnosticSummaryForFailedTurn(turn) || terminal.content || lastTool?.content || 'Execution stopped.'
   }
   if (terminal?.event_type === 'session_completed') {

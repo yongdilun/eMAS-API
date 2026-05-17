@@ -31,6 +31,119 @@ Purpose: living execution tracker for the stateful oracle hardening plan. Future
 | 11 | Aggregate final-response evidence oracles | Done | SO-041 added and verified across summary contract, LangGraph oracle, snapshot/activity contract, frontend pending-approval/timeline/final-bubble projection tests, seeded browser, and real LangGraph browser DOM assertions. Root causes were missing aggregate commit evidence, stale pending-approval UI ownership, and server activity projection letting a later replan row outrank the current approval; not LLM behavior. |
 | 12 | Executable enforcement closure | Done | Every current SO oracle now has executable enforcement metadata, a backend contract mapping, and browser-visible proof where UI can diverge. SO-005 has a dedicated browser rejection proof. |
 | 13 | Test quality gate and redundancy control | Done | Added coverage categories, current SO risk-group map, duplicate-candidate review, future scenario authoring gate, and lean PR/release/nightly lane split. No tests were deleted. |
+| 14 | Release gate validation | Done | Full automated release sweep is green after fixes. One product bug and two release-smoke test bugs were found and fixed; no routine manual release checks remain as blockers. |
+
+## Phase 14 Release Gate Validation
+
+Completed: 2026-05-17
+
+Decision:
+
+The current automated chatbot pipeline is ready to replace routine manual release testing after the fixes in this phase. Manual work remains only for human semantic review, compliance/sign-off, exploratory discovery, and emergency incident diagnosis.
+
+### Commands, Results, and Runtime
+
+| Gate | Exact command | Result | Runtime | Notes |
+|---|---|---|---:|---|
+| Backend oracle/schema/manual-bank | `Set-Location "factory-agent"; python -m pytest tests/test_stateful_oracle_schema.py tests/test_phase18_manual_prompt_bank.py tests/test_stateful_oracle_harness.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py tests/test_phase7_api_ui_alignment.py tests/test_phase19_prompt_workflow_regression.py tests/test_summary_bundle.py tests/test_event_stream_runtime.py -q` | Passed: `112 passed, 24 warnings` | 4.76s | Warnings are existing LangGraph, SQLAlchemy, datetime, telemetry, and pytest-asyncio deprecations. |
+| Frontend unit/component | `Set-Location "eMas Front"; npm test` | Initial pass: `63 passed`; final pass after cancellation fix: `64 passed` | 9.29s initial; 15.77s final | Added one focused cancellation summary regression because the sweep exposed a real coverage gap. |
+| Mocked Chromium PR smoke | `Set-Location "eMas Front"; npm run test:e2e:mocked` | Initial run failed: `19 passed, 2 failed`; final run passed: `21 passed` | 31.30s initial; 31.69s final | Initial failures exposed the product cancellation-summary bug fixed in this phase. |
+| Seeded Playwright oracle suite | `Set-Location "eMas Front"; npm run test:e2e:seeded-oracles` | Passed: `20 passed`; final rerun passed: `20 passed` | 167.35s initial; 179.66s final | Covers `@data-integrity`, `@prompt-regression`, and seeded `@sse` oracle checks. |
+| Focused real LangGraph critical suite | `Set-Location "eMas Front"; npm run test:e2e:real-langgraph` | Passed: `2 passed`; final rerun passed: `2 passed` | 19.24s initial; 18.29s final | Covers SO-001/SO-035 and SO-041 real LangGraph browser proofs. |
+| Release/SSE/polling smoke | `Set-Location "eMas Front"; npm run test:e2e -- --project=chromium-release` | Initial run failed: `19 passed, 2 failed`; final run passed: `21 passed` | 90.28s initial; 36.24s final | Initial failures were release-smoke test bugs, not product defects. SO-017 static bearer polling fallback passed. |
+| Read-only synthetic SSE/polling monitor | `Set-Location "eMas Front"; npm run test:e2e:synthetic` | Passed: `9 passed`; final rerun passed: `9 passed` | 42.16s initial; 41.94s final | Includes scenario 74 SSE-or-polling canary. Local run used the release harness, not live production. |
+
+Focused reruns and syntax checks:
+
+```powershell
+Set-Location "eMas Front"
+node --check "e2e/specs/release-resilience.spec.js"
+npm run test:e2e -- --project=chromium-release --grep "scenario 66|scenario 70"
+node --check "src/components/features/chat/turns/turnAssembler.js"
+node --test --test-concurrency=1 "src/components/features/chat/turns/turnAssembler.test.mjs"
+npm run test:e2e:mocked -- --grep "cancel active run|scenario 85"
+```
+
+Focused results:
+
+- Release scenario 66/70 focused rerun after release-smoke assertion fix: `2 passed` in 23.39s.
+- Release scenario 66/70 focused rerun after whitespace-tolerant summary assertion: `2 passed` in 23.07s.
+- Turn assembler focused regression suite: `13 passed` in 0.10s.
+- Mocked cancellation focused rerun: `2 passed` in 14.38s.
+
+### Bugs Found
+
+Product bug:
+
+| ID | Severity | Failure | Root cause | Fix | Verification |
+|---|---|---|---|---|---|
+| P14-001 | High for PR confidence; medium for release risk | Mocked cancel flows stayed on `The run is active and can be cancelled.` after cancel instead of showing `Run cancelled by operator request.` | Frontend failed-session summary selection preferred stale active plan copy over a terminal `session_failed` event with `details.reason=cancelled_by_user`. | `turnAssembler.js` now lets explicit operator cancellation terminal copy win over stale plan copy; added a unit regression in `turnAssembler.test.mjs`. | Focused unit `13 passed`; focused browser cancellation `2 passed`; full `npm test` and `npm run test:e2e:mocked` passed. |
+
+Test bugs:
+
+| ID | Failure | Fix | Verification |
+|---|---|---|---|
+| T14-001 | Release scenario 66 expected stale `Approved request to change record` after approval. Current UI correctly shows the final success summary/job evidence. | Updated the assertion to require `Run complete`, `Updated 1 job(s).`, `JOB-SEED-005`, no stale `Approved request to change record`, and no mobile dialog overflow. | Focused release reruns passed; full `chromium-release` passed. |
+| T14-002 | Release scenario 70 waited for a helper summary that was present only in hidden details. Visible final evidence was the structured `Long Stream Terminal: true` field. | Updated the assertion to wait for the visible structured terminal field and terminal snapshot state. | Focused release reruns passed; full `chromium-release` passed. |
+
+No backend product bugs were found in the oracle/schema/manual-bank, seeded, real LangGraph, release, or synthetic gates.
+
+### Flaky or Slow Tests
+
+- No flaky tests remained after the fixes and focused reruns.
+- Slow but expected: seeded oracle suite is the longest deterministic release gate at about 3 minutes; the slowest individual seeded cases were cascade/prompt workflows around 12-17s each.
+- Mocked Chromium scenario 81 took about 25s during the final full mocked run; keep it PR-visible but watch for future growth.
+- Release scenario 70 long-stream smoke took about 7-9s after the assertion fix. The earlier 60s wait was a test bug waiting on hidden text.
+- Synthetic monitor suite takes about 42s locally and should stay nightly/post-deploy rather than default PR.
+
+### Remaining Manual-Only Checks
+
+Routine manual chatbot release regression can be retired. Remaining manual-only checks are:
+
+- Nuanced answer quality, tone, and domain usefulness beyond structural assertions.
+- Compliance or regulated wording sign-off.
+- Exploratory discovery for brand-new prompts, workflows, or unmodeled operational risks.
+- Emergency incident diagnosis when automation, harnesses, or telemetry are unavailable.
+
+These are not routine release blockers unless an owner explicitly promotes one to a release exception.
+
+### Release-Blocking Gaps
+
+- None open after the final green sweep.
+- No accepted gap was added for Phase 14.
+- No new SO scenario was added. One unit regression was added because the release sweep exposed a real product coverage gap in cancellation terminal summary selection.
+
+### Recommended Command Split
+
+PR / fast blocking:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_stateful_oracle_schema.py tests/test_phase18_manual_prompt_bank.py tests/test_stateful_oracle_harness.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py tests/test_phase7_api_ui_alignment.py tests/test_phase19_prompt_workflow_regression.py tests/test_summary_bundle.py tests/test_event_stream_runtime.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:mocked
+```
+
+Release / pre-merge blocking:
+
+```powershell
+Set-Location "eMas Front"
+npm run test:e2e:seeded-oracles
+npm run test:e2e:real-langgraph
+npm run test:e2e -- --project=chromium-release
+```
+
+Nightly / post-deploy / opt-in:
+
+```powershell
+Set-Location "eMas Front"
+npm run test:e2e:synthetic
+npm run test:e2e:operational
+npm run test:e2e -- --project=chromium --grep "@reliability"
+npm run test:e2e -- --project=chromium-seeded --grep "@reliability"
+```
 
 ## Phase 0 Checklist: Test Reality Audit
 

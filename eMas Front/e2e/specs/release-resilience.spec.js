@@ -107,7 +107,9 @@ test.describe('L4 release resilience and accessibility @l4-release', () => {
     }).toContain('Run complete')
     const dialogText = await page.getByRole('dialog').textContent()
     expect(dialogText).toContain('Run complete')
-    expect(dialogText).toContain('Approved request to change record')
+    expect(dialogText).toMatch(/Updated\s*1\s*job\(s\)\./)
+    expect(dialogText).toContain('JOB-SEED-005')
+    expect(dialogText).not.toContain('Approved request to change record')
     const finalDialogOverflows = await page.getByRole('dialog').evaluate((dialog) => dialog.scrollWidth > dialog.clientWidth + 1)
     expect(finalDialogOverflows).toBe(false)
   })
@@ -140,7 +142,7 @@ test.describe('L4 release resilience and accessibility @l4-release', () => {
     await openChat(page)
     await sendPrompt(page, 'Run Phase 10 long-running stream with bounded logs')
 
-    await expect(page.getByText(/Phase 10 long-running stream reached a terminal state/i).first()).toBeVisible({
+    await expect(page.getByRole('dialog')).toContainText(/Long Stream Terminal:\s*true/i, {
       timeout: releaseEnv.latencyBudgetsMs.longStream,
     })
     await expect(page.getByText('Run complete')).toBeVisible()

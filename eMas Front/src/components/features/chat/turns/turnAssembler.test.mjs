@@ -161,6 +161,40 @@ test('failed commit terminal prefers safe diagnostic over stale success plan tex
   assert.doesNotMatch(summary, /Priority: \*\*medium\*\*/)
 })
 
+test('cancelled terminal prefers operator cancellation over stale active plan text', () => {
+  const turns = assembleFactoryAgentTurns([
+    {
+      ...userEvent,
+      content: 'Start an active run that I will cancel',
+    },
+    {
+      event_id: 'plan:active',
+      event_type: 'plan_created',
+      content: 'The run is active and can be cancelled.',
+      created_at: '2026-05-13T09:36:21',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      status: 'COMPLETED',
+      details: {
+        status: 'COMPLETED',
+        plan_explanation: 'The run is active and can be cancelled.',
+      },
+    },
+    {
+      event_id: 'failed:cancelled',
+      event_type: 'session_failed',
+      content: 'Run cancelled by operator request.',
+      created_at: '2026-05-13T09:36:24',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      status: 'FAILED',
+      details: { reason: 'cancelled_by_user' },
+    },
+  ])
+
+  assert.equal(computeFactoryAgentTurnSummary(turns[0]), 'Run cancelled by operator request.')
+})
+
 test('empty completed terminal renders safe empty-response diagnostic', () => {
   const turns = assembleFactoryAgentTurns([
     {

@@ -116,6 +116,14 @@ This batch does not add new LOTO wording variants. SO-021 and SO-025 stay at par
 | `phase13-so029-go-api-500-approved-commit` | Approve a high-to-medium job change whose Go API write returns 500. | Fail safely with unchanged rows, no data-integrity audit rows, failed snapshot/timeline evidence, and visible database-unavailable retry guidance without stale success copy. | SO-029 oracle, backend snapshot regression, frontend turn/component tests, seeded full-stack browser |
 | `phase13-so020-empty-final-diagnostic` | Completed run returns empty assistant content after a previous completed answer. | Render an explicit empty-result diagnostic and do not reuse the previous answer or generic `Execution completed.` fallback. | SO-020 oracle, frontend turn/component tests, mocked browser |
 
+## Phase 14 Release Gate Validation Note
+
+Phase 14 did not add a new manual prompt scenario. The release sweep did expose a non-prompt workflow bug: cancelling an active run could show stale active-plan copy instead of the terminal cancellation message. That miss is now covered by frontend turn assembly regression plus mocked Chromium cancellation flows.
+
+| ID | Prompt / flow | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `phase14-cancel-active-run-terminal-copy` | Start an active cancellable run, click `Cancel current run`, then restore the cancelled session. | The current and restored cancelled session show `Run cancelled by operator request.`, no busy spinner, no cancel button, no `Run complete`, and no stale active-plan final copy. | `turnAssembler.test.mjs`, `chat-cancel-navigation.spec.js`, `normal-use-hardening.spec.js` mocked Chromium |
+
 ## Future Scenario Quality Gate
 
 Before adding a new prompt or SO scenario, answer these questions in the bank entry, oracle file, or tracker:

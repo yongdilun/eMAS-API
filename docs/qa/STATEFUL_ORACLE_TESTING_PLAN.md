@@ -874,6 +874,48 @@ The next chatbot automation batch applies the quality gate to the highest-risk r
 | SO-020 | Strengthen the existing empty-final browser/component proof so empty terminal content renders an explicit diagnostic, not stale prior answer text or generic fake success. | Frontend unit | Yes | No | `supporting` |
 | SO-021 / SO-025 | Do not add new real LangGraph/browser wording variants in this batch. Current parser/route and seeded browser coverage remain canonical unless a planner/RAG miss escapes seeded coverage. | Parser/route | Existing seeded browser only | No | `canonical` |
 
+### Phase 14: Release Gate Validation
+
+Goal:
+
+Validate whether the automated chatbot pipeline is ready to replace routine manual release testing.
+
+This phase is a release-sweep phase, not a scenario-volume phase. Do not add new scenarios first. Run the intended gate, classify failures as product bugs or test bugs, fix product bugs before continuing, and record the release decision in the tracker.
+
+Required release-sweep commands:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_stateful_oracle_schema.py tests/test_phase18_manual_prompt_bank.py tests/test_stateful_oracle_harness.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py tests/test_phase7_api_ui_alignment.py tests/test_phase19_prompt_workflow_regression.py tests/test_summary_bundle.py tests/test_event_stream_runtime.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:mocked
+npm run test:e2e:seeded-oracles
+npm run test:e2e:real-langgraph
+npm run test:e2e -- --project=chromium-release
+npm run test:e2e:synthetic
+```
+
+Acceptance criteria:
+
+- Backend oracle/schema/manual-bank coverage is green.
+- Frontend unit/component coverage is green.
+- Mocked Chromium PR smoke is green.
+- Seeded Playwright oracle coverage is green.
+- Focused real LangGraph critical coverage is green.
+- Configured release, SSE, polling, and read-only synthetic checks are green.
+- Product bugs found by the sweep are fixed before final readiness is claimed.
+- Test bugs found by the sweep are fixed or recorded with owner, risk, and blocking status.
+- Remaining manual-only work is limited to semantic/product judgment, compliance sign-off, exploratory discovery, or emergency incident diagnosis.
+
+Phase 14 result on 2026-05-17:
+
+- The gate is green after fixes.
+- One product bug was fixed: operator cancellation terminal copy was hidden by stale active-plan copy in frontend turn assembly.
+- Two release-smoke test bugs were fixed: stale mobile approval-copy assertion and hidden long-stream summary assertion.
+- No release-blocking automated coverage gaps remain for routine chatbot release regression.
+
 ## First Critical Scenario Set
 
 Implement these before claiming manual chatbot testing is retired.
