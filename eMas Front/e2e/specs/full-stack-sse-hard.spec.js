@@ -25,7 +25,7 @@ function assertActivityRowsAreUniqueAndOrdered(snapshot) {
 }
 
 test.describe('L3 seeded hard SSE behavior @l3-hard @sse-order', () => {
-  test('scenario 47: out-of-order and duplicate SSE events do not regress phase or duplicate visible activity', async ({ page }) => {
+  test('SO-014 scenario 47: out-of-order and duplicate SSE events do not regress phase or duplicate visible activity', async ({ page }) => {
     const pageErrors = []
     const sseRequests = []
     page.on('pageerror', (error) => pageErrors.push(error.message))
@@ -61,7 +61,7 @@ test.describe('L3 seeded hard SSE behavior @l3-hard @sse-order', () => {
     }).toThrow()
   })
 
-  test('scenario 48: EventSource reconnect sends Last-Event-ID and avoids replaying rendered steps', async ({ page }) => {
+  test('SO-014 scenario 48: EventSource reconnect sends Last-Event-ID and avoids replaying rendered steps', async ({ page }) => {
     const notificationRequests = []
     page.on('request', (request) => {
       const url = request.url()

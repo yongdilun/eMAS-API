@@ -144,6 +144,22 @@ def _assert_expected_approval_ids(harness: StatefulOracleHarness) -> None:
     assert _approval_ids(harness) == expected
 
 
+def _operation_start_payload(oracle: dict[str, Any]) -> dict[str, Any]:
+    first = next((row for row in oracle.get("expected_timeline") or [] if row.get("event") == "operation_started"), {})
+    return {key: value for key, value in first.items() if key != "event"}
+
+
+def _expected_write_args_for_approval(oracle: dict[str, Any], index: int) -> list[dict[str, Any]]:
+    approval = oracle["expected_approvals"][index]
+    intent = next(
+        item
+        for item in oracle["expected_intents"]
+        if item.get("intent_id") == approval.get("intent_id")
+    )
+    target_priority = approval.get("new_priority") or (intent.get("new_values") or {}).get("priority")
+    return [{"id": str(row_id), "priority": target_priority} for row_id in approval.get("row_ids") or []]
+
+
 def _assert_no_completed_state_with_active_work(state: dict[str, Any]) -> None:
     if state.get("status") != "completed":
         return
@@ -494,6 +510,52 @@ async def test_so041_medium_to_high_then_original_high_to_low(monkeypatch):
         "JOB-SO041-HIGH-01": "high",
         "JOB-SO041-HIGH-02": "high",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("oracle_id", ["SO-002", "SO-003", "SO-004", "SO-035"])
+async def test_priority_cascade_oracles_use_original_state_for_second_write_set(monkeypatch, oracle_id):
+    session_id = f"{oracle_id.lower()}-original-state-{uuid.uuid4()}"
+    harness = StatefulOracleHarness.from_oracle_id(oracle_id, session_id=session_id)
+    harness.start_operation(
+        intent_count=len(harness.oracle["expected_intents"]),
+        event_payload=_operation_start_payload(harness.oracle),
+    )
+    _install_harnessed_langgraph(monkeypatch, harness)
+
+    planner = LangGraphPlanner(_settings())
+    with pytest.raises(LangGraphPlannerApprovalRequired):
+        await planner.generate(
+            intent=harness.oracle["prompt"],
+            scoped_tools=_priority_tools(),
+            context={"session_id": session_id},
+        )
+
+    _assert_staged_write_args(harness.dry_runs[0], _expected_write_args_for_approval(harness.oracle, 0))
+
+    with pytest.raises(LangGraphPlannerApprovalRequired):
+        await planner.resume_after_approval(session_id=session_id, approved=True)
+
+    _assert_staged_write_args(harness.dry_runs[1], _expected_write_args_for_approval(harness.oracle, 1))
+    forbidden_rows = set(
+        (harness.oracle.get("expected_intermediate_states") or [{}])[0].get("forbidden_second_approval_rows")
+        or []
+    )
+    second_rows = {row["args"]["id"] for row in harness.dry_runs[1]["staged_writes"]}
+    assert not (second_rows & forbidden_rows), (
+        f"{oracle_id} second approval used rows from approval 1: {second_rows & forbidden_rows}"
+    )
+
+    await planner.resume_after_approval(session_id=session_id, approved=True)
+
+    assert harness.commit_count_by_approval == {
+        str(row["approval_id"]): 1 for row in harness.oracle["expected_approvals"]
+    }
+    assert_final_state_matches_oracle(harness, harness.oracle)
+    assert_audit_rows_match(harness, harness.oracle["expected_audit_rows"])
+    assert_unchanged_rows(harness, harness.oracle["expected_unchanged_rows"])
+    if oracle_id != "SO-035":
+        assert_timeline_contains_chain(harness, harness.oracle["expected_timeline"])
 
 
 @pytest.mark.asyncio

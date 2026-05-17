@@ -64,7 +64,7 @@ test.describe('Factory Agent chat cancel and disconnect scenarios', () => {
       .toBe(true)
   })
 
-  test('closing the modal during an active stream records EventSource disconnect @sse', async ({ page }) => {
+  test('SO-016 closing the modal during an active stream records EventSource disconnect @sse', async ({ page }) => {
     await openChat(page)
     await sendChatPrompt(page, disconnectPrompt)
 

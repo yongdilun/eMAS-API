@@ -71,8 +71,12 @@ async function finalAssistantText(sessionId) {
   return [...messages].reverse().find((message) => message.role === 'assistant')?.content || ''
 }
 
+async function visibleText(page) {
+  return page.locator('body').evaluate((body) => body.innerText)
+}
+
 async function runCascadeInvariant(page, scenario, testInfo) {
-  return withSeededOracleArtifact(testInfo, `prompt regression cascade ${scenario.name}`, async (artifact) => {
+  return withSeededOracleArtifact(testInfo, `${scenario.oracleId} prompt regression cascade ${scenario.name}`, async (artifact) => {
     const initial = await captureInitialSeededState(artifact)
     let sessionId = null
     try {
@@ -228,6 +232,23 @@ async function runCascadeInvariant(page, scenario, testInfo) {
     ],
     mustExclude: [/Factory Agent needs attention/i, /Run complete before approval/i],
   })
+  await expect
+    .poll(async () => visibleText(page), { timeout: 30_000 })
+    .toContain('Phase 19 cascade matrix complete')
+  expectFinalSummaryClaimsOnly(await visibleText(page), {
+    mustInclude: [
+      'Run complete',
+      'Phase 19 cascade matrix complete',
+      `${firstChange.source}->${firstChange.target} ${firstJobIds.length}`,
+      `${secondChange.source}->${secondChange.target} ${secondJobIds.length}`,
+    ],
+    mustExclude: [
+      /Factory Agent needs attention/i,
+      /Waiting for your approval/i,
+      /Please approve to continue/i,
+      /Run complete before approval/i,
+    ],
+  })
     } finally {
       await captureFinalSeededState(artifact, { page, sessionId }).catch(() => null)
     }
@@ -237,7 +258,7 @@ async function runCascadeInvariant(page, scenario, testInfo) {
 test.describe('Phase 19 seeded prompt/workflow regression gate @prompt-regression @data-integrity', () => {
   test.describe.configure({ timeout: 150_000 })
 
-  test('scenario 116/124/125: LOTO regression bank routes through seeded RAG without generic diagnostics', async ({ page }) => {
+  test('SO-021 scenario 116/124/125: LOTO regression bank routes through seeded RAG without generic diagnostics', async ({ page }) => {
     expect(phase19LotoRegressionEntries.length).toBeGreaterThanOrEqual(5)
 
     for (const [index, entry] of phase19LotoRegressionEntries.entries()) {
@@ -253,6 +274,7 @@ test.describe('Phase 19 seeded prompt/workflow regression gate @prompt-regressio
       await expect(page.getByText('Knowledge sources')).toBeVisible()
       await expect(page.getByText(/Seeded LOTO Procedure for M-CNC-01/i).first()).toBeVisible()
       await expect(page.getByText(/Which machine ID/i)).toHaveCount(0)
+      await expect(page.getByText(/currently running|machine status only/i)).toHaveCount(0)
       await expect(page.getByText('Factory Agent needs attention')).toHaveCount(0)
       await expect(page.getByText('Run complete').first()).toBeVisible()
 
@@ -265,8 +287,22 @@ test.describe('Phase 19 seeded prompt/workflow regression gate @prompt-regressio
     }
   })
 
+  test('SO-025 route confusion prompt renders LOTO source text instead of status-only copy', async ({ page }) => {
+    await openChat(page)
+    await sendPrompt(page, 'For M-CNC-01, tell me the lockout tagout steps, not the current machine status.')
+
+    await expect(page.getByText(/Controlled seeded RAG answer/i).first()).toBeVisible()
+    await expect(page.getByText(/lockout|tagout/i).first()).toBeVisible()
+    await expect(page.getByText(/M-CNC-01/i).first()).toBeVisible()
+    await expect(page.getByText('Knowledge sources')).toBeVisible()
+    await expect(page.getByText(/Seeded LOTO Procedure for M-CNC-01/i).first()).toBeVisible()
+    await expect(page.getByText(/Status:\s*running|machine status only|Which machine/i)).toHaveCount(0)
+    await expect(page.getByText('Factory Agent needs attention')).toHaveCount(0)
+    await expect(page.getByText('Run complete').first()).toBeVisible()
+  })
+
   for (const scenario of phase19CascadeMatrix) {
-    test(`scenario 119/120/121/125: ${scenario.name} uses two approvals and original-state semantics`, async ({ page }) => {
+    test(`${scenario.oracleId} scenario 119/120/121/125: ${scenario.name} uses two approvals and original-state semantics`, async ({ page }) => {
       await resetSeededJobPriorities()
       await runCascadeInvariant(page, scenario, test.info())
     })

@@ -129,7 +129,7 @@ test.describe('Phase 13 normal-use hardening @normal-use', () => {
     await expect(page.getByText(/Factory Agent backend unavailable|Run cancelled by operator request/)).toHaveCount(0)
   })
 
-  test('scenario 82: many historical sessions load, select, and restore the correct transcript', async ({ page }, testInfo) => {
+  test('SO-019 scenario 82: many historical sessions load, select, and restore the correct transcript', async ({ page }, testInfo) => {
     const runId = `w${testInfo.workerIndex}-${Date.now()}`
     const seeded = await mockJson('/__test/normal-use-history', {
       method: 'POST',
@@ -150,7 +150,7 @@ test.describe('Phase 13 normal-use hardening @normal-use', () => {
     await expectComposerReady(page)
   })
 
-  test('scenario 83: browser reload restores completed answer, sources, details, and non-busy composer', async ({ page }) => {
+  test('SO-019 scenario 83: browser reload restores completed answer, sources, details, and non-busy composer', async ({ page }) => {
     const lotoTurn = normalUseTurns.find((turn) => turn.key === 'loto-guidance')
     await openChat(page)
     await sendPrompt(page, lotoTurn.prompt)

@@ -173,9 +173,15 @@ class StatefulOracleHarness:
             entity_id = str(row.get("id") or row.get("doc_id") or f"rag-{index}")
             self.rag_entities[entity_id] = _copy({**row, "id": entity_id})
 
-    def start_operation(self, *, intent_count: int = 1, turn_id: str | None = None) -> None:
+    def start_operation(
+        self,
+        *,
+        intent_count: int = 1,
+        turn_id: str | None = None,
+        event_payload: dict[str, Any] | None = None,
+    ) -> None:
         self.session_phase = "PLANNING"
-        payload: dict[str, Any] = {}
+        payload: dict[str, Any] = dict(event_payload or {})
         if turn_id:
             payload["turn_id"] = turn_id
         self.record_event("operation_started", **payload)
@@ -186,6 +192,7 @@ class StatefulOracleHarness:
         self.sequence_number += 1
         row = {
             "sequence_number": self.sequence_number,
+            "sequence": self.sequence_number,
             "session_id": self.session_id,
             "event": event,
             **payload,
@@ -624,6 +631,7 @@ class StatefulOracleHarness:
             http_status = 422
         else:
             self.record_event("commit_completed", approval_id=approval_id)
+            self.record_event("audit_recorded", approval_id=approval_id, status="success")
             status = "success"
             ok = True
             http_status = 200

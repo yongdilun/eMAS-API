@@ -5,22 +5,40 @@
   "prompt": "Change all high priority jobs to medium.",
   "initial_state": {
     "jobs": [
-      { "id": "JOB-SO015-HIGH-01", "priority": "high", "status": "open" },
-      { "id": "JOB-SO015-LOW-01", "priority": "low", "status": "open" }
+      {
+        "id": "JOB-SO015-HIGH-01",
+        "priority": "high",
+        "status": "open"
+      },
+      {
+        "id": "JOB-SO015-LOW-01",
+        "priority": "low",
+        "status": "open"
+      }
     ],
     "approvals": [],
     "audit_rows": [],
     "stream_faults": [
-      { "event_id": "evt-so-015-bad", "payload": "{not-json", "expected_handling": "ignore_and_continue" }
+      {
+        "event_id": "evt-so-015-bad",
+        "payload": "{not-json",
+        "expected_handling": "ignore_and_continue"
+      }
     ]
   },
   "expected_intents": [
     {
       "intent_id": "SO-015-I1",
       "route": "tool.write.jobs.bulk_update_priority",
-      "filter": { "priority": "high" },
-      "new_values": { "priority": "medium" },
-      "source_row_ids": ["JOB-SO015-HIGH-01"]
+      "filter": {
+        "priority": "high"
+      },
+      "new_values": {
+        "priority": "medium"
+      },
+      "source_row_ids": [
+        "JOB-SO015-HIGH-01"
+      ]
     }
   ],
   "expected_approvals": [
@@ -28,7 +46,9 @@
       "approval_id": "approval-so-015-1",
       "intent_id": "SO-015-I1",
       "decision": "accepted",
-      "row_ids": ["JOB-SO015-HIGH-01"],
+      "row_ids": [
+        "JOB-SO015-HIGH-01"
+      ],
       "row_count": 1
     }
   ],
@@ -38,7 +58,11 @@
       "session_phase": "EXECUTING",
       "pending_approval_id": null,
       "client_stream_state": "connected",
-      "forbidden": ["uncaught_exception", "permanent_busy_state", "terminal_assistant_message"]
+      "forbidden": [
+        "uncaught_exception",
+        "permanent_busy_state",
+        "terminal_assistant_message"
+      ]
     },
     {
       "after": "next valid SSE payload",
@@ -50,8 +74,14 @@
   "expected_final_state": {
     "session_phase": "COMPLETED",
     "jobs": [
-      { "id": "JOB-SO015-HIGH-01", "priority": "medium" },
-      { "id": "JOB-SO015-LOW-01", "priority": "low" }
+      {
+        "id": "JOB-SO015-HIGH-01",
+        "priority": "medium"
+      },
+      {
+        "id": "JOB-SO015-LOW-01",
+        "priority": "low"
+      }
     ],
     "pending_approval_id": null
   },
@@ -59,20 +89,41 @@
     {
       "approval_id": "approval-so-015-1",
       "action": "bulk_update_job_priority",
-      "row_ids": ["JOB-SO015-HIGH-01"],
+      "row_ids": [
+        "JOB-SO015-HIGH-01"
+      ],
       "from": "high",
       "to": "medium",
       "status": "success"
     }
   ],
   "expected_timeline": [
-    { "event": "operation_started" },
-    { "event": "approval_requested", "approval_id": "approval-so-015-1" },
-    { "event": "approval_decided", "approval_id": "approval-so-015-1", "decision": "accepted" },
-    { "event": "sse_malformed_payload_ignored", "event_id": "evt-so-015-bad" },
-    { "event": "commit_completed", "approval_id": "approval-so-015-1" },
-    { "event": "final_response_created" },
-    { "event": "operation_completed" }
+    {
+      "event": "operation_started"
+    },
+    {
+      "event": "approval_requested",
+      "approval_id": "approval-so-015-1"
+    },
+    {
+      "event": "approval_decided",
+      "approval_id": "approval-so-015-1",
+      "decision": "accepted"
+    },
+    {
+      "event": "sse_malformed_payload_ignored",
+      "event_id": "evt-so-015-bad"
+    },
+    {
+      "event": "commit_completed",
+      "approval_id": "approval-so-015-1"
+    },
+    {
+      "event": "final_response_created"
+    },
+    {
+      "event": "operation_completed"
+    }
   ],
   "expected_sse_or_snapshot": {
     "malformed_event": {
@@ -88,16 +139,33 @@
   },
   "expected_final_response": {
     "allowed_after": "operation_completed",
-    "must_include": ["1 high priority job changed to medium"],
-    "must_not_include": ["stream failed", "Factory Agent needs attention"]
+    "must_include": [
+      "1 high priority job changed to medium"
+    ],
+    "must_not_include": [
+      "stream failed",
+      "Factory Agent needs attention"
+    ]
   },
   "expected_ui": {
-    "approval_cards_in_order": ["approval-so-015-1"],
-    "must_show": ["Run complete", "1 high priority job changed to medium"],
-    "must_not_show": ["stuck", "stream parse error", "Factory Agent needs attention"]
+    "approval_cards_in_order": [
+      "approval-so-015-1"
+    ],
+    "must_show": [
+      "Run complete",
+      "1 high priority job changed to medium"
+    ],
+    "must_not_show": [
+      "stuck",
+      "stream parse error",
+      "Factory Agent needs attention"
+    ]
   },
   "expected_unchanged_rows": [
-    { "id": "JOB-SO015-LOW-01", "priority": "low" }
+    {
+      "id": "JOB-SO015-LOW-01",
+      "priority": "low"
+    }
   ],
   "invariants": [
     "malformed_sse_payload_is_ignored",
@@ -106,6 +174,19 @@
     "commit_matches_approval_bundle",
     "final_summary_matches_commits"
   ],
-  "required_layers": ["playwright_sse"],
-  "weakness_from_phase0": "Phase 0 found SSE checks that accepted visible activity; this oracle requires malformed payload recovery plus a later valid terminal update."
+  "required_layers": [
+    "playwright_sse"
+  ],
+  "weakness_from_phase0": "Phase 0 found SSE checks that accepted visible activity; this oracle requires malformed payload recovery plus a later valid terminal update.",
+  "executable_enforcement": {
+    "pytest": [
+      "factory-agent/tests/test_snapshot_timeline_final_response_contract.py::test_all_stateful_oracle_files_have_executable_snapshot_final_response_contract"
+    ],
+    "playwright": [
+      "eMas Front/e2e/specs/chat-stream-errors.spec.js::SO-015 malformed SSE payload"
+    ],
+    "visible_dom_assertions_required": true,
+    "manual_prompt_regression": [],
+    "tracker": "docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md#phase-12-executable-enforcement-closure"
+  }
 }

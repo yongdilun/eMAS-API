@@ -94,7 +94,7 @@ test.describe('Phase 14 data integrity and side-effect safety @data-integrity', 
     await resetSeededJobPriorities()
   })
 
-  test('scenario 86 @data-integrity: cascading priority update uses original-state semantics and two approvals', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'scenario 86 high-to-low original-low-to-medium', page, async ({ artifact, initial, setSessionId }) => {
+  test('SO-002 scenario 86 @data-integrity: cascading priority update uses original-state semantics and two approvals', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'SO-002 scenario 86 high-to-low original-low-to-medium', page, async ({ artifact, initial, setSessionId }) => {
     const prompt = 'change all high priority job to low then change all low priority job to medium'
     await openChat(page)
     await sendPrompt(page, prompt)
@@ -239,7 +239,7 @@ test.describe('Phase 14 data integrity and side-effect safety @data-integrity', 
     })
   }))
 
-  test('scenario 86 @data-integrity: medium-to-high then high-to-medium still requires two approvals', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'scenario 86 medium-to-high original-high-to-medium', page, async ({ artifact, initial, setSessionId }) => {
+  test('SO-001 scenario 86 @data-integrity: medium-to-high then high-to-medium still requires two approvals', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'SO-001 scenario 86 medium-to-high original-high-to-medium', page, async ({ artifact, initial, setSessionId }) => {
     const prompt = 'change all medium priority job to high then change all high priority job to medium'
     await openChat(page)
     await sendPrompt(page, prompt)
@@ -369,7 +369,166 @@ test.describe('Phase 14 data integrity and side-effect safety @data-integrity', 
     })
   }))
 
-  test('scenario 87 @data-integrity: bulk partial failure records exact per-row outcomes without false success', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'scenario 87 partial bulk failure no overclaim', page, async ({ initial, setSessionId }) => {
+  test('SO-005 scenario 86 @data-integrity: rejecting approval 2 stops cascade without hidden second commit', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'SO-005 scenario 86 approval 2 rejected no hidden commit', page, async ({ artifact, initial, setSessionId }) => {
+    const prompt = 'change all medium priority job to high then change all high priority job to low'
+    await openChat(page)
+    await sendPrompt(page, prompt)
+    const sessionId = await activeSessionId(page)
+    setSessionId(sessionId)
+
+    const first = await pendingApprovalMatching(page, 'original_medium_to_high')
+    await expectApprovalRowMatches(first, {
+      status: 'PENDING',
+      writeSet: 'original_medium_to_high',
+      kind: 'phase14_cascade_priority',
+      jobIds: originalMediumJobIds,
+      requestedPriority: 'high',
+      originalPriority: 'medium',
+      count: originalMediumJobIds.length,
+    })
+    expect(first.args.bundle_ui.rows.map((row) => row.job_id).sort()).toEqual([...originalMediumJobIds].sort())
+    await expect(page.getByText(/Approval 1 required: original MEDIUM-priority jobs will become HIGH/i).first()).toBeVisible()
+    await page.getByRole('button', { name: 'Approve' }).click()
+
+    await expect
+      .poll(async () => (await snapshotForPage(page)).session.status, { timeout: 30_000 })
+      .toBe('WAITING_APPROVAL')
+    const second = await pendingApprovalMatching(page, 'original_high_to_low')
+    expect(second.approval_id).not.toBe(first.approval_id)
+    await expectApprovalRowMatches(first.approval_id, {
+      status: 'APPROVED',
+      writeSet: 'original_medium_to_high',
+      kind: 'phase14_cascade_priority',
+      jobIds: originalMediumJobIds,
+      requestedPriority: 'high',
+      originalPriority: 'medium',
+      count: originalMediumJobIds.length,
+    })
+    await expectSnapshotApprovalState(page, { status: 'WAITING_APPROVAL', pendingApprovalId: second.approval_id })
+    expect(await currentPriorityMap()).toEqual(expectedPriorityMapForCascade([{ source: 'medium', target: 'high' }]))
+    await expectRowsUnchangedFromInitial(initial.rowsById, [...originalHighJobIds, ...originalLowJobIds])
+    expectAuditCommit(await dataIntegrityAudit(sessionId), {
+      scenario: '86',
+      writeSet: 'original_medium_to_high',
+      approvalId: first.approval_id,
+      succeededJobIds: originalMediumJobIds,
+      requestedPriority: 'high',
+    })
+    recordOracleCheckpoint(artifact, 'after first approval before rejecting approval 2', {
+      firstApproval: await factoryAgentJson(`/approvals/${first.approval_id}`),
+      secondApproval: await factoryAgentJson(`/approvals/${second.approval_id}`),
+      audit: await dataIntegrityAudit(sessionId),
+      priorities: await currentPriorityMap(),
+      snapshot: await snapshotForPage(page),
+    })
+
+    await expectApprovalRowMatches(second, {
+      status: 'PENDING',
+      writeSet: 'original_high_to_low',
+      kind: 'phase14_cascade_priority',
+      jobIds: originalHighJobIds,
+      requestedPriority: 'low',
+      originalPriority: 'high',
+      previousApprovalId: first.approval_id,
+      count: originalHighJobIds.length,
+    })
+    expect(second.args.bundle_ui.rows.map((row) => row.job_id).sort()).toEqual([...originalHighJobIds].sort())
+    for (const newlyHighId of originalMediumJobIds) {
+      expect(second.args.bundle_ui.rows.map((row) => row.job_id)).not.toContain(newlyHighId)
+    }
+    await expect(page.getByText(/Approval 2 required: original HIGH-priority jobs will become LOW/i).first()).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText(/Run complete/i)).toHaveCount(0)
+    await expect(page.getByText(/Phase 14 cascading priority update complete/i)).toHaveCount(0)
+
+    const rejectionReason = 'SO-005 second approval rejected; stop before second write.'
+    await page.getByPlaceholder('Optional rejection reason').fill(rejectionReason)
+    await page.getByRole('button', { name: 'Reject' }).click()
+
+    await expect
+      .poll(async () => (await factoryAgentJson(`/approvals/${second.approval_id}`)).status, { timeout: 30_000 })
+      .toBe('REJECTED')
+    await expectApprovalRowMatches(second.approval_id, {
+      status: 'REJECTED',
+      writeSet: 'original_high_to_low',
+      kind: 'phase14_cascade_priority',
+      jobIds: originalHighJobIds,
+      requestedPriority: 'low',
+      originalPriority: 'high',
+      previousApprovalId: first.approval_id,
+      count: originalHighJobIds.length,
+    })
+    await expectSnapshotApprovalState(page, { status: 'IDLE', pendingApprovalId: null })
+
+    const afterRejectPriorities = await currentPriorityMap()
+    expect(afterRejectPriorities).toEqual(expectedPriorityMapForCascade([{ source: 'medium', target: 'high' }]))
+    for (const jobId of originalMediumJobIds) expect(afterRejectPriorities[jobId]).toBe('high')
+    for (const jobId of originalHighJobIds) expect(afterRejectPriorities[jobId]).toBe('high')
+    await expectRowsUnchangedFromInitial(initial.rowsById, [...originalHighJobIds, ...originalLowJobIds])
+
+    const audit = await dataIntegrityAudit(sessionId)
+    expectAuditCommit(audit, {
+      scenario: '86',
+      writeSet: 'original_medium_to_high',
+      approvalId: first.approval_id,
+      succeededJobIds: originalMediumJobIds,
+      requestedPriority: 'high',
+    })
+    expectAuditForJobs(audit, {
+      scenario: '86',
+      writeSet: 'original_medium_to_high',
+      approvalId: first.approval_id,
+      jobIds: originalMediumJobIds,
+      requestedPriority: 'high',
+    })
+    expect(audit.filter((entry) => entry.approval_id === second.approval_id)).toEqual([])
+
+    const snapshot = await snapshotForPage(page)
+    expect(snapshot.session.status).toBe('IDLE')
+    expect(approvalIdsFromTimeline(snapshot).has(first.approval_id)).toBe(true)
+    expect(approvalIdsFromTimeline(snapshot).has(second.approval_id)).toBe(true)
+    expect(timelineText(snapshot)).toMatch(/rejected/i)
+    expect(timelineText(snapshot)).not.toMatch(/high->low 11|original high priority jobs changed to low|all changes succeeded/i)
+    expect(activityText(snapshot)).not.toContain('Run complete')
+    expectTimelineEvidenceInOrder(snapshot, [
+      {
+        label: `approval 1 requested ${first.approval_id}`,
+        predicate: (event) => event.event_type === 'approval_required' && event.approval_id === first.approval_id,
+      },
+      {
+        label: `approval 1 accepted ${first.approval_id}`,
+        predicate: (event) => event.event_type === 'approval_decided' && event.approval_id === first.approval_id && event.status === 'APPROVED',
+      },
+      {
+        label: `approval 2 requested ${second.approval_id}`,
+        predicate: (event) => event.event_type === 'approval_required' && event.approval_id === second.approval_id,
+      },
+      {
+        label: `approval 2 rejected ${second.approval_id}`,
+        predicate: (event) => event.event_type === 'approval_decided' && event.approval_id === second.approval_id && event.status === 'REJECTED',
+      },
+    ])
+
+    await expect
+      .poll(async () => visibleText(page), { timeout: 30_000 })
+      .toMatch(/SO-005 second approval rejected|approval .*rejected|rejected .*approval|stopped/i)
+    expectFinalSummaryClaimsOnly(await visibleText(page), {
+      mustInclude: [/SO-005 second approval rejected|approval .*rejected|rejected .*approval|stopped/i],
+      mustExclude: [
+        /Run complete/i,
+        /all changes succeeded/i,
+        /all requested changes completed/i,
+        /Phase 14 cascading priority update complete/i,
+        /high->low 11/i,
+        /original high priority jobs changed to low/i,
+      ],
+    })
+    expectFinalSummaryClaimsOnly(await finalAssistantText(sessionId), {
+      mustInclude: [],
+      mustExclude: [/Run complete/i, /all changes succeeded/i, /high->low 11/i, /original high priority jobs changed to low/i],
+    })
+  }))
+
+  test('SO-009 scenario 87 @data-integrity: bulk partial failure records exact per-row outcomes without false success', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'SO-009 scenario 87 partial bulk failure no overclaim', page, async ({ initial, setSessionId }) => {
     await openChat(page)
     await sendPrompt(page, 'Run Phase 14 bulk partial failure priority update with exact row outcomes')
     const sessionId = await activeSessionId(page)
@@ -460,7 +619,7 @@ test.describe('Phase 14 data integrity and side-effect safety @data-integrity', 
     })
   }))
 
-  test('scenario 88 @data-integrity: approval replay after refresh does not apply the same mutation twice', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'scenario 88 duplicate approval replay suppressed', page, async ({ initial, setSessionId }) => {
+  test('SO-007/SO-018 scenario 88 @data-integrity: approval replay after refresh does not apply the same mutation twice', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'SO-007 SO-018 scenario 88 duplicate approval replay suppressed', page, async ({ initial, setSessionId }) => {
     await openChat(page)
     await sendPrompt(page, 'Run Phase 14 idempotent approval replay for one seeded job priority update')
     const sessionId = await activeSessionId(page)
@@ -538,7 +697,7 @@ test.describe('Phase 14 data integrity and side-effect safety @data-integrity', 
     })
   }))
 
-  test('scenario 89 @data-integrity: stale or expired approvals cannot mutate after session state changes', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'scenario 89 stale and expired approvals cannot mutate', page, async ({ initial, setSessionId }) => {
+  test('SO-006/SO-008/SO-027 scenario 89 @data-integrity: stale or expired approvals cannot mutate after session state changes', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'SO-006 SO-008 SO-027 scenario 89 stale and expired approvals cannot mutate', page, async ({ initial, setSessionId }) => {
     await openChat(page)
     await sendPrompt(page, 'Run Phase 14 stale approval seeded job update')
 
@@ -625,7 +784,7 @@ test.describe('Phase 14 data integrity and side-effect safety @data-integrity', 
     })
   }))
 
-  test('scenario 90 @data-integrity: audit, DB, SSE timeline, approval id, and final summary agree', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'scenario 90 cross surface agreement', page, async ({ initial, setSessionId }) => {
+  test('SO-010 scenario 90 @data-integrity: audit, DB, SSE timeline, approval id, and final summary agree', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'SO-010 scenario 90 cross surface agreement', page, async ({ initial, setSessionId }) => {
     await openChat(page)
     await sendPrompt(page, 'Run Phase 14 agreement audit timeline summary for seeded job priority updates')
     const sessionId = await activeSessionId(page)
@@ -712,6 +871,25 @@ test.describe('Phase 14 data integrity and side-effect safety @data-integrity', 
     expectFinalSummaryClaimsOnly(finalAssistant, {
       mustInclude: ['JOB-SEED-005 and JOB-SEED-009 are high priority', approval.approval_id],
       mustExclude: [/JOB-SEED-012/i, /all low priority jobs/i, /Factory Agent needs attention/i],
+    })
+  }))
+
+  test('SO-030 @data-integrity: stream drop recovers by polling without stale final success', async ({ page }, testInfo) => runPhase6Oracle(testInfo, 'SO-030 stream drop polling recovery', page, async ({ setSessionId }) => {
+    await openChat(page)
+    await sendPrompt(page, 'Run Phase 9 stream drop recovery seeded machine workflow')
+    const sessionId = await activeSessionId(page)
+    setSessionId(sessionId)
+
+    await waitForSessionStatus(page, 'COMPLETED')
+    await expect(page.getByText('Run complete').first()).toBeVisible()
+
+    const snapshot = await snapshotForPage(page)
+    expect(snapshot.session.status).toBe('COMPLETED')
+    expect(activityText(snapshot)).toContain('Run complete')
+    expect(timelineText(snapshot)).toContain('Phase 9 stream drop recovered by snapshot polling')
+    expectFinalSummaryClaimsOnly(await visibleText(page), {
+      mustInclude: ['Run complete'],
+      mustExclude: [/stream lost/i, /fake completion/i, /Factory Agent needs attention/i],
     })
   }))
 

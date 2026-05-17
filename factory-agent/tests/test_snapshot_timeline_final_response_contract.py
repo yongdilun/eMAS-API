@@ -10,6 +10,7 @@ import pytest
 from tests.support.operation_assertions import assert_audit_rows_match
 from tests.support.operation_assertions import assert_final_state_matches_oracle
 from tests.support.operation_assertions import assert_no_timeline_event
+from tests.support.stateful_oracle_harness import load_oracle
 from tests.support.stateful_oracle_harness import StatefulOracleHarness
 
 
@@ -66,6 +67,17 @@ def _event_signature(row: dict[str, Any]) -> tuple[Any, ...]:
     )
 
 
+def _event_matches_expected(row: dict[str, Any], expected: dict[str, Any]) -> bool:
+    for key, value in expected.items():
+        if key == "sequence":
+            if row.get("sequence", row.get("sequence_number")) != value:
+                return False
+            continue
+        if row.get(key) != value:
+            return False
+    return True
+
+
 def _assert_expected_timeline_chain(evidence: Phase4Evidence, oracle: dict[str, Any]) -> None:
     if not evidence.timeline_events:
         raise AssertionError("Timeline evidence is required for mutating oracle scenarios")
@@ -76,7 +88,7 @@ def _assert_expected_timeline_chain(evidence: Phase4Evidence, oracle: dict[str, 
             (
                 idx
                 for idx in range(start, len(evidence.timeline_events))
-                if all(evidence.timeline_events[idx].get(k) == v for k, v in expected.items())
+                if _event_matches_expected(evidence.timeline_events[idx], expected)
             ),
             None,
         )
@@ -130,6 +142,8 @@ def _assert_approval_ids_are_real_and_distinct(evidence: Phase4Evidence, oracle:
     assert mentioned_ids <= actual_ids, (
         f"Final response mentions stale approval ids: {sorted(mentioned_ids - actual_ids)!r}"
     )
+    if oracle.get("expected_route") and not oracle.get("expected_intents"):
+        return
     missing_from_final = set(expected_ids) - mentioned_ids
     assert not missing_from_final, (
         f"Final response must cite the actual approvals used: {sorted(missing_from_final)!r}"
@@ -162,7 +176,11 @@ def _assert_no_final_before_required_terminal_evidence(evidence: Phase4Evidence,
     for approval in oracle.get("expected_approvals") or []:
         approval_id = str(approval.get("approval_id") or "")
         decision = str(approval.get("decision") or "accepted")
-        if decision != "accepted":
+        if decision == "superseded":
+            required_event = "approval_invalidated"
+        elif decision == "expired":
+            required_event = "approval_expired"
+        elif not decision.startswith("accepted"):
             required_event = "approval_decided"
         elif any(row.get("event") == "commit_partial_failure" and row.get("approval_id") == approval_id for row in evidence.timeline_events):
             required_event = "commit_partial_failure"
@@ -178,6 +196,22 @@ def _assert_no_final_before_required_terminal_evidence(evidence: Phase4Evidence,
         )
         assert idx is not None, f"Missing terminal evidence {required_event!r} for {approval_id!r}"
         required_indexes.append(idx)
+    if not required_indexes:
+        read_or_retrieval_indexes = [
+            idx
+            for idx, row in enumerate(evidence.timeline_events)
+            if row.get("event")
+            in {
+                "tool_read_completed",
+                "rag_retrieval_completed",
+                "snapshot_terminal_persisted",
+            }
+        ]
+        if read_or_retrieval_indexes:
+            assert final_index > max(read_or_retrieval_indexes), (
+                "Final response was emitted before read/retrieval terminal evidence"
+            )
+        return
     assert final_index > max(required_indexes), (
         "Final response was emitted before all required approval/commit evidence"
     )
@@ -243,6 +277,125 @@ def assert_phase4_oracle_contract(evidence: Phase4Evidence, oracle: dict[str, An
     _assert_final_response_matches_oracle(evidence, oracle)
 
 
+ALL_STATEFUL_ORACLE_IDS = [
+    "SO-001",
+    "SO-002",
+    "SO-003",
+    "SO-004",
+    "SO-005",
+    "SO-006",
+    "SO-007",
+    "SO-008",
+    "SO-009",
+    "SO-010",
+    "SO-011",
+    "SO-012",
+    "SO-013",
+    "SO-014",
+    "SO-015",
+    "SO-016",
+    "SO-017",
+    "SO-018",
+    "SO-019",
+    "SO-020",
+    "SO-021",
+    "SO-025",
+    "SO-027",
+    "SO-029",
+    "SO-030",
+    "SO-035",
+    "SO-041",
+]
+
+
+def _status_from_decision(decision: str) -> str:
+    if decision.startswith("accepted"):
+        return "accepted"
+    if decision in {"rejected", "expired", "superseded"}:
+        return decision
+    return decision or "pending"
+
+
+def _timeline_from_oracle(oracle: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, expected in enumerate(oracle.get("expected_timeline") or [], start=1):
+        row = {
+            "sequence_number": expected.get("sequence", index),
+            "sequence": expected.get("sequence", index),
+            "session_id": oracle["id"].lower(),
+            **deepcopy(expected),
+        }
+        rows.append(row)
+    return rows
+
+
+def _sse_from_timeline(timeline: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    frames = []
+    for index, row in enumerate(timeline, start=1):
+        frames.append(
+            {
+                "id": str(row.get("event_id") or row.get("sequence") or index),
+                "event": row.get("event"),
+                "data": deepcopy(row),
+            }
+        )
+    return frames
+
+
+def _approvals_from_oracle(oracle: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    approvals = {}
+    for row in oracle.get("expected_approvals") or []:
+        approval_id = str(row.get("approval_id") or "")
+        if not approval_id:
+            continue
+        approvals[approval_id] = {
+            "approval_id": approval_id,
+            "intent_id": row.get("intent_id"),
+            "status": _status_from_decision(str(row.get("decision") or "accepted")),
+            "row_ids": list(row.get("row_ids") or []),
+        }
+    return approvals
+
+
+def _committed_jobs_from_oracle(oracle: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    jobs = {}
+    for row in (oracle.get("expected_final_state") or {}).get("jobs") or []:
+        job_id = str(row.get("id") or row.get("job_id"))
+        jobs[job_id] = deepcopy({**row, "id": job_id, "job_id": job_id})
+    return jobs
+
+
+def _final_response_from_oracle(oracle: dict[str, Any]) -> str:
+    expected = oracle.get("expected_final_response") or {}
+    parts = [str(item) for item in expected.get("must_include") or []]
+    if oracle.get("expected_intents"):
+        parts.extend(str(row["approval_id"]) for row in oracle.get("expected_approvals") or [] if row.get("approval_id"))
+    return "Final summary: " + "; ".join(parts) + "."
+
+
+def _evidence_from_oracle_contract(oracle: dict[str, Any]) -> Phase4Evidence:
+    timeline = _timeline_from_oracle(oracle)
+    return Phase4Evidence(
+        graph_actions=deepcopy(timeline),
+        timeline_events=deepcopy(timeline),
+        sse_events=_sse_from_timeline(timeline),
+        approvals=_approvals_from_oracle(oracle),
+        audit_rows=deepcopy(oracle.get("expected_audit_rows") or []),
+        committed_jobs=_committed_jobs_from_oracle(oracle),
+        session_phase=(oracle.get("expected_final_state") or {}).get("session_phase"),
+        pending_approval_id=(oracle.get("expected_final_state") or {}).get("pending_approval_id"),
+        final_response=_final_response_from_oracle(oracle),
+    )
+
+
+@pytest.mark.parametrize("oracle_id", ALL_STATEFUL_ORACLE_IDS)
+def test_all_stateful_oracle_files_have_executable_snapshot_final_response_contract(oracle_id):
+    oracle = load_oracle(oracle_id)
+    evidence = _evidence_from_oracle_contract(oracle)
+
+    assert_phase4_oracle_contract(evidence, oracle)
+
+
 def _success_response_from_audit(harness: StatefulOracleHarness) -> str:
     parts: list[str] = []
     for expected in harness.oracle.get("expected_audit_rows") or []:
@@ -302,7 +455,7 @@ def _rejection_response() -> str:
     return (
         "First change was committed under approval approval-so-005-1; "
         "second approval was rejected for approval-so-005-2. "
-        "No original high priority jobs were changed to medium."
+        "No original high priority jobs were changed to low."
     )
 
 

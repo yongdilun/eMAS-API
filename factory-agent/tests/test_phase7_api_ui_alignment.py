@@ -22,6 +22,7 @@ from factory_agent.persistence import database as persistence_database
 from factory_agent.persistence.models import Approval, Message, Plan, PlanStep, Session, WorkflowCheckpoint
 from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import PlanResponse, PlanStepResponse, SessionSnapshotResponse, TimelineEventResponse
+from tests.support.stateful_oracle_harness import load_oracle
 
 
 class _FakeEventBus:
@@ -826,3 +827,88 @@ def test_phase7_activity_injects_plan_execution_when_timeline_omits_tool_rows():
     assert "Understanding your request" in labels
     assert "Updating job records" in labels
     assert labels[-1] == "Run complete"
+
+
+def test_so012_semantic_timeline_projection_keeps_both_approval_ids():
+    oracle = load_oracle("SO-012")
+    created_at = datetime(2026, 5, 13, 13, 0, 0)
+    approval_events = [
+        TimelineEventResponse(
+            event_id=f"so012:{index}",
+            event_type="approval_required" if row["event"] == "approval_requested" else "approval_decided",
+            content=f"{row['event']} {row['approval_id']}",
+            created_at=created_at + timedelta(seconds=index),
+            approval_id=row["approval_id"],
+            status="PENDING" if row["event"] == "approval_requested" else "APPROVED",
+        )
+        for index, row in enumerate(oracle["expected_timeline"])
+        if row.get("event") in {"approval_requested", "approval_decided"}
+    ]
+
+    payloads = [
+        _semantic_payload_for_timeline_event(event, session_id="so012-session")
+        for event in approval_events
+        if not _should_skip_semantic_timeline_event(event)
+    ]
+
+    assert [payload["approval_id"] for payload in payloads] == [
+        "approval-so-012-1",
+        "approval-so-012-1",
+        "approval-so-012-2",
+        "approval-so-012-2",
+    ]
+    assert [payload["type"] for payload in payloads] == [
+        "APPROVAL_REQUIRED",
+        "APPROVAL_DECIDED",
+        "APPROVAL_REQUIRED",
+        "APPROVAL_DECIDED",
+    ]
+
+
+def test_so013_activity_suppresses_completion_until_terminal_snapshot():
+    oracle = load_oracle("SO-013")
+    created_at = datetime(2026, 5, 13, 14, 0, 0)
+    active = SessionSnapshotResponse(
+        session={
+            "session_id": "so013-active",
+            "user_id": "u1",
+            "status": "EXECUTING",
+            "plan_version": 0,
+            "current_step_index": 0,
+            "step_count": 1,
+            "replan_count": 0,
+            "llm_call_count": 1,
+            "session_started_at": created_at,
+            "created_at": created_at,
+            "updated_at": created_at + timedelta(seconds=3),
+        },
+        timeline=[
+            TimelineEventResponse(
+                event_id="so013:approval",
+                event_type="approval_decided",
+                content="Approved.",
+                created_at=created_at + timedelta(seconds=1),
+                approval_id="approval-so-013-1",
+                status="APPROVED",
+            ),
+            TimelineEventResponse(
+                event_id="so013:premature-complete",
+                event_type="session_completed",
+                content="2 high priority jobs changed to medium",
+                created_at=created_at + timedelta(seconds=2),
+                status="COMPLETED",
+            ),
+        ],
+    )
+    terminal = active.model_copy(
+        deep=True,
+        update={
+            "session": {
+                **active.session.model_dump(),
+                "status": oracle["expected_final_state"]["session_phase"],
+            }
+        },
+    )
+
+    assert "Run complete" not in [step.label for step in _activity_steps_for_snapshot(active)]
+    assert _activity_steps_for_snapshot(terminal)[-1].label == "Run complete"

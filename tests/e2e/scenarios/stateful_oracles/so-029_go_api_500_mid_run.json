@@ -5,8 +5,16 @@
   "prompt": "Change all high priority jobs to medium.",
   "initial_state": {
     "jobs": [
-      { "id": "JOB-SO029-HIGH-01", "priority": "high", "status": "open" },
-      { "id": "JOB-SO029-LOW-01", "priority": "low", "status": "open" }
+      {
+        "id": "JOB-SO029-HIGH-01",
+        "priority": "high",
+        "status": "open"
+      },
+      {
+        "id": "JOB-SO029-LOW-01",
+        "priority": "low",
+        "status": "open"
+      }
     ],
     "approvals": [],
     "audit_rows": [],
@@ -21,9 +29,15 @@
     {
       "intent_id": "SO-029-I1",
       "route": "tool.write.jobs.bulk_update_priority",
-      "filter": { "priority": "high" },
-      "new_values": { "priority": "medium" },
-      "source_row_ids": ["JOB-SO029-HIGH-01"]
+      "filter": {
+        "priority": "high"
+      },
+      "new_values": {
+        "priority": "medium"
+      },
+      "source_row_ids": [
+        "JOB-SO029-HIGH-01"
+      ]
     }
   ],
   "expected_approvals": [
@@ -31,7 +45,9 @@
       "approval_id": "approval-so-029-1",
       "intent_id": "SO-029-I1",
       "decision": "accepted",
-      "row_ids": ["JOB-SO029-HIGH-01"],
+      "row_ids": [
+        "JOB-SO029-HIGH-01"
+      ],
       "row_count": 1,
       "expected_commit_result": "failed_500"
     }
@@ -42,14 +58,24 @@
       "session_phase": "FAILED",
       "pending_approval_id": null,
       "commit_error": "go_api_500",
-      "forbidden": ["audit_success_row", "final_success_response", "job_priority_changed"]
+      "forbidden": [
+        "audit_success_row",
+        "final_success_response",
+        "job_priority_changed"
+      ]
     }
   ],
   "expected_final_state": {
     "session_phase": "FAILED",
     "jobs": [
-      { "id": "JOB-SO029-HIGH-01", "priority": "high" },
-      { "id": "JOB-SO029-LOW-01", "priority": "low" }
+      {
+        "id": "JOB-SO029-HIGH-01",
+        "priority": "high"
+      },
+      {
+        "id": "JOB-SO029-LOW-01",
+        "priority": "low"
+      }
     ],
     "pending_approval_id": null
   },
@@ -57,7 +83,9 @@
     {
       "approval_id": "approval-so-029-1",
       "action": "bulk_update_job_priority",
-      "row_ids": ["JOB-SO029-HIGH-01"],
+      "row_ids": [
+        "JOB-SO029-HIGH-01"
+      ],
       "from": "high",
       "to": "medium",
       "status": "failed",
@@ -65,35 +93,82 @@
     }
   ],
   "expected_timeline": [
-    { "event": "operation_started" },
-    { "event": "approval_requested", "approval_id": "approval-so-029-1" },
-    { "event": "approval_decided", "approval_id": "approval-so-029-1", "decision": "accepted" },
-    { "event": "commit_started", "approval_id": "approval-so-029-1" },
-    { "event": "commit_failed", "approval_id": "approval-so-029-1", "error": "go_api_500" },
-    { "event": "audit_recorded", "approval_id": "approval-so-029-1", "status": "failed" },
-    { "event": "operation_failed", "reason": "go_api_500" }
+    {
+      "event": "operation_started"
+    },
+    {
+      "event": "approval_requested",
+      "approval_id": "approval-so-029-1"
+    },
+    {
+      "event": "approval_decided",
+      "approval_id": "approval-so-029-1",
+      "decision": "accepted"
+    },
+    {
+      "event": "commit_started",
+      "approval_id": "approval-so-029-1"
+    },
+    {
+      "event": "commit_failed",
+      "approval_id": "approval-so-029-1",
+      "error": "go_api_500"
+    },
+    {
+      "event": "audit_recorded",
+      "approval_id": "approval-so-029-1",
+      "status": "failed"
+    },
+    {
+      "event": "operation_failed",
+      "reason": "go_api_500"
+    }
   ],
   "expected_sse_or_snapshot": {
     "terminal": {
       "status": "FAILED",
       "pending_approval_id": null,
       "error": "go_api_500",
-      "must_not_include_events": ["operation_completed", "final_success_response"]
+      "must_not_include_events": [
+        "operation_completed",
+        "final_success_response"
+      ]
     }
   },
   "expected_final_response": {
     "allowed_after": "operation_failed go_api_500",
-    "must_include": ["could not complete", "database unavailable"],
-    "must_not_include": ["1 high priority job changed to medium", "Run complete", "all requested changes completed"]
+    "must_include": [
+      "could not complete",
+      "database unavailable"
+    ],
+    "must_not_include": [
+      "1 high priority job changed to medium",
+      "Run complete",
+      "all requested changes completed"
+    ]
   },
   "expected_ui": {
-    "approval_cards_in_order": ["approval-so-029-1"],
-    "must_show": ["could not complete", "database unavailable"],
-    "must_not_show": ["Run complete", "1 high priority job changed to medium"]
+    "approval_cards_in_order": [
+      "approval-so-029-1"
+    ],
+    "must_show": [
+      "could not complete",
+      "database unavailable"
+    ],
+    "must_not_show": [
+      "Run complete",
+      "1 high priority job changed to medium"
+    ]
   },
   "expected_unchanged_rows": [
-    { "id": "JOB-SO029-HIGH-01", "priority": "high" },
-    { "id": "JOB-SO029-LOW-01", "priority": "low" }
+    {
+      "id": "JOB-SO029-HIGH-01",
+      "priority": "high"
+    },
+    {
+      "id": "JOB-SO029-LOW-01",
+      "priority": "low"
+    }
   ],
   "invariants": [
     "backend_error_blocks_success",
@@ -102,6 +177,20 @@
     "no_generic_error_on_expected_backend_failure",
     "final_summary_matches_commits"
   ],
-  "required_layers": ["seeded_full_stack", "release"],
-  "weakness_from_phase0": "Seeded and release tests can pass on final visibility; this oracle forces a Go API 500 to produce failed state, failed audit evidence, unchanged rows, and no success copy."
+  "required_layers": [
+    "seeded_full_stack",
+    "release"
+  ],
+  "weakness_from_phase0": "Seeded and release tests can pass on final visibility; this oracle forces a Go API 500 to produce failed state, failed audit evidence, unchanged rows, and no success copy.",
+  "executable_enforcement": {
+    "pytest": [
+      "factory-agent/tests/test_snapshot_timeline_final_response_contract.py::test_all_stateful_oracle_files_have_executable_snapshot_final_response_contract"
+    ],
+    "playwright": [
+      "eMas Front/e2e/specs/chat-fixtures.spec.js::plan creation 503 shows backend unavailable without fake success"
+    ],
+    "visible_dom_assertions_required": true,
+    "manual_prompt_regression": [],
+    "tracker": "docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md#phase-12-executable-enforcement-closure"
+  }
 }

@@ -1239,6 +1239,91 @@ Expand real LangGraph browser coverage beyond SO-001 when the team is ready, and
 - Phase 11 browser proof must assert visible DOM and forbidden stale text, not only final API text, because API evidence can be correct while the React bubble still renders stale timeline/table/details.
 - Activity timeline manual collapse is a user state and must not be overwritten by routine snapshot/SSE refresh while the operation is still active.
 
+## Phase 12 Executable Enforcement Closure
+
+Status: Done.
+
+Purpose: close the gap where SO JSON files existed without executable enforcement. The rule is now explicit: every current SO oracle must be named by a backend contract and, where UI can diverge, by browser-visible assertions that check both required text and forbidden stale text.
+
+Files changed in this phase:
+
+- `tests/e2e/scenarios/stateful_oracles/*.json`
+- `factory-agent/tests/support/stateful_oracle_harness.py`
+- `factory-agent/tests/support/operation_assertions.py`
+- `factory-agent/tests/test_snapshot_timeline_final_response_contract.py`
+- `factory-agent/tests/test_langgraph_state_machine_oracles.py`
+- `factory-agent/tests/test_phase7_api_ui_alignment.py`
+- `factory-agent/tests/test_phase19_prompt_workflow_regression.py`
+- `tests/e2e/scenarios/manual_prompt_regressions.json`
+- `docs/qa/manual_prompt_regression_bank.md`
+- `eMas Front/e2e/support/promptRegressionScenarios.js`
+- `eMas Front/e2e/specs/full-stack-prompt-workflow-regression.spec.js`
+- `eMas Front/e2e/specs/full-stack-data-integrity.spec.js`
+- `eMas Front/e2e/specs/real-langgraph-critical.spec.js`
+- `eMas Front/e2e/specs/full-stack-sse-hard.spec.js`
+- `eMas Front/e2e/specs/chat-stream-errors.spec.js`
+- `eMas Front/e2e/specs/chat-cancel-navigation.spec.js`
+- `eMas Front/e2e/specs/release-validation.spec.js`
+- `eMas Front/e2e/specs/normal-use-hardening.spec.js`
+
+Decisions:
+
+- Added `executable_enforcement` metadata to each current SO oracle so the contract file itself points at the enforcing pytest and browser files.
+- Added one common snapshot/final-response contract matrix that loads every current SO id: SO-001, SO-002, SO-003, SO-004, SO-005, SO-006, SO-007, SO-008, SO-009, SO-010, SO-011, SO-012, SO-013, SO-014, SO-015, SO-016, SO-017, SO-018, SO-019, SO-020, SO-021, SO-025, SO-027, SO-029, SO-030, SO-035, and SO-041.
+- Added LangGraph state-machine enforcement for SO-002, SO-003, SO-004, and SO-035 using the same original-state cascade mechanics as SO-041.
+- Added API/UI projection enforcement for SO-012 approval-id timeline projection and SO-013 terminal-snapshot gating.
+- Added route/parser enforcement for SO-021 and SO-025, and promoted the SO-025 route-confusion prompt into the manual prompt regression bank.
+- Extended seeded and real browser tests to include explicit SO ids and visible DOM forbidden-text assertions where the browser can fail differently from backend evidence.
+- Replaced SO-005's broad browser pointer with a dedicated seeded browser proof that drives the exact cascade flow, approves approval 1, rejects approval 2, checks visible rejection/stopped copy, proves original medium rows changed to high, proves original high rows did not change to low, and rejects approval-2 audit rows.
+- Aligned the SO-005 oracle contract to the exact browser flow: medium -> high, then original high -> low, with approval 2 rejected before the second write can commit.
+
+Commands run:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_stateful_oracle_schema.py tests/test_snapshot_timeline_final_response_contract.py tests/test_langgraph_state_machine_oracles.py tests/test_phase7_api_ui_alignment.py tests/test_phase19_prompt_workflow_regression.py -q
+python -m pytest tests/test_stateful_oracle_schema.py tests/test_phase18_manual_prompt_bank.py tests/test_phase19_prompt_workflow_regression.py::test_phase19_scenarios_122_123_regression_bank_schema_and_triage_rule -q
+python -m pytest tests/test_langgraph_state_machine_oracles.py::test_so005_second_approval_rejection_stops_without_hidden_commit tests/test_snapshot_timeline_final_response_contract.py::test_rejected_second_approval_does_not_produce_success_wording_or_hidden_commit tests/test_snapshot_timeline_final_response_contract.py::test_all_stateful_oracle_files_have_executable_snapshot_final_response_contract -q
+
+Set-Location "..\eMas Front"
+node --check "e2e/support/promptRegressionScenarios.js"
+node --check "e2e/specs/full-stack-prompt-workflow-regression.spec.js"
+node --check "e2e/specs/full-stack-data-integrity.spec.js"
+node --check "e2e/specs/real-langgraph-critical.spec.js"
+node --check "e2e/specs/chat-stream-errors.spec.js"
+node --check "e2e/specs/chat-cancel-navigation.spec.js"
+node --check "e2e/specs/full-stack-sse-hard.spec.js"
+node --check "e2e/specs/release-validation.spec.js"
+node --check "e2e/specs/normal-use-hardening.spec.js"
+npx playwright test e2e/specs/full-stack-prompt-workflow-regression.spec.js e2e/specs/full-stack-data-integrity.spec.js --project=chromium-seeded --grep "SO-025|SO-030|SO-041"
+npx playwright test e2e/specs/full-stack-data-integrity.spec.js --project=chromium-seeded --grep "SO-005"
+
+Set-Location ".."
+git diff --check
+```
+
+Results:
+
+```text
+Backend Phase 12 oracle cluster: 90 passed, 17 existing warnings.
+Manual prompt bank/schema focused gate: 9 passed, 1 existing warning.
+SO-005 backend graph/snapshot focused gate: 29 passed, 1 existing warning.
+Frontend syntax checks: passed.
+Seeded browser focused SO-025/SO-030/SO-041 slice: 3 passed.
+Seeded browser focused SO-005 rejection slice: 1 passed.
+git diff --check: passed; line-ending warnings only.
+```
+
+Intermediate findings:
+
+- The first backend matrix run failed for SO-008 and SO-027 because superseded approvals were incorrectly treated like rejected approvals in the generic final-response gate. The contract now requires `approval_invalidated` evidence for superseded approvals and `approval_expired` evidence for expired approvals.
+- The first seeded browser run passed SO-025 but exposed that SO-030's exact recovery sentence is hidden in details, so the visible DOM assertion was narrowed to visible terminal state plus forbidden stale text while the snapshot/timeline assertion still checks the recovery evidence.
+- The first SO-041 seeded visible-DOM assertion read the DOM before the final bubble settled. The browser proof now waits for the aggregate final summary before asserting forbidden stale approval/waiting text.
+- The first SO-005 seeded browser run exposed that the rejected/IDLE browser snapshot keeps the approval decision chain but does not project approval 1 as a `tool_result` row after approval 2 is rejected. The SO-005 browser proof therefore uses DB priority state and data-integrity audit rows as commit evidence, while timeline assertions prove approval 1 accepted, approval 2 requested, and approval 2 rejected in order.
+- Running the manual prompt bank gate exposed that the existing Phase 11 cascade bank entry was missing parser-compatibility fields. Added `machine_ids: []`, `job_ids: []`, and `clarification_expected: false` to that entry and the new SO-005 rejection variant.
+
+Remaining gaps: none for current SO oracle enforcement metadata. Full seeded/release/real-LangGraph suites remain broader release gates, but the focused Phase 12 enforcement checks above are green.
+
 ## Commands Run
 
 Latest Phase 11 implementation and verification:

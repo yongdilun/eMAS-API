@@ -240,6 +240,43 @@
       "coverage": ["parser", "route", "seeded-browser"]
     },
     {
+      "id": "phase19-loto-route-confusion-m-cnc-01",
+      "source_prompt": "For M-CNC-01, tell me the lockout tagout steps, not the current machine status.",
+      "prompt": "For M-CNC-01, tell me the lockout tagout steps, not the current machine status.",
+      "observed_failure": "A safety-procedure prompt can be routed to machine status and return a plausible running-state answer instead of LOTO source evidence.",
+      "expected_behavior": "Extract M-CNC-01, choose the LOTO/RAG route, render lockout/tagout procedure source metadata, and avoid status-only copy or a repeat machine-ID clarification.",
+      "artifact_link": "docs/qa/manual_prompt_regression_bank.md#phase-19-loto-wording-matrix",
+      "selected_oracle": "SO-025",
+      "proposed_oracle": null,
+      "owner": "qa",
+      "severity": "high",
+      "lowest_test_layer": "route",
+      "browser_coverage": true,
+      "regression": {
+        "test_file": "factory-agent/tests/test_phase19_prompt_workflow_regression.py; eMas Front/e2e/specs/full-stack-prompt-workflow-regression.spec.js",
+        "command": "Set-Location \"factory-agent\"; python -m pytest tests/test_phase19_prompt_workflow_regression.py::test_so021_so025_prompt_oracles_route_loto_to_rag_with_machine_id -q; Set-Location \"..\\eMas Front\"; npx playwright test e2e/specs/full-stack-prompt-workflow-regression.spec.js --project=chromium-seeded --grep \"SO-025\"",
+        "failing_before_closure_required": true,
+        "failure_evidence": "Required for new manual misses before closure; SO-025 is now tied to route pytest plus browser-visible seeded LOTO/source assertions.",
+        "passing_evidence": "Phase 12 executable enforcement reruns the SO-025 route pytest and seeded browser proof."
+      },
+      "test_layer": "route+seeded-browser",
+      "expected": {
+        "primary_route": "rag_loto",
+        "machine_ids": ["M-CNC-01"],
+        "job_ids": [],
+        "clarification_expected": false,
+        "forbidden_clarification_terms": ["which machine", "machine id", "provide the exact machine"],
+        "required_final_state": "COMPLETED",
+        "required_answer_terms": ["Controlled seeded RAG answer", "M-CNC-01", "lockout", "tagout"],
+        "forbidden_answer_terms": ["Status: running", "machine status only"],
+        "required_source": {
+          "machine_id": "M-CNC-01",
+          "procedure_id": "LOTO-M-CNC-01"
+        }
+      },
+      "coverage": ["parser", "route", "seeded-browser"]
+    },
+    {
       "id": "phase11-medium-high-high-low-final-response",
       "source_prompt": "change all medium priority job to high then change all high priority job to low",
       "prompt": "change all medium priority job to high then change all high priority job to low",
@@ -262,6 +299,9 @@
       "test_layer": "seeded-workflow+real-langgraph-browser",
       "expected": {
         "primary_route": "tool.write.jobs.bulk_update_priority",
+        "machine_ids": [],
+        "job_ids": [],
+        "clarification_expected": false,
         "required_final_state": "COMPLETED",
         "required_write_sets": [
           { "source_priority": "medium", "target_priority": "high", "state_basis": "original" },
@@ -282,6 +322,48 @@
         ]
       },
       "coverage": ["seeded-workflow", "seeded-browser", "real-langgraph-browser"]
+    },
+    {
+      "id": "phase12-so005-medium-high-high-low-reject-approval-2",
+      "source_prompt": "change all medium priority job to high then change all high priority job to low",
+      "prompt": "change all medium priority job to high then change all high priority job to low",
+      "observed_failure": "SO-005 had backend rejection coverage, but browser enforcement pointed at a broader stale/expired approval spec and did not prove the visible rejection path for this cascade wording.",
+      "expected_behavior": "After approval 1 is accepted and approval 2 is rejected, original medium jobs are committed to high, original high jobs remain high instead of changing to low, approval 2 is REJECTED, the visible UI says the second approval was rejected or stopped, stale full-success text is absent, and no approval-2 audit rows are recorded.",
+      "artifact_link": "docs/qa/manual_prompt_regression_bank.md#phase-12-so-005-rejection-variant",
+      "selected_oracle": "SO-005",
+      "proposed_oracle": null,
+      "owner": "qa",
+      "severity": "high",
+      "lowest_test_layer": "seeded-browser",
+      "browser_coverage": true,
+      "regression": {
+        "test_file": "eMas Front/e2e/specs/full-stack-data-integrity.spec.js",
+        "command": "Set-Location \"eMas Front\"; npx playwright test e2e/specs/full-stack-data-integrity.spec.js --project=chromium-seeded --grep \"SO-005\"",
+        "failing_before_closure_required": true,
+        "failure_evidence": "Before closure, SO-005 browser metadata referenced SO-006/SO-008/SO-027 scenario 89 instead of a dedicated second-approval rejection browser proof.",
+        "passing_evidence": "Focused seeded Playwright SO-005 run passed."
+      },
+      "test_layer": "seeded-browser",
+      "expected": {
+        "primary_route": "tool.write.jobs.bulk_update_priority",
+        "machine_ids": [],
+        "job_ids": [],
+        "clarification_expected": false,
+        "required_final_state": "IDLE",
+        "required_write_sets": [
+          { "source_priority": "medium", "target_priority": "high", "state_basis": "original", "decision": "approved" },
+          { "source_priority": "high", "target_priority": "low", "state_basis": "original", "decision": "rejected" }
+        ],
+        "required_answer_terms": ["second approval rejected", "Rejected"],
+        "forbidden_answer_terms": [
+          "Run complete",
+          "all changes succeeded",
+          "all requested changes completed",
+          "high->low 11",
+          "original high priority jobs changed to low"
+        ]
+      },
+      "coverage": ["seeded-workflow", "seeded-browser"]
     }
   ]
 }

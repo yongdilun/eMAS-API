@@ -5,7 +5,11 @@
   "prompt": "Show the status for machine M-CNC-01.",
   "initial_state": {
     "machines": [
-      { "id": "M-CNC-01", "status": "running", "cell": "CNC" }
+      {
+        "id": "M-CNC-01",
+        "status": "running",
+        "cell": "CNC"
+      }
     ],
     "previous_turn": {
       "turn_id": "SO-020-T0",
@@ -26,30 +30,55 @@
       "after": "tool read completed",
       "session_phase": "EXECUTING",
       "pending_approval_id": null,
-      "tool_result": { "machine_id": "M-CNC-01", "status": "running" }
+      "tool_result": {
+        "machine_id": "M-CNC-01",
+        "status": "running"
+      }
     },
     {
       "after": "terminal snapshot with empty final response",
       "session_phase": "COMPLETED",
       "pending_approval_id": null,
       "final_response": "",
-      "forbidden": ["reuse_previous_turn_final_response", "fake_success_text"]
+      "forbidden": [
+        "reuse_previous_turn_final_response",
+        "fake_success_text"
+      ]
     }
   ],
   "expected_final_state": {
     "session_phase": "COMPLETED",
     "machines": [
-      { "id": "M-CNC-01", "status": "running", "cell": "CNC" }
+      {
+        "id": "M-CNC-01",
+        "status": "running",
+        "cell": "CNC"
+      }
     ],
     "pending_approval_id": null
   },
   "expected_audit_rows": [],
   "expected_timeline": [
-    { "event": "operation_started", "operation_id": "operation-so-020" },
-    { "event": "tool_read_started", "machine_id": "M-CNC-01" },
-    { "event": "tool_read_completed", "machine_id": "M-CNC-01" },
-    { "event": "final_response_created", "content_state": "empty" },
-    { "event": "operation_completed", "operation_id": "operation-so-020" }
+    {
+      "event": "operation_started",
+      "operation_id": "operation-so-020"
+    },
+    {
+      "event": "tool_read_started",
+      "machine_id": "M-CNC-01"
+    },
+    {
+      "event": "tool_read_completed",
+      "machine_id": "M-CNC-01"
+    },
+    {
+      "event": "final_response_created",
+      "content_state": "empty"
+    },
+    {
+      "event": "operation_completed",
+      "operation_id": "operation-so-020"
+    }
   ],
   "expected_sse_or_snapshot": {
     "approval_required": false,
@@ -57,20 +86,39 @@
       "status": "COMPLETED",
       "pending_approval_id": null,
       "final_response": "",
-      "must_include_tool_result_evidence": { "machine_id": "M-CNC-01", "status": "running" }
+      "must_include_tool_result_evidence": {
+        "machine_id": "M-CNC-01",
+        "status": "running"
+      }
     }
   },
   "expected_final_response": {
     "allowed_after": "operation_completed operation-so-020",
-    "must_include": ["safe empty-response diagnostic"],
-    "must_not_include": ["Previous answer that must not be reused", "Run complete", "fake success"]
+    "must_include": [
+      "safe empty-response diagnostic"
+    ],
+    "must_not_include": [
+      "Previous answer that must not be reused",
+      "Run complete",
+      "fake success"
+    ]
   },
   "expected_ui": {
-    "must_show": ["Unable to render final response", "M-CNC-01"],
-    "must_not_show": ["Previous answer that must not be reused", "Run complete", "Factory Agent needs attention"]
+    "must_show": [
+      "Unable to render final response",
+      "M-CNC-01"
+    ],
+    "must_not_show": [
+      "Previous answer that must not be reused",
+      "Run complete",
+      "Factory Agent needs attention"
+    ]
   },
   "expected_unchanged_rows": [
-    { "id": "M-CNC-01", "status": "running" }
+    {
+      "id": "M-CNC-01",
+      "status": "running"
+    }
   ],
   "invariants": [
     "no_approval_required",
@@ -79,6 +127,20 @@
     "operation_id_scoped_timeline",
     "no_generic_error_on_expected_empty_response"
   ],
-  "required_layers": ["frontend_unit", "playwright"],
-  "weakness_from_phase0": "API and frontend tests can accept COMPLETED with empty content; this oracle requires a safe diagnostic and proves stale prior text is not reused."
+  "required_layers": [
+    "frontend_unit",
+    "playwright"
+  ],
+  "weakness_from_phase0": "API and frontend tests can accept COMPLETED with empty content; this oracle requires a safe diagnostic and proves stale prior text is not reused.",
+  "executable_enforcement": {
+    "pytest": [
+      "factory-agent/tests/test_snapshot_timeline_final_response_contract.py::test_all_stateful_oracle_files_have_executable_snapshot_final_response_contract"
+    ],
+    "playwright": [
+      "eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs::empty final response safe diagnostic"
+    ],
+    "visible_dom_assertions_required": true,
+    "manual_prompt_regression": [],
+    "tracker": "docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md#phase-12-executable-enforcement-closure"
+  }
 }

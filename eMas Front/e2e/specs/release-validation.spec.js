@@ -48,7 +48,7 @@ test.describe('L4 production-like release validation @l4-release', () => {
     expect(JSON.stringify(result.body)).toContain('M-CNC-01')
   })
 
-  test('scenario 55: static bearer release mode disables EventSource and uses polling fallback', async ({ page }) => {
+  test('SO-017 scenario 55: static bearer release mode disables EventSource and uses polling fallback', async ({ page }) => {
     const eventSourceRequests = []
     page.on('request', (request) => {
       if (request.url().includes('/events')) eventSourceRequests.push(request.url())

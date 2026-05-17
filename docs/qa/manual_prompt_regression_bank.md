@@ -90,6 +90,7 @@ Review cadence: the QA regression bank owner reviews new entries and accepted ga
 | `phase19-loto-lockout-tagout-m-cnc-01` | `Need the lockout/tagout SOP for m-cnc-01 before maintenance.` | Normalize lowercase machine ID and route to LOTO/RAG without clarification. | Parser unit, route matrix, seeded fake-provider browser gate |
 | `phase19-loto-parenthesized-m-cnc-01` | `For machine (M-CNC-01), what lockout procedure should I follow?` | Extract the parenthesized ID and route to LOTO/RAG without asking which machine. | Parser unit, route matrix, seeded fake-provider browser gate |
 | `phase19-loto-markdown-m-cnc-01` | `### Safety check` / `LOTO for \`M-CNC-01\` before touching the spindle.` | Extract the markdown-formatted ID and return the same controlled LOTO/RAG answer. | Parser unit, route matrix, seeded fake-provider browser gate |
+| `phase19-loto-route-confusion-m-cnc-01` | `For M-CNC-01, tell me the lockout tagout steps, not the current machine status.` | Route to LOTO/RAG with source evidence, not status-only machine lookup copy. | SO-025 oracle, route pytest, seeded browser visible-DOM proof |
 
 ## Phase 11 Aggregate Final Response Miss
 
@@ -97,6 +98,12 @@ Review cadence: the QA regression bank owner reviews new entries and accepted ga
 |---|---|---|---|
 | `phase11-medium-high-high-low-final-response` | `change all medium priority job to high then change all high priority job to low` | Use original-state semantics for both write sets, commit original medium -> high and original high -> low under separate approvals, show approval 2 copy/table while approval 2 is pending, and make the final assistant response summarize both write sets instead of only the last approval. | SO-041 oracle, summary contract, LangGraph state-machine oracle, frontend pending-approval projection unit, seeded workflow, real LangGraph browser proof |
 | `phase11-so041-live-activity-final-ui-regression` | Same prompt, after approving approval 1 and while approval 2 is pending/final. | While approval 2 is pending, visible activity current state must be `Waiting for your approval`, not `Improving the response / Current`; collapsing the activity timeline must not auto-expand on refresh. After final completion, the visible response must show the aggregate final summary and must not show stale `Approved request to change record`, waiting-approval detail text, or an approval-2-only affected-records table as the final answer. | Backend activity projection pytest, frontend activity/turn/component tests, real LangGraph browser DOM assertions |
+
+## Phase 12 SO-005 Rejection Variant
+
+| ID | Prompt / flow | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `phase12-so005-medium-high-high-low-reject-approval-2` | Same prompt, approve approval 1, reject approval 2. | Original medium jobs commit to high, original high jobs remain high instead of changing to low, approval 2 is `REJECTED`, visible UI says the second approval was rejected or stopped, no stale full-success text is shown, and no approval-2 audit rows exist. | SO-005 oracle, backend graph/snapshot contracts, dedicated seeded browser DOM/data-integrity proof |
 
 ## Required Bank Schema
 

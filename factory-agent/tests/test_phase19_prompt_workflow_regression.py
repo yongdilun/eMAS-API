@@ -13,6 +13,7 @@ from factory_agent.planning.intent import (
 from factory_agent.planning.tool_selector import ToolSelector
 from factory_agent.schemas import ToolInfo
 from factory_agent.testing_seeded_adapters import SeededPlaywrightPlanner
+from tests.support.stateful_oracle_harness import load_oracle
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -176,6 +177,25 @@ def test_phase19_scenario_118_loto_route_selection_short_circuits_to_rag():
     assert should_clarify_loto_machine(prompt) is False
     assert assessment.kind == "operations"
     assert assessment.entity == "machine"
+
+
+@pytest.mark.parametrize("oracle_id", ["SO-021", "SO-025"])
+def test_so021_so025_prompt_oracles_route_loto_to_rag_with_machine_id(oracle_id):
+    oracle = load_oracle(oracle_id)
+    prompt = oracle["prompt"]
+    route = oracle["expected_route"]
+
+    assert intent_constraint_values(prompt, "machine_id") == [route["machine_id"]]
+    assert intent_constraint_values(prompt, "job_id") == []
+    assert should_clarify_loto_machine(prompt) is False
+    assert should_route_loto_to_rag(prompt) is True
+
+    assessment = assess_intent(prompt)
+    assert assessment.kind == "operations"
+    assert assessment.entity == "machine"
+    assert route["route"] == "rag.loto_procedure"
+    forbidden_routes = route.get("must_not_route_to") or route.get("negative_route_assertions") or []
+    assert "tool.read.machine_status" in forbidden_routes
 
 
 @pytest.mark.parametrize(

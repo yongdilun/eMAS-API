@@ -58,7 +58,7 @@ async function sendChatPrompt(page, prompt) {
 }
 
 test.describe('Factory Agent chat failure and stream robustness scenarios', () => {
-  test('malformed SSE payload is ignored and the next valid notification still updates the UI @sse', async ({ page }) => {
+  test('SO-015 malformed SSE payload is ignored and the next valid notification still updates the UI @sse', async ({ page }) => {
     const pageErrors = []
     page.on('pageerror', (err) => pageErrors.push(err.message))
 
@@ -123,7 +123,7 @@ test.describe('Factory Agent chat failure and stream robustness scenarios', () =
     await expect(page.getByText(nonTerminalFinalAnswer)).toHaveCount(0)
   })
 
-  test('notification stream drop shows snapshot polling fallback diagnostic without final success @sse', async ({ page }) => {
+  test('SO-030 notification stream drop shows snapshot polling fallback diagnostic without final success @sse', async ({ page }) => {
     await openChat(page)
     await sendChatPrompt(page, streamDropPrompt)
 

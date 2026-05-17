@@ -754,6 +754,35 @@ Risks:
 - This may reopen the Phase 10 ledger decision if the only way to build a truthful aggregate final response is to reconstruct operation history from too many independent projections.
 - The first run should be expected to fail. Do not weaken the oracle to match the current output.
 
+## Phase 12: Executable Enforcement Closure
+
+Clarification: an SO JSON file is not considered complete unless an executable test reads or names that SO id and enforces the contract.
+
+Phase 12 adds an `executable_enforcement` block to every current oracle file under `tests/e2e/scenarios/stateful_oracles/`. The block records:
+
+- the backend pytest contract that loads the oracle and verifies snapshot, timeline, approval, audit, final-state, and final-response invariants;
+- any lower-layer pytest needed for graph, route, parser, or API/UI projection behavior;
+- the browser proof when the defect can render differently in the DOM than in backend snapshot text;
+- the manual prompt regression mapping when the scenario comes from a manual prompt miss.
+
+The common backend gate is:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_snapshot_timeline_final_response_contract.py::test_all_stateful_oracle_files_have_executable_snapshot_final_response_contract -q
+```
+
+Additional Phase 12 targeted gates:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_langgraph_state_machine_oracles.py::test_priority_cascade_oracles_use_original_state_for_second_write_set -q
+python -m pytest tests/test_phase7_api_ui_alignment.py::test_so012_semantic_timeline_projection_keeps_both_approval_ids tests/test_phase7_api_ui_alignment.py::test_so013_activity_suppresses_completion_until_terminal_snapshot -q
+python -m pytest tests/test_phase19_prompt_workflow_regression.py::test_so021_so025_prompt_oracles_route_loto_to_rag_with_machine_id -q
+```
+
+Browser tests must assert visible DOM text and forbidden stale text. Snapshot JSON or final assistant API text alone is not enough for browser closure.
+
 ## First Critical Scenario Set
 
 Implement these before claiming manual chatbot testing is retired.
@@ -764,7 +793,7 @@ Implement these before claiming manual chatbot testing is retired.
 | SO-002 | High to low, then original low to medium. | Existing Scenario 86 regression. | Pytest graph, seeded full-stack |
 | SO-003 | Low to high, then original high to low. | Swap/cascade source overlap. | Pytest graph, seeded full-stack |
 | SO-004 | High to medium, then original medium to low. | Reverse cascade ordering. | Pytest graph, seeded full-stack |
-| SO-005 | Approval 1 accepted, approval 2 rejected. | Hidden continuation after rejection. | Pytest graph, browser |
+| SO-005 | Approval 1 accepted, approval 2 rejected. | Hidden continuation after rejection. | Pytest graph, dedicated seeded browser |
 | SO-006 | Approval 1 accepted, approval 2 timeout. | Session completes despite pending timeout. | Pytest graph, seeded |
 | SO-007 | Approval double-click and refresh replay. | Duplicate mutation. | Pytest API, seeded |
 | SO-008 | Stale approval after new user revision. | Old approval mutates changed session. | Pytest API, browser |

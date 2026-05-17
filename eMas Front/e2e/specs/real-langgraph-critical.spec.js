@@ -83,7 +83,7 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
     await resetSeededJobPriorities()
   })
 
-  test('SO-001 uses real LangGraph approvals, original-state rows, and terminal evidence', async ({ page }) => {
+  test('SO-001/SO-035 uses real LangGraph approvals, original-state rows, and terminal evidence', async ({ page }) => {
     const initialRows = await currentSeededJobRowsById()
     await openChat(page)
     await sendPrompt(page, so001Prompt)
@@ -191,7 +191,9 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
     expect(finalText).toContain('Updated')
     expect(finalText).toContain(`${originalHighJobIds.length}`)
     expect(finalText).not.toMatch(/Factory Agent needs attention/i)
-    expect(await visibleText(page)).toContain('Run complete')
+    const finalVisible = await visibleText(page)
+    expect(finalVisible).toContain('Run complete')
+    expect(finalVisible).not.toMatch(/seeded adapter|Run complete before approval|Factory Agent needs attention/i)
     expect(await factoryAgentJson('/ready')).toMatchObject({
       status: 'ready',
       checks: {

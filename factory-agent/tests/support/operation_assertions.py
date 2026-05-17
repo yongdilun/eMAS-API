@@ -113,6 +113,10 @@ def _audit_row_matches(actual: dict[str, Any], expected: dict[str, Any]) -> bool
 
 def _event_matches(actual: dict[str, Any], expected: dict[str, Any]) -> bool:
     for key, value in expected.items():
+        if key == "sequence":
+            if actual.get("sequence", actual.get("sequence_number")) != value:
+                return False
+            continue
         if actual.get(key) != value:
             return False
     return True

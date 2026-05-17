@@ -9,6 +9,7 @@ export const phase19UnknownDiagnostic = 'Unsupported Phase 19 prompt regression 
 
 export const phase19CascadeMatrix = Object.freeze([
   {
+    oracleId: 'SO-002',
     name: 'high-to-low then original-low-to-medium',
     prompt: 'Phase 19 prompt regression: change all high priority job to low then change all low priority job to medium',
     changes: [
@@ -18,6 +19,7 @@ export const phase19CascadeMatrix = Object.freeze([
     unchanged: ['medium'],
   },
   {
+    oracleId: 'SO-001',
     name: 'medium-to-high then original-high-to-medium',
     prompt: 'Phase 19 prompt regression: change all medium priority job to high then change all high priority job to medium',
     changes: [
@@ -27,6 +29,7 @@ export const phase19CascadeMatrix = Object.freeze([
     unchanged: ['low'],
   },
   {
+    oracleId: 'SO-041',
     name: 'medium-to-high then original-high-to-low',
     prompt: 'Phase 11 prompt regression: change all medium priority job to high then change all high priority job to low',
     changes: [
@@ -36,6 +39,7 @@ export const phase19CascadeMatrix = Object.freeze([
     unchanged: ['low'],
   },
   {
+    oracleId: 'SO-003',
     name: 'low-to-high then original-high-to-low',
     prompt: 'Phase 19 prompt regression: change all low priority job to high then change all high priority job to low',
     changes: [
@@ -45,6 +49,7 @@ export const phase19CascadeMatrix = Object.freeze([
     unchanged: ['medium'],
   },
   {
+    oracleId: 'SO-004',
     name: 'high-to-medium then original-medium-to-low',
     prompt: 'Phase 19 prompt regression: change all high priority job to medium then change all medium priority job to low',
     changes: [
