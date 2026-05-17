@@ -26,35 +26,6 @@ from factory_agent.testing_seeded_scenarios import TWO_STEP_APPROVAL_CHAIN
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ADAPTER_PATH = REPO_ROOT / "factory-agent" / "factory_agent" / "testing_seeded_adapters.py"
 
-ALLOWED_LEGACY_PHASE_BRANCHES = {
-    "phase 9 multi-step ordered",
-    "phase 9 multi approval chain",
-    "phase 9 approval timeout",
-    "phase 9 partial failure",
-    "phase 9 schema mismatch",
-    "phase 9 duplicate submit",
-    "phase 9 out-of-order duplicate sse",
-    "phase 9 last-event-id reconnect",
-    "phase 9 stream drop recovery",
-    "phase 10 refresh during active job",
-    "phase 10 long-running stream",
-    "phase 14 bulk partial failure",
-    "phase 14 idempotent approval replay",
-    "phase 14 refresh during active approval",
-    "phase 14 stream drop commit recovery",
-    "phase 14 go api 500 commit failure",
-    "phase 14 stale approval",
-    "phase 14 expired approval",
-    "phase 14 agreement audit timeline summary",
-    "phase 9 isolation alpha",
-    "phase 9 isolation beta",
-}
-
-MIGRATED_PHASE_BRANCHES = {
-    "phase 9 large structured result",
-    "phase 14 cascading priority update",
-}
-
 
 def _settings():
     return replace(
@@ -106,13 +77,54 @@ def test_seeded_scenario_schema_represents_phase5_capabilities():
     assert {APPROVAL_REQUIRED_WORKFLOW, TWO_STEP_APPROVAL_CHAIN, REJECTED_APPROVAL} <= migrated
 
 
-def test_seeded_planner_declares_legacy_phase_prompts_it_handles():
+def test_seeded_planner_declares_phase_prompts_it_handles_from_catalog():
     planner = SeededPlaywrightPlanner(_settings())
 
     assert planner.handles_seeded_intent("Run Phase 14 stale approval seeded job update")
     assert planner.handles_seeded_intent("Run Phase 14 idempotent approval replay for one seeded job priority update")
     assert planner.handles_seeded_intent("List jobs for Phase 9 large structured result")
     assert not planner.handles_seeded_intent("Please update a job priority without a job id")
+
+
+@pytest.mark.parametrize(
+    ("prompt", "scenario_id"),
+    [
+        ("Run Phase 9 multi-step ordered seeded jobs workflow", "phase9_multi_step_ordered"),
+        ("Run Phase 9 multi approval chain for seeded job priority update", "phase9_multi_approval_chain"),
+        ("Run Phase 9 approval timeout seeded job update", "phase9_approval_timeout"),
+        ("Run Phase 9 partial failure seeded jobs workflow", "phase9_partial_failure"),
+        ("Run Phase 9 schema mismatch seeded machine workflow", "phase9_schema_mismatch"),
+        ("Run Phase 9 duplicate submit seeded machine job", "phase9_duplicate_submit"),
+        ("Run Phase 9 out-of-order duplicate SSE seeded jobs workflow", "phase9_out_of_order_duplicate_sse"),
+        ("Run Phase 9 Last-Event-ID reconnect seeded machine workflow", "phase9_last_event_id_reconnect"),
+        ("Run Phase 9 stream drop recovery seeded machine workflow", "phase9_stream_drop_recovery"),
+        ("Run Phase 10 refresh during active job seeded machine workflow", "phase10_refresh_recovery"),
+        ("Run Phase 10 long-running stream seeded machine workflow", "phase10_long_running_stream"),
+        ("Run Phase 14 bulk partial failure priority update with exact row outcomes", "phase14_bulk_partial_failure"),
+        (
+            "Run Phase 14 idempotent approval replay for one seeded job priority update",
+            "phase14_idempotent_approval_replay",
+        ),
+        (
+            "Run Phase 14 refresh during active approval for original high jobs to medium",
+            "phase14_refresh_active_approval",
+        ),
+        ("Run Phase 14 stream drop commit recovery for original high jobs", "phase14_stream_drop_commit"),
+        ("Run Phase 14 Go API 500 commit failure for seeded job", "phase14_go_api_500"),
+        ("Run Phase 14 stale approval seeded job update", "phase14_stale_approval"),
+        ("Run Phase 14 expired approval seeded job update", "phase14_expired_approval"),
+        ("Run Phase 14 agreement audit timeline summary for seeded job priority updates", "phase14_agreement"),
+        ("Run Phase 9 isolation alpha seeded machine workflow", "phase9_isolation_alpha"),
+        ("Run Phase 9 isolation beta seeded machine workflow", "phase9_isolation_beta"),
+    ],
+)
+def test_phase_prompt_scenarios_are_catalogued(prompt, scenario_id):
+    planner = SeededPlaywrightPlanner(_settings())
+
+    matched = planner._scenario_interpreter.match(prompt)
+
+    assert matched is not None
+    assert matched.scenario_id == scenario_id
 
 
 @pytest.mark.asyncio
@@ -209,7 +221,7 @@ async def test_so005_cascade_approval_chain_is_driven_by_scenario_data(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_legacy_unmigrated_partial_failure_branch_still_works(monkeypatch):
+async def test_phase14_partial_failure_is_driven_by_scenario_data(monkeypatch):
     planner = SeededPlaywrightPlanner(_settings())
 
     async def fake_seed_rows() -> list[dict[str, Any]]:
@@ -221,11 +233,11 @@ async def test_legacy_unmigrated_partial_failure_branch_still_works(monkeypatch)
         await planner.generate_plan(
             intent="Run Phase 14 bulk partial failure priority update with exact row outcomes",
             scoped_tools=[],
-            context={"session_id": "legacy-partial-failure"},
+            context={"session_id": "scenario-partial-failure"},
         )
 
     approval = exc.value.approval
-    assert planner._scenario_by_session["legacy-partial-failure"] == "phase14_partial_failure"
+    assert planner._scenario_by_session["scenario-partial-failure"] == "phase14_partial_failure"
     assert approval["bundle_ui"]["kind"] == "phase14_partial_failure"
     assert approval["bundle_ui"]["write_set"] == "bulk_partial_failure"
 
@@ -234,11 +246,4 @@ def test_testing_seeded_adapter_does_not_add_untracked_phase_prompt_branches():
     source = ADAPTER_PATH.read_text(encoding="utf-8")
     found = _phase_literals_in_if_tests(source)
 
-    assert not (found & MIGRATED_PHASE_BRANCHES), (
-        "Migrated phase prompts must stay in testing_seeded_scenarios.py data, not adapter if branches."
-    )
-    assert found <= ALLOWED_LEGACY_PHASE_BRANCHES, (
-        "New phase-prompt adapter branches must be explicitly allowed in "
-        "docs/qa/HARDCODE_REDUCTION_TRACK.md before adding them here. "
-        f"Unexpected: {sorted(found - ALLOWED_LEGACY_PHASE_BRANCHES)}"
-    )
+    assert found == set(), "Phase-prompt adapter branches belong in testing_seeded_scenarios.py data."

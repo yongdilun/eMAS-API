@@ -149,7 +149,10 @@ class SeededPlaywrightPlanner:
                 state.setdefault("approval_ids", []).append(approval_id)
             if bundle_ui.get("write_set"):
                 state["current_write_set"] = bundle_ui.get("write_set")
-        if "phase 9 multi approval chain" in intent.lower() or scenario_marker == "multi_approval_chain":
+        intent_scenario = self._scenario_interpreter.match(intent)
+        if scenario_marker == "multi_approval_chain" or (
+            intent_scenario is not None and intent_scenario.internal_marker == "multi_approval_chain"
+        ):
             self._scenario_by_session[session_id] = "multi_approval_chain"
             self._approval_counts_by_session.setdefault(session_id, 0)
             log_event(
@@ -181,247 +184,6 @@ class SeededPlaywrightPlanner:
         )
         if scenario_result is not None:
             return scenario_result
-
-        if "phase 9 multi-step ordered" in lowered:
-            self._scenario_by_session[session_id] = "multi_step_ordered"
-            return await self._multi_step_ordered(intent=intent, scoped_tools=scoped_tools)
-
-        if "phase 9 multi approval chain" in lowered:
-            self._scenario_by_session[session_id] = "multi_approval_chain"
-            self._approval_counts_by_session[session_id] = 0
-            log_event(
-                "playwright_seeded_multi_approval_started",
-                session_id=session_id,
-                scenario=self._scenario_by_session.get(session_id),
-            )
-            raise PlannerApprovalRequired(
-                "Seeded first approval required.",
-                approval={
-                    "summary": "Phase 9 multi-approval chain: first approval is required before supervisor review.",
-                    "count": 1,
-                    "preview": [
-                        {
-                            "tool_name": "phase9_first_approval_gate",
-                            "args": {"stage": "operator_review", "next_stage": "supervisor_review"},
-                        }
-                    ],
-                    "bundle_ui": {
-                        "kind": "phase9_approval_chain",
-                        "headline": "First approval required before the seeded chain can continue.",
-                        "rows": [
-                            {
-                                "approval_stage": "operator_review",
-                                "status": "pending",
-                                "next_stage": "supervisor_review",
-                            }
-                        ],
-                    },
-                },
-            )
-
-        if "phase 9 approval timeout" in lowered:
-            self._scenario_by_session[session_id] = "approval_timeout"
-            raise PlannerApprovalRequired(
-                "Seeded approval timeout fixture.",
-                approval={
-                    "summary": "Phase 9 approval timeout: the job is waiting safely and must not continue without a decision.",
-                    "count": 1,
-                    "preview": [
-                        {
-                            "tool_name": "phase9_timeout_gate",
-                            "args": {"timeout_state": "expired_visible_safe"},
-                        }
-                    ],
-                    "bundle_ui": {
-                        "kind": "phase9_timeout_gate",
-                        "headline": "Approval timed out; execution remains paused and visible.",
-                        "rows": [
-                            {
-                                "approval_stage": "operator_timeout",
-                                "status": "timed_out",
-                                "hidden_continuation": "no",
-                            }
-                        ],
-                    },
-                    "expires_in_seconds": -1,
-                },
-            )
-
-        if "phase 9 partial failure" in lowered:
-            self._scenario_by_session[session_id] = "partial_failure"
-            return await self._partial_failure(intent=intent, scoped_tools=scoped_tools)
-
-        if "phase 9 schema mismatch" in lowered:
-            self._scenario_by_session[session_id] = "schema_mismatch"
-            return self._schema_mismatch(intent=intent, scoped_tools=scoped_tools)
-
-        if "phase 9 duplicate submit" in lowered:
-            self._scenario_by_session[session_id] = "duplicate_submit"
-            if call_index == 1:
-                return self._draft_only(
-                    intent=intent,
-                    scoped_tools=scoped_tools,
-                    tool_name="get__machines_{id}",
-                    args={"id": "M-CNC-01"},
-                    summary="Phase 9 duplicate-submit run is staged and ready to execute.",
-                )
-            await asyncio.sleep(0.8)
-            return await self._machine_status(intent=intent, scoped_tools=scoped_tools)
-
-        if "phase 9 out-of-order duplicate sse" in lowered:
-            self._scenario_by_session[session_id] = "out_of_order_sse"
-            if call_index == 1:
-                return self._draft_only(
-                    intent=intent,
-                    scoped_tools=scoped_tools,
-                    tool_name="get__jobs",
-                    args={"priority": "low", "limit": 2},
-                    summary="Phase 9 out-of-order SSE run is staged.",
-                )
-            await asyncio.sleep(1.2)
-            return await self._multi_step_ordered(intent=intent, scoped_tools=scoped_tools)
-
-        if "phase 9 last-event-id reconnect" in lowered:
-            self._scenario_by_session[session_id] = "last_event_id_reconnect"
-            if call_index == 1:
-                return self._draft_only(
-                    intent=intent,
-                    scoped_tools=scoped_tools,
-                    tool_name="get__machines_{id}",
-                    args={"id": "M-CNC-01"},
-                    summary="Phase 9 reconnect run is staged.",
-                )
-            await asyncio.sleep(5.0)
-            return await self._machine_status(intent=intent, scoped_tools=scoped_tools)
-
-        if "phase 9 stream drop recovery" in lowered:
-            self._scenario_by_session[session_id] = "stream_drop_recovery"
-            if call_index == 1:
-                return self._draft_only(
-                    intent=intent,
-                    scoped_tools=scoped_tools,
-                    tool_name="get__machines_{id}",
-                    args={"id": "M-CNC-01"},
-                    summary="Phase 9 stream-drop recovery run is staged.",
-                )
-            await asyncio.sleep(4.5)
-            return await self._completed_with_summary(
-                intent=intent,
-                scoped_tools=scoped_tools,
-                tool_name="get__machines_{id}",
-                args={"id": "M-CNC-01"},
-                result={"data": {"machine_id": "M-CNC-01", "status": "RUNNING"}},
-                summary="Phase 9 stream drop recovered by snapshot polling.",
-                risk="Read-only seeded stream-drop recovery fixture.",
-            )
-
-        if "phase 10 refresh during active job" in lowered:
-            self._scenario_by_session[session_id] = "phase10_refresh_recovery"
-            if call_index == 1:
-                return self._draft_only(
-                    intent=intent,
-                    scoped_tools=scoped_tools,
-                    tool_name="get__machines_{id}",
-                    args={"id": "M-CNC-01"},
-                    summary="Phase 10 refresh recovery run is staged and ready to execute.",
-                )
-            await asyncio.sleep(2.5)
-            return await self._completed_with_summary(
-                intent=intent,
-                scoped_tools=scoped_tools,
-                tool_name="get__machines_{id}",
-                args={"id": "M-CNC-01"},
-                result={"data": {"machine_id": "M-CNC-01", "status": "RUNNING", "refresh_recovered": True}},
-                summary="Phase 10 refresh recovery completed once without duplicate execution.",
-                risk="Read-only release refresh recovery fixture.",
-            )
-
-        if "phase 10 long-running stream" in lowered:
-            self._scenario_by_session[session_id] = "phase10_long_running_stream"
-            if call_index == 1:
-                return self._draft_only(
-                    intent=intent,
-                    scoped_tools=scoped_tools,
-                    tool_name="get__machines_{id}",
-                    args={"id": "M-CNC-01"},
-                    summary="Phase 10 long-running stream is staged and will complete through polling.",
-                )
-            await asyncio.sleep(6.0)
-            return await self._completed_with_summary(
-                intent=intent,
-                scoped_tools=scoped_tools,
-                tool_name="get__machines_{id}",
-                args={"id": "M-CNC-01"},
-                result={"data": {"machine_id": "M-CNC-01", "status": "RUNNING", "long_stream_terminal": True}},
-                summary="Phase 10 long-running stream reached a terminal state within release limits.",
-                risk="Read-only release long-stream fixture.",
-            )
-
-        phase14_cascade_changes = self._phase14_cascade_priority_changes(lowered)
-        if phase14_cascade_changes:
-            self._scenario_by_session[session_id] = "phase14_cascade"
-            audit_scenario = "119" if "phase 19" in lowered or "prompt regression" in lowered else "86"
-            return await self._phase14_start_cascade(
-                session_id=session_id,
-                changes=phase14_cascade_changes,
-                audit_scenario=audit_scenario,
-            )
-
-        if "phase 14 bulk partial failure" in lowered:
-            self._scenario_by_session[session_id] = "phase14_partial_failure"
-            return await self._phase14_start_partial_failure(session_id=session_id)
-
-        if "phase 14 idempotent approval replay" in lowered:
-            self._scenario_by_session[session_id] = "phase14_idempotent_replay"
-            return await self._phase14_start_idempotent_replay(session_id=session_id)
-
-        if "phase 14 refresh during active approval" in lowered:
-            self._scenario_by_session[session_id] = "phase14_refresh_active_approval"
-            return await self._phase14_start_refresh_active_approval(session_id=session_id)
-
-        if "phase 14 stream drop commit recovery" in lowered:
-            self._scenario_by_session[session_id] = "phase14_stream_drop_commit"
-            return await self._phase14_start_stream_drop_commit(session_id=session_id)
-
-        if "phase 14 go api 500 commit failure" in lowered:
-            self._scenario_by_session[session_id] = "phase14_go_api_500"
-            return await self._phase14_start_go_api_500(session_id=session_id)
-
-        if "phase 14 stale approval" in lowered:
-            self._scenario_by_session[session_id] = "phase14_stale_approval"
-            return await self._phase14_start_stale_approval(session_id=session_id, expired=False)
-
-        if "phase 14 expired approval" in lowered:
-            self._scenario_by_session[session_id] = "phase14_expired_approval"
-            return await self._phase14_start_stale_approval(session_id=session_id, expired=True)
-
-        if "phase 14 agreement audit timeline summary" in lowered:
-            self._scenario_by_session[session_id] = "phase14_agreement"
-            return await self._phase14_start_agreement(session_id=session_id)
-
-        if "phase 9 isolation alpha" in lowered:
-            self._scenario_by_session[session_id] = "isolation_alpha"
-            return await self._completed_with_summary(
-                intent=intent,
-                scoped_tools=scoped_tools,
-                tool_name="get__machines_{id}",
-                args={"id": "M-CNC-01"},
-                result={"data": {"machine_id": "M-CNC-01", "status": "RUNNING", "isolation": "alpha"}},
-                summary="Phase 9 isolation alpha session completed without beta data.",
-                risk="Read-only seeded isolation fixture.",
-            )
-
-        if "phase 9 isolation beta" in lowered:
-            self._scenario_by_session[session_id] = "isolation_beta"
-            return await self._completed_with_summary(
-                intent=intent,
-                scoped_tools=scoped_tools,
-                tool_name="get__machines_{id}",
-                args={"id": "M-CNC-02"},
-                result={"data": {"machine_id": "M-CNC-02", "status": "IDLE", "isolation": "beta"}},
-                summary="Phase 9 isolation beta session completed without alpha data.",
-                risk="Read-only seeded isolation fixture.",
-            )
 
         if "approval" in lowered or ("low priority" in lowered and "high priority" in lowered):
             self._scenario_by_session[session_id] = "priority_approval"
@@ -495,6 +257,45 @@ class SeededPlaywrightPlanner:
             return await self._low_priority_jobs(intent=intent, scoped_tools=scoped_tools)
 
         return await self._machine_status(intent=intent, scoped_tools=scoped_tools)
+
+    def _start_multi_approval_chain(
+        self,
+        *,
+        session_id: str,
+        intent: str,
+        scoped_tools: list[ToolInfo],
+    ) -> PlannerResult:
+        del intent, scoped_tools
+        self._approval_counts_by_session[session_id] = 0
+        log_event(
+            "playwright_seeded_multi_approval_started",
+            session_id=session_id,
+            scenario=self._scenario_by_session.get(session_id),
+        )
+        raise PlannerApprovalRequired(
+            "Seeded first approval required.",
+            approval={
+                "summary": "Phase 9 multi-approval chain: first approval is required before supervisor review.",
+                "count": 1,
+                "preview": [
+                    {
+                        "tool_name": "phase9_first_approval_gate",
+                        "args": {"stage": "operator_review", "next_stage": "supervisor_review"},
+                    }
+                ],
+                "bundle_ui": {
+                    "kind": "phase9_approval_chain",
+                    "headline": "First approval required before the seeded chain can continue.",
+                    "rows": [
+                        {
+                            "approval_stage": "operator_review",
+                            "status": "pending",
+                            "next_stage": "supervisor_review",
+                        }
+                    ],
+                },
+            },
+        )
 
     async def resume_after_approval(self, *, session_id: str, approved: bool) -> PlannerResult:
         if not approved:

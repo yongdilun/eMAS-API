@@ -12,7 +12,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 | 2 | Capability-based tool selection | Complete | Codex | Semantic route tool selection now uses capability metadata before legacy endpoint-name fallback. |
 | 3 | Knowledge policy registry | Complete | Codex | Moved OSHA/LOTO fallback answer, sources, and safety content into a route-scoped RAG knowledge policy registry. |
 | 4 | SSE fault injection Adapter | Complete | Codex | Seeded duplicate/out-of-order/drop/reconnect hooks now live behind `factory_agent.testing.fault_injection`; production router uses the no-op adapter by default. |
-| 5 | Data-driven seeded scenario engine | In Progress | Codex | Added a small seeded scenario schema/interpreter and migrated SO-031 plus the SO-005/SO-041 medium->high/original-high->low cascade start path to scenario data. Legacy branches remain for unmigrated scenarios. |
+| 5 | Data-driven seeded scenario engine | Complete | Codex | Explicit Phase 9/10/14/19 seeded prompt selectors now live in `testing_seeded_scenarios.py`; `testing_seeded_adapters.py` delegates to scenario data and keeps only generic non-phase fallback/resume handling. |
 | 6 | Typed snapshot presentation contract | Not Started | Next agent | Backend contract needed before frontend cleanup. |
 | 7 | Frontend typed presentation rendering | Not Started | Next agent | Remove primary dependence on text phrase inference. |
 | 8 | Hardcode guardrails in CI | Not Started | Next agent | Resume scenario growth after this. |
@@ -45,8 +45,9 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 - Phase 3 keeps curated OSHA/LOTO fallback knowledge product-owned behind `factory_agent.rag.knowledge_policy`; the first policy is route-scoped to LOTO/safety RAG routes and does not apply to unrelated procedure prompts.
 - Phase 4 keeps normal SSE stream semantics in `factory_agent.api.routers.events`; seeded Playwright SSE diagnostics and fault behavior are isolated behind `factory_agent.testing.fault_injection`.
 - Phase 4 exposed and fixed related product bugs: bare `run` wording no longer implies a job mutation without a write verb; synthetic completion projection now preserves operator-facing tool result messages, uses step index as a tie-breaker for same-timestamp tool results, and the frontend sorts same-timestamp tool rows plus surfaces extra answer-model fields beside tables.
-- Phase 5 is proceeding incrementally: migrated scenario prompt matching now lives in `factory_agent.testing_seeded_scenarios`, while `testing_seeded_adapters.py` delegates execution to existing seeded helper methods. No production behavior changes are intended.
+- Phase 5 migrated scenario prompt matching into `factory_agent.testing_seeded_scenarios`, while `testing_seeded_adapters.py` delegates execution to existing seeded helper methods. No production behavior changes are intended.
 - Phase 5 exposed and fixed an import-order product bug where importing `factory_agent.api.response_mappers` could eagerly import routes and circularly re-enter `session_snapshot_service`; `factory_agent.api.build_router` is now lazy. It also exposed a seeded-mode routing bug where semantic clarification intercepted known seeded Phase 14 oracle prompts before the seeded planner could handle them; normal production planners still clarify those prompts, while the seeded planner now advertises the fixture prompts it owns.
+- Phase 5 follow-up removed the remaining explicit `if "phase ..."` prompt selectors from `SeededPlaywrightPlanner.generate_plan`. The remaining adapter conditionals are scenario-marker resume dispatch or generic fallback behavior, not phase-prompt routing.
 
 ## Phase 0 Inventory
 
@@ -151,8 +152,8 @@ Inventory command families used:
 - [x] Migrate one simple scenario.
 - [x] Implement approval-chain interpreter.
 - [x] Migrate one approval-chain scenario.
-- [ ] Implement partial failure/stale approval interpreters.
-- [ ] Migrate remaining high-risk branches in batches.
+- [x] Implement partial failure/stale approval interpreters.
+- [x] Migrate remaining explicit phase-prompt high-risk branches in batches.
 - [x] Add guardrail against new phase-prompt branches in `testing_seeded_adapters.py`.
 - [x] Run seeded oracle suite after this batch.
 
@@ -161,17 +162,39 @@ Inventory command families used:
 | Scenario data id | Oracle coverage | Previous adapter branch/prompt dependency | New data-driven behavior |
 | --- | --- | --- | --- |
 | `so031_large_structured_result` | SO-031 | `if "phase 9 large structured result" in lowered` | Prompt metadata selects the read-only large structured result action; adapter executes the existing helper. |
-| `so005_so041_medium_high_original_high_low` | SO-005, SO-041 | Generic cascade prompt parsing for the exact medium->high then original high->low chain | Scenario metadata supplies the two original-state write sets and audit scenario; legacy parser remains for other cascade wordings. |
+| `phase9_multi_step_ordered` | SO-014 | `if "phase 9 multi-step ordered" in lowered` | Scenario metadata calls the ordered read-only helper. |
+| `phase9_multi_approval_chain` | SO-011, SO-012 | `if "phase 9 multi approval chain" in lowered` | Scenario metadata starts the two-gate approval chain and resume uses scenario markers. |
+| `phase9_approval_timeout` | SO-006 | `if "phase 9 approval timeout" in lowered` | Scenario metadata raises the expired approval payload. |
+| `phase9_partial_failure` | SO-020 | `if "phase 9 partial failure" in lowered` | Scenario metadata calls the partial-failure helper. |
+| `phase9_schema_mismatch` | SO-020 | `if "phase 9 schema mismatch" in lowered` | Scenario metadata calls the schema-mismatch helper. |
+| `phase9_duplicate_submit` | SO-007 | `if "phase 9 duplicate submit" in lowered` | Scenario metadata drives draft-then-read behavior. |
+| `phase9_out_of_order_duplicate_sse` | SO-014 | `if "phase 9 out-of-order duplicate sse" in lowered` | Scenario metadata drives the SSE fault marker plus draft-then-read behavior. |
+| `phase9_last_event_id_reconnect` | SO-014 | `if "phase 9 last-event-id reconnect" in lowered` | Scenario metadata drives the reconnect marker plus draft-then-read behavior. |
+| `phase9_stream_drop_recovery` | SO-030 | `if "phase 9 stream drop recovery" in lowered` | Scenario metadata drives the stream-drop marker plus draft-then-complete behavior. |
+| `phase10_refresh_recovery` | SO-019 | `if "phase 10 refresh during active job" in lowered` | Scenario metadata drives refresh-safe draft-then-complete behavior. |
+| `phase10_long_running_stream` | SO-013 | `if "phase 10 long-running stream" in lowered` | Scenario metadata drives long-stream draft-then-complete behavior. |
+| `so005_so041_medium_high_original_high_low` | SO-005, SO-041 | Generic cascade prompt parsing for the exact medium->high then original high->low chain | Scenario metadata supplies the two original-state write sets and audit scenario. |
+| `phase19_prompt_regression_dynamic_cascade` | SO-001 through SO-004, SO-041 prompt-regression bank | Generic cascade prompt parsing plus `phase 19`/prompt-regression audit selection | Scenario metadata marks prompt-regression cascades and keeps audit scenario `119`. |
+| `phase14_dynamic_cascade` | SO-001 through SO-005 | Generic cascade prompt parsing for other two-change Phase 14 cascades | Scenario regex metadata starts the cascade while keeping audit scenario `86`. |
 | `phase14_cascade_default_high_low_low_medium` | SO-002-compatible default marker | `if "phase 14 cascading priority update" in text` inside the cascade parser | Scenario metadata preserves the old marker behavior without a prompt branch in the adapter. |
+| `phase14_bulk_partial_failure` | SO-009 | `if "phase 14 bulk partial failure" in lowered` | Scenario metadata starts the partial bulk failure approval. |
+| `phase14_idempotent_approval_replay` | SO-007, SO-018 | `if "phase 14 idempotent approval replay" in lowered` | Scenario metadata starts the idempotent approval replay workflow. |
+| `phase14_refresh_active_approval` | SO-018 | `if "phase 14 refresh during active approval" in lowered` | Scenario metadata starts refresh-safe active approval. |
+| `phase14_stream_drop_commit` | SO-030 | `if "phase 14 stream drop commit recovery" in lowered` | Scenario metadata starts stream-drop commit recovery. |
+| `phase14_go_api_500` | SO-029 | `if "phase 14 go api 500 commit failure" in lowered` | Scenario metadata starts the fail-safe API 500 workflow. |
+| `phase14_stale_approval` | SO-006, SO-008, SO-027 | `if "phase 14 stale approval" in lowered` | Scenario metadata starts stale approval validation. |
+| `phase14_expired_approval` | SO-006, SO-008, SO-027 | `if "phase 14 expired approval" in lowered` | Scenario metadata starts expired approval validation. |
+| `phase14_agreement` | SO-010 | `if "phase 14 agreement audit timeline summary" in lowered` | Scenario metadata starts the audit/DB/SSE/final agreement workflow. |
+| `phase9_isolation_alpha` | SO-017 | `if "phase 9 isolation alpha" in lowered` | Scenario metadata drives isolation fixture alpha. |
+| `phase9_isolation_beta` | SO-017 | `if "phase 9 isolation beta" in lowered` | Scenario metadata drives isolation fixture beta. |
 
 #### Phase 5 Legacy Seeded Branches Remaining
 
-These remain intentionally unmigrated until later Phase 5 batches:
+These remain intentionally in the adapter as non-phase fallback or resume mechanics:
 
-- Phase 9 branches: multi-step ordered, multi-approval chain, approval timeout, read-only partial failure, schema mismatch, duplicate submit, out-of-order/duplicate SSE, Last-Event-ID reconnect, stream drop recovery, isolation alpha/beta.
-- Phase 10 branches: refresh during active job, long-running stream.
-- Phase 14 branches: bulk partial failure, idempotent approval replay, refresh during active approval, stream drop commit recovery, Go API 500 commit failure, stale approval, expired approval, agreement audit timeline summary.
+- Scenario-marker resume dispatch for Phase 14 and multi-approval workflows after an approval bundle is already staged.
 - Generic fallback branches: low-priority approval workflow, cancel, SSE/activity/stream, job lookup, job collection, low-priority job list, machine status.
+- Fixture IDs inside seeded helper methods (`M-CNC-01`, `JOB-SEED-*`) remain test fixture data rather than prompt-routing branches.
 
 ### Phase 6: Typed Snapshot Presentation Contract
 
@@ -267,6 +290,10 @@ git diff --check
   - `python -m pytest tests/test_seeded_scenario_engine.py tests/test_stateful_oracle_schema.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py -q`: 70 passed, 2 warnings.
   - First `npm run test:e2e:seeded-oracles` run: 22 passed, 2 failed. The failures were SO-007/SO-018 scenario 88 and SO-006/SO-008/SO-027 scenario 89; both showed known seeded Phase 14 prompts being clarified before the seeded planner handled them.
   - After the seeded-planner ownership fix, `npm run test:e2e:seeded-oracles`: 24 passed.
+  - Follow-up migration of remaining explicit phase-prompt branches: `python -m pytest tests/test_seeded_scenario_engine.py -q`: 27 passed, 2 warnings.
+  - Follow-up backend oracle contracts: `python -m pytest tests/test_stateful_oracle_schema.py tests/test_langgraph_state_machine_oracles.py tests/test_snapshot_timeline_final_response_contract.py -q`: 64 passed, 1 warning.
+  - Follow-up seeded browser coverage: `npm run test:e2e:seeded-oracles`: 24 passed.
+  - Follow-up `git diff --check`: passed with CRLF normalization warnings only.
 - Baseline reported by user for semantic routing commit:
   - `python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q`: 63 passed
   - Compatibility checks: 20 passed
