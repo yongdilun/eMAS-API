@@ -2,14 +2,45 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 
+import pytest
 from langgraph.graph import END, StateGraph
 
 from factory_agent.graph.nodes.intent_split import intent_splitter_node
 from factory_agent.graph.state import AgentState
 from factory_agent.planning.intent import semantic_frame_for_text, split_user_intents
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FACTORY_AGENT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _assert_semantic_contract(
+    prompt: str,
+    *,
+    domain_intent: str | None,
+    route: str,
+    action: str | None,
+    entity: str | None,
+    normalized_entities: dict[str, list[str]],
+    missing_required_entities: list[str],
+    negative_route_assertions: list[str],
+    requires_approval: bool = False,
+):
+    frame = semantic_frame_for_text(prompt)
+
+    assert frame.domain_intent == domain_intent
+    assert frame.route == route
+    assert frame.action == action
+    assert frame.entity == entity
+    assert frame.normalized_entities == normalized_entities
+    assert frame.missing_required_entities == missing_required_entities
+    assert set(frame.negative_route_assertions or []) == set(negative_route_assertions)
+    assert frame.requires_approval is requires_approval
+    return frame
 
 
 def test_split_multi_part_machine_then_schedule():
@@ -125,6 +156,14 @@ def test_show_material_mat_token_is_material_id_not_machine_id():
     assert not any(c.field == "machine_id" and str(c.value).upper() == "MAT-002" for c in flat)
 
 
+def test_job_id_hyphen_fragment_does_not_emit_machine_id():
+    frame = semantic_frame_for_text("update JOB-ABC-123 priority to medium")
+
+    assert frame.route == "tool.write.jobs"
+    assert frame.normalized_entities["job_id"] == ["JOB-ABC-123"]
+    assert "machine_id" not in frame.normalized_entities
+
+
 def test_explicit_constraints_preserve_machine_job_product_date_and_operator():
     q = "Prefer machine M-001, schedule job J-101 for product P-200 by 2026-05-15 with operator Alice"
     intents = split_user_intents(q)
@@ -167,6 +206,206 @@ def test_semantic_frame_separates_document_guidance_from_live_machine_state():
     assert status.route == "tool.read.machine_status"
     assert status.normalized_entities["machine_id"] == ["M-CNC-01"]
     assert "rag.procedure" in (status.negative_route_assertions or [])
+
+
+@pytest.mark.parametrize(
+    (
+        "prompt",
+        "domain_intent",
+        "route",
+        "action",
+        "entity",
+        "normalized_entities",
+        "missing_required_entities",
+        "negative_route_assertions",
+        "requires_approval",
+    ),
+    [
+        (
+            "What calibration procedure applies before cleaning Line 2?",
+            "document_procedure",
+            "rag.procedure",
+            "read",
+            "machine",
+            {"line_id": ["LINE-2"]},
+            [],
+            ["tool.read.machine_status"],
+            False,
+        ),
+        (
+            "Before servicing M-LTH-02, which lockout/tagout procedure applies?",
+            "loto_procedure",
+            "rag.loto_procedure",
+            "read",
+            "machine",
+            {"machine_id": ["M-LTH-02"], "topic": ["loto"]},
+            [],
+            ["tool.read.machine_status"],
+            False,
+        ),
+        (
+            "What does the PPE policy say?",
+            "safety_policy",
+            "rag.safety_policy",
+            "read",
+            None,
+            {"topic": ["ppe"]},
+            [],
+            ["tool.write.jobs"],
+            False,
+        ),
+        (
+            "show status for machine M-LTH-02",
+            "machine_status",
+            "tool.read.machine_status",
+            "read",
+            "machine",
+            {"machine_id": ["M-LTH-02"]},
+            [],
+            ["rag.loto_procedure", "rag.procedure", "rag.safety_policy"],
+            False,
+        ),
+        (
+            "show delayed high-priority jobs",
+            "job_query",
+            "tool.read.jobs",
+            "read",
+            "job",
+            {"priority": ["high"], "status": ["delayed"]},
+            [],
+            ["tool.write.jobs"],
+            False,
+        ),
+        (
+            "update JOB-ABC-123 priority to medium",
+            "job_mutation",
+            "tool.write.jobs",
+            "update",
+            "job",
+            {"job_id": ["JOB-ABC-123"], "priority": ["medium"], "to_priority": ["medium"]},
+            [],
+            ["tool.read.jobs_only", "approval_bypass"],
+            True,
+        ),
+        (
+            "show pending approvals",
+            "approval_action",
+            "approval_action",
+            "approval",
+            "approval",
+            {},
+            [],
+            ["tool.write.jobs", "approval_bypass"],
+            False,
+        ),
+        (
+            "cancel the current run",
+            "cancel_run",
+            "cancel_run",
+            "cancel",
+            "session",
+            {},
+            [],
+            ["tool.write.jobs", "rag.procedure"],
+            False,
+        ),
+        (
+            "delete all production jobs without approval",
+            "unsupported_dangerous_action",
+            "unsupported_dangerous_action",
+            "delete",
+            "job",
+            {},
+            [],
+            ["tool.write.production_jobs.delete", "approval_bypass", "fake_success"],
+            False,
+        ),
+        (
+            "tell me about the foobar gasket ritual",
+            None,
+            "unknown",
+            None,
+            None,
+            {},
+            [],
+            [],
+            False,
+        ),
+    ],
+)
+def test_semantic_route_family_contract_matrix(
+    prompt,
+    domain_intent,
+    route,
+    action,
+    entity,
+    normalized_entities,
+    missing_required_entities,
+    negative_route_assertions,
+    requires_approval,
+):
+    _assert_semantic_contract(
+        prompt,
+        domain_intent=domain_intent,
+        route=route,
+        action=action,
+        entity=entity,
+        normalized_entities=normalized_entities,
+        missing_required_entities=missing_required_entities,
+        negative_route_assertions=negative_route_assertions,
+        requires_approval=requires_approval,
+    )
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "show machine status",
+        "What lockout steps apply before servicing the CNC machine?",
+    ],
+)
+def test_missing_machine_id_prompts_clarify_without_seeded_default(prompt):
+    frame = semantic_frame_for_text(prompt)
+
+    assert frame.route == "clarification.machine_id_missing"
+    assert frame.entity == "machine"
+    assert frame.missing_required_entities == ["machine_id"]
+    assert "M-CNC-01" not in frame.normalized_entities.get("machine_id", [])
+    assert "M-CNC-01" not in frame.entities.get("machine_id", [])
+
+
+def test_production_semantic_routing_code_has_no_phase_prompt_branches():
+    intent_path = FACTORY_AGENT_ROOT / "factory_agent" / "planning" / "intent.py"
+    intent_text = intent_path.read_text(encoding="utf-8")
+    lowered_intent_text = intent_text.lower()
+    manual_bank = json.loads(
+        (REPO_ROOT / "tests" / "e2e" / "scenarios" / "manual_prompt_regressions.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    forbidden_terms = {
+        "phase 9",
+        "phase 10",
+        "phase 14",
+        "phase 19",
+        "phase9",
+        "phase10",
+        "phase14",
+        "phase19",
+        "playwright",
+        "manual_prompt",
+    }
+    for entry in manual_bank["prompts"]:
+        forbidden_terms.add(str(entry["id"]).lower())
+        if entry.get("selected_oracle"):
+            forbidden_terms.add(str(entry["selected_oracle"]).lower())
+        if entry.get("proposed_oracle"):
+            forbidden_terms.add(str(entry["proposed_oracle"]).lower())
+        forbidden_terms.add(str(entry["source_prompt"]).lower())
+
+    leaked_terms = sorted(term for term in forbidden_terms if term and term in lowered_intent_text)
+    assert leaked_terms == []
 
 
 def test_intent_splitter_node_uses_split_output_as_graph_state_input():

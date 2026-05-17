@@ -8,7 +8,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 | Phase | Name | Status | Owner | Notes |
 | --- | --- | --- | --- | --- |
 | 0 | Hardcode inventory and classification | Complete | Codex | Completed as docs-only inventory. No product or test behavior changes. Next action is Phase 1. |
-| 1 | Guard semantic routing against overfitting | Not Started | Next agent | Semantic frame exists; now prevent route-family sprawl. |
+| 1 | Guard semantic routing against overfitting | Complete | Codex | Added route-family semantic contract matrix, production hardcode guard, and fixed job-id fragment entity leakage. |
 | 2 | Capability-based tool selection | Not Started | Next agent | Replace literal endpoint mapping gradually. |
 | 3 | Knowledge policy registry | Not Started | Next agent | Move OSHA/LOTO fallback out of service code. |
 | 4 | SSE fault injection Adapter | Not Started | Next agent | Move Playwright seeded fault hooks out of production SSE route logic. |
@@ -40,6 +40,7 @@ Baseline commit observed: `3e50209 test: add semantic routing contract`
 - Browser tests should only be added when visible UI can diverge from lower-layer route/state evidence.
 - Phase 0 is complete as a documentation-only inventory: no product code and no test behavior were changed.
 - Fixture constants remain accepted only when they live in fixture/spec support paths and do not drive product routing.
+- Phase 1 found and fixed a product routing bug where a hyphenated job id such as `JOB-ABC-123` could leak an inner `ABC-123` machine id into `normalized_entities`.
 
 ## Phase 0 Inventory
 
@@ -105,12 +106,12 @@ Inventory command families used:
 
 ### Phase 1: Guard Semantic Routing Against Overfitting
 
-- [ ] Add semantic route matrix cases for procedure/RAG, machine status, job read, job write, approval, cancel, and unsafe action.
-- [ ] Add negative route assertions for each family.
-- [ ] Add missing-entity clarification cases that prove no seeded default is invented.
-- [ ] Add route-family test for unknown document terms.
-- [ ] Add guardrail preventing new phase-prompt routing branches in production intent code.
-- [ ] Run backend route tests.
+- [x] Add semantic route matrix cases for procedure/RAG, machine status, job read, job write, approval, cancel, and unsafe action.
+- [x] Add negative route assertions for each family.
+- [x] Add missing-entity clarification cases that prove no seeded default is invented.
+- [x] Add route-family test for unknown document terms.
+- [x] Add guardrail preventing new phase-prompt routing branches in production intent code.
+- [x] Run backend route tests.
 
 ### Phase 2: Capability-Based Tool Selection
 
@@ -189,6 +190,8 @@ rg -n -i "phase 9|phase 14|phase 19|M-CNC-01|JOB-SEED|playwright_seeded|seeded_p
 rg -n "phase 9 multi|phase 9 approval|phase 9 partial|phase 9 schema|phase 9 duplicate|phase 9 out-of-order|phase 9 last-event-id|phase 9 stream drop|phase 14 cascading|phase 14 bulk|phase 14 idempotent|phase 14 refresh|phase 14 stream drop|phase 14 go api|phase 14 stale|phase 14 expired|phase 19|M-CNC-01|JOB-SEED-001|JOB-SEED-005|JOB-SEED-009" "factory-agent/factory_agent/testing_seeded_adapters.py"
 git status --short --branch
 git diff --check
+python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q
+python -m pytest tests/test_intent_splitter.py -q
 ```
 
 ## Test Results
@@ -196,6 +199,9 @@ git diff --check
 - `git status --short --branch`: confirmed branch `codex/playwright-e2e-plan`; only the two QA docs were untracked/changed during Phase 0.
 - `git diff --check`: passed for the documentation-only working tree.
 - Product tests were not run because Phase 0 is documentation-only and does not change product or test behavior.
+- Phase 1 focused verification:
+  - `python -m pytest tests/test_intent_splitter.py -q`: 35 passed, 1 warning.
+  - `python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q`: 77 passed, 1 warning.
 - Baseline reported by user for semantic routing commit:
   - `python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q`: 63 passed
   - Compatibility checks: 20 passed
@@ -207,7 +213,9 @@ git diff --check
 
 - `docs/qa/HARDCODE_REDUCTION_PLAN.md`
 - `docs/qa/HARDCODE_REDUCTION_TRACK.md`
+- `factory-agent/factory_agent/planning/intent.py`
+- `factory-agent/tests/test_intent_splitter.py`
 
 ## Next Action
 
-Start Phase 1. Keep behavior unchanged while adding semantic-route guard tests and route-family coverage for the `product-risk` items P0-05, P0-06, and P0-07. Do not begin refactors until the Phase 1 guardrails are in place.
+Start Phase 2. Keep endpoint-name fallback behavior while introducing capability-based selector coverage for `product-risk` items P0-05 and P0-10.

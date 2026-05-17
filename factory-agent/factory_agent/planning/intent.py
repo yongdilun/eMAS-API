@@ -234,6 +234,11 @@ def _machine_id_is_inner_fragment_of_compound(
     return False
 
 
+def _machine_id_is_inner_fragment_of_hyphenated_token(clause: str, m: re.Match[str]) -> bool:
+    start, end = m.start(), m.end()
+    return (start > 0 and clause[start - 1] == "-") or (end < len(clause) and clause[end] == "-")
+
+
 def _token_looks_like_machine_code(token: str) -> bool:
     """M1 hybrid: allow M-… codes without digits (e.g. M-CNC); otherwise require a digit."""
     t = token.strip()
@@ -262,6 +267,8 @@ def _extract_constraints(clause: str) -> list[ExplicitConstraint]:
     for m in _MACHINE_ID_RE.finditer(clause):
         local_prefix = clause[max(0, m.start() - 48) : m.start()].lower()
         if re.search(r"\b(?:job|product|operator|op|material)\s*(?:id|#)?\s*$", local_prefix):
+            continue
+        if _machine_id_is_inner_fragment_of_hyphenated_token(clause, m):
             continue
         if _machine_id_is_inner_fragment_of_compound(clause, m, compound_spans):
             continue
