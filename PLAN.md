@@ -1643,13 +1643,105 @@ Rollback notes:
 
 - Revert the commit-success continuation route if it causes unrelated graph-native writes to loop, then keep scenario 126 failing/open as a blocker instead of relying on seeded Playwright coverage.
 
+### Phase 21: Semantic Routing Contract and Anti-Overfitting
+
+Goal:
+
+Stop adding hardcoded prompt fixes for each new LOTO or document wording. Promote the existing intent vocabulary into an explicit semantic routing contract that can classify broad operator wording without confusing document/RAG guidance, live operational reads, mutations, approvals, cancellation, and unsafe actions.
+
+Important distinction:
+
+The project already has an intent vocabulary. This phase does not start over. It extends the existing `kind`, `action`, `entity`, and explicit constraint extraction with a stable semantic frame:
+
+```json
+{
+  "domain_intent": "loto_procedure",
+  "action": "read",
+  "entity": "machine",
+  "entities": {
+    "machine_id": "M-CNC-01"
+  },
+  "missing_required_entities": [],
+  "route": "rag.loto_procedure",
+  "confidence": 0.92,
+  "clarification_reason": null,
+  "negative_route_assertions": ["tool.read.machine_status"]
+}
+```
+
+Core routing rule:
+
+Do not route purely because a word appears in a document. Route based on the user’s semantic frame:
+
+- document/procedure/policy intent,
+- live operational state intent,
+- mutation intent,
+- approval/cancel intent,
+- extracted and normalized entities,
+- required/missing entities,
+- ambiguity/confidence,
+- allowed route/tool/RAG source.
+
+Required route families:
+
+| Route family | Examples | Expected behavior |
+|---|---|---|
+| `rag.loto_procedure` | `LOTO for M-CNC-01`, `lockout tagout before servicing m-cnc-01` | Requires `machine_id`; returns source-backed procedure; never asks again when ID is present. |
+| `rag.procedure` / `rag.safety_policy` | `What SOP applies before cleaning Line 2?`, `What does the PPE policy say?` | Routes to document/RAG only when the user asks for guidance, policy, procedure, standard, or source-backed instructions. |
+| `tool.read.machine_status` | `status of M-CNC-01` | Uses live operational status tool, not RAG. |
+| `tool.read.jobs` | `show delayed high-priority jobs` | Uses job query tooling with extracted filters. |
+| `tool.write.jobs` plus approval | `change high priority jobs to low` | Requires approval and state/audit evidence. |
+| `approval_action` | `approve the second request` | Resolves active approval context safely. |
+| `cancel_run` | `cancel the current run` | Cancels only explicit cancel/stop commands. |
+| `unsupported_dangerous_action` | `delete production jobs without approval` | Refuses or blocks safely; no mutation. |
+
+Implementation steps:
+
+- Inspect `factory-agent/factory_agent/planning/intent.py`, tool selection, validation, and seeded adapters.
+- Add or formalize a semantic frame with `domain_intent`, `route`, `missing_required_entities`, `normalized_entities`, `confidence`, and `negative_route_assertions`.
+- Refactor LOTO-specific helpers into one document/RAG route family instead of adding more phrase-specific branches.
+- Add route-family matrix/property tests for document/RAG, machine status, job query, job mutation, approval, cancel, and dangerous action prompts.
+- Keep most wording variants at parser/route level. Add browser tests only when UI/source chrome/approval cards/stale text can fail differently.
+- Convert future manual prompt misses into route-family gaps before adding a new one-off test.
+
+Acceptance criteria:
+
+- Broad procedure/document wording routes correctly without hardcoded prompt branches.
+- Machine status and document/procedure questions are separated even when both mention the same machine.
+- Missing required entities clarify honestly; present entities are normalized and not re-requested.
+- No seeded fixture ID is invented as a fallback.
+- Dangerous or unsupported actions cannot bypass approval or mutation safeguards.
+- The test strategy reduces prompt whack-a-mole by proving route families, not isolated phrases.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e -- --project=chromium-seeded --grep "semantic-route|SO-021|SO-022|SO-023|SO-025|SO-026|SO-044"
+```
+
+Risks or unknowns:
+
+- The current vocab may be too coarse for some route families and may need product naming decisions for `domain_intent`.
+- Real LLM behavior can still vary; this phase proves deterministic routing contracts, not free-form answer quality.
+- Overfitting can move into parser rules if every new phrase becomes a special case.
+
+Rollback notes:
+
+- Keep existing helpers until the semantic-frame contract has equivalent tests.
+- If the refactor breaks a route family, keep the failing oracle open rather than adding another hardcoded branch.
+
 ## Recommended Current Implementation Step
 
-Phases 8-20 are complete in `TRACK.md`. Continue by promoting scenario 126 into a non-seeded browser/full-stack check if manual UI behavior still diverges from the backend approval-chain contract.
+Phases 8-20 are complete in `TRACK.md`. Continue with Phase 21 before adding more one-off prompt cases. The next implementation should promote the existing intent vocabulary into a semantic routing contract and prove route families, not isolated LOTO phrases.
 
-1. Keep scenario 126 in the backend regression suite.
-2. Add a non-seeded browser/full-stack check only if UI/session projection still differs from the backend state.
-3. Keep the default PR suite on the existing mocked `chromium` project.
+1. Keep existing route helpers and SO/browser coverage intact while the semantic frame is introduced.
+2. Add parser/route matrix coverage first for route families.
+3. Add browser coverage only for route families where visible UI, source chrome, approval cards, or stale text can diverge from backend route evidence.
+4. Keep the default PR suite on the existing mocked `chromium` project.
 
 ## Original First Implementation Step
 

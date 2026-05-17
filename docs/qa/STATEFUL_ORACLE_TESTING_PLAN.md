@@ -1140,6 +1140,133 @@ Risks:
 - Rerunning failures without classification turns deterministic product bugs into accepted flake.
 - Keeping every broad or overlapping browser test in PR will make developers bypass the gate. Keep canonical oracles in PR/release, and push soak/supporting duplicates to scheduled or explicit lanes.
 
+### Phase 19: Semantic Routing Contract and Anti-Overfitting
+
+Goal:
+
+Stop fixing routing bugs by adding one-off LOTO or prompt-specific branches. Promote the existing intent vocabulary into an enterprise semantic routing contract that can distinguish document/RAG questions, live operational reads, mutations, approvals, cancellation, and unsafe actions across broad wording families.
+
+This phase does not replace the current intent vocabulary. It extends and formalizes it. The repo already has coarse intent/action/entity concepts such as `operations`, `read`, `update`, `approval`, `machine`, and `job`. The gap is that `read + machine` can mean either live machine status or a source-backed procedure request. The product needs an explicit `domain_intent` and route contract.
+
+Core principle:
+
+Do not route only because a word appears in a document. Route based on the full semantic frame:
+
+- user intent,
+- action,
+- entity type,
+- normalized entities,
+- required/missing entities,
+- document/procedure/policy intent,
+- operational live-state intent,
+- ambiguity,
+- route confidence,
+- allowed route/tool/RAG source.
+
+Proposed semantic frame:
+
+```json
+{
+  "domain_intent": "loto_procedure",
+  "action": "read",
+  "entity": "machine",
+  "entities": {
+    "machine_id": "M-CNC-01"
+  },
+  "missing_required_entities": [],
+  "route": "rag.loto_procedure",
+  "confidence": 0.92,
+  "clarification_reason": null,
+  "negative_route_assertions": ["tool.read.machine_status"]
+}
+```
+
+Required domain intents:
+
+| Domain intent | Route family | Required entities | Example |
+|---|---|---|---|
+| `loto_procedure` | `rag.loto_procedure` | `machine_id` | `What LOTO procedure applies before working on M-CNC-01?` |
+| `document_procedure` | `rag.procedure` | document-specific target when needed | `What SOP applies before cleaning Line 2?` |
+| `safety_policy` | `rag.safety_policy` | optional topic/entity | `What does the safety standard say about PPE?` |
+| `machine_status` | `tool.read.machine_status` | `machine_id` | `What is the status of M-CNC-01?` |
+| `job_query` | `tool.read.jobs` | optional filter entities | `Show delayed high-priority jobs.` |
+| `job_mutation` | `tool.write.jobs` plus approval | mutation target/filter and new value | `Change high priority jobs to low.` |
+| `approval_action` | approval route | approval id or active pending approval context | `Approve the second request.` |
+| `cancel_run` | session cancel route | active session context | `Cancel the current run.` |
+| `unsupported_dangerous_action` | refusal or approval-safe block | none | `Delete all production jobs without approval.` |
+
+Files likely touched:
+
+- `factory-agent/factory_agent/planning/intent.py`
+- `factory-agent/factory_agent/planning/tool_selector.py`
+- `factory-agent/factory_agent/graph/nodes/validate.py`
+- `factory-agent/factory_agent/testing_seeded_adapters.py`
+- `factory-agent/tests/test_phase19_prompt_workflow_regression.py`
+- `factory-agent/tests/test_intent_splitter.py`
+- `tests/e2e/scenarios/stateful_oracles/*.json`
+- `tests/e2e/scenarios/manual_prompt_regressions.json`
+- `docs/qa/manual_prompt_regression_bank.md`
+- `docs/qa/STATEFUL_ORACLE_TESTING_TRACK.md`
+
+Implementation steps:
+
+- Inspect the existing intent vocabulary and keep compatible fields where possible.
+- Add or formalize a semantic frame object with:
+  - `domain_intent`,
+  - `action`,
+  - `entity`,
+  - `entities`,
+  - `normalized_entities`,
+  - `missing_required_entities`,
+  - `route`,
+  - `confidence`,
+  - `clarification_reason`,
+  - `negative_route_assertions`.
+- Refactor LOTO-specific routing helpers so they become one route family in the semantic contract, not isolated prompt-specific branches.
+- Add generalized route families for:
+  - document/RAG procedure requests,
+  - live machine status reads,
+  - job queries,
+  - job mutations,
+  - approval actions,
+  - cancellation,
+  - unsupported/dangerous actions.
+- Replace route-specific fallback defaults with missing-entity clarification. In particular, never default a missing machine ID to `M-CNC-01` or any seeded fixture.
+- Add matrix/property-style tests that generate or enumerate wording families and assert the same semantic frame instead of adding one browser test per phrase.
+- Keep browser coverage minimal: one canonical browser proof per route family, plus browser tests only when UI can diverge from backend route evidence.
+- Record every manual prompt miss as evidence for a route family gap, not as a permanent one-off branch.
+
+Acceptance criteria:
+
+- `LOTO`, `lockout tagout`, `procedure before servicing`, `SOP before work`, and similar procedure wording route through document/RAG intent only when the user asks for source-backed guidance.
+- Live state questions such as `status of M-CNC-01` route to operational tools, not document/RAG, even when the machine also has documents.
+- Missing required entities produce clarification with no invented fixture ID and no source-backed answer.
+- Present entities are normalized consistently across lowercase, punctuation, markdown, quotes, parentheses, and newlines.
+- Dangerous or unsupported requests never route to mutating tools without the existing approval/safety gates.
+- The test suite proves route families at parser/route level first and uses browser tests only for route families where visible UI, source chrome, approval cards, or stale text can fail differently.
+- The Phase 13 quality gate remains in force: no new scenario is accepted unless it catches a distinct product bug.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e -- --project=chromium-seeded --grep "semantic-route|SO-021|SO-022|SO-023|SO-025|SO-026|SO-044"
+```
+
+Risks:
+
+- Overfitting can move from browser tests into parser rules if each new phrase becomes a special case.
+- Too coarse a `domain_intent` will keep confusing document guidance with live operational tools.
+- Too strict a semantic router may over-clarify when the prior turn or explicit context safely resolves the entity.
+
+Rollback notes:
+
+- Keep existing route helpers until the semantic frame has equivalent regression coverage.
+- If a route-family refactor breaks production behavior, revert the refactor and keep the failing route-family oracle open as a blocker instead of adding more one-off wording branches.
+
 ## First Critical Scenario Set
 
 Implement these before claiming manual chatbot testing is retired.
