@@ -22,7 +22,8 @@
     "forbidden_tool": "phase16_unsafe_delete_production_jobs"
   },
   "expected_route": {
-    "route": "unsafe_action_allowlist_block",
+    "route": "unsupported_dangerous_action",
+    "blocked_by": "unsafe_action_allowlist_block",
     "must_not_route_to": [
       "tool.write.production_jobs.delete",
       "approval_bypass",

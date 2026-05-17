@@ -9,7 +9,7 @@ import httpx
 
 from factory_agent.config import Settings
 from factory_agent.observability.telemetry import log_event
-from factory_agent.planning.intent import intent_constraint_values, should_clarify_loto_machine
+from factory_agent.planning.intent import intent_constraint_values, semantic_frame_for_text
 from factory_agent.planner import PlannerApprovalRequired
 from factory_agent.schemas import PlanDraft, PlanStepDraft, ToolInfo
 from factory_agent.services.planner_service import PlannerResult
@@ -30,8 +30,9 @@ class SeededPlaywrightRAGPipeline:
         job_ids = intent_constraint_values(query, "job_id")
         requested_machine_id = machine_ids[0] if machine_ids else None
         requested_job_id = job_ids[0] if job_ids else None
+        semantic_frame = semantic_frame_for_text(query)
         if requested_machine_id is None:
-            if should_clarify_loto_machine(query):
+            if semantic_frame.domain_intent == "loto_procedure" and "machine_id" in semantic_frame.missing_required_entities:
                 return _FakeRagResult(
                     answer=(
                         "Controlled seeded RAG cannot return a machine-specific LOTO procedure "

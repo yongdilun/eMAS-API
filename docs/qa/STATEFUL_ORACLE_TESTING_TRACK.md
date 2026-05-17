@@ -36,6 +36,65 @@ Purpose: living execution tracker for the stateful oracle hardening plan. Future
 | 16 | Remaining normal-use breakage scenarios | Done | Added SO-022, SO-023, SO-026, SO-028, and SO-031 with Phase 13 quality-gate metadata, parser/route/backend regressions, seeded browser proof, and SO-026 real LangGraph proof. Fixed missing-machine clarification, multi-turn LOTO context resolution, stale snapshot steps, cancellation terminal evidence, over-broad cancel-command detection, and hidden background completion after cancel. |
 | 17 | Security, privacy, and abuse hardening | Done | Added SO-032, SO-033, SO-042, SO-043, and SO-044 with Phase 13 quality-gate metadata. Strengthened mocked security/privacy browser coverage for session switching/refresh leakage, auth-failure stale-response clearing, inert unsafe rendering/link behavior, large pasted input control, and dangerous action no-mutation evidence. |
 | 18 | Test reliability, runtime, and flake hardening | Done | Ran the PR lane, listed release/seeded/real LangGraph/security/reliability/synthetic lanes, fixed an event-order race in the mocked activity SSE fixture, and documented runtime, artifact, slow-test, duplicate, and flake triage policy. No functional scenarios were added and no tests were deleted. |
+| 19 / root 21 | Semantic routing contract and anti-overfitting | Done | Added a deterministic semantic frame on top of existing intent/action/entity/constraint extraction. Route-family pytest matrices now cover LOTO/RAG, procedure/policy RAG, live machine status, job reads, job writes with approval, approval action, cancel, and unsupported dangerous action. Existing LOTO helpers are compatibility shims over the semantic frame. |
+
+## Phase 19 / Root Phase 21 Semantic Routing Contract
+
+Completed: 2026-05-17
+
+Decisions:
+
+- The project now keeps the existing splitter and `assess_intent()` vocabulary, and adds `SemanticFrame` as the stable route contract instead of replacing those fields.
+- `SemanticFrame` records `domain_intent`, `action`, `entity`, `entities`, `normalized_entities`, `missing_required_entities`, `route`, `confidence`, `clarification_reason`, `negative_route_assertions`, and approval requirement metadata.
+- LOTO no longer owns separate route semantics. `should_clarify_loto_machine()`, `should_route_loto_to_rag()`, and contextual LOTO resolution delegate to the semantic contract.
+- Missing machine IDs clarify for machine-specific LOTO and live machine-status routes. The seeded RAG adapter no longer has any path that invents `M-CNC-01` when the frame says `machine_id` is missing.
+- Tool selection checks semantic route families before lexical retrieval, so live status, job reads, job writes, approvals, cancellation, and unsupported dangerous actions are separated before document text or tool descriptions can pull the request to the wrong route.
+- Browser coverage stays unchanged and canonical: existing SO browser proofs cover visible LOTO/source chrome, missing-machine copy, multi-turn context, and dangerous-action UI. New wording variants were kept in pytest route matrices.
+
+Route-family coverage added:
+
+| Family | Route | Coverage |
+|---|---|---|
+| Machine-specific LOTO | `rag.loto_procedure` / `clarification.machine_id_missing` | Parser/route matrix, SO-021/SO-022/SO-023/SO-025/SO-026 assertions |
+| General procedures and safety policy | `rag.procedure`, `rag.safety_policy` | Parser/route matrix for SOP/Line and PPE/OSHA wording |
+| Live machine state | `tool.read.machine_status` | Parser/route matrix plus tool-selector contract |
+| Job reads | `tool.read.jobs` | Parser/route matrix plus tool-selector contract |
+| Job writes | `tool.write.jobs` with approval | Parser/route matrix checks mutation target/value and `requires_approval` |
+| Approval and cancel | `approval_action`, `cancel_run` | Parser/route matrix plus tool-selector contract |
+| Dangerous unsupported action | `unsupported_dangerous_action` | Parser/route matrix tied to SO-044 and negative mutation assertions |
+
+Commands run so far:
+
+```powershell
+git status --short --branch
+Set-Location "factory-agent"
+python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q
+python -m pytest tests/test_intent.py tests/test_phase18_intent_entity_parser.py tests/test_api_endpoints.py::test_create_plan_answers_osha_loto_knowledge_question_without_tool_plan -q
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e -- --project=chromium-seeded --grep "semantic-route|SO-021|SO-022|SO-023|SO-025|SO-026|SO-044"
+```
+
+Results:
+
+```text
+Backend semantic route contract: 63 passed, 1 warning.
+Backward compatibility LOTO/knowledge checks: 20 passed, 14 warnings.
+Frontend unit/component: 64 passed.
+Focused seeded Chromium route/UI proof: 4 passed.
+```
+
+Verification still to run before commit:
+
+```powershell
+git diff --check
+```
+
+Remaining gaps:
+
+- The deterministic semantic contract does not prove real LLM answer quality; keep that on the separate eval track.
+- Approval-action semantics currently identify the route family and pending-approval tool family, but active approval disambiguation remains owned by the existing approval context/resume path.
+- No extra browser wording variants were added. Add browser coverage only if UI/source chrome/approval cards/stale text can diverge from a passing route-family pytest. The requested seeded grep ran the existing SO-021/SO-022/SO-023/SO-025/SO-026 browser proofs; SO-044 remains covered by its existing mocked browser safety proof plus the new parser/route matrix.
 
 ## Phase 18 Test Reliability, Runtime, and Flake Hardening
 

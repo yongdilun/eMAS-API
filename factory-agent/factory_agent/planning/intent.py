@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from hashlib import sha1
 from typing import Any, Literal, Sequence
 
@@ -10,6 +10,20 @@ from ..schemas import ExplicitConstraint, Intent, IntentCategory
 
 IntentKind = Literal["conversation", "unsupported", "operations"]
 IntentAction = Literal["create", "update", "approval", "read", "delete"] | None
+SemanticRoute = Literal[
+    "rag.loto_procedure",
+    "rag.procedure",
+    "rag.safety_policy",
+    "tool.read.machine_status",
+    "tool.read.jobs",
+    "tool.write.jobs",
+    "approval_action",
+    "cancel_run",
+    "unsupported_dangerous_action",
+    "clarification.machine_id_missing",
+    "clarification.job_mutation_incomplete",
+    "unknown",
+]
 
 _GREETING_RE = re.compile(
     r"^\s*(?:hi|hello|hey|yo|good morning|good afternoon|good evening|thanks|thank you)\b",
@@ -92,7 +106,7 @@ _LOTO_HINT_RE = re.compile(
     re.IGNORECASE,
 )
 _LOTO_PROCEDURE_CONTEXT_RE = re.compile(
-    r"\b(?:procedure|sop|appl(?:y|ies)|before\s+(?:working|servicing|maintenance|touching)|working\s+on|service|servicing|maintenance)\b",
+    r"\b(?:procedure|sop|steps?|instructions?|appl(?:y|ies)|before\s+(?:working|servicing|maintenance|touching)|working\s+on|service|servicing|maintenance)\b",
     re.IGNORECASE,
 )
 _CONTEXTUAL_MACHINE_REF_RE = re.compile(
@@ -101,6 +115,47 @@ _CONTEXTUAL_MACHINE_REF_RE = re.compile(
 )
 _STATUS_MACHINE_REQUEST_RE = re.compile(
     r"\b(?:show|check|get|view|inspect|read)\b(?:(?!\b(?:and then|then|next|after that|afterwards|finally)\b).){0,120}\bstatus\b|\bstatus\b(?:(?!\b(?:and then|then|next|after that|afterwards|finally)\b).){0,120}\b(?:machine|equipment|asset|cnc|line|station|unit)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_LIVE_STATE_REQUEST_RE = re.compile(
+    r"\b(?:status|state|condition|health|running|idle|available|availability|oee|currently|current)\b",
+    re.IGNORECASE,
+)
+_DOCUMENT_PROCEDURE_HINT_RE = re.compile(
+    r"\b(?:procedure|procedures|sop|steps?|instructions?|guidance|standard|policy|manual|source|appl(?:y|ies)|before\s+(?:working|servicing|maintenance|cleaning|touching)|working\s+on|service|servicing|maintenance)\b",
+    re.IGNORECASE,
+)
+_SAFETY_POLICY_HINT_RE = re.compile(
+    r"\b(?:safety|ppe|osha|regulation|standard|policy|hazard(?:ous)?|permit|compliance|control\s+of\s+hazardous\s+energy)\b",
+    re.IGNORECASE,
+)
+_LOTO_GENERAL_POLICY_RE = re.compile(
+    r"\b(?:purpose|meaning|definition|define[sd]?|according\s+to|osha|regulation|standard|overview|general\s+guidance)\b",
+    re.IGNORECASE,
+)
+_LINE_REF_RE = re.compile(r"\bline\s+([A-Z0-9-]+|\d+)\b", re.IGNORECASE)
+_PRIORITY_WORD_RE = re.compile(r"\b(low|medium|high|urgent)[\s-]+(?:priority\b|jobs?\b)|\bpriority\s+(?:is\s+|=|to\s+|as\s+)?(low|medium|high|urgent)\b", re.IGNORECASE)
+_PRIORITY_TO_RE = re.compile(r"\bpriority\s+(?:to|as|=|is)\s+(low|medium|high|urgent)\b", re.IGNORECASE)
+_JOB_PRIORITY_CHANGE_RE = re.compile(
+    r"\b(?:change|set|update|mark|make)\b(?:(?!\b(?:and then|then|next|after that|afterwards|finally)\b).){0,160}?"
+    r"\b(low|medium|high|urgent)[\s-]+(?:priority[\s-]+)?jobs?\b"
+    r"(?:(?!\b(?:and then|then|next|after that|afterwards|finally)\b).){0,160}?"
+    r"\b(?:to|into|as)\s+(low|medium|high|urgent)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_JOB_STATUS_WORD_RE = re.compile(r"\b(delayed|overdue|late|planned|ready|running|active|completed|cancelled)\b", re.IGNORECASE)
+_APPROVAL_ACTION_RE = re.compile(
+    r"\b(?:approve|reject|decline|show|list|view|get|check)\b(?:(?!\b(?:and then|then|next|after that|afterwards|finally)\b).){0,80}\b(?:approval|approvals|request|requests)\b|\bpending\s+approvals?\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_CANCEL_RUN_RE = re.compile(
+    r"^\s*(?:stop\b.*|cancel(?:\s+(?:the\s+)?(?:current\s+)?(?:run|request|session|operation|job|it|this))?\b.*|don't\s+do\s+this\b.*|do\s+not\s+do\s+this\b.*)$",
+    re.IGNORECASE,
+)
+_DANGEROUS_UNSUPPORTED_RE = re.compile(
+    r"\b(?:delete|remove|purge|drop|wipe|destroy)\b(?:(?!\b(?:and then|then|next|after that|afterwards|finally)\b).){0,120}\b(?:all\s+)?(?:production\s+)?jobs?\b|"
+    r"\b(?:bypass|without|skip)\s+approvals?\b|"
+    r"\bapply\b(?:(?!\b(?:and then|then|next|after that|afterwards|finally)\b).){0,80}\bdirectly\b",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -112,6 +167,26 @@ class IntentAssessment:
     entity: str | None
     confidence: float
     reply: str | None = None
+
+
+@dataclass(frozen=True)
+class SemanticFrame:
+    domain_intent: str | None
+    action: str | None
+    entity: str | None
+    entities: dict[str, Any]
+    normalized_entities: dict[str, list[str]]
+    missing_required_entities: list[str]
+    route: SemanticRoute
+    confidence: float
+    clarification_reason: str | None = None
+    negative_route_assertions: list[str] | None = None
+    requires_approval: bool = False
+
+    def to_payload(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["negative_route_assertions"] = list(self.negative_route_assertions or [])
+        return payload
 
 
 def _intent_id(idx: int) -> str:
@@ -417,43 +492,399 @@ def intent_constraint_values(text: str, field: str) -> list[str]:
     return values
 
 
+def _normalized_constraint_entities(intents: Sequence[Intent]) -> dict[str, list[str]]:
+    normalized: dict[str, list[str]] = {}
+
+    def add(field: str, value: Any) -> None:
+        text = str(value or "").strip()
+        if not text:
+            return
+        if field.endswith("_id") or field in {"machine_ref", "line_id"}:
+            text = text.upper()
+        elif field in {"priority", "from_priority", "to_priority", "status", "topic"}:
+            text = text.lower()
+        values = normalized.setdefault(field, [])
+        if text not in values:
+            values.append(text)
+
+    for intent in intents:
+        for constraint in intent.explicit_constraints:
+            add(constraint.field, constraint.value)
+    return normalized
+
+
+def _add_regex_entities(raw: str, normalized: dict[str, list[str]]) -> None:
+    def add(field: str, value: str) -> None:
+        text = value.strip()
+        if not text:
+            return
+        if field == "line_id":
+            text = text.upper()
+            if text.isdigit():
+                text = f"LINE-{text}"
+            elif not text.startswith("LINE-"):
+                text = f"LINE-{text}"
+        elif field in {"priority", "from_priority", "to_priority", "status", "topic"}:
+            text = text.lower()
+        values = normalized.setdefault(field, [])
+        if text not in values:
+            values.append(text)
+
+    for match in _LINE_REF_RE.finditer(raw):
+        add("line_id", match.group(1))
+    for match in _PRIORITY_WORD_RE.finditer(raw):
+        add("priority", match.group(1) or match.group(2) or "")
+    for match in _PRIORITY_TO_RE.finditer(raw):
+        add("to_priority", match.group(1))
+    for match in _JOB_PRIORITY_CHANGE_RE.finditer(raw):
+        add("from_priority", match.group(1))
+        add("to_priority", match.group(2))
+    for match in _JOB_STATUS_WORD_RE.finditer(raw):
+        add("status", match.group(1))
+    if re.search(r"\bppe\b", raw, re.IGNORECASE):
+        add("topic", "ppe")
+    if is_loto_query(raw):
+        add("topic", "loto")
+
+
+def _entities_payload(normalized: dict[str, list[str]]) -> dict[str, Any]:
+    return {
+        field: values[0] if len(values) == 1 else list(values)
+        for field, values in normalized.items()
+        if values
+    }
+
+
+def _semantic_action_entity(raw: str, intents: Sequence[Intent], normalized: dict[str, list[str]]) -> tuple[str | None, str | None]:
+    lowered = raw.lower()
+    matched_actions: set[str] = {c for c, p in _ACTION_PATTERNS if p.search(raw)}
+    action: str | None = None
+    if _CANCEL_RUN_RE.match(raw):
+        action = "cancel"
+    elif _DANGEROUS_UNSUPPORTED_RE.search(raw) and re.search(r"\b(?:delete|remove|purge|drop|wipe|destroy)\b", raw, re.I):
+        action = "delete"
+    elif _JOB_PRIORITY_CHANGE_RE.search(raw):
+        action = "update"
+    elif matched_actions:
+        if {"create", "update", "delete"} & matched_actions:
+            for candidate in ("create", "update", "delete", "read"):
+                if candidate in matched_actions:
+                    action = candidate
+                    break
+        else:
+            for candidate in ("approval", "read"):
+                if candidate in matched_actions:
+                    action = candidate
+                    break
+
+    entity: str | None = None
+    if _APPROVAL_ACTION_RE.search(raw):
+        entity = "approval"
+    elif _JOB_HINT.search(raw) or normalized.get("job_id"):
+        entity = "job"
+    elif normalized.get("machine_id") or normalized.get("machine_ref") or _MACHINE_HINT.search(raw):
+        entity = "machine"
+    elif re.search(r"\bproduct\b", lowered) or normalized.get("product_id"):
+        entity = "product"
+    elif _INVENTORY_HINT.search(raw) or normalized.get("material_id"):
+        entity = "inventory"
+    else:
+        for intent in intents:
+            if intent.category in {"machine", "job", "inventory", "reporting", "scheduling"}:
+                entity = "job" if intent.category == "scheduling" else intent.category
+                break
+    return action, entity
+
+
+def _first_machine_id_from_previous(previous_texts: Sequence[str] | None) -> str | None:
+    for previous in previous_texts or []:
+        machine_ids = intent_constraint_values(previous or "", "machine_id")
+        if machine_ids:
+            return machine_ids[0]
+    return None
+
+
+def _is_loto_procedure_request(raw: str, machine_ids: Sequence[str]) -> bool:
+    if not is_loto_query(raw):
+        return False
+    if _STATUS_MACHINE_REQUEST_RE.search(raw) and not _LOTO_PROCEDURE_CONTEXT_RE.search(raw):
+        return False
+    if machine_ids:
+        return True
+    if _LOTO_GENERAL_POLICY_RE.search(raw) and not re.search(
+        r"\b(?:appl(?:y|ies)|before|working\s+on|service|servicing|maintenance|machine|equipment|asset|cnc|line|steps?|instructions?)\b",
+        raw,
+        re.IGNORECASE,
+    ):
+        return False
+    return bool(_LOTO_PROCEDURE_CONTEXT_RE.search(raw))
+
+
+def _is_document_procedure_request(raw: str) -> bool:
+    if _LIVE_STATE_REQUEST_RE.search(raw) and not _DOCUMENT_PROCEDURE_HINT_RE.search(raw):
+        return False
+    return bool(_DOCUMENT_PROCEDURE_HINT_RE.search(raw) and _QUESTION_RE.search(raw))
+
+
+def _is_safety_policy_request(raw: str) -> bool:
+    return bool(_SAFETY_POLICY_HINT_RE.search(raw) and (_QUESTION_RE.search(raw) or _DOCUMENT_PROCEDURE_HINT_RE.search(raw)))
+
+
+def _is_job_mutation_request(raw: str, action: str | None) -> bool:
+    if not _JOB_HINT.search(raw):
+        return False
+    if _DANGEROUS_UNSUPPORTED_RE.search(raw):
+        return False
+    return action in {"create", "update", "delete"} or bool(_JOB_PRIORITY_CHANGE_RE.search(raw))
+
+
+def _job_mutation_missing_entities(normalized: dict[str, list[str]], *, action: str | None) -> list[str]:
+    if action == "create":
+        return [] if (normalized.get("product_id") or normalized.get("material_id")) else ["job_spec"]
+    if action == "delete":
+        return [] if (normalized.get("job_id") or normalized.get("from_priority") or normalized.get("status")) else ["job_filter"]
+    missing: list[str] = []
+    if not (normalized.get("job_id") or normalized.get("from_priority") or normalized.get("status")):
+        missing.append("job_filter")
+    if not (normalized.get("to_priority") or normalized.get("product_id")):
+        missing.append("mutation_value")
+    return missing
+
+
+def semantic_frame_for_text(text: str, *, previous_texts: Sequence[str] | None = None) -> SemanticFrame:
+    raw = (text or "").strip()
+    if not raw:
+        return SemanticFrame(
+            domain_intent=None,
+            action=None,
+            entity=None,
+            entities={},
+            normalized_entities={},
+            missing_required_entities=[],
+            route="unknown",
+            confidence=0.0,
+            clarification_reason=None,
+            negative_route_assertions=[],
+        )
+
+    intents = split_user_intents(raw)
+    normalized = _normalized_constraint_entities(intents)
+    _add_regex_entities(raw, normalized)
+    action, entity = _semantic_action_entity(raw, intents, normalized)
+    entities = _entities_payload(normalized)
+
+    if _DANGEROUS_UNSUPPORTED_RE.search(raw) and (
+        re.search(r"\b(?:delete|remove|purge|drop|wipe|destroy)\b", raw, re.I)
+        or re.search(r"\b(?:bypass|without|skip)\s+approvals?\b", raw, re.I)
+    ):
+        return SemanticFrame(
+            domain_intent="unsupported_dangerous_action",
+            action=action or "delete",
+            entity="job" if _JOB_HINT.search(raw) else entity,
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="unsupported_dangerous_action",
+            confidence=0.97,
+            clarification_reason=None,
+            negative_route_assertions=["tool.write.production_jobs.delete", "approval_bypass", "fake_success"],
+            requires_approval=False,
+        )
+
+    if _CANCEL_RUN_RE.match(raw):
+        return SemanticFrame(
+            domain_intent="cancel_run",
+            action="cancel",
+            entity="session",
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="cancel_run",
+            confidence=0.95,
+            clarification_reason=None,
+            negative_route_assertions=["tool.write.jobs", "rag.procedure"],
+        )
+
+    if _APPROVAL_ACTION_RE.search(raw):
+        return SemanticFrame(
+            domain_intent="approval_action",
+            action="approval",
+            entity="approval",
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="approval_action",
+            confidence=0.9,
+            clarification_reason=None,
+            negative_route_assertions=["tool.write.jobs", "approval_bypass"],
+        )
+
+    machine_ids = normalized.get("machine_id") or []
+    if _is_loto_procedure_request(raw, machine_ids):
+        contextual_machine = None
+        if not machine_ids and _CONTEXTUAL_MACHINE_REF_RE.search(raw):
+            contextual_machine = _first_machine_id_from_previous(previous_texts)
+            if contextual_machine:
+                normalized["machine_id"] = [contextual_machine]
+                entities = _entities_payload(normalized)
+                machine_ids = [contextual_machine]
+        if not machine_ids:
+            return SemanticFrame(
+                domain_intent="loto_procedure",
+                action="read",
+                entity="machine",
+                entities=entities,
+                normalized_entities=normalized,
+                missing_required_entities=["machine_id"],
+                route="clarification.machine_id_missing",
+                confidence=0.88,
+                clarification_reason="machine_id is required for a machine-specific LOTO procedure",
+                negative_route_assertions=["rag.loto_procedure", "tool.read.machine_status"],
+            )
+        return SemanticFrame(
+            domain_intent="loto_procedure",
+            action="read",
+            entity="machine",
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="rag.loto_procedure",
+            confidence=0.93 if contextual_machine is None else 0.9,
+            clarification_reason=None,
+            negative_route_assertions=["tool.read.machine_status"],
+        )
+
+    if _LIVE_STATE_REQUEST_RE.search(raw) and (entity == "machine" or normalized.get("machine_id") or _MACHINE_HINT.search(raw)):
+        if not machine_ids and not normalized.get("machine_ref"):
+            return SemanticFrame(
+                domain_intent="machine_status",
+                action="read",
+                entity="machine",
+                entities=entities,
+                normalized_entities=normalized,
+                missing_required_entities=["machine_id"],
+                route="clarification.machine_id_missing",
+                confidence=0.82,
+                clarification_reason="machine_id is required for live machine status",
+                negative_route_assertions=["tool.read.machine_status", "rag.loto_procedure"],
+            )
+        return SemanticFrame(
+            domain_intent="machine_status",
+            action="read",
+            entity="machine",
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="tool.read.machine_status",
+            confidence=0.91,
+            clarification_reason=None,
+            negative_route_assertions=["rag.loto_procedure", "rag.procedure", "rag.safety_policy"],
+        )
+
+    if _is_job_mutation_request(raw, action):
+        missing = _job_mutation_missing_entities(normalized, action=action)
+        return SemanticFrame(
+            domain_intent="job_mutation",
+            action=action or "update",
+            entity="job",
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=missing,
+            route="clarification.job_mutation_incomplete" if missing else "tool.write.jobs",
+            confidence=0.86 if missing else 0.91,
+            clarification_reason="job mutation requires a target/filter and a new value" if missing else None,
+            negative_route_assertions=["tool.read.jobs_only", "approval_bypass"],
+            requires_approval=not missing,
+        )
+
+    if entity == "job" and (action in {None, "read"} or _JOB_HINT.search(raw)):
+        return SemanticFrame(
+            domain_intent="job_query",
+            action="read",
+            entity="job",
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="tool.read.jobs",
+            confidence=0.89,
+            clarification_reason=None,
+            negative_route_assertions=["tool.write.jobs"],
+        )
+
+    if is_loto_query(raw) and _is_safety_policy_request(raw):
+        return SemanticFrame(
+            domain_intent="safety_policy",
+            action="read",
+            entity=None,
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="rag.safety_policy",
+            confidence=0.84,
+            clarification_reason=None,
+            negative_route_assertions=["tool.read.machine_status"],
+        )
+
+    if _is_safety_policy_request(raw):
+        return SemanticFrame(
+            domain_intent="safety_policy",
+            action="read",
+            entity=entity,
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="rag.safety_policy",
+            confidence=0.84,
+            clarification_reason=None,
+            negative_route_assertions=["tool.write.jobs"],
+        )
+
+    if _is_document_procedure_request(raw):
+        return SemanticFrame(
+            domain_intent="document_procedure",
+            action="read",
+            entity=entity,
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="rag.procedure",
+            confidence=0.82,
+            clarification_reason=None,
+            negative_route_assertions=["tool.read.machine_status"],
+        )
+
+    return SemanticFrame(
+        domain_intent=None,
+        action=action,
+        entity=entity,
+        entities=entities,
+        normalized_entities=normalized,
+        missing_required_entities=[],
+        route="unknown",
+        confidence=0.55 if action or entity else 0.35,
+        clarification_reason=None,
+        negative_route_assertions=[],
+    )
+
+
 def is_loto_query(text: str) -> bool:
     return bool(_LOTO_HINT_RE.search(text or ""))
 
 
 def should_clarify_loto_machine(text: str) -> bool:
-    raw = text or ""
-    if not is_loto_query(raw):
-        return False
-    if intent_constraint_values(raw, "machine_id"):
-        return False
-    return bool(_LOTO_PROCEDURE_CONTEXT_RE.search(raw))
+    frame = semantic_frame_for_text(text)
+    return frame.domain_intent == "loto_procedure" and "machine_id" in frame.missing_required_entities
 
 
 def should_route_loto_to_rag(text: str) -> bool:
-    raw = text or ""
-    if not is_loto_query(raw) or should_clarify_loto_machine(raw):
-        return False
-    if _STATUS_MACHINE_REQUEST_RE.search(raw) and not _LOTO_PROCEDURE_CONTEXT_RE.search(raw):
-        return False
-    return bool(
-        intent_constraint_values(raw, "machine_id")
-        or _QUESTION_RE.search(raw)
-        or _LOTO_PROCEDURE_CONTEXT_RE.search(raw)
-    )
+    return semantic_frame_for_text(text).route == "rag.loto_procedure"
 
 
 def resolve_contextual_loto_machine_id(text: str, previous_texts: Sequence[str]) -> str | None:
     raw = text or ""
-    if not should_clarify_loto_machine(raw):
+    if not should_clarify_loto_machine(raw) or not _CONTEXTUAL_MACHINE_REF_RE.search(raw):
         return None
-    if not _CONTEXTUAL_MACHINE_REF_RE.search(raw):
-        return None
-    for previous in previous_texts:
-        machine_ids = intent_constraint_values(previous or "", "machine_id")
-        if machine_ids:
-            return machine_ids[0]
-    return None
+    return _first_machine_id_from_previous(previous_texts)
 
 
 def loto_query_with_resolved_machine_context(text: str, machine_id: str | None) -> str:

@@ -1267,6 +1267,28 @@ Rollback notes:
 - Keep existing route helpers until the semantic frame has equivalent regression coverage.
 - If a route-family refactor breaks production behavior, revert the refactor and keep the failing route-family oracle open as a blocker instead of adding more one-off wording branches.
 
+Implementation record:
+
+- Implemented on 2026-05-17 on `codex/playwright-e2e-plan`.
+- Added `SemanticFrame` on top of the existing intent splitter and `assess_intent()` vocabulary instead of replacing them.
+- Refactored LOTO helper semantics into the `rag.loto_procedure` route family, with missing-machine clarification represented as `clarification.machine_id_missing`.
+- Added route-family pytest matrices for LOTO/procedure/policy RAG, live machine status, job reads, job writes with approval, approval action, cancel, and unsupported dangerous action.
+- Preserved browser scope by reusing canonical SO-021, SO-022, SO-023, SO-025, SO-026, and SO-044 coverage rather than adding more wording-only Playwright tests.
+- Updated SO-044 route metadata to the semantic route family `unsupported_dangerous_action`, while retaining `unsafe_action_allowlist_block` as the blocking mechanism.
+
+Verification record:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py -q
+python -m pytest tests/test_intent.py tests/test_phase18_intent_entity_parser.py tests/test_api_endpoints.py::test_create_plan_answers_osha_loto_knowledge_question_without_tool_plan -q
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e -- --project=chromium-seeded --grep "semantic-route|SO-021|SO-022|SO-023|SO-025|SO-026|SO-044"
+```
+
+Result: backend semantic route contract `63 passed, 1 warning`; backward compatibility LOTO/knowledge checks `20 passed, 14 warnings`; frontend unit/component `64 passed`; focused seeded Chromium `4 passed`.
+
 ## First Critical Scenario Set
 
 Implement these before claiming manual chatbot testing is retired.

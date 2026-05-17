@@ -1736,12 +1736,20 @@ Rollback notes:
 
 ## Recommended Current Implementation Step
 
-Phases 8-20 are complete in `TRACK.md`. Continue with Phase 21 before adding more one-off prompt cases. The next implementation should promote the existing intent vocabulary into a semantic routing contract and prove route families, not isolated LOTO phrases.
+Phases 8-20 are complete in `TRACK.md`. Phase 21 has now promoted the existing intent vocabulary into a semantic routing contract and proves route families, not isolated LOTO phrases.
 
 1. Keep existing route helpers and SO/browser coverage intact while the semantic frame is introduced.
 2. Add parser/route matrix coverage first for route families.
 3. Add browser coverage only for route families where visible UI, source chrome, approval cards, or stale text can diverge from backend route evidence.
 4. Keep the default PR suite on the existing mocked `chromium` project.
+
+Phase 21 implementation record:
+
+- Added `SemanticFrame` with route, domain intent, normalized entities, missing required entities, clarification reason, confidence, negative route assertions, and approval requirement metadata.
+- Refactored LOTO helpers so they delegate to the semantic document/RAG route family.
+- Added parser/route matrices for `rag.loto_procedure`, `rag.procedure`, `rag.safety_policy`, `tool.read.machine_status`, `tool.read.jobs`, `tool.write.jobs`, `approval_action`, `cancel_run`, and `unsupported_dangerous_action`.
+- Kept browser coverage canonical and focused on existing SO cases where UI/source/approval/stale-state evidence can diverge.
+- Verification passed: backend semantic route contract `63 passed`, backward compatibility LOTO/knowledge checks `20 passed`, frontend unit/component `64 passed`, focused seeded Chromium route/UI proof `4 passed`.
 
 ## Original First Implementation Step
 

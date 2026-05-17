@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ..config import Settings
-from .intent import assess_intent
+from .intent import SemanticFrame, assess_intent, semantic_frame_for_text
 from ..schemas import ToolInfo
 from ..observability.telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped
 from .tool_scope import ScopedTools, filter_tools_for_intent, score_tool
@@ -723,6 +723,11 @@ class ToolSelector:
         max_tools: int = 30,
         context: dict[str, Any] | None = None,
     ) -> ToolSelectionResult:
+        semantic_frame = semantic_frame_for_text(intent)
+        semantic_tools = self._semantic_route_tool_names(frame=semantic_frame, tools_by_name=tools_by_name)
+        if semantic_tools is not None:
+            return ToolSelectionResult(tool_names=semantic_tools[:max_tools], backend_used="retrieval", llm_calls=0)
+
         diagnostic = self._diagnostic_tool_names(intent=intent, tools_by_name=tools_by_name)
         if diagnostic:
             return ToolSelectionResult(tool_names=diagnostic[:max_tools], backend_used="retrieval", llm_calls=0)
@@ -793,6 +798,51 @@ class ToolSelector:
             return ToolSelectionResult(tool_names=candidate_names, backend_used="retrieval", llm_calls=1)
 
         return ToolSelectionResult(tool_names=ordered, backend_used="langchain", llm_calls=1)
+
+    def _semantic_route_tool_names(
+        self,
+        *,
+        frame: SemanticFrame,
+        tools_by_name: dict[str, ToolInfo],
+    ) -> list[str] | None:
+        route = frame.route
+        if route in {
+            "rag.loto_procedure",
+            "rag.procedure",
+            "rag.safety_policy",
+            "unsupported_dangerous_action",
+            "clarification.machine_id_missing",
+            "clarification.job_mutation_incomplete",
+        }:
+            return []
+        if route == "tool.read.machine_status":
+            return [name for name in ["get__machines_{id}", "get__machines"] if name in tools_by_name] or None
+        if route == "tool.read.jobs":
+            if frame.normalized_entities.get("job_id") and "get__jobs_{id}" in tools_by_name:
+                return ["get__jobs_{id}"]
+            return [name for name in ["get__jobs", "get__jobs_{id}"] if name in tools_by_name] or None
+        if route == "tool.write.jobs":
+            if frame.action == "create":
+                names = [name for name in ["post__jobs", "get__jobs"] if name in tools_by_name]
+            elif frame.action == "delete":
+                names = [name for name in ["get__jobs", "delete__jobs_{id}"] if name in tools_by_name]
+            else:
+                names = [name for name in ["get__jobs", "put__jobs_{id}", "patch__jobs_{id}"] if name in tools_by_name]
+            return names or None
+        if route == "approval_action":
+            return [
+                name
+                for name in [
+                    "get__chatbot_approval_pending",
+                    "get__approvals_pending",
+                    "post__approvals_{id}_approve",
+                    "post__approvals_{id}_reject",
+                ]
+                if name in tools_by_name
+            ] or None
+        if route == "cancel_run":
+            return [name for name in ["post__sessions_{id}_cancel"] if name in tools_by_name] or None
+        return None
 
     def _diagnostic_tool_names(self, *, intent: str, tools_by_name: dict[str, ToolInfo]) -> list[str]:
         # Compound-intent guard: when the user asks for multiple things in one

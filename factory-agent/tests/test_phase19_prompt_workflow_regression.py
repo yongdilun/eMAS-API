@@ -10,6 +10,7 @@ from factory_agent.planning.intent import (
     intent_constraint_values,
     loto_query_with_resolved_machine_context,
     resolve_contextual_loto_machine_id,
+    semantic_frame_for_text,
     should_clarify_loto_machine,
     should_route_loto_to_rag,
 )
@@ -105,6 +106,17 @@ def _route_matrix_tools():
     }
 
 
+def _assert_semantic_frame(prompt, *, domain_intent, route, entity=None, missing=(), negative=()):
+    frame = semantic_frame_for_text(prompt)
+    assert frame.domain_intent == domain_intent
+    assert frame.route == route
+    assert frame.entity == entity
+    assert frame.missing_required_entities == list(missing)
+    for forbidden in negative:
+        assert forbidden in (frame.negative_route_assertions or [])
+    return frame
+
+
 def test_phase19_scenario_116_loto_wording_matrix_uses_same_rag_route():
     bank = _load_bank()
     loto_entries = [
@@ -130,6 +142,180 @@ def test_phase19_scenario_116_loto_wording_matrix_uses_same_rag_route():
             "machine_id": "M-CNC-01",
             "procedure_id": "LOTO-M-CNC-01",
         }
+        frame = semantic_frame_for_text(prompt)
+        assert frame.domain_intent == "loto_procedure"
+        assert frame.route == "rag.loto_procedure"
+        assert frame.normalized_entities["machine_id"] == ["M-CNC-01"]
+        assert "tool.read.machine_status" in (frame.negative_route_assertions or [])
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_domain", "expected_route", "expected_entity", "expected_entities", "missing", "negative"),
+    [
+        (
+            "What is the LOTO procedure for M-CNC-01?",
+            "loto_procedure",
+            "rag.loto_procedure",
+            "machine",
+            {"machine_id": ["M-CNC-01"], "topic": ["loto"]},
+            [],
+            ["tool.read.machine_status"],
+        ),
+        (
+            "What LOTO procedure applies before working on the CNC machine?",
+            "loto_procedure",
+            "clarification.machine_id_missing",
+            "machine",
+            {"topic": ["loto"]},
+            ["machine_id"],
+            ["rag.loto_procedure", "tool.read.machine_status"],
+        ),
+        (
+            "What SOP applies before cleaning Line 2?",
+            "document_procedure",
+            "rag.procedure",
+            "machine",
+            {"line_id": ["LINE-2"]},
+            [],
+            ["tool.read.machine_status"],
+        ),
+        (
+            "What does the PPE policy say?",
+            "safety_policy",
+            "rag.safety_policy",
+            None,
+            {"topic": ["ppe"]},
+            [],
+            ["tool.write.jobs"],
+        ),
+        (
+            "What is the purpose of Lockout/Tagout (LOTO) procedures according to OSHA? Is there any specific OSHA regulation or standard that defines this?",
+            "safety_policy",
+            "rag.safety_policy",
+            None,
+            {"topic": ["loto"]},
+            [],
+            ["tool.read.machine_status"],
+        ),
+    ],
+)
+def test_phase21_document_and_loto_semantic_route_family_matrix(
+    prompt,
+    expected_domain,
+    expected_route,
+    expected_entity,
+    expected_entities,
+    missing,
+    negative,
+):
+    frame = _assert_semantic_frame(
+        prompt,
+        domain_intent=expected_domain,
+        route=expected_route,
+        entity=expected_entity,
+        missing=missing,
+        negative=negative,
+    )
+    for field, expected_values in expected_entities.items():
+        assert frame.normalized_entities.get(field) == expected_values
+    assert "M-CNC-01" not in frame.normalized_entities.get("machine_id", []) or expected_entities.get("machine_id") == ["M-CNC-01"]
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_route", "expected_entities", "missing"),
+    [
+        ("show status for machine M-CNC-01", "tool.read.machine_status", {"machine_id": ["M-CNC-01"]}, []),
+        ("Use OSHA LOTO guidance and show machine M-CNC-01 status", "tool.read.machine_status", {"machine_id": ["M-CNC-01"]}, []),
+        ("show machine status", "clarification.machine_id_missing", {}, ["machine_id"]),
+    ],
+)
+def test_phase21_machine_status_semantic_route_matrix(prompt, expected_route, expected_entities, missing):
+    frame = _assert_semantic_frame(
+        prompt,
+        domain_intent="machine_status",
+        route=expected_route,
+        entity="machine",
+        missing=missing,
+        negative=["rag.loto_procedure"],
+    )
+    for field, expected_values in expected_entities.items():
+        assert frame.normalized_entities.get(field) == expected_values
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_route", "expected_entities"),
+    [
+        ("show delayed high-priority jobs", "tool.read.jobs", {"priority": ["high"], "status": ["delayed"]}),
+        ("status for work order JOB-SEED-001", "tool.read.jobs", {"job_id": ["JOB-SEED-001"]}),
+    ],
+)
+def test_phase21_job_query_semantic_route_matrix(prompt, expected_route, expected_entities):
+    frame = _assert_semantic_frame(
+        prompt,
+        domain_intent="job_query",
+        route=expected_route,
+        entity="job",
+        negative=["tool.write.jobs"],
+    )
+    for field, expected_values in expected_entities.items():
+        assert frame.normalized_entities.get(field) == expected_values
+    assert frame.requires_approval is False
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_entities"),
+    [
+        ("change high priority jobs to low", {"from_priority": ["high"], "to_priority": ["low"]}),
+        ("update JOB-SEED-001 priority to medium", {"job_id": ["JOB-SEED-001"], "to_priority": ["medium"]}),
+    ],
+)
+def test_phase21_job_mutation_semantic_route_matrix(prompt, expected_entities):
+    frame = _assert_semantic_frame(
+        prompt,
+        domain_intent="job_mutation",
+        route="tool.write.jobs",
+        entity="job",
+        negative=["approval_bypass"],
+    )
+    for field, expected_values in expected_entities.items():
+        assert frame.normalized_entities.get(field) == expected_values
+    assert frame.missing_required_entities == []
+    assert frame.requires_approval is True
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_domain", "expected_route", "expected_entity"),
+    [
+        ("show pending approvals", "approval_action", "approval_action", "approval"),
+        ("approve the second request", "approval_action", "approval_action", "approval"),
+        ("cancel the current run", "cancel_run", "cancel_run", "session"),
+    ],
+)
+def test_phase21_approval_and_cancel_semantic_route_matrix(prompt, expected_domain, expected_route, expected_entity):
+    _assert_semantic_frame(
+        prompt,
+        domain_intent=expected_domain,
+        route=expected_route,
+        entity=expected_entity,
+        negative=["approval_bypass"] if expected_domain == "approval_action" else ["tool.write.jobs"],
+    )
+
+
+def test_phase21_unsupported_dangerous_action_semantic_route_blocks_mutation():
+    oracle = load_oracle("SO-044")
+    prompt = oracle["prompt"]
+
+    frame = _assert_semantic_frame(
+        prompt,
+        domain_intent="unsupported_dangerous_action",
+        route="unsupported_dangerous_action",
+        entity="job",
+        negative=["tool.write.production_jobs.delete", "approval_bypass", "fake_success"],
+    )
+
+    assert frame.missing_required_entities == []
+    assert frame.requires_approval is False
+    assert oracle["expected_route"]["route"] == "unsupported_dangerous_action"
 
 
 @pytest.mark.parametrize(
@@ -151,21 +337,22 @@ def test_phase19_scenario_117_machine_and_job_id_extraction_matrix(prompt, expec
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("label", "prompt", "expected_action", "expected_entity", "expected_tools"),
+    ("label", "prompt", "expected_action", "expected_entity", "expected_route", "expected_tools"),
     [
-        ("machine_status", "show status for machine M-CNC-01", "read", "machine", ["get__machines_{id}"]),
-        ("job_listing", "list high priority jobs", "read", "job", ["get__jobs"]),
-        ("priority_mutation", "change all low priority jobs to high", "update", "job", ["put__jobs_{id}"]),
-        ("approval", "show pending approvals", "approval", None, ["get__chatbot_approval_pending"]),
-        ("cancel", "cancel the current run", "update", None, ["post__sessions_{id}_cancel"]),
+        ("machine_status", "show status for machine M-CNC-01", "read", "machine", "tool.read.machine_status", ["get__machines_{id}"]),
+        ("job_listing", "list high priority jobs", "read", "job", "tool.read.jobs", ["get__jobs"]),
+        ("priority_mutation", "change all low priority jobs to high", "update", "job", "tool.write.jobs", ["put__jobs_{id}"]),
+        ("approval", "show pending approvals", "approval", None, "approval_action", ["get__chatbot_approval_pending"]),
+        ("cancel", "cancel the current run", "update", None, "cancel_run", ["post__sessions_{id}_cancel"]),
     ],
 )
-async def test_phase19_scenario_118_route_selection_matrix(label, prompt, expected_action, expected_entity, expected_tools):
+async def test_phase19_scenario_118_route_selection_matrix(label, prompt, expected_action, expected_entity, expected_route, expected_tools):
     del label
     assessment = assess_intent(prompt)
     assert assessment.kind == "operations"
     assert assessment.action == expected_action
     assert assessment.entity == expected_entity
+    assert semantic_frame_for_text(prompt).route == expected_route
 
     selector = ToolSelector(_settings())
     selected = await selector.select_tools(
@@ -198,6 +385,11 @@ def test_so021_so023_so025_prompt_oracles_route_loto_to_rag_with_machine_id(orac
     assert intent_constraint_values(prompt, "job_id") == []
     assert should_clarify_loto_machine(prompt) is False
     assert should_route_loto_to_rag(prompt) is True
+    frame = semantic_frame_for_text(prompt)
+    assert frame.domain_intent == "loto_procedure"
+    assert frame.route == "rag.loto_procedure"
+    assert frame.normalized_entities["machine_id"] == [route["machine_id"]]
+    assert frame.missing_required_entities == []
 
     assessment = assess_intent(prompt)
     assert assessment.kind == "operations"
@@ -214,6 +406,11 @@ def test_so022_prompt_oracle_clarifies_missing_loto_machine_without_default_id()
     assert intent_constraint_values(prompt, "machine_id") == []
     assert should_clarify_loto_machine(prompt) is True
     assert should_route_loto_to_rag(prompt) is False
+    frame = semantic_frame_for_text(prompt)
+    assert frame.domain_intent == "loto_procedure"
+    assert frame.route == "clarification.machine_id_missing"
+    assert frame.missing_required_entities == ["machine_id"]
+    assert "M-CNC-01" not in frame.normalized_entities.get("machine_id", [])
 
     assessment = assess_intent(prompt)
     assert assessment.kind == "operations"
@@ -248,6 +445,9 @@ def test_so026_loto_followup_resolves_machine_id_from_immediately_previous_turn(
     assert intent_constraint_values(contextual_prompt, "machine_id") == ["M-CNC-01"]
     assert should_clarify_loto_machine(contextual_prompt) is False
     assert should_route_loto_to_rag(contextual_prompt) is True
+    frame = semantic_frame_for_text(second_prompt, previous_texts=previous_texts)
+    assert frame.route == "rag.loto_procedure"
+    assert frame.normalized_entities["machine_id"] == ["M-CNC-01"]
     assert resolve_contextual_loto_machine_id("What LOTO procedure applies before working on M-CNC-01?", previous_texts) is None
     assert "Machine ID:" not in contextual_prompt
 

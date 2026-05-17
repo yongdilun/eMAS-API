@@ -9,7 +9,7 @@ from langgraph.graph import END, StateGraph
 
 from factory_agent.graph.nodes.intent_split import intent_splitter_node
 from factory_agent.graph.state import AgentState
-from factory_agent.planning.intent import split_user_intents
+from factory_agent.planning.intent import semantic_frame_for_text, split_user_intents
 
 
 def test_split_multi_part_machine_then_schedule():
@@ -138,6 +138,35 @@ def test_explicit_constraints_preserve_machine_job_product_date_and_operator():
     assert by_field["date"].operator == "before"
     assert by_field["date"].value == "2026-05-15"
     assert by_field["operator"].value == "Alice"
+
+
+def test_semantic_frame_extends_splitter_entities_without_replacing_constraints():
+    q = "Need lockout tagout steps before servicing `m-cnc-01` for job JOB-SEED-001"
+    intents = split_user_intents(q)
+    frame = semantic_frame_for_text(q)
+
+    assert any(
+        c.field == "machine_id" and c.value == "M-CNC-01"
+        for intent in intents
+        for c in intent.explicit_constraints
+    )
+    assert frame.domain_intent == "loto_procedure"
+    assert frame.route == "rag.loto_procedure"
+    assert frame.normalized_entities["machine_id"] == ["M-CNC-01"]
+    assert frame.normalized_entities["job_id"] == ["JOB-SEED-001"]
+    assert frame.missing_required_entities == []
+
+
+def test_semantic_frame_separates_document_guidance_from_live_machine_state():
+    procedure = semantic_frame_for_text("What SOP applies before cleaning Line 2?")
+    status = semantic_frame_for_text("show status for machine M-CNC-01")
+
+    assert procedure.route == "rag.procedure"
+    assert procedure.normalized_entities["line_id"] == ["LINE-2"]
+    assert "tool.read.machine_status" in (procedure.negative_route_assertions or [])
+    assert status.route == "tool.read.machine_status"
+    assert status.normalized_entities["machine_id"] == ["M-CNC-01"]
+    assert "rag.procedure" in (status.negative_route_assertions or [])
 
 
 def test_intent_splitter_node_uses_split_output_as_graph_state_input():

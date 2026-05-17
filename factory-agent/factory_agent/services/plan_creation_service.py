@@ -36,8 +36,7 @@ from factory_agent.planning.intent import (
     assess_intent,
     loto_query_with_resolved_machine_context,
     resolve_contextual_loto_machine_id,
-    should_clarify_loto_machine,
-    should_route_loto_to_rag,
+    semantic_frame_for_text,
 )
 from factory_agent.planning.plan_validator import validate_plan
 from factory_agent.planning.tool_output_alignment import align_tool_outputs_to_steps
@@ -308,6 +307,16 @@ class PlanCreationService:
             "Which machine ID should I use for the LOTO procedure? "
             "Please provide the exact machine ID from the equipment label or work order."
         )
+
+    def _semantic_clarification_reply(self, frame: Any) -> str:
+        if frame.domain_intent == "loto_procedure" and "machine_id" in frame.missing_required_entities:
+            return self._loto_machine_clarification_reply()
+        if frame.domain_intent == "machine_status" and "machine_id" in frame.missing_required_entities:
+            return (
+                "Which machine ID should I use for the live status lookup? "
+                "Please provide the exact machine ID from the equipment label or work order."
+            )
+        return "I need one more detail before I can route this safely. Please provide the missing required field."
 
     async def _answer_knowledge_question_as_plan(self,
         *,
@@ -882,6 +891,7 @@ class PlanCreationService:
         intent = sess.current_intent or ""
         latest_user = await self._latest_user_message(db=db, session_id=session_id)
         mode = latest_user.mode if latest_user else "normal"
+        semantic_frame = semantic_frame_for_text(intent)
         resolved_loto_machine_id, resolved_loto_context = await self._resolve_loto_machine_context(
             db=db,
             sess=sess,
@@ -889,6 +899,8 @@ class PlanCreationService:
             intent=intent,
         )
         loto_rag_intent = self._loto_query_with_resolved_machine(intent, resolved_loto_machine_id)
+        if resolved_loto_machine_id:
+            semantic_frame = semantic_frame_for_text(loto_rag_intent)
         assessment = assess_intent(loto_rag_intent if resolved_loto_machine_id else intent)
 
         tools_by_name = await self._tool_registry.get_tools_by_name(db)
@@ -896,11 +908,11 @@ class PlanCreationService:
         backend_used = "langgraph" if req.draft is None else "client"
         draft = req.draft
 
-        if should_clarify_loto_machine(intent) and not resolved_loto_machine_id:
+        if semantic_frame.route.startswith("clarification.") and semantic_frame.missing_required_entities:
             plan_resp = await self._persist_conversation_reply_as_empty_plan(
                 db=db,
                 sess=sess,
-                reply=self._loto_machine_clarification_reply(),
+                reply=self._semantic_clarification_reply(semantic_frame),
                 mode=mode,
                 tools_by_name=tools_by_name,
                 intent=intent,
@@ -908,14 +920,18 @@ class PlanCreationService:
             metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
             return plan_resp
 
-        if resolved_loto_machine_id or should_route_loto_to_rag(intent):
+        if semantic_frame.route in {"rag.loto_procedure", "rag.procedure", "rag.safety_policy"}:
+            context_to_keep = resolved_loto_context
+            if semantic_frame.route != "unknown":
+                context_to_keep = dict(context_to_keep or sess.replan_context or {})
+                context_to_keep["semantic_frame"] = semantic_frame.to_payload()
             plan_resp = await self._answer_knowledge_question_as_plan(
                 db=db,
                 sess=sess,
                 mode=mode,
                 tools_by_name=tools_by_name,
                 intent=loto_rag_intent if resolved_loto_machine_id else intent,
-                context_to_keep=resolved_loto_context,
+                context_to_keep=context_to_keep,
             )
             metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
             return plan_resp
