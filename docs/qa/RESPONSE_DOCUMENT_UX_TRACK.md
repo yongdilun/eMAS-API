@@ -28,7 +28,7 @@ Created: 2026-05-18
 | 18 | Read-only status response contract | Done | Codex | Added generic typed `status_result` response-document blocks for read-only status answers, clean machine labels, frontend rendering/probes, and RD-008 browser proof. |
 | 19 | RAG question-type routing contract | Done | Codex | Added reusable semantic `question_type` routing before missing-entity checks, covered LOTO notification document-content prompts, preserved machine-specific LOTO/status controls, and added RD-009 browser semantic proof. |
 | 20 | Entity-specific overfitting audit | Done | Codex | Audited backend routing/planning, response-document composition, frontend renderer/probes, seeded fixtures, scenario oracles, and QA docs; generic entity work needs backend metadata readiness first. |
-| 21 | Backend capability metadata readiness | Not Started | Codex | Enhance backend/OpenAPI/tool metadata so entity status, business changes, no-op mutations, vocabulary, `tools.md`, and RAG API references are available before generic response-document implementation. |
+| 21 | Backend capability metadata readiness | Done | Codex | Prepared OpenAPI/Swagger, RAG mirrors, generated `tools.md`, and generated vocabulary for `entity_status_v1`, `business_change_v1`, and `entity_agnostic_no_matching_records_v1`; 44 metadata/tool tests passed. |
 | 22 | Generic entity status and mutation business contract | Not Started | Codex | Create `entity_status_v1`, `business_change_v1`, one safe non-job no-op contract proof, and a guard that machine status is one entity-status example rather than the model itself. |
 | 23 | Migrate existing machine/job outputs onto generic contracts | Not Started | Codex | After Phase 22 contracts are ready, move machine status, job priority cascade, and job no-op output onto generic typed contracts without changing existing behavior. |
 | 24 | Entity diversity coverage | Not Started | Codex | Prove generic contracts beyond jobs and machines with at least two safe deterministic non-job/non-machine examples. |
@@ -43,8 +43,8 @@ Created: 2026-05-18
 - No-data mutation steps now have an explicit Phase 17 no-op contract with visible `Not changed` groups, approval exclusion, and no mutation attempt for zero-match groups.
 - Read-only status response cleanup is complete for Phase 18. `Show status for machine with machine id M-CNC-01` now renders one typed `status_result` answer and forbids raw assistant markers, dump-style API labels, duplicate answer text, approval UI, and mutation UI.
 - LOTO document-content question misclassification is fixed in Phase 19. `According to the LOTO procedure, what notification is required before starting lockout` now routes as document-content RAG/procedure content without requiring `machine_id`.
-- Several recent fixes are still at risk of becoming entity-specific special cases. Phase 20 audited this; Phase 21 now prepares backend/OpenAPI/tool/vocabulary metadata before the generic response-document contract starts.
-- Phase 22 must not begin until Phase 21 proves OpenAPI, generated tool metadata, generated vocabulary, and `tools.md` expose enough typed entity/action/capability evidence for generic status and business-change composition.
+- Several recent fixes are still at risk of becoming entity-specific special cases. Phase 20 audited this; Phase 21 prepared backend/OpenAPI/tool/vocabulary metadata before the generic response-document contract starts.
+- Phase 22 is unblocked by Phase 21 metadata readiness and should create the generic response-document contracts before existing machine/job flows are migrated.
 - Phases 23-26 are explicit follow-ups: migrate existing machine/job outputs, prove entity diversity beyond jobs/machines, add hardcode guardrails, then run the real/seeded release proof.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
@@ -1811,7 +1811,7 @@ No broad response-document rendering or generic composer migration was implement
 
 ## Phase 22 Implementation Notes
 
-Status: Blocked Until Phase 21
+Status: Ready To Start
 
 Phase 22 creates the generic response-document contracts. It should prove `entity_status_v1`, `business_change_v1`, one safe non-job no-op contract proof, and a machine-status-as-example guard before existing RD-001/RD-008 behavior is migrated.
 
@@ -2043,7 +2043,7 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 
 ## Next Action
 
-Start Phase 21 backend capability metadata readiness. Do not start Phase 22 generic response-document contract creation until Phase 21 proves OpenAPI, RAG OpenAPI mirror, generated `tools.md`, RAG `tools.md`, generated vocabulary, and capability metadata are synchronized and sufficient. After Phase 22, continue in order through Phase 23 machine/job migration, Phase 24 entity diversity, Phase 25 hardcode guardrails, and Phase 26 real-flow release proof.
+Start Phase 22 generic entity status and mutation business contract. Phase 21 has proven OpenAPI, RAG OpenAPI mirror, generated `tools.md`, RAG `tools.md`, generated vocabulary, and capability metadata are synchronized and sufficient. After Phase 22, continue in order through Phase 23 machine/job migration, Phase 24 entity diversity, Phase 25 hardcode guardrails, and Phase 26 real-flow release proof.
 
 ## Post-Gate Regression: Approved Data But UI Still Shows Approval
 
