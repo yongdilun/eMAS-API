@@ -13,6 +13,13 @@ from factory_agent.orchestration.session_manager import SessionManager
 from factory_agent.persistence.models import Approval, Message, Plan, PlanStep, Session
 from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import ResponseDocument
+from factory_agent.services.response_document_service import (
+    MutationGroup,
+    _business_change_order_from_text,
+    _business_change_summary,
+    _business_group_sort_key,
+    _merge_mutation_groups_by_business_change,
+)
 from factory_agent.services.session_snapshot_service import SessionSnapshotService
 
 
@@ -244,6 +251,94 @@ def _cascade_args(
         "summary": f"Change {len(job_ids)} original {source}-priority jobs to {target}.",
         "count": len(job_ids),
         "bundle_ui": bundle_ui,
+    }
+
+
+def test_business_mutation_groups_drop_shadow_rows_and_follow_summary_order():
+    groups = [
+        MutationGroup(
+            key="read-medium",
+            operation_id="op-rd",
+            approval_id=None,
+            rows=[
+                {"job_id": "JOB-MED-001", "priority": "medium", "status": "succeeded"},
+                {"job_id": "JOB-MED-002", "priority": "medium", "status": "succeeded"},
+            ],
+            first_seen=0,
+        ),
+        MutationGroup(
+            key="read-high",
+            operation_id="op-rd",
+            approval_id=None,
+            rows=[
+                {"job_id": "JOB-HIGH-001", "priority": "high", "status": "succeeded"},
+                {"job_id": "JOB-HIGH-002", "priority": "high", "status": "succeeded"},
+            ],
+            first_seen=1,
+        ),
+        MutationGroup(
+            key="write-high",
+            operation_id="op-rd",
+            approval_id=None,
+            rows=[
+                {
+                    "job_id": "JOB-HIGH-001",
+                    "from_priority": "high",
+                    "to_priority": "low",
+                    "source_state_basis": "original",
+                    "status": "succeeded",
+                },
+                {
+                    "job_id": "JOB-HIGH-002",
+                    "from_priority": "high",
+                    "to_priority": "low",
+                    "source_state_basis": "original",
+                    "status": "succeeded",
+                },
+            ],
+            first_seen=2,
+        ),
+        MutationGroup(
+            key="write-medium",
+            operation_id="op-rd",
+            approval_id=None,
+            rows=[
+                {
+                    "job_id": "JOB-MED-001",
+                    "from_priority": "medium",
+                    "to_priority": "high",
+                    "source_state_basis": "original",
+                    "status": "succeeded",
+                },
+                {
+                    "job_id": "JOB-MED-002",
+                    "from_priority": "medium",
+                    "to_priority": "high",
+                    "source_state_basis": "original",
+                    "status": "succeeded",
+                },
+            ],
+            first_seen=3,
+        ),
+    ]
+    summary_order = _business_change_order_from_text(
+        "- 2 medium priority jobs changed to high\n"
+        "- 2 original high priority jobs changed to low"
+    )
+
+    merged = _merge_mutation_groups_by_business_change(groups)
+    ordered = sorted(merged, key=lambda group: _business_group_sort_key(group, {}, summary_order))
+
+    assert [_business_change_summary(group, index=index) for index, group in enumerate(ordered, start=1)] == [
+        "Medium -> High: 2 jobs",
+        "Original High -> Low: 2 jobs",
+    ]
+    assert [len(group.rows) for group in ordered] == [2, 2]
+    assert {row["job_id"] for group in ordered for row in group.rows} == {
+        "JOB-MED-001",
+        "JOB-MED-002",
+        "JOB-HIGH-001",
+        "JOB-HIGH-002",
     }
 
 

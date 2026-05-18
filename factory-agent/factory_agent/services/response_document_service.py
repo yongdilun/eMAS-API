@@ -346,6 +346,7 @@ class MutationGroup:
     step_ids: list[str] = field(default_factory=list)
     completed_at: datetime | None = None
     status: str = "completed"
+    first_seen: int = 0
 
 
 @dataclass
@@ -1080,10 +1081,10 @@ def _approval_position_by_id(approvals: list[ApprovalResponse]) -> dict[str, int
     return {row.approval_id: index for index, row in enumerate(ordered, start=1)}
 
 
-def _group_sort_key(group: MutationGroup, approval_positions: dict[str, int]) -> tuple[int, datetime, str]:
+def _group_sort_key(group: MutationGroup, approval_positions: dict[str, int]) -> tuple[int, datetime, int, str]:
     approval_rank = approval_positions.get(group.approval_id or "", 10_000)
     completed_at = group.completed_at or datetime.min
-    return approval_rank, completed_at, group.key
+    return approval_rank, completed_at, group.first_seen, group.key
 
 
 def _add_group_rows(
@@ -1100,7 +1101,7 @@ def _add_group_rows(
     key = approval_id or step_id or operation_id or "ungated"
     group = groups.get(key)
     if group is None:
-        group = MutationGroup(key=key, operation_id=operation_id, approval_id=approval_id)
+        group = MutationGroup(key=key, operation_id=operation_id, approval_id=approval_id, first_seen=len(groups))
         groups[key] = group
     group.rows.extend(rows)
     if step_id and step_id not in group.step_ids:
@@ -1114,6 +1115,133 @@ def _add_group_rows(
         group.status = "failed"
     else:
         group.status = "completed"
+
+
+def _priority_business_key(source: str, target: str) -> str:
+    return json.dumps(["priority", source, target], sort_keys=True)
+
+
+def _business_group_key(row: dict[str, Any], *, fallback: str) -> str:
+    source = _source_priority(row)
+    target = _target_priority(row)
+    if source or target:
+        return _priority_business_key(source, target)
+    write_set = _trimmed(row.get("write_set")).lower()
+    if write_set:
+        return json.dumps(["write_set", write_set], sort_keys=True)
+    return json.dumps(["group", fallback], sort_keys=True)
+
+
+def _business_change_order_from_text(text: str) -> dict[str, int]:
+    order: dict[str, int] = {}
+    patterns = [
+        r"\b(?:original\s+)?(?P<source>low|medium|high)\s+priority\s+jobs?\s+changed\s+to\s+(?P<target>low|medium|high)\b",
+        r"\b(?P<source>low|medium|high)\s*->\s*(?P<target>low|medium|high)\b",
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, text or "", flags=re.IGNORECASE):
+            source = match.group("source").lower()
+            target = match.group("target").lower()
+            key = _priority_business_key(source, target)
+            if key not in order:
+                order[key] = len(order)
+    return order
+
+
+def _business_group_sort_key(
+    group: MutationGroup,
+    approval_positions: dict[str, int],
+    business_order: dict[str, int],
+) -> tuple[int, int, int, datetime, str]:
+    approval_rank = approval_positions.get(group.approval_id or "", 10_000)
+    sources = {_source_priority(row) for row in group.rows if _source_priority(row)}
+    targets = {_target_priority(row) for row in group.rows if _target_priority(row)}
+    business_key = _priority_business_key(next(iter(sources)), next(iter(targets))) if len(sources) == 1 and len(targets) == 1 else group.key
+    business_rank = business_order.get(business_key, 10_000 + group.first_seen)
+    return approval_rank, business_rank, group.first_seen, group.completed_at or datetime.min, group.key
+
+
+def _merge_mutation_groups_by_business_change(groups: list[MutationGroup]) -> list[MutationGroup]:
+    merged: dict[str, MutationGroup] = {}
+    seen_rows: dict[str, set[str]] = {}
+    hints_by_approval_record: dict[tuple[str, str], dict[str, Any]] = {}
+    hints_by_record: dict[str, dict[str, Any]] = {}
+
+    for group in groups:
+        for row in group.rows:
+            record_id = _business_record_identifier(row)
+            source = _source_priority(row)
+            target = _target_priority(row)
+            if not record_id or not (source and target):
+                continue
+            hint = {
+                "previous_priority": source,
+                "new_priority": target,
+                "write_set": _trimmed(row.get("write_set")),
+                "bundle_kind": _trimmed(row.get("bundle_kind")),
+                "source_state_basis": _trimmed(row.get("source_state_basis")),
+            }
+            hints_by_record.setdefault(record_id, hint)
+            if group.approval_id:
+                hints_by_approval_record.setdefault((group.approval_id, record_id), hint)
+
+    for group in groups:
+        for index, row in enumerate(group.rows):
+            record_id = _business_record_identifier(row)
+            hint = None
+            if record_id and group.approval_id:
+                hint = hints_by_approval_record.get((group.approval_id, record_id))
+            if hint is None and record_id:
+                hint = hints_by_record.get(record_id)
+            if hint and not (_source_priority(row) and _target_priority(row)):
+                row = {
+                    **row,
+                    **{key: value for key, value in hint.items() if value},
+                }
+            key = _business_group_key(row, fallback=group.key)
+            target = merged.get(key)
+            if target is None:
+                target = MutationGroup(
+                    key=key,
+                    operation_id=group.operation_id,
+                    approval_id=group.approval_id,
+                    completed_at=group.completed_at,
+                    status=group.status,
+                    first_seen=group.first_seen,
+                )
+                merged[key] = target
+                seen_rows[key] = set()
+            elif target.approval_id is None and group.approval_id:
+                target.approval_id = group.approval_id
+            if group.first_seen < target.first_seen:
+                target.first_seen = group.first_seen
+            if target.operation_id is None and group.operation_id:
+                target.operation_id = group.operation_id
+            if group.completed_at and (target.completed_at is None or group.completed_at > target.completed_at):
+                target.completed_at = group.completed_at
+            for step_id in group.step_ids:
+                if step_id not in target.step_ids:
+                    target.step_ids.append(step_id)
+
+            row_key = _business_row_dedupe_key(row) or json.dumps(
+                ["row", group.key, _row_identifier(row), index],
+                sort_keys=True,
+            )
+            if row_key in seen_rows[key]:
+                continue
+            seen_rows[key].add(row_key)
+            target.rows.append(row)
+
+    for group in merged.values():
+        counts = _row_status_counts(group.rows)
+        if counts.get("succeeded", 0) and counts.get("failed", 0):
+            group.status = "partial_failure"
+        elif counts.get("failed", 0) and not counts.get("succeeded", 0):
+            group.status = "failed"
+        else:
+            group.status = "completed"
+
+    return list(merged.values())
 
 
 def _mutation_groups(
@@ -1137,6 +1265,8 @@ def _mutation_groups(
         approval_id = step.approval_id
         if isinstance(step.result, dict):
             approval_id = _trimmed(step.result.get("approval_id") or step.result.get("_approval_id") or approval_id) or None
+        if approvals and approval_id is None and _is_write_tool_name(step.tool_name):
+            continue
         rows = _operation_rows_from_result(
             step.result if isinstance(step.result, dict) else None,
             default_status=default_status,
@@ -1166,6 +1296,8 @@ def _mutation_groups(
         event_approval_id = event.approval_id
         if isinstance(result, dict):
             event_approval_id = _trimmed(result.get("approval_id") or result.get("_approval_id") or event_approval_id) or None
+        if approvals and event_approval_id is None and _is_write_tool_name(event.tool_name):
+            continue
         if not (_is_write_tool_name(event.tool_name) or event_approval_id in approval_ids):
             continue
         rows = _operation_rows_from_result(
@@ -1202,7 +1334,10 @@ def _mutation_groups(
         group.rows = _dedupe_rows(group.rows)
 
     approval_positions = _approval_position_by_id(approvals)
-    return sorted(groups.values(), key=lambda group: _group_sort_key(group, approval_positions))
+    sorted_groups = sorted(groups.values(), key=lambda group: _group_sort_key(group, approval_positions))
+    business_groups = _merge_mutation_groups_by_business_change(sorted_groups)
+    business_order = _business_change_order_from_text(presentation.summary)
+    return sorted(business_groups, key=lambda group: _business_group_sort_key(group, approval_positions, business_order))
 
 
 def _read_evidence(

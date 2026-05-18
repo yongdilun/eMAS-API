@@ -4,6 +4,7 @@ import test from 'node:test'
 import { findSensitiveArtifactLeaks, sensitiveArtifactSamples } from './artifactRedaction.js'
 import {
   buildSemanticProbe,
+  finalResponseQualityViolations,
   serializeSemanticProbe,
 } from './responseDocumentProbe.js'
 
@@ -192,4 +193,106 @@ test('semantic probe stays under the artifact size and readability budget', () =
   const lines = serializeSemanticProbe(probe).split(/\r?\n/)
 
   assert.ok(lines.length < 200, `expected probe under 200 lines, saw ${lines.length}`)
+})
+
+test('semantic probe summarizes final response visual quality evidence', () => {
+  const probe = buildSemanticProbe({
+    checkpoint: 'final visual quality',
+    snapshot: baseSnapshot({
+      session: { session_id: 'session-phase15', name: 'Chat 15', status: 'COMPLETED' },
+      phase: 'COMPLETED',
+      pending_approval: null,
+      response_document: {
+        state: 'completed',
+        revision: 15,
+        current_step_id: 'completed-1',
+        run_steps: [{ step_id: 'completed-1', kind: 'completed', state: 'completed', title: 'Run complete' }],
+        blocks: [
+          { id: 'result-summary:rd-001', type: 'result_summary', title: 'Changes completed', summary: 'Done. I updated 21 jobs across 2 approved business changes.' },
+          { id: 'mutation:rd-001', type: 'mutation_result', title: 'Affected records', summary: 'Done. I updated 21 jobs across 2 approved business changes.' },
+        ],
+      },
+    }),
+    ui: baseUi({
+      headerStatus: 'Complete',
+      activeSidebarStatus: 'Complete',
+      visibleBlockTypes: ['result_summary', 'mutation_result'],
+      visibleBlockIds: ['result-summary:rd-001', 'mutation:rd-001'],
+      visibleBlocks: [
+        { type: 'result_summary', id: 'result-summary:rd-001', title: 'Changes completed', text: 'Done. I updated 21 jobs across 2 approved business changes.', buttons: [] },
+        { type: 'mutation_result', id: 'mutation:rd-001', title: 'Affected records', text: 'Medium -> High: 10 jobs Original High -> Low: 11 jobs', buttons: [] },
+      ],
+      approvalActionLabels: [],
+      visibleApprovalIds: [],
+      visibleText: 'Done. I updated 21 jobs across 2 approved business changes. Medium -> High: 10 jobs Original High -> Low: 11 jobs',
+      finalResponseQuality: {
+        finalResultCardCount: 1,
+        finalSummaryText: 'Done. I updated 21 jobs across 2 approved business changes.',
+        businessGroups: [
+          { label: 'Medium -> High', count: 10, text: 'Medium -> High: 10 jobs' },
+          { label: 'Original High -> Low', count: 11, text: 'Original High -> Low: 11 jobs' },
+        ],
+        affectedRecordPreviewCount: 5,
+        expandableAuditPresent: true,
+        auditExpanded: false,
+        expandedAuditGroups: [],
+        forbiddenTextHits: [],
+        duplicateAffectedRecordEvidence: [],
+      },
+    }),
+    expected: {
+      sessionStatus: 'COMPLETED',
+      responseState: 'completed',
+      pendingApprovalId: null,
+      finalResponseQuality: {
+        finalResultCardCount: 1,
+        finalSummaryText: /21 jobs across 2 approved business changes/,
+        businessGroups: [
+          { label: 'Medium -> High', count: 10 },
+          { label: 'Original High -> Low', count: 11 },
+        ],
+        affectedRecordPreviewMax: 5,
+        expandableAuditPresent: true,
+      },
+    },
+  })
+
+  assert.equal(probe.diagnosis.classification, 'unknown')
+  assert.equal(probe.visible.finalResponseQuality.finalResultCardCount, 1)
+  assert.deepEqual(
+    probe.visible.finalResponseQuality.businessGroups.map((group) => [group.label, group.count]),
+    [['Medium -> High', 10], ['Original High -> Low', 11]],
+  )
+})
+
+test('final response quality violations explain noisy or duplicated rendered output', () => {
+  const violations = finalResponseQualityViolations({
+    finalResultCardCount: 2,
+    finalSummaryText: 'Updated 63 jobs across 22 approved steps.',
+    businessGroups: [{ label: 'Medium -> High', count: 10 }],
+    affectedRecordPreviewCount: 21,
+    expandableAuditPresent: false,
+    auditExpanded: false,
+    expandedAuditGroups: [],
+    forbiddenTextHits: ['backend operation aggregate leak', 'internal Operation ID'],
+    duplicateAffectedRecordEvidence: [{ section: 'clean-audit:Medium -> High', records: ['JOB-SEED-002'] }],
+  }, {
+    finalResponseQuality: {
+      finalResultCardCount: 1,
+      finalSummaryText: /21 jobs across 2 approved business changes/,
+      businessGroups: [
+        { label: 'Medium -> High', count: 10 },
+        { label: 'Original High -> Low', count: 11 },
+      ],
+      affectedRecordPreviewMax: 5,
+      expandableAuditPresent: true,
+      forbidDuplicateAffectedRecords: true,
+    },
+  })
+
+  assert.match(violations.join('\n'), /final result card count expected 1 but saw 2/)
+  assert.match(violations.join('\n'), /business change group missing Original High -> Low/)
+  assert.match(violations.join('\n'), /affected-record preview expected at most 5/)
+  assert.match(violations.join('\n'), /forbidden final response text/)
+  assert.match(violations.join('\n'), /duplicate affected records/)
 })

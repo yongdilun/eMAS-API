@@ -7,6 +7,7 @@ import {
   baseForbiddenProbeText,
   buildSemanticProbe,
   collectVisibleResponseDocumentUi,
+  finalResponseQualityViolations,
   semanticProbeHumanSummary,
   serializeSemanticProbe,
 } from './responseDocumentProbe.js'
@@ -196,6 +197,7 @@ export function evaluateTransitionProbe(probe, expected = {}) {
       expected.responseState === 'completed',
   })
   addTextExpectationViolations(violations, text, expected)
+  violations.push(...finalResponseQualityViolations(ui.finalResponseQuality || {}, expected))
 
   return {
     ok: violations.length === 0,

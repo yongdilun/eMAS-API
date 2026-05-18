@@ -253,13 +253,23 @@ function responseDocumentTrafficPendingApproval(session) {
 function responseDocumentTrafficDocument(session, {
   revision,
   state = 'completed',
-  message = 'Updated 21 jobs across 2 approved steps.',
+  message = 'Done. I updated 21 jobs across 2 approved business changes.',
   kind = 'completed',
 } = {}) {
   const turnId = session.response_document_turn_id || session.current_turn_id || 'pw-turn-response-document-traffic'
   const documentId = `rd:${session.session_id}:${turnId}`
-  const firstRows = responseDocumentTrafficRows('medium-to-high')
-  const secondRows = responseDocumentTrafficRows('high-to-low')
+  const firstRows = responseDocumentTrafficRows('medium-to-high').map((row) => ({
+    ...row,
+    business_change: 'Medium -> High',
+    change: 'medium -> high',
+    status: 'updated',
+  }))
+  const secondRows = responseDocumentTrafficRows('high-to-low').map((row) => ({
+    ...row,
+    business_change: 'Original High -> Low',
+    change: 'high -> low',
+    status: 'updated',
+  }))
   const waiting = state === 'waiting_approval'
   const failed = state === 'failed'
   const runSteps = waiting
@@ -309,8 +319,8 @@ function responseDocumentTrafficDocument(session, {
             type: 'result_summary',
             summary: message,
             steps: [
-              { step_number: 1, summary: 'Updated 10 jobs from medium to high.', record_count: 10, status: 'completed' },
-              { step_number: 2, summary: 'Updated 11 jobs from high to low.', record_count: 11, status: 'completed' },
+              { step_number: 1, business_change: 'Medium -> High', summary: 'Medium -> High: 10 jobs', record_count: 10, status: 'completed' },
+              { step_number: 2, business_change: 'Original High -> Low', summary: 'Original High -> Low: 11 jobs', record_count: 11, status: 'completed' },
             ],
             total_count: 21,
             status: 'completed',
@@ -320,6 +330,12 @@ function responseDocumentTrafficDocument(session, {
             type: 'mutation_result',
             summary: message,
             rows: [...firstRows, ...secondRows],
+            groups: [
+              { business_change: 'Medium -> High', summary: 'Medium -> High: 10 jobs', record_count: 10, rows: firstRows },
+              { business_change: 'Original High -> Low', summary: 'Original High -> Low: 11 jobs', record_count: 11, rows: secondRows },
+            ],
+            preview_limit: 5,
+            details_collapsed: true,
             status: 'completed',
           },
         ]

@@ -24,15 +24,40 @@ function rowLabel(row, index) {
   return first == null ? `Record ${index + 1}` : String(first)
 }
 
+function rowRecordId(row, index) {
+  return rowLabel(row, index)
+}
+
+function businessChangeLabel(value, fallback = 'Business change') {
+  return safeText(value) || fallback
+}
+
+function businessChangeCount(group) {
+  const explicit = Number(group?.record_count)
+  if (Number.isFinite(explicit)) return explicit
+  return Array.isArray(group?.rows) ? group.rows.length : 0
+}
+
+function businessChangeSummary(group, fallback) {
+  const label = businessChangeLabel(group?.business_change, fallback)
+  const count = businessChangeCount(group)
+  return safeText(group?.summary) || `${label}: ${count} ${count === 1 ? 'job' : 'jobs'}`
+}
+
 function RowPreview({ rows = [], limit = PREVIEW_LIMIT }) {
   const safeRows = Array.isArray(rows) ? rows : []
   if (!safeRows.length) return null
   const preview = safeRows.slice(0, limit)
   const remaining = Math.max(0, safeRows.length - preview.length)
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-ink-muted">
+    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-ink-muted" data-affected-record-preview="">
       {preview.map((row, index) => (
-        <span key={`${rowLabel(row, index)}-${index}`} className="rounded-md bg-surface-3 px-2 py-1">
+        <span
+          key={`${rowLabel(row, index)}-${index}`}
+          className="rounded-md bg-surface-3 px-2 py-1"
+          data-affected-record-row=""
+          data-record-id={rowRecordId(row, index)}
+        >
           {rowLabel(row, index)}
         </span>
       ))}
@@ -40,6 +65,93 @@ function RowPreview({ rows = [], limit = PREVIEW_LIMIT }) {
         <span className="rounded-md bg-surface-3 px-2 py-1">+{remaining} more</span>
       ) : null}
     </div>
+  )
+}
+
+function BusinessChangeList({ groups = [] }) {
+  const safeGroups = Array.isArray(groups) ? groups : []
+  if (!safeGroups.length) return null
+  return (
+    <div className="mt-2 space-y-1.5" data-business-change-list="">
+      {safeGroups.map((group, index) => {
+        const label = businessChangeLabel(group.business_change, `Change ${index + 1}`)
+        const count = businessChangeCount(group)
+        const summary = businessChangeSummary(group, label)
+        return (
+          <div
+            key={`${label}-${index}`}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-surface-2 px-2.5 py-2 text-xs text-ink-muted"
+            data-business-change-group=""
+            data-business-change-label={label}
+            data-business-change-count={count}
+          >
+            <span className="font-semibold text-ink-muted">{summary}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function CleanAuditRows({ rows = [] }) {
+  const safeRows = Array.isArray(rows) ? rows : []
+  if (!safeRows.length) return null
+  return (
+    <div className="mt-2 divide-y divide-hairline overflow-hidden rounded-md border border-hairline bg-surface-1 text-[11px]">
+      {safeRows.map((row, index) => {
+        const recordId = rowRecordId(row, index)
+        const change = safeText(row.change)
+          || [row.previous_priority, row.new_priority || row.current_priority]
+            .filter((value) => value != null && value !== '')
+            .join(' -> ')
+        const status = safeText(row.status || row.outcome)
+        return (
+          <div
+            key={`${recordId}-${index}`}
+            className="grid gap-1 px-2.5 py-2 text-ink sm:grid-cols-[minmax(8rem,1fr)_minmax(7rem,1fr)_auto]"
+            data-affected-record-row=""
+            data-record-id={recordId}
+          >
+            <span className="font-medium">{recordId}</span>
+            {change ? <span className="text-ink-muted">{change}</span> : <span />}
+            {status ? <span className="text-ink-subtle">{status}</span> : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function CleanAuditDisclosure({ groups = [], totalCount = 0, defaultCollapsed = true, blockId = null }) {
+  const safeGroups = Array.isArray(groups) ? groups : []
+  if (!safeGroups.length) return null
+  return (
+    <Disclosure
+      className="mt-3 rounded-md border border-hairline bg-surface-2"
+      summaryClassName="cursor-pointer px-3 py-2 text-xs font-medium text-ink-subtle"
+      title={`Full clean audit (${totalCount})`}
+      defaultCollapsed={defaultCollapsed}
+      data-clean-audit=""
+      key={blockId || 'clean-audit'}
+    >
+      <div className="space-y-3 border-t border-hairline px-3 py-3" data-clean-audit-content="">
+        {safeGroups.map((group, index) => {
+          const label = businessChangeLabel(group.business_change, `Change ${index + 1}`)
+          const count = businessChangeCount(group)
+          return (
+            <section
+              key={`${label}-${index}`}
+              data-clean-audit-group=""
+              data-business-change-label={label}
+              data-business-change-count={count}
+            >
+              <div className="text-xs font-semibold text-ink">{businessChangeSummary(group, label)}</div>
+              <CleanAuditRows rows={group.rows} />
+            </section>
+          )
+        })}
+      </div>
+    </Disclosure>
   )
 }
 
@@ -83,13 +195,14 @@ function CompactCard({ title, children, tone = 'default', blockType = null, bloc
   )
 }
 
-function Disclosure({ title, children, defaultCollapsed = true, className = '', summaryClassName = '' }) {
+function Disclosure({ title, children, defaultCollapsed = true, className = '', summaryClassName = '', ...detailsProps }) {
   const [open, setOpen] = useState(defaultCollapsed === false)
   return (
     <details
       className={className}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
+      {...detailsProps}
     >
       <summary className={summaryClassName}>{title}</summary>
       {children}
@@ -175,7 +288,7 @@ function ResultSummaryBlock({ block }) {
   const steps = Array.isArray(block.steps) ? block.steps : []
   return (
     <CompactCard title={block.title || 'Result summary'} blockType="result_summary" blockId={block.id}>
-      <div className="mt-1 text-sm text-ink">{block.summary}</div>
+      <div className="mt-1 text-sm text-ink" data-final-summary="">{block.summary}</div>
       {steps.length ? (
         <div className="mt-2 space-y-1 text-xs text-ink-muted">
           {steps.map((step, index) => (
@@ -194,9 +307,46 @@ function MutationResultBlock({ block }) {
   const rows = Array.isArray(block.rows) ? block.rows : []
   return (
     <CompactCard title={block.title || 'Mutation result'} blockType="mutation_result" blockId={block.id}>
-      <div className="mt-1 text-sm text-ink">{block.summary}</div>
-      <RowPreview rows={rows} limit={5} />
+      <div className="mt-1 text-sm text-ink" data-final-summary="">{block.summary}</div>
+      <RowPreview rows={rows} limit={block.preview_limit || PREVIEW_LIMIT} />
       {rows.length > 5 ? <ExpandableTable title="Affected records" rows={rows} blockId={block.id} /> : null}
+    </CompactCard>
+  )
+}
+
+function FinalBusinessResultBlock({ summaryBlock, mutationBlock }) {
+  const groups = Array.isArray(mutationBlock?.groups) && mutationBlock.groups.length
+    ? mutationBlock.groups
+    : Array.isArray(summaryBlock?.steps)
+      ? summaryBlock.steps
+      : []
+  const rows = Array.isArray(mutationBlock?.rows) ? mutationBlock.rows : []
+  const previewLimit = Number.isFinite(Number(mutationBlock?.preview_limit))
+    ? Number(mutationBlock.preview_limit)
+    : PREVIEW_LIMIT
+  const totalCount = Number.isFinite(Number(summaryBlock?.total_count))
+    ? Number(summaryBlock.total_count)
+    : rows.length
+
+  return (
+    <CompactCard
+      title={summaryBlock?.title || 'Changes completed'}
+      blockType="result_summary"
+      blockId={summaryBlock?.id}
+    >
+      <div data-final-result-card="" data-response-block-type="mutation_result" data-response-block-id={mutationBlock?.id}>
+        <div className="mt-1 text-sm text-ink" data-final-summary="">
+          {summaryBlock?.summary || mutationBlock?.summary}
+        </div>
+        <BusinessChangeList groups={groups} />
+        <RowPreview rows={rows} limit={previewLimit} />
+        <CleanAuditDisclosure
+          groups={groups}
+          totalCount={totalCount}
+          defaultCollapsed={mutationBlock?.details_collapsed !== false}
+          blockId={mutationBlock?.id}
+        />
+      </div>
     </CompactCard>
   )
 }
@@ -310,6 +460,17 @@ export default function ResponseDocumentRenderer({
   if (!document) return null
   const activitySteps = activityStepsFromResponseDocument(document)
   const message = responseDocumentMessage(document)
+  const finalSummaryBlock = (document.blocks || []).find((block) =>
+    block?.type === 'result_summary' &&
+    block.status === 'completed',
+  )
+  const finalMutationBlock = (document.blocks || []).find((block) =>
+    block?.type === 'mutation_result' &&
+    block.status === 'completed' &&
+    Array.isArray(block.groups) &&
+    block.groups.length > 0,
+  )
+  const shouldRenderFinalBusinessResult = Boolean(finalSummaryBlock && finalMutationBlock)
   const duplicateTableOwners = useMemo(() => {
     const approvalOwners = new Set()
     const mutationOwners = new Set()
@@ -336,12 +497,24 @@ export default function ResponseDocumentRenderer({
       }
       return true
     })
-    .map((block) => renderBlock(block, {
-      pendingApproval,
-      showApprovalActions,
-      decideApproval,
-      isDecidingApproval,
-    }))
+    .flatMap((block) => {
+      if (shouldRenderFinalBusinessResult && block === finalSummaryBlock) {
+        return [(
+          <FinalBusinessResultBlock
+            key={`${finalSummaryBlock.id}:${finalMutationBlock.id}`}
+            summaryBlock={finalSummaryBlock}
+            mutationBlock={finalMutationBlock}
+          />
+        )]
+      }
+      if (shouldRenderFinalBusinessResult && block === finalMutationBlock) return []
+      return [renderBlock(block, {
+        pendingApproval,
+        showApprovalActions,
+        decideApproval,
+        isDecidingApproval,
+      })]
+    })
     .filter(Boolean)
 
   return (

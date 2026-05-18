@@ -971,6 +971,78 @@ test('FactoryAgentChatPanel renders mutation result table from response_document
   await view.unmount()
 })
 
+test('FactoryAgentChatPanel renders completed mutation response_document as one grouped business result', async () => {
+  const mediumRows = Array.from({ length: 10 }, (_, index) => ({
+    job_id: `JOB-MED-${String(index + 1).padStart(3, '0')}`,
+    business_change: 'Medium -> High',
+    change: 'medium -> high',
+    previous_priority: 'medium',
+    new_priority: 'high',
+    status: 'updated',
+  }))
+  const highRows = Array.from({ length: 11 }, (_, index) => ({
+    job_id: `JOB-HIGH-${String(index + 1).padStart(3, '0')}`,
+    business_change: 'Original High -> Low',
+    change: 'high -> low',
+    previous_priority: 'high',
+    new_priority: 'low',
+    status: 'updated',
+  }))
+  const rows = [...mediumRows, ...highRows]
+  const document = baseResponseDocument({
+    blocks: [
+      { id: 'message:business-result', type: 'short_message', message: 'Done. I updated 21 jobs across 2 approved business changes.', status: 'completed' },
+      {
+        id: 'result-summary:business-result',
+        type: 'result_summary',
+        title: 'Changes completed',
+        summary: 'Done. I updated 21 jobs across 2 approved business changes.',
+        steps: [
+          { step_number: 1, business_change: 'Medium -> High', summary: 'Medium -> High: 10 jobs', record_count: 10, status: 'completed' },
+          { step_number: 2, business_change: 'Original High -> Low', summary: 'Original High -> Low: 11 jobs', record_count: 11, status: 'completed' },
+        ],
+        total_count: 21,
+        status: 'completed',
+      },
+      {
+        id: 'mutation:business-result',
+        type: 'mutation_result',
+        title: 'Affected records',
+        summary: 'Done. I updated 21 jobs across 2 approved business changes.',
+        rows,
+        groups: [
+          { business_change: 'Medium -> High', summary: 'Medium -> High: 10 jobs', record_count: 10, rows: mediumRows },
+          { business_change: 'Original High -> Low', summary: 'Original High -> Low: 11 jobs', record_count: 11, rows: highRows },
+        ],
+        preview_limit: 5,
+        details_collapsed: true,
+        status: 'completed',
+      },
+    ],
+  })
+  const chatState = createChatState({
+    session: { session_id: 'session-rd-business-result', name: 'RD business result', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-rd-business-result', name: 'RD business result', status: 'COMPLETED' }],
+    activeSessionName: 'RD business result',
+    turns: [responseDocumentTurn(document)],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Done\. I updated 21 jobs across 2 approved business changes/))
+  assert.equal(view.container.querySelectorAll('[data-final-result-card]').length, 1)
+  assert.equal(view.container.querySelectorAll('[data-response-block-type="result_summary"]').length, 1)
+  assert.equal(view.container.querySelectorAll('[data-response-block-type="mutation_result"]').length, 1)
+  assert.match(view.text(), /Medium -> High: 10 jobs/)
+  assert.match(view.text(), /Original High -> Low: 11 jobs/)
+  assert.equal(view.container.querySelectorAll('[data-affected-record-preview] [data-affected-record-row]').length, 5)
+  const audit = view.container.querySelector('details[data-clean-audit]')
+  assert.equal(audit?.hasAttribute('open'), false)
+  assert.doesNotMatch(view.text(), /Operation ID|Step ID|Row ID|Updated 63 jobs/)
+
+  await view.unmount()
+})
+
 test('FactoryAgentChatPanel renders RAG source block from response_document typed sources', async () => {
   const document = baseResponseDocument({
     blocks: [

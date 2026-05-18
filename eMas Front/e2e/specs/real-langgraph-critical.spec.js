@@ -287,8 +287,8 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
       .toBe('COMPLETED')
     await expectSnapshotApprovalState(page, { status: 'COMPLETED', pendingApprovalId: null })
     expect(await currentPriorityMap()).toEqual(expectedPriorityMapForCascade(so041Changes))
-    await expect(page.getByText(`${originalMediumJobIds.length} medium priority jobs changed to high`).first()).toBeVisible()
-    await expect(page.getByText(`${originalHighJobIds.length} original high priority jobs changed to low`).first()).toBeVisible()
+    await expect(page.getByText(`Medium -> High: ${originalMediumJobIds.length} jobs`).first()).toBeVisible()
+    await expect(page.getByText(`Original High -> Low: ${originalHighJobIds.length} jobs`).first()).toBeVisible()
     await expectTransitionCheckpoint(page, {
       checkpoint: 'RD-001 real LangGraph after final approval shows aggregate completion',
       snapshotForPage,
@@ -305,10 +305,22 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
         approvalActionCount: 0,
         textIncludes: [
           /Run complete/i,
-          new RegExp(`${originalMediumJobIds.length} medium priority jobs changed to high`, 'i'),
-          new RegExp(`${originalHighJobIds.length} original high priority jobs changed to low`, 'i'),
+          `Medium -> High: ${originalMediumJobIds.length} jobs`,
+          `Original High -> Low: ${originalHighJobIds.length} jobs`,
         ],
         textExcludes: [/Waiting for approval/i, /Approval required/i],
+        finalResponseQuality: {
+          finalResultCardCount: 1,
+          finalSummaryText: /21 jobs across 2 approved business changes/i,
+          businessGroups: [
+            { label: 'Medium -> High', count: originalMediumJobIds.length },
+            { label: 'Original High -> Low', count: originalHighJobIds.length },
+          ],
+          affectedRecordPreviewMin: 1,
+          affectedRecordPreviewMax: 5,
+          expandableAuditPresent: true,
+          forbidDuplicateAffectedRecords: true,
+        },
       },
     })
     const finalVisible = await visibleText(page)
@@ -324,8 +336,6 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
     expectPlanAuditMatchesRows(snapshot, { jobIds: originalHighJobIds, requestedPriority: 'low' })
 
     const finalText = await finalAssistantText(sessionId)
-    expect(finalText).toContain(`${originalMediumJobIds.length} medium priority jobs changed to high`)
-    expect(finalText).toContain(`${originalHighJobIds.length} original high priority jobs changed to low`)
     expect(finalText).not.toContain(`Updated **${originalMediumJobIds.length}** job(s).`)
     expect(finalText).not.toMatch(/Factory Agent needs attention/i)
   })

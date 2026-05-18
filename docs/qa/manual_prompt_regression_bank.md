@@ -206,9 +206,17 @@ Phase 14 did not add a new manual prompt scenario. The release sweep did expose 
 |---|---|---|---|
 | `phase14-cancel-active-run-terminal-copy` | Start an active cancellable run, click `Cancel current run`, then restore the cancelled session. | The current and restored cancelled session show `Run cancelled by operator request.`, no busy spinner, no cancel button, no `Run complete`, and no stale active-plan final copy. | `turnAssembler.test.mjs`, `chat-cancel-navigation.spec.js`, `normal-use-hardening.spec.js` mocked Chromium |
 
+## Phase 15 Final Response Visual Quality Regression
+
+Phase 15 does not add a new prompt scenario. It upgrades the existing RD-001 final-response regression from backend contract coverage to a browser semantic visual-quality oracle.
+
+| ID | Prompt / flow | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `phase15-rd001-final-visual-quality-oracle` | `change all medium priority job to high then change all high priority job to low` after both approvals complete. | The browser renders exactly one final result card. The visible summary says 21 jobs across 2 approved business changes, shows `Medium -> High: 10 jobs` and `Original High -> Low: 11 jobs`, previews at most 5 affected records, exposes a collapsed full clean audit grouped by business change, and forbids raw/internal/noisy output including `done_all`, `Updated 63 jobs across 22 approved steps`, `Operation ID`, `Step ID`, `Row ID`, raw assistant markdown as the primary result, duplicate noisy completed-step blocks, and duplicate affected rows in the same rendered section. | `eMas Front/e2e/specs/final-response-quality.spec.js`; `eMas Front/e2e/support/responseDocumentProbe.js`; `eMas Front/e2e/support/factoryAgentTransitionOracle.js`; `eMas Front/e2e/specs/real-langgraph-critical.spec.js`; `factory-agent/tests/test_response_document_contract.py` |
+
 ## Phase 15 Release Enforcement Note
 
-Phase 15 does not add new prompt scenarios. It assigns every fixed or newly found prompt/workflow miss to a blocking lane:
+Phase 15 assigns every fixed or newly found prompt/workflow miss to a blocking lane:
 
 | Failure source | Required lane | Owner | Closure rule |
 |---|---|---|---|

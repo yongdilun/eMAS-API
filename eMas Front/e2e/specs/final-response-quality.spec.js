@@ -222,9 +222,7 @@ async function runCascade(page, { prompt, finalMessage, firstStep, secondStep, f
   await decideApproval(page, 'approve')
   await expect(page.getByText(finalMessage).first()).toBeVisible({ timeout: 10_000 })
   await expect(page.getByText('Run complete').first()).toBeVisible()
-  await expect(page.getByText('Step 1').first()).toBeVisible()
-  await expect(page.getByText('Step 2').first()).toBeVisible()
-  await expect(page.getByText(/original .*priority jobs changed/i).first()).toBeVisible()
+  await expect(page.getByText(/->/).first()).toBeVisible()
   await expect(page.getByText('Approval required')).toHaveCount(0)
   await expect(page.getByText(/Waiting for approval \d/)).toHaveCount(0)
   await expectForbiddenTextAbsent(page, [
@@ -240,6 +238,27 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function finalBusinessQualityExpected({
+  summary,
+  groups = [
+    { label: 'Medium -> High', count: 10 },
+    { label: 'Original High -> Low', count: 11 },
+  ],
+  auditExpanded = false,
+} = {}) {
+  return {
+    finalResultCardCount: 1,
+    finalSummaryText: summary,
+    businessGroups: groups,
+    affectedRecordPreviewMin: 1,
+    affectedRecordPreviewMax: 5,
+    expandableAuditPresent: true,
+    auditExpanded,
+    expandedAuditGroups: auditExpanded ? groups : [],
+    forbidDuplicateAffectedRecords: true,
+  }
+}
+
 async function runCascadeStateTransitionOracle(page, testInfo, {
   kind,
   label,
@@ -251,6 +270,15 @@ async function runCascadeStateTransitionOracle(page, testInfo, {
   const definition = cascadeDefinition(kind)
   const firstApprovalId = definition.first.approvalId
   const secondApprovalId = definition.second.approvalId
+  const finalGroups = kind === 'reverse'
+    ? [
+        { label: 'High -> Low', count: 11 },
+        { label: 'Original Low -> Medium', count: 5 },
+      ]
+    : [
+        { label: 'Medium -> High', count: 10 },
+        { label: 'Original High -> Low', count: 11 },
+      ]
   expect(secondApprovalId).not.toBe(firstApprovalId)
 
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -317,8 +345,9 @@ async function runCascadeStateTransitionOracle(page, testInfo, {
       hiddenBlockIds: [`approval:${firstApprovalId}`, `approval:${secondApprovalId}`],
       hiddenBackendBlockTypes: ['approval_required'],
       approvalActionCount: 0,
-      textIncludes: [definition.finalMessage, 'Run complete', 'Step 1', 'Step 2'],
+      textIncludes: [definition.finalMessage, 'Run complete', finalGroups[0].label, finalGroups[1].label],
       textExcludes: [/Waiting for approval \d/i, /Approval required/i],
+      finalResponseQuality: finalBusinessQualityExpected({ summary: definition.finalMessage, groups: finalGroups }),
     },
   })
 }
@@ -371,6 +400,110 @@ test.describe('Final response quality response_document gate', () => {
     expect(body.split(/\r?\n/).length).toBeLessThan(200)
   })
 
+  test('RD-001 final response visual quality oracle proves compact grouped business result', async ({ page }, testInfo) => {
+    const definition = cascadeDefinition('forward')
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await openChat(page)
+    await sendChatPrompt(page, definition.prompt)
+
+    await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-001 visual quality after send shows approval 1',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'WAITING_APPROVAL',
+        responseState: 'waiting_approval',
+        pendingApprovalId: definition.first.approvalId,
+        visibleBlockTypes: ['approval_required'],
+        visibleBlockIds: [`approval:${definition.first.approvalId}`],
+        approvalActionCount: 2,
+      },
+    })
+
+    await decideApproval(page, 'approve')
+    await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-001 visual quality after approval 1 shows approval 2',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'WAITING_APPROVAL',
+        responseState: 'waiting_approval',
+        pendingApprovalId: definition.second.approvalId,
+        visibleBlockTypes: ['completed_step', 'approval_required'],
+        visibleBlockIds: [`approval:${definition.second.approvalId}`],
+        hiddenBlockIds: [`approval:${definition.first.approvalId}`],
+        approvalActionCount: 2,
+        forbidWaitingApproval1: true,
+      },
+    })
+
+    await decideApproval(page, 'approve')
+    const collapsedSummary = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-001 final response visual quality collapsed',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['result_summary', 'mutation_result'],
+        hiddenBlockTypes: ['approval_required', 'completed_step'],
+        hiddenBackendBlockTypes: ['approval_required', 'completed_step', 'result_table'],
+        approvalActionCount: 0,
+        textIncludes: [
+          definition.finalMessage,
+          'Changes completed',
+          'Medium -> High: 10 jobs',
+          'Original High -> Low: 11 jobs',
+          'Full clean audit',
+        ],
+        textExcludes: [
+          /Updated 63 jobs across 22 approved steps/i,
+          /Operation ID/i,
+          /Step ID/i,
+          /Row ID/i,
+          /\*\*Success\*\*/i,
+          /Approval required/i,
+        ],
+        finalResponseQuality: finalBusinessQualityExpected({ summary: definition.finalMessage }),
+      },
+    })
+    await testInfo.attach('rd-001-final-visual-quality-collapsed-probe.json', {
+      body: serializeSemanticProbe(collapsedSummary),
+      contentType: 'application/json',
+    })
+
+    const audit = page.locator('[data-final-result-card] details[data-clean-audit]').last()
+    await expect(audit).toBeVisible()
+    expect(await audit.evaluate((node) => node.open)).toBe(false)
+    await audit.locator('summary').click()
+
+    const expandedSummary = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-001 final response visual quality expanded audit',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['result_summary', 'mutation_result'],
+        hiddenBlockTypes: ['approval_required', 'completed_step'],
+        approvalActionCount: 0,
+        finalResponseQuality: finalBusinessQualityExpected({
+          summary: definition.finalMessage,
+          auditExpanded: true,
+        }),
+      },
+    })
+    await testInfo.attach('rd-001-final-visual-quality-expanded-probe.json', {
+      body: serializeSemanticProbe(expandedSummary),
+      contentType: 'application/json',
+    })
+    await expect(page.locator('[data-clean-audit-group]')).toHaveCount(2)
+    await expect(page.locator('[data-clean-audit-group][data-business-change-label="Medium -> High"] [data-affected-record-row]')).toHaveCount(10)
+    await expect(page.locator('[data-clean-audit-group][data-business-change-label="Original High -> Low"] [data-affected-record-row]')).toHaveCount(11)
+  })
+
   test('RD-002 state transition oracle covers reverse cascade without overfitting RD-001', async ({ page }, testInfo) => {
     await runCascadeStateTransitionOracle(page, testInfo, {
       kind: 'reverse',
@@ -412,7 +545,7 @@ test.describe('Final response quality response_document gate', () => {
     })
 
     await decideApproval(page, 'approve')
-    await expect(page.getByText('Updated 21 jobs across 2 approved steps.').first()).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Done. I updated 21 jobs across 2 approved business changes.').first()).toBeVisible({ timeout: 10_000 })
     await expectActiveStateAgreement(page, {
       sessionStatus: 'COMPLETED',
       responseState: 'completed',
@@ -424,7 +557,7 @@ test.describe('Final response quality response_document gate', () => {
   test('two-approval cascade keeps compact pending state and final aggregate truth', async ({ page }) => {
     await runCascade(page, {
       prompt: responseDocumentCascadePrompt,
-      finalMessage: 'Updated 21 jobs across 2 approved steps.',
+      finalMessage: 'Done. I updated 21 jobs across 2 approved business changes.',
       firstStep: 'Update 10 jobs from medium to high',
       secondStep: 'Update 11 jobs from high to low',
       firstRowsLabel: 'Found 10 original medium-priority jobs',
@@ -435,7 +568,7 @@ test.describe('Final response quality response_document gate', () => {
   test('reverse two-approval cascade converges to final aggregate truth', async ({ page }) => {
     await runCascade(page, {
       prompt: responseDocumentReverseCascadePrompt,
-      finalMessage: 'Updated 16 jobs across 2 approved steps.',
+      finalMessage: 'Done. I updated 16 jobs across 2 approved business changes.',
       firstStep: 'Update 11 jobs from high to low',
       secondStep: 'Update 5 jobs from low to medium',
       firstRowsLabel: 'Found 11 original high-priority jobs',
@@ -521,9 +654,9 @@ test.describe('Final response quality response_document gate', () => {
     await openChat(page)
     await sendChatPrompt(page, responseDocumentTrafficPrompt)
 
-    await expect(page.getByText('Updated 21 jobs across 2 approved steps.').first()).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Done. I updated 21 jobs across 2 approved business changes.').first()).toBeVisible({ timeout: 10_000 })
     await page.waitForTimeout(900)
-    await expect(page.getByText('Updated 21 jobs across 2 approved steps.').first()).toBeVisible()
+    await expect(page.getByText('Done. I updated 21 jobs across 2 approved business changes.').first()).toBeVisible()
     await expect(page.getByText('Stale failure: database unavailable.')).toHaveCount(0)
     await expect(page.getByText('Response document invalid')).toHaveCount(0)
     await expect(page.getByText('Approval required')).toHaveCount(0)

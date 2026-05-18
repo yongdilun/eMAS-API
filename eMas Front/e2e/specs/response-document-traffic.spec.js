@@ -21,7 +21,7 @@ async function installStaleFlickerProbe(page) {
       const text = document.body?.innerText || ''
       const probe = window.__responseDocumentTrafficProbe
       if (!probe) return
-      if (text.includes('Updated 21 jobs across 2 approved steps.')) {
+      if (text.includes('Done. I updated 21 jobs across 2 approved business changes.')) {
         probe.finalSeen = true
       }
       if (
@@ -52,9 +52,9 @@ test.describe('Factory Agent response_document revision busy traffic', () => {
 
     await sendChatPrompt(page, responseDocumentTrafficPrompt)
 
-    await expect(page.getByText('Updated 21 jobs across 2 approved steps.').first()).toBeVisible()
-    await expect(page.getByText('Step 1')).toHaveCount(1)
-    await expect(page.getByText('Step 2')).toHaveCount(1)
+    await expect(page.getByText('Done. I updated 21 jobs across 2 approved business changes.').first()).toBeVisible()
+    await expect(page.getByText('Medium -> High: 10 jobs')).toHaveCount(1)
+    await expect(page.getByText('Original High -> Low: 11 jobs')).toHaveCount(1)
 
     await expect(page.getByText('Stale failure: database unavailable.')).toHaveCount(0)
     await expect(page.getByText('Response document invalid')).toHaveCount(0)
@@ -62,7 +62,7 @@ test.describe('Factory Agent response_document revision busy traffic', () => {
     await expect(page.getByText('Waiting for approval 2')).toHaveCount(0)
 
     await page.waitForTimeout(900)
-    await expect(page.getByText('Updated 21 jobs across 2 approved steps.').first()).toBeVisible()
+    await expect(page.getByText('Done. I updated 21 jobs across 2 approved business changes.').first()).toBeVisible()
     await expect(page.getByText('Stale failure: database unavailable.')).toHaveCount(0)
     await expect(page.getByText('Response document invalid')).toHaveCount(0)
     await expect(page.getByText('Approval required')).toHaveCount(0)

@@ -22,12 +22,12 @@ Created: 2026-05-18
 | 12 | Semantic snapshot probe and artifact quality | Done | Codex | Added compact semantic probe helper, oracle failure attachments, diagnosis classification, redaction/size tests, and a browser artifact proof. |
 | 13 | Manual screenshot regression intake | Done | Codex | Added strict screenshot intake template, structured Chat 514 regression entry, and a bank gate that rejects vague/manual-only screenshot issues. |
 | 14 | Final response business contract | Done | Codex | Backend `response_document` now emits clean business-level completed mutation results: grouped changes, deduped affected records, compact preview contract, and no raw assistant/internal-id noise in final mutation blocks. |
-| 15 | Final response visual quality oracle | Not Started | Codex | Browser semantic oracle must prove the rendered final response is compact, grouped, expandable, and free of raw/internal noise. |
+| 15 | Final response visual quality oracle | Done | Codex | Added browser semantic oracle coverage for RD-001 final visual quality, compact grouped rendering, expandable clean audit, forbidden-text detection, and duplicate affected-record evidence. |
 
 ## Current Blockers
 
 - Chat 514 style orphan state is fixed and covered by Phase 10 backend plus mocked browser regressions. Normal prompts must not settle as `IDLE/non_terminal_snapshot` with generic `Needs attention`.
-- RD-001 noisy final mutation output is fixed in Phase 14 at the backend response-document contract: final completed mutation blocks now summarize 21 jobs across 2 approved business changes and omit raw assistant/internal-id noise.
+- RD-001 noisy final mutation output is fixed in Phase 14/15 at the backend response-document contract and browser visual oracle: final completed mutation blocks summarize 21 jobs across 2 approved business changes and omit raw assistant/internal-id noise.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -963,30 +963,46 @@ python -m pytest tests/test_api_endpoints.py::test_graph_approval_returns_before
 
 ## Phase 15 Checklist
 
-- [ ] Extend `responseDocumentProbe` to capture final-response quality structure.
-- [ ] Add browser semantic oracle for RD-001 final completion.
-- [ ] Assert one final result card only.
-- [ ] Assert exactly 2 business change groups.
-- [ ] Assert total affected count is 21 and preview count is at most 5.
-- [ ] Assert expandable clean audit exists and is grouped by business change.
-- [ ] Forbid `done_all`, `Updated 63 jobs across 22 approved steps`, `Operation ID`, `Step ID`, and `Row ID`.
-- [ ] Assert no duplicate affected records appear in the same rendered section.
-- [ ] Run mocked response-document E2E and real LangGraph critical proof.
-- [ ] Commit Phase 15.
+- [x] Extend `responseDocumentProbe` to capture final-response quality structure.
+- [x] Add browser semantic oracle for RD-001 final completion.
+- [x] Assert one final result card only.
+- [x] Assert exactly 2 business change groups.
+- [x] Assert total affected count is 21 and preview count is at most 5.
+- [x] Assert expandable clean audit exists and is grouped by business change.
+- [x] Forbid `done_all`, `Updated 63 jobs across 22 approved steps`, `Operation ID`, `Step ID`, and `Row ID`.
+- [x] Assert no duplicate affected records appear in the same rendered section.
+- [x] Run mocked response-document E2E and real LangGraph critical proof.
+- [x] Commit Phase 15.
 
 ## Phase 15 Implementation Notes
 
-Status: Not Started
+Status: Done
 
-Phase 15 should not repair backend data in the frontend. It should prove that the backend Phase 14 contract renders correctly and fail loudly if raw/internal/noisy content reaches the visible chat.
+Phase 15 proves the backend Phase 14 contract in the browser instead of relying on screenshots or raw final text. `responseDocumentProbe` now captures final result card count, summary text, business group labels/counts, affected-record preview count, expandable clean-audit state, expanded audit grouping, forbidden visible text, and duplicate affected-record evidence. The transition oracle includes those violations in its compact diagnosis.
+
+Product bugs found: yes.
+
+- The renderer handled the Phase 14 `result_summary` + grouped `mutation_result` contract as separate generic cards. It now renders one compact final business result with a 5-row preview, grouped summary, and collapsed clean audit.
+- The live LangGraph composer could still feed shadow read/write presentation rows into the final mutation evidence. The backend composer now prefers complete business-change evidence, dedupes by affected record/change, preserves business order from the final business summary, and keeps internal ids out of normal final UI.
+
+Browser proof added:
+
+- Mocked RD-001 final visual quality oracle in `eMas Front/e2e/specs/final-response-quality.spec.js`.
+- Real LangGraph RD-001/SO-041 final visual quality expectations in `eMas Front/e2e/specs/real-langgraph-critical.spec.js`.
+- Probe/unit coverage in `responseDocumentProbe.test.mjs`, transition-oracle coverage in `factoryAgentTransitionOracle.test.mjs`, and renderer component coverage in `FactoryAgentChatPanel.component.test.mjs`.
 
 ### Phase 15 Verification Target
 
 ```powershell
 Set-Location "eMas Front"
 npm test
+node --test --test-concurrency=1 e2e/support/responseDocumentProbe.test.mjs
+node --test --test-concurrency=1 e2e/support/factoryAgentTransitionOracle.test.mjs
 npm run test:e2e:response-document -- --grep "final response quality|RD-001|business result|visual quality"
 npm run test:e2e:real-langgraph -- --grep "RD-001|SO-041|final response quality|@critical"
+
+Set-Location "..\factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
 ```
 
 ## Phase 10 Implementation Notes

@@ -85,7 +85,7 @@ export function cascadeDefinition(kind = 'forward') {
         target: 'medium',
         rows: lowPriorityRows,
       },
-      finalMessage: 'Updated 16 jobs across 2 approved steps.',
+      finalMessage: 'Done. I updated 16 jobs across 2 approved business changes.',
     }
   }
   return {
@@ -103,7 +103,7 @@ export function cascadeDefinition(kind = 'forward') {
       target: 'low',
       rows: highPriorityRows,
     },
-    finalMessage: 'Updated 21 jobs across 2 approved steps.',
+    finalMessage: 'Done. I updated 21 jobs across 2 approved business changes.',
   }
 }
 
@@ -271,7 +271,21 @@ export function cascadeWaitingDocument(session, definition, approvalNumber = 1) 
 }
 
 export function cascadeFinalDocument(session, definition) {
-  const rows = [...definition.first.rows, ...definition.second.rows]
+  const firstLabel = `${definition.first.source[0].toUpperCase()}${definition.first.source.slice(1)} -> ${definition.first.target[0].toUpperCase()}${definition.first.target.slice(1)}`
+  const secondLabel = `Original ${definition.second.source[0].toUpperCase()}${definition.second.source.slice(1)} -> ${definition.second.target[0].toUpperCase()}${definition.second.target.slice(1)}`
+  const firstRows = definition.first.rows.map((row) => ({
+    ...row,
+    business_change: firstLabel,
+    change: `${definition.first.source} -> ${definition.first.target}`,
+    status: 'updated',
+  }))
+  const secondRows = definition.second.rows.map((row) => ({
+    ...row,
+    business_change: secondLabel,
+    change: `${definition.second.source} -> ${definition.second.target}`,
+    status: 'updated',
+  }))
+  const rows = [...firstRows, ...secondRows]
   return baseDocument(session, {
     operationId: definition.operationId,
     revision: 8,
@@ -291,10 +305,11 @@ export function cascadeFinalDocument(session, definition) {
         id: `result-summary:${definition.operationId}`,
         type: 'result_summary',
         operation_id: definition.operationId,
+        title: 'Changes completed',
         summary: definition.finalMessage,
         steps: [
-          { step_number: 1, approval_id: definition.first.approvalId, summary: `${definition.first.rows.length} original ${definition.first.source}-priority jobs changed to ${definition.first.target}.`, record_count: definition.first.rows.length, status: 'completed' },
-          { step_number: 2, approval_id: definition.second.approvalId, summary: `${definition.second.rows.length} original ${definition.second.source}-priority jobs changed to ${definition.second.target}.`, record_count: definition.second.rows.length, status: 'completed' },
+          { step_number: 1, business_change: firstLabel, summary: `${firstLabel}: ${definition.first.rows.length} jobs`, record_count: definition.first.rows.length, status: 'completed' },
+          { step_number: 2, business_change: secondLabel, summary: `${secondLabel}: ${definition.second.rows.length} jobs`, record_count: definition.second.rows.length, status: 'completed' },
         ],
         total_count: rows.length,
         status: 'completed',
@@ -303,22 +318,36 @@ export function cascadeFinalDocument(session, definition) {
         id: `mutation:${definition.operationId}`,
         type: 'mutation_result',
         operation_id: definition.operationId,
+        title: 'Affected records',
         summary: definition.finalMessage,
         rows,
+        groups: [
+          {
+            business_change: firstLabel,
+            summary: `${firstLabel}: ${definition.first.rows.length} jobs`,
+            record_count: definition.first.rows.length,
+            rows: firstRows,
+          },
+          {
+            business_change: secondLabel,
+            summary: `${secondLabel}: ${definition.second.rows.length} jobs`,
+            record_count: definition.second.rows.length,
+            rows: secondRows,
+          },
+        ],
+        preview_limit: 5,
+        details_collapsed: true,
         status: 'completed',
-      },
-      {
-        id: `table:${definition.operationId}:affected-records`,
-        type: 'result_table',
-        operation_id: definition.operationId,
-        title: 'Affected records',
-        rows,
       },
     ],
     invariants: {
       latest_pending_approval_id: null,
       completed_approval_ids: [definition.first.approvalId, definition.second.approvalId],
       mutation_group_count: 2,
+      mutation_business_contract: 'business_level_v1',
+      affected_record_count: rows.length,
+      approved_business_change_count: 2,
+      affected_record_preview_limit: 5,
     },
   })
 }

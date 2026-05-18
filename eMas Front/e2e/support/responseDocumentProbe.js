@@ -38,6 +38,16 @@ export const baseForbiddenProbeText = Object.freeze([
   { label: 'known secret sample', pattern: /\b(?:sk-[a-z0-9_-]{12,}|raw-secret-token|super-secret)\b/i },
 ])
 
+export const finalResponseForbiddenProbeText = Object.freeze([
+  { label: 'raw assistant done_all marker', pattern: /(?:^|\s)done_all(?:\s|$)/i },
+  { label: 'raw assistant success markdown', pattern: /\*\*Success\*\*/i },
+  { label: 'backend operation aggregate leak', pattern: /Updated 63 jobs across 22 approved steps/i },
+  { label: 'internal Operation ID', pattern: /Operation ID/i },
+  { label: 'internal Step ID', pattern: /Step ID/i },
+  { label: 'internal Row ID', pattern: /Row ID/i },
+  { label: 'legacy approved-step aggregate', pattern: /Updated 21 jobs across 2 approved steps/i },
+])
+
 const DISPLAYABLE_BLOCK_TYPES = new Set([
   'approval_required',
   'approval_card',
@@ -193,6 +203,39 @@ function summarizeVisibleBlocks(blocks = []) {
   }))
 }
 
+function summarizeBusinessGroups(groups = []) {
+  return asArray(groups).slice(0, 8).map((group) => compactObject({
+    label: compactText(group?.label || group?.businessChange || group?.business_change || '', 80) || null,
+    count: Number.isFinite(Number(group?.count ?? group?.record_count)) ? Number(group?.count ?? group?.record_count) : null,
+    text: compactText(group?.text || group?.summary || '', 120) || null,
+  }))
+}
+
+function summarizeDuplicateEvidence(duplicates = []) {
+  return asArray(duplicates).slice(0, 8).map((item) => compactObject({
+    section: compactText(item?.section || '', 100) || null,
+    records: compactArray(item?.records || [], 8),
+  }))
+}
+
+export function summarizeFinalResponseQuality(quality = {}) {
+  return compactObject({
+    finalResultCardCount: Number.isFinite(Number(quality.finalResultCardCount))
+      ? Number(quality.finalResultCardCount)
+      : 0,
+    finalSummaryText: compactText(quality.finalSummaryText || '', 180) || null,
+    businessGroups: summarizeBusinessGroups(quality.businessGroups || []),
+    affectedRecordPreviewCount: Number.isFinite(Number(quality.affectedRecordPreviewCount))
+      ? Number(quality.affectedRecordPreviewCount)
+      : 0,
+    expandableAuditPresent: Boolean(quality.expandableAuditPresent),
+    auditExpanded: Boolean(quality.auditExpanded),
+    expandedAuditGroups: summarizeBusinessGroups(quality.expandedAuditGroups || []),
+    forbiddenTextHits: compactArray(quality.forbiddenTextHits || [], 20),
+    duplicateAffectedRecordEvidence: summarizeDuplicateEvidence(quality.duplicateAffectedRecordEvidence || []),
+  })
+}
+
 export function forbiddenTextHits(text, expected = {}) {
   const forbidden = [...baseForbiddenProbeText, ...asArray(expected.forbiddenText)]
   if (expected.forbidWaitingApproval1) {
@@ -233,6 +276,7 @@ export function summarizeVisibleUi(ui = {}, expected = {}) {
     visibleApprovalIds: approvalIds,
     approvalButtons: compactArray(ui.approvalActionLabels || ui.approvalButtons || []),
     forbiddenTextHits: compactArray(forbiddenTextHits(ui.visibleText || '', expected), 20),
+    finalResponseQuality: summarizeFinalResponseQuality(ui.finalResponseQuality || {}),
   }
 }
 
@@ -245,6 +289,7 @@ function compactExpected(expected = {}) {
     hiddenBlockTypes: expected.hiddenBlockTypes || undefined,
     backendBlockTypes: expected.backendBlockTypes || undefined,
     hiddenBackendBlockTypes: expected.hiddenBackendBlockTypes || undefined,
+    finalResponseQuality: expected.finalResponseQuality || undefined,
     textIncludes: asArray(expected.textIncludes).map(labelForPattern),
     textExcludes: asArray(expected.textExcludes).map(labelForPattern),
   }
@@ -333,6 +378,61 @@ function rendererDomDisagrees(backend, visible, expected = {}) {
   return null
 }
 
+function expectedGroupMatches(actualGroup, expectedGroup) {
+  const label = actualGroup?.label || ''
+  const expectedLabel = expectedGroup?.label || expectedGroup?.businessChange || ''
+  if (expectedLabel && label !== expectedLabel) return false
+  if (Object.hasOwn(expectedGroup || {}, 'count') && Number(actualGroup?.count) !== Number(expectedGroup.count)) return false
+  return true
+}
+
+export function finalResponseQualityViolations(quality = {}, expected = {}) {
+  const violations = []
+  const rules = expected.finalResponseQuality || (
+    Object.hasOwn(expected, 'finalResultCardCount') ? expected : null
+  )
+  if (!rules || Object.keys(rules).length === 0) return violations
+
+  if (Object.hasOwn(rules, 'finalResultCardCount') && quality.finalResultCardCount !== rules.finalResultCardCount) {
+    violations.push(`final result card count expected ${rules.finalResultCardCount} but saw ${quality.finalResultCardCount}`)
+  }
+  if (rules.finalSummaryText && !matches(quality.finalSummaryText || '', rules.finalSummaryText)) {
+    violations.push(`final summary text did not match ${labelForPattern(rules.finalSummaryText)}`)
+  }
+  for (const expectedGroup of asArray(rules.businessGroups)) {
+    if (!asArray(quality.businessGroups).some((group) => expectedGroupMatches(group, expectedGroup))) {
+      violations.push(`business change group missing ${expectedGroup.label || expectedGroup.businessChange || JSON.stringify(expectedGroup)}`)
+    }
+  }
+  if (Object.hasOwn(rules, 'affectedRecordPreviewMax') && quality.affectedRecordPreviewCount > rules.affectedRecordPreviewMax) {
+    violations.push(`affected-record preview expected at most ${rules.affectedRecordPreviewMax} rows but saw ${quality.affectedRecordPreviewCount}`)
+  }
+  if (Object.hasOwn(rules, 'affectedRecordPreviewMin') && quality.affectedRecordPreviewCount < rules.affectedRecordPreviewMin) {
+    violations.push(`affected-record preview expected at least ${rules.affectedRecordPreviewMin} rows but saw ${quality.affectedRecordPreviewCount}`)
+  }
+  if (rules.expandableAuditPresent && !quality.expandableAuditPresent) {
+    violations.push('expandable clean audit was not present')
+  }
+  if (rules.auditExpanded && !quality.auditExpanded) {
+    violations.push('clean audit was expected to be expanded but was collapsed')
+  }
+  for (const expectedGroup of asArray(rules.expandedAuditGroups)) {
+    if (!asArray(quality.expandedAuditGroups).some((group) => expectedGroupMatches(group, expectedGroup))) {
+      violations.push(`expanded audit group missing ${expectedGroup.label || expectedGroup.businessChange || JSON.stringify(expectedGroup)}`)
+    }
+  }
+  if (rules.forbidFinalResponseText !== false && asArray(quality.forbiddenTextHits).length) {
+    violations.push(`forbidden final response text: ${quality.forbiddenTextHits.join(', ')}`)
+  }
+  if (rules.forbidDuplicateAffectedRecords !== false && asArray(quality.duplicateAffectedRecordEvidence).length) {
+    const sections = quality.duplicateAffectedRecordEvidence
+      .map((item) => `${item.section || '<section>'}: ${(item.records || []).join(', ')}`)
+      .join('; ')
+    violations.push(`duplicate affected records in rendered section: ${sections}`)
+  }
+  return violations
+}
+
 export function classifySemanticProbe(probe, expected = {}) {
   const backend = probe.backend || summarizeBackendSnapshot(probe.snapshot)
   const visible = probe.visible || probe.ui || summarizeVisibleUi(probe.ui || {}, expected)
@@ -363,6 +463,11 @@ export function classifySemanticProbe(probe, expected = {}) {
 
   const rendererReason = rendererDomDisagrees(backend, visible, expected)
   if (rendererReason) return { classification: 'renderer_dom_gap', reasons: [rendererReason] }
+
+  const qualityViolations = finalResponseQualityViolations(visible.finalResponseQuality || {}, expected)
+  if (qualityViolations.length) {
+    return { classification: 'final_response_visual_quality_gap', reasons: qualityViolations.slice(0, 3) }
+  }
 
   return { classification: 'unknown', reasons: [] }
 }
@@ -412,7 +517,10 @@ export function semanticProbeHumanSummary(probe) {
     `Semantic probe diagnosis: ${diagnosis.classification}.${reason}`,
     `Backend: session.status=${backend.sessionStatus || '<missing>'}, response_document.state=${backend.responseDocumentState || '<missing>'}, revision=${backend.responseDocumentRevision ?? '<missing>'}, pendingApprovalId=${backend.pendingApprovalId || '<none>'}.`,
     `Visible: header=${visible.headerStatus || '<missing>'}, sidebar=${visible.activeSidebarStatus || '<missing>'}, blocks=${(visible.visibleBlockTypes || []).join(', ') || '<none>'}, approvals=${(visible.visibleApprovalIds || []).join(', ') || '<none>'}.`,
-  ].join('\n')
+    visible.finalResponseQuality
+      ? `Final response: cards=${visible.finalResponseQuality.finalResultCardCount ?? 0}, groups=${(visible.finalResponseQuality.businessGroups || []).map((group) => `${group.label}:${group.count}`).join(', ') || '<none>'}, previewRows=${visible.finalResponseQuality.affectedRecordPreviewCount ?? 0}, audit=${visible.finalResponseQuality.expandableAuditPresent ? visible.finalResponseQuality.auditExpanded ? 'expanded' : 'collapsed' : '<missing>'}.`
+      : null,
+  ].filter(Boolean).join('\n')
 }
 
 export function serializeSemanticProbe(probe) {
@@ -469,9 +577,39 @@ export async function collectVisibleResponseDocumentUi(page) {
       .split(/\n+/)
       .map((line) => line.trim())
       .filter(Boolean)
+    const visibleTextWithoutIcons = (node) => {
+      if (!node) return ''
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
+        acceptNode(textNode) {
+          const parent = textNode.parentElement
+          if (parent?.closest?.('.material-symbols-outlined')) return NodeFilter.FILTER_REJECT
+          return NodeFilter.FILTER_ACCEPT
+        },
+      })
+      const values = []
+      while (walker.nextNode()) values.push(walker.currentNode.nodeValue || '')
+      return values.join(' ').replace(/\s+/g, ' ').trim()
+    }
     const messageText = (container, roleLabel) => lines(container)
       .filter((line) => line !== roleLabel && !/^\d{1,2}:\d{2}/.test(line) && line !== 'eMAS Response')
       .join(' ')
+    const groupFromNode = (node) => ({
+      label: node.getAttribute('data-business-change-label') || '',
+      count: Number(node.getAttribute('data-business-change-count') || 0),
+      text: compact(node.innerText || node.textContent || '', 140),
+    })
+    const duplicateRowsInSection = (section, sectionName) => {
+      const counts = new Map()
+      for (const row of Array.from(section.querySelectorAll('[data-affected-record-row]'))) {
+        const record = (row.getAttribute('data-record-id') || row.textContent || '').trim()
+        if (!record || /^\+\d+ more$/.test(record)) continue
+        counts.set(record, (counts.get(record) || 0) + 1)
+      }
+      const records = Array.from(counts.entries())
+        .filter(([, count]) => count > 1)
+        .map(([record]) => record)
+      return records.length ? { section: sectionName, records } : null
+    }
 
     const activeSessionId = window.localStorage.getItem('factory_agent_active_session_id') || null
     const dialog = document.querySelector('[role="dialog"]') || document.body
@@ -530,6 +668,48 @@ export async function collectVisibleResponseDocumentUi(page) {
         state: stateFromIcon(icon),
       }
     }).filter((row) => row.title)
+    const finalCards = Array.from(latestRoot.querySelectorAll('[data-final-result-card]'))
+    const latestFinalCard = finalCards[finalCards.length - 1] || null
+    const audit = latestFinalCard?.querySelector('details[data-clean-audit]') || latestRoot.querySelector('details[data-clean-audit]')
+    const finalVisibleText = visibleTextWithoutIcons(latestRoot)
+    const finalForbidden = [
+      ['raw assistant done_all marker', /(?:^|\s)done_all(?:\s|$)/i],
+      ['raw assistant success markdown', /\*\*Success\*\*/i],
+      ['backend operation aggregate leak', /Updated 63 jobs across 22 approved steps/i],
+      ['internal Operation ID', /Operation ID/i],
+      ['internal Step ID', /Step ID/i],
+      ['internal Row ID', /Row ID/i],
+      ['legacy approved-step aggregate', /Updated 21 jobs across 2 approved steps/i],
+    ]
+    const duplicateEvidence = []
+    for (const [index, section] of Array.from(latestRoot.querySelectorAll('[data-affected-record-preview]')).entries()) {
+      const duplicate = duplicateRowsInSection(section, `affected-record-preview-${index + 1}`)
+      if (duplicate) duplicateEvidence.push(duplicate)
+    }
+    if (audit?.open) {
+      for (const group of Array.from(audit.querySelectorAll('[data-clean-audit-group]'))) {
+        const label = group.getAttribute('data-business-change-label') || 'clean-audit-group'
+        const duplicate = duplicateRowsInSection(group, `clean-audit:${label}`)
+        if (duplicate) duplicateEvidence.push(duplicate)
+      }
+    }
+    const finalResponseQuality = {
+      finalResultCardCount: finalCards.length,
+      finalSummaryText: compact(latestFinalCard?.querySelector('[data-final-summary]')?.innerText || '', 220),
+      businessGroups: Array.from(latestFinalCard?.querySelectorAll('[data-business-change-group]') || []).map(groupFromNode),
+      affectedRecordPreviewCount: latestFinalCard
+        ? Array.from(latestFinalCard.querySelectorAll('[data-affected-record-preview] [data-affected-record-row]')).length
+        : 0,
+      expandableAuditPresent: Boolean(audit),
+      auditExpanded: Boolean(audit?.open),
+      expandedAuditGroups: audit?.open
+        ? Array.from(audit.querySelectorAll('[data-clean-audit-group]')).map(groupFromNode)
+        : [],
+      forbiddenTextHits: finalForbidden
+        .filter(([, pattern]) => pattern.test(finalVisibleText))
+        .map(([label]) => label),
+      duplicateAffectedRecordEvidence: duplicateEvidence,
+    }
 
     return {
       activeSessionId,
@@ -547,6 +727,7 @@ export async function collectVisibleResponseDocumentUi(page) {
       approvalActionLabels,
       latestAssistantText: latestRoot.innerText || latestRoot.textContent || '',
       visibleText: dialog.innerText || document.body.innerText || '',
+      finalResponseQuality,
     }
   }, statusLabels)
 }

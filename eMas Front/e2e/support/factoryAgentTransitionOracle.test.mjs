@@ -134,6 +134,63 @@ test('transition oracle forbids internal diagnostics and final stale approval te
   assert.match(result.violations.join('\n'), /stale Approval required after completion/)
 })
 
+test('transition oracle includes final response visual-quality violations in compact summary', () => {
+  const result = evaluateTransitionProbe(probe({
+    snapshot: {
+      session: { status: 'COMPLETED' },
+      phase: 'COMPLETED',
+      pending_approval: null,
+      response_document: {
+        state: 'completed',
+        revision: 15,
+        blocks: [{ type: 'result_summary' }, { type: 'mutation_result' }],
+      },
+    },
+    ui: {
+      headerStatus: 'Complete',
+      activeSidebarStatus: 'Complete',
+      visibleBlockTypes: ['result_summary', 'mutation_result'],
+      visibleBlockIds: ['result-summary:rd-001', 'mutation:rd-001'],
+      approvalActionLabels: [],
+      visibleBlocks: [
+        { type: 'result_summary', id: 'result-summary:rd-001', text: 'Updated 63 jobs across 22 approved steps.' },
+        { type: 'mutation_result', id: 'mutation:rd-001', text: 'Operation ID: op-1' },
+      ],
+      latestAssistantText: 'Updated 63 jobs across 22 approved steps. Operation ID: op-1',
+      visibleText: 'Updated 63 jobs across 22 approved steps. Operation ID: op-1',
+      finalResponseQuality: {
+        finalResultCardCount: 2,
+        finalSummaryText: 'Updated 63 jobs across 22 approved steps.',
+        businessGroups: [{ label: 'Medium -> High', count: 10 }],
+        affectedRecordPreviewCount: 21,
+        expandableAuditPresent: false,
+        forbiddenTextHits: ['backend operation aggregate leak', 'internal Operation ID'],
+        duplicateAffectedRecordEvidence: [],
+      },
+    },
+  }), {
+    sessionStatus: 'COMPLETED',
+    responseState: 'completed',
+    visibleBlockTypes: ['result_summary', 'mutation_result'],
+    approvalActionCount: 0,
+    finalResponseQuality: {
+      finalResultCardCount: 1,
+      finalSummaryText: /21 jobs across 2 approved business changes/,
+      businessGroups: [
+        { label: 'Medium -> High', count: 10 },
+        { label: 'Original High -> Low', count: 11 },
+      ],
+      affectedRecordPreviewMax: 5,
+      expandableAuditPresent: true,
+    },
+  })
+
+  assert.equal(result.ok, false)
+  assert.match(result.violations.join('\n'), /final result card count expected 1 but saw 2/)
+  assert.match(result.violations.join('\n'), /forbidden final response text/)
+  assert.equal(result.summary.diagnosis.classification, 'final_response_visual_quality_gap')
+})
+
 test('transition oracle summary keeps only high-signal fields', () => {
   const summary = summarizeTransitionProbe(probe())
   assert.equal(summary.kind, 'factory_agent_response_document_semantic_probe')
