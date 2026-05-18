@@ -1932,7 +1932,7 @@ git diff --check
 
 ## Phase 25 Implementation Notes
 
-Status: Blocked Until Phase 24
+Status: Ready To Start
 
 Phase 25 prevents future one-off prompt/entity fixes from undoing the generic contract work. Guardrails should separate fixture constants from production logic and should be tight enough to fail before a regression reaches browser-only manual review.
 
