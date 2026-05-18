@@ -1510,15 +1510,15 @@ git diff --check
 git status --short --branch
 ```
 
-### Phase 22: Generic Entity Status And Mutation Business Contract
+### Phase 22: Migrate Existing Machine/Job Outputs Onto Generic Contracts
 
-Goal: Implement the generic entity response-document contracts after backend metadata is ready.
+Goal: Move existing machine status and job priority mutation output onto the generic contracts prepared by Phase 21.
 
 Problem this phase targets:
 
-- Phase 18 made machine status clean, but entity status must work through a generic contract.
-- Phase 14/15 made job priority mutation results clean, but business-change grouping must work through typed metadata rather than priority prose parsing.
-- Phase 17 made no-op mutation results entity-agnostic, but coverage still needs at least one safe non-job proof.
+- Phase 18 made machine status clean, but it still needs to render through a generic `entity_status_v1` contract instead of a machine-first display path.
+- Phase 14/15 made RD-001 job priority mutation output clean, but the composer must stop using job/priority prose as the source of business grouping when typed change fields exist.
+- Phase 17 made no-op mutation output entity-agnostic at the wording/contract level, but existing job no-op behavior must remain stable while the generic contract becomes the production path.
 
 Prerequisite:
 
@@ -1531,6 +1531,7 @@ Files likely touched:
 - `factory-agent/factory_agent/schemas.py`
 - `factory-agent/tests/test_response_document_contract.py`
 - `eMas Front/src/components/features/chat/factory-agent/ResponseDocumentRenderer.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/responseDocumentContract.js`
 - `eMas Front/e2e/support/responseDocumentProbe.js`
 - `eMas Front/e2e/support/responseDocumentScenarios.js`
 - `eMas Front/e2e/specs/final-response-quality.spec.js`
@@ -1539,20 +1540,21 @@ Files likely touched:
 
 Implementation steps:
 
-- Add an `entity_status_v1` response-document contract for machine plus at least one non-machine entity.
-- Add typed `business_change_v1` payload support with entity type, change type, field changes, selector summary, source-state basis, business-change id, record id/display id, ordering, and row outcome.
-- Migrate priority cascade composition to prefer typed business-change fields over summary text parsing.
-- Add one safe non-job no-op mutation backend contract or fixture without enabling broad new writes.
-- Add focused frontend/probe proof that status, business-change, and no-op blocks render from typed fields rather than exact RD-001/RD-008 labels.
+- Add or finalize `entity_status_v1` response-document support and migrate the current machine-status answer onto it.
+- Add or finalize typed `business_change_v1` support and migrate the current job priority cascade onto it.
+- Keep existing no-op mutation behavior working through the generic no-match/no-op contract.
+- Make completed mutation composition prefer typed business-change fields over assistant summary text, job id shape, priority prose, or RD-001 phrase matching.
+- Make frontend rendering and probes assert contract type/evidence, not `M-CNC-01`, `JOB-SEED`, `Medium -> High`, or exact entity labels as the reason the UI passes.
 - Preserve RD-001, RD-002, RD-006, RD-007, RD-008, and RD-009 behavior.
 
 Acceptance criteria:
 
-- Generic entity status works for machine plus at least one non-machine entity.
-- Completed mutation grouping no longer depends on priority/job prose when typed business-change fields are available.
-- At least one non-job no-op proof exists.
+- Machine status still works.
+- Job priority cascade still works.
+- Job no-op mutation still works.
+- Final response does not parse job/priority prose to infer business groups when typed fields exist.
+- Frontend renders by contract type, not entity name.
 - Existing flagship flows still pass.
-- Browser or semantic-probe evidence proves visible UI is driven by generic typed contracts.
 
 Verification command:
 
@@ -1562,7 +1564,136 @@ python -m pytest tests/test_response_document_contract.py tests/test_response_do
 
 Set-Location "..\eMas Front"
 npm test
-npm run test:e2e:response-document -- --grep "entity status|business change|no-op|RD-001|RD-008"
+npm run test:e2e:response-document -- --grep "entity_status_v1|business_change_v1|machine status|RD-001|no-op"
+```
+
+### Phase 23: Add Entity Diversity Coverage
+
+Goal: Prove the generic contracts work beyond jobs and machines.
+
+Problem this phase targets:
+
+- A contract is not truly generic if the only visible proofs are `JOB-SEED-*` and `M-CNC-01`.
+- Phase 22 intentionally migrates existing outputs first; Phase 23 adds deterministic non-job/non-machine coverage so future entities do not need one-off rendering branches.
+
+Prerequisite:
+
+- Phase 22 must be marked Done.
+
+Implementation steps:
+
+- Add safe deterministic coverage for at least two of:
+  - product status/read result;
+  - material/inventory read result;
+  - work order status;
+  - non-job no-op mutation;
+  - non-job partial/no-op plus valid group.
+- Prefer real backend-supported read/status paths when available.
+- If a non-job write path is not safely supported, use contract-level backend fixtures without enabling broad new write behavior.
+- Ensure the response document carries entity type, entity id/display id, primary status or change metadata, row outcome, and no-op counts through typed fields.
+- Add frontend/probe coverage only where visible DOM can diverge from backend contract evidence.
+
+Acceptance criteria:
+
+- At least two non-job/non-machine deterministic examples pass.
+- The new examples render through `entity_status_v1`, `business_change_v1`, or no-op/no-match typed contracts.
+- The tests fail if the implementation only understands job priority or machine status.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "product status|material|inventory|work order|non-job|entity diversity"
+```
+
+### Phase 24: Hardcode Regression Guardrails
+
+Goal: Prevent the generic contract work from sliding back into fixture-specific or entity-specific implementations.
+
+Problem this phase targets:
+
+- Previous phases repeatedly found fixes that worked for one prompt, one fixture id, or one entity label.
+- Guardrails should catch product-code branches on `M-CNC-01`, `JOB-SEED`, exact prompt text, or specific entity labels outside fixtures.
+- Composer and frontend tests must prove contract evidence, not only machine/job visible text.
+
+Prerequisite:
+
+- Phase 23 must be marked Done.
+
+Implementation steps:
+
+- Add product-code guardrails that fail when non-fixture code branches on seeded ids, exact prompt text, or specific entity labels without a registry/metadata contract.
+- Add response-document composer guardrails that fail when business facts are derived from summary prose while typed fields are available.
+- Add frontend/probe guardrails that fail when generic checks only inspect machine/job text instead of contract type, block type, entity type, and typed field evidence.
+- Allow exact ids and labels inside deterministic fixtures, manual regression banks, seeded scenario definitions, and explicitly named compatibility tests.
+- Document any accepted exception with owner, reason, and expiry/revisit condition.
+
+Acceptance criteria:
+
+- Guardrails fail on newly introduced hardcoded product branches.
+- Guardrails distinguish product-code risk from fixture constants.
+- Business-change composition cannot regress to summary-prose parsing when typed fields exist.
+- Frontend generic proofs require contract evidence.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_toolgen.py tests/test_tool_intent_profile.py -q
+python -m pytest tests/test_hardcode_guardrails.py -q
+
+Set-Location "..\eMas Front"
+npm test
+node --test --test-concurrency=1 e2e/support/responseDocumentProbe.test.mjs
+```
+
+### Phase 25: Real Flow Release Proof
+
+Goal: Run the real pipeline after the generic contract refactor and prove the release-critical flows still work end to end.
+
+Problem this phase targets:
+
+- Mocked and contract tests can prove shape, but the release gate must prove planner, routing, tool selection, approval sequencing, snapshots, response documents, and visible UI agree in real or seeded flows.
+- Phase 25 is the release-confidence pass after the backend metadata, migration, diversity, and guardrail phases.
+
+Prerequisite:
+
+- Phase 24 must be marked Done.
+
+Implementation steps:
+
+- Run RD-001 cascade real/seeded proof.
+- Run machine status real/seeded proof.
+- Run LOTO document-content RAG proof.
+- Run no-op mutation proof.
+- Run at least one non-job generic proof if the backend surface supports it.
+- Run the final response visual-quality oracle.
+- Capture compact semantic probes for browser failures; screenshots/traces remain supporting evidence.
+
+Acceptance criteria:
+
+- Real/seeded RD-001 completes with 21 jobs across 2 approved business changes and no raw/internal noise.
+- Machine status completes as one typed status answer.
+- LOTO document-content question reaches RAG/procedure content without machine-ID clarification.
+- No-op mutation completes without approval or fake success.
+- At least one non-job generic proof passes, or the tracker records why no safe real backend surface exists yet and points to Phase 23 contract coverage.
+- Final response visual-quality oracle passes.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_route_to_execution_contract.py tests/test_intent_splitter.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "RD-001|machine status|LOTO|no-op|entity status|business change|visual quality"
+npm run test:e2e:seeded-oracles -- --grep "RD-001|machine status|LOTO|no-op|entity status|business change"
+npm run test:e2e:real-langgraph -- --grep "RD-001|SO-041|machine status|LOTO|no-op|@critical"
 ```
 
 ## Stop Conditions
@@ -1608,6 +1739,11 @@ Stop and fix before continuing when:
 - Phase 22 starts before Phase 21 proves backend/OpenAPI/tool/vocabulary readiness.
 - OpenAPI, RAG OpenAPI mirror, generated `tools.md`, RAG `tools.md`, or generated vocabulary are updated inconsistently.
 - Generated tool metadata cannot express the entity/action/capability semantics required by the generic response-document contract.
+- Phase 23 claims generic coverage with only job and machine examples.
+- Phase 24 starts after new product-code branches on seeded ids, exact prompt text, or entity labels are accepted without a guardrail or explicit exception.
+- Phase 25 starts before hardcode guardrails pass.
+- Completed mutation composition derives business facts from assistant summary prose when typed `business_change_v1` fields are available.
+- Frontend generic response-document tests pass by checking only machine/job text instead of contract type, block type, entity type, and typed field evidence.
 
 ## Out Of Scope For This Plan
 

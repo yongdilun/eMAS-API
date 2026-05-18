@@ -264,15 +264,43 @@ Phase 21 is a backend-readiness phase, not a prompt-volume phase. It prepares Op
 |---|---|---|---|
 | `response-document-phase21-backend-metadata-readiness` | OpenAPI/tool/vocabulary metadata for supported entity status, business-change, and no-op outcomes. | `emas/docs/swagger.json`, `emas/docs/swagger.yaml`, `rag_sources/01_emas_internal_docs/api_reference/openapi.json`, `factory-agent/factory_agent/tools.md`, `rag_sources/01_emas_internal_docs/api_reference/tools.md`, and `factory-agent/factory_agent/generated/tool_intent_vocabulary.json` are synchronized and expose enough typed entity/action/capability metadata for Phase 22. | Planned: toolgen/vocabulary/tool-selector tests plus generated artifact diff review |
 
-## Phase 22 Candidate Prompt Classes From Phase 20 Audit
+## Response Document Phase 22 Migration Prompt Classes
 
-These are future regression-bank candidates for the generic response-document implementation. Add executable entries only when Phase 22 starts or when one of these classes is observed manually.
+These are regression-bank candidates for migrating existing machine/job behavior onto generic response-document contracts. Phase 22 should not claim broader entity diversity yet.
 
 | Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
 |---|---|---|---|
-| `response-document-phase22-generic-entity-status` | Status read for a non-machine entity, such as product, material/inventory, or work order status. | Route as an entity-status read when a supported status tool exists, compose a typed `status_result` with `entity_type`, `entity_id`, `primary_status`, human fields, no approval UI, and no raw assistant/API dump labels. | Backend semantic route/tool contract, backend response-document contract, then one mocked browser fixture if visible DOM can diverge. |
-| `response-document-phase22-non-job-noop-mutation` | Safe mutation-selector no-op for a non-job entity. | Emit `entity_agnostic_no_matching_records_v1` with `Not changed`, no approval for zero-match groups, no fake success, and no mutation/audit rows for the no-op group. | Backend response-document contract first; mocked browser only if the display contract changes. |
-| `response-document-phase22-generic-business-change` | Completed mutation result whose changed field is not `priority` and whose entity is not a `JOB-*` record. | Group final results by typed business-change fields rather than priority prose; preserve ordering, entity labels, row outcomes, and clean audit display without exact RD-001 labels. | Backend response-document contract plus focused frontend renderer/probe coverage. |
+| `response-document-phase22-machine-status-generic-contract` | Existing machine status read, such as `Show status for machine with machine id M-CNC-01`. | Same clean visible answer as Phase 18, but response document uses `entity_status_v1` and frontend checks contract evidence rather than the machine id. | Backend response-document contract plus focused frontend renderer/probe coverage. |
+| `response-document-phase22-job-priority-business-change` | Existing RD-001/RD-002 job priority cascade. | Final result still summarizes the correct business changes, but business grouping comes from typed `business_change_v1` fields rather than priority prose or job id shape. | Backend response-document contract plus final-response visual oracle. |
+| `response-document-phase22-job-noop-generic-contract` | Existing RD-006/RD-007 no-op job mutation flows. | No-op groups continue to show `Not changed`, avoid approval for zero-match groups, and use the generic no-match/no-op contract. | Backend response-document contract plus mocked browser proof only if visible DOM can diverge. |
+
+## Response Document Phase 23 Entity Diversity Coverage
+
+Phase 23 proves the generic contracts beyond jobs and machines. Add executable entries only when a safe deterministic fixture or backend path exists.
+
+| Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
+|---|---|---|---|
+| `response-document-phase23-product-status-read` | Product status or product read result. | Uses typed entity/read or `entity_status_v1` evidence with product entity metadata, human labels, no approval UI, and no raw API dump labels. | Backend response-document contract first; browser fixture if rendering can diverge. |
+| `response-document-phase23-material-inventory-read` | Material or inventory availability/status read. | Uses typed entity/read or `entity_status_v1` evidence with material/inventory entity metadata and clean human labels. | Backend response-document contract first; browser fixture if rendering can diverge. |
+| `response-document-phase23-work-order-status` | Work order status read. | Uses typed entity/read or `entity_status_v1` evidence with work-order entity metadata and no machine/job special casing. | Backend response-document contract first; browser fixture if rendering can diverge. |
+| `response-document-phase23-non-job-noop-mutation` | Safe mutation-selector no-op for a non-job entity. | Emits generic no-match/no-op evidence with `Not changed`, no approval for zero-match groups, no fake success, and no mutation/audit rows for the no-op group. | Backend response-document contract or fixture; browser only if display changes. |
+| `response-document-phase23-non-job-partial-noop-valid-group` | Non-job mutation flow with one no-op group and one valid group, only if a safe write path exists. | Final response shows both changed and not-changed groups from typed fields; approval contains only valid proposed mutations. | Backend contract fixture unless a safe real write path exists. |
+
+## Response Document Phase 24 Hardcode Regression Guardrails
+
+Phase 24 prevents product code and tests from drifting back to exact fixture ids, exact prompts, or entity-label branches.
+
+| Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
+|---|---|---|---|
+| `response-document-phase24-hardcode-guardrails` | Static/contract guardrails for product code, composer logic, and frontend probes. | Fails when product code branches on `M-CNC-01`, `JOB-SEED`, exact prompt text, or entity labels outside fixtures; fails when typed business fields exist but composer uses summary prose; fails when generic frontend probes check only machine/job text. | Backend guardrail tests plus frontend support/helper tests. |
+
+## Response Document Phase 25 Real Flow Release Proof
+
+Phase 25 is the real/seeded release proof after Phases 21-24 are green.
+
+| Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
+|---|---|---|---|
+| `response-document-phase25-real-flow-release-proof` | RD-001 cascade, machine status, LOTO document-content RAG, no-op mutation, non-job generic proof if available, and final response visual-quality oracle. | Backend snapshot state, response document state, and visible UI agree; no raw/internal final-response noise; semantic probes explain failures compactly. | Focused response-document browser gate, seeded oracle lane, real LangGraph critical lane where planner/tool selection can diverge. |
 
 ## Phase 15 Release Enforcement Note
 
