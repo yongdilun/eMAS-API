@@ -16,6 +16,8 @@ export const typedPendingApprovalPrompt = 'Render typed pending approval with ch
 
 export const typedKnowledgeSourcePrompt = 'Render typed knowledge answer with source metadata'
 
+export const responseDocumentRendererPrompt = 'Render response document approval 2 pending fixture'
+
 export const notificationSsePrompt = 'Validate notification SSE refresh for M-CNC-01'
 
 export const notificationSseAnswer =
@@ -240,6 +242,7 @@ export function snapshotFromSession(session, activitySteps = []) {
     pending_approval: session.pending_approval || null,
     resume_hint: null,
     ...(session.presentation ? { presentation: session.presentation } : {}),
+    ...(session.response_document ? { response_document: session.response_document } : {}),
   }
 }
 

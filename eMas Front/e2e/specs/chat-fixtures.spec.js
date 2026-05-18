@@ -6,6 +6,7 @@ import {
   emptyAssistantPrompt,
   machineStatusAnswer,
   machineStatusPrompt,
+  responseDocumentRendererPrompt,
   typedKnowledgeSourcePrompt,
   typedPendingApprovalPrompt,
   typedRejectedPrompt,
@@ -116,5 +117,21 @@ test.describe('Factory Agent chat scenario fixtures', () => {
     await expect(page.getByText('Use the cited LOTO procedure before lockout.').first()).toBeVisible()
     await expect(page.getByText('Knowledge sources')).toBeVisible()
     await expect(page.getByText('Typed LOTO Procedure - Source 1')).toBeVisible()
+  })
+
+  test('response_document renderer keeps completed evidence while approval 2 is pending', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: chatSelectors.openAssistantButtonName }).click()
+    await expect(page.getByRole('dialog', { name: chatSelectors.dialogName })).toBeVisible()
+
+    await sendChatPrompt(page, responseDocumentRendererPrompt)
+
+    await expect(page.getByText(/Updated 10 jobs from medium to high/).first()).toBeVisible()
+    await expect(page.getByText('Waiting for approval 2').first()).toBeVisible()
+    await expect(page.getByText('Update 11 jobs from high to low').first()).toBeVisible()
+    await expect(page.getByText('JOB-SEED-002').first()).toBeVisible()
+    await expect(page.getByText('+1 more').first()).toBeVisible()
+    await expect(page.getByText(/All requested changes completed/i)).toHaveCount(0)
+    await expect(page.getByText('Review and edit request')).toHaveCount(0)
   })
 })

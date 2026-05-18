@@ -112,6 +112,7 @@ export function useFactoryAgentChat() {
   const [steps, setSteps] = useState([])
   const [timeline, setTimeline] = useState([])
   const [presentation, setPresentation] = useState(null)
+  const [responseDocument, setResponseDocument] = useState(null)
   const [activitySteps, setActivitySteps] = useState([])
   const [sessionList, setSessionList] = useState([])
   const [input, setInput] = useState('')
@@ -201,6 +202,7 @@ export function useFactoryAgentChat() {
     const nextTimeline = Array.isArray(snapshot?.timeline) ? snapshot.timeline : []
     setTimeline(nextTimeline)
     setPresentation(snapshot?.presentation || null)
+    setResponseDocument(Object.prototype.hasOwnProperty.call(snapshot || {}, 'response_document') ? snapshot.response_document : null)
 
     if (ACTIVITY_TIMELINE_ENABLED) {
       setActivitySteps((prev) => {
@@ -307,6 +309,7 @@ export function useFactoryAgentChat() {
     setSteps([])
     setTimeline([])
     setPresentation(null)
+    setResponseDocument(null)
     setActivitySteps([])
     setPendingApproval(null)
     setResumeHint(null)
@@ -821,6 +824,7 @@ export function useFactoryAgentChat() {
   const turns = useMemo(() => {
     const assembled = assembleFactoryAgentTurns(Array.isArray(timeline) ? timeline : [], {
       snapshotPresentation: presentation,
+      snapshotResponseDocument: responseDocument,
     })
     const mapped = assembled.map((t) => ({
       ...t,
@@ -848,7 +852,7 @@ export function useFactoryAgentChat() {
       }
     }
     return mapped
-  }, [clientProgress, isSending, presentation, session?.session_id, timeline])
+  }, [clientProgress, isSending, presentation, responseDocument, session?.session_id, timeline])
 
   const activeSessionName = useMemo(() => {
     if (session?.name) return session.name
@@ -861,6 +865,7 @@ export function useFactoryAgentChat() {
     steps,
     timeline,
     presentation,
+    responseDocument,
     activitySteps,
     messages,
     turns,

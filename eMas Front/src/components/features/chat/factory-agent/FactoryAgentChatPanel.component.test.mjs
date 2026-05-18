@@ -61,6 +61,82 @@ function createChatState(overrides = {}) {
   }
 }
 
+function baseResponseDocument(overrides = {}) {
+  return {
+    version: 1,
+    id: 'rd-session-1-turn-1',
+    document_id: 'rd-session-1-turn-1',
+    turn_id: 'turn-1',
+    revision: 1,
+    revision_source: 'test',
+    state: 'completed',
+    status: 'completed',
+    run_steps: [
+      {
+        step_id: 'analysis-1',
+        kind: 'analysis',
+        state: 'completed',
+        title: 'Understood request',
+        summary: 'Request parsed.',
+      },
+      {
+        step_id: 'completed-1',
+        kind: 'completed',
+        state: 'completed',
+        title: 'Run complete',
+        summary: 'All steps finished.',
+      },
+    ],
+    blocks: [
+      {
+        id: 'activity:rd-session-1-turn-1',
+        type: 'run_activity',
+        step_ids: ['analysis-1', 'completed-1'],
+      },
+      {
+        id: 'message:rd-session-1-turn-1:completed',
+        type: 'short_message',
+        message: 'Typed document result is ready.',
+        status: 'completed',
+      },
+    ],
+    invariants: {},
+    diagnostics: {},
+    ...overrides,
+  }
+}
+
+async function renderPanelWithState(chatState) {
+  const { factoryAgentApi } = await server.ssrLoadModule('/src/services/factoryAgentApi.js')
+  factoryAgentApi.listTools = async () => []
+  const { default: FactoryAgentChatPanel } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx')
+  return render(
+    React.createElement(FactoryAgentChatPanel, {
+      useChatState: () => chatState,
+    }),
+  )
+}
+
+function responseDocumentTurn(responseDocument, overrides = {}) {
+  return {
+    id: 'turn-rd-1',
+    created_at: '2026-05-16T10:00:00.000Z',
+    user: {
+      content: 'Use typed response document',
+      created_at: '2026-05-16T10:00:00.000Z',
+    },
+    summary: 'Legacy summary that should not win.',
+    responseDocument,
+    approvals: [],
+    confirmations: [],
+    tools: [],
+    status: [],
+    sources: [],
+    safetyContent: null,
+    ...overrides,
+  }
+}
+
 test('FactoryAgentChatPanel renders pending approval card and follow-up guidance', async () => {
   const { factoryAgentApi } = await server.ssrLoadModule('/src/services/factoryAgentApi.js')
   factoryAgentApi.listTools = async () => []
@@ -609,6 +685,339 @@ test('FactoryAgentChatPanel renders typed knowledge sources without exact answer
   await waitFor(() => assert.match(view.text(), /Knowledge sources/))
   assert.match(view.text(), /Machine LOTO Procedure/)
   assert.match(view.text(), /Use the cited LOTO procedure/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel renders valid response_document message, activity, and blocks', async () => {
+  const document = baseResponseDocument({
+    blocks: [
+      { id: 'activity:rd-1', type: 'run_activity', step_ids: ['analysis-1', 'completed-1'] },
+      { id: 'message:rd-1', type: 'short_message', message: 'Typed document result is ready.', status: 'completed' },
+      {
+        id: 'result-summary:op-1',
+        type: 'result_summary',
+        title: 'Result summary',
+        summary: 'Updated 2 jobs across 1 approved step.',
+        steps: [{ step_number: 1, summary: '2 jobs changed from low to high.' }],
+        total_count: 2,
+      },
+    ],
+  })
+  const chatState = createChatState({
+    session: { session_id: 'session-rd', name: 'Response document', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-rd', name: 'Response document', status: 'COMPLETED' }],
+    activeSessionName: 'Response document',
+    turns: [responseDocumentTurn(document)],
+    activitySteps: [{ id: 'legacy', timestamp: 1, group: 'response', label: 'Legacy activity', state: 'complete' }],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Typed document result is ready/))
+  assert.match(view.text(), /Run complete/)
+  assert.match(view.text(), /Updated 2 jobs across 1 approved step/)
+  assert.match(view.text(), /2 jobs changed from low to high/)
+  assert.doesNotMatch(view.text(), /Legacy summary that should not win/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel keeps legacy presentation fallback when response_document is absent', async () => {
+  const chatState = createChatState({
+    session: { session_id: 'session-legacy-fallback', name: 'Legacy fallback', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-legacy-fallback', name: 'Legacy fallback', status: 'COMPLETED' }],
+    activeSessionName: 'Legacy fallback',
+    turns: [
+      {
+        id: 'turn-legacy-fallback',
+        created_at: '2026-05-16T10:00:00.000Z',
+        user: { content: 'old snapshot', created_at: '2026-05-16T10:00:00.000Z' },
+        summary: 'Legacy presentation summary is still supported.',
+        terminal: { event_type: 'session_completed', content: 'Done.', status: 'COMPLETED' },
+        presentation: {
+          kind: 'mutation_result',
+          state: 'completed',
+          summary: 'Legacy presentation summary is still supported.',
+          rows: [{ job_id: 'JOB-LEGACY-001', priority: 'high' }],
+        },
+      },
+    ],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Legacy presentation summary is still supported/))
+  assert.match(view.text(), /JOB-LEGACY-001/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel renders invalid response_document diagnostic instead of stale presentation', async () => {
+  const chatState = createChatState({
+    session: { session_id: 'session-invalid-rd', name: 'Invalid document', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-invalid-rd', name: 'Invalid document', status: 'COMPLETED' }],
+    activeSessionName: 'Invalid document',
+    turns: [
+      responseDocumentTurn(
+        { version: 1, state: 'completed', blocks: [] },
+        {
+          summary: 'All requested changes completed.',
+          presentation: {
+            kind: 'mutation_result',
+            state: 'completed',
+            summary: 'Stale presentation success should not render.',
+            rows: [{ job_id: 'JOB-STALE-001' }],
+          },
+        },
+      ),
+    ],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Response document invalid/))
+  assert.match(view.text(), /did not match the expected contract/)
+  assert.doesNotMatch(view.text(), /Stale presentation success/)
+  assert.doesNotMatch(view.text(), /All requested changes completed/)
+  assert.doesNotMatch(view.text(), /JOB-STALE-001/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel renders pending response_document approval compact by default', async () => {
+  const rows = Array.from({ length: 6 }, (_, index) => ({
+    job_id: `JOB-SEED-${String(index + 1).padStart(3, '0')}`,
+    previous_priority: 'medium',
+    new_priority: 'high',
+  }))
+  const pendingApproval = {
+    approval_id: 'approval-rd-1',
+    tool_name: '__langgraph_commit__',
+    side_effect_level: 'HIGH',
+    risk_summary: 'Update 6 jobs from medium to high.',
+    args: { bundle_ui: { rows } },
+  }
+  const document = baseResponseDocument({
+    state: 'waiting_approval',
+    status: 'waiting_approval',
+    run_steps: [
+      { step_id: 'analysis-1', kind: 'analysis', state: 'completed', title: 'Understood request' },
+      { step_id: 'approval-rd-1', kind: 'approval', state: 'waiting', title: 'Waiting for approval 1', current: true },
+    ],
+    blocks: [
+      { id: 'message:approval-rd-1', type: 'short_message', message: 'Please review before I update 6 jobs.', status: 'waiting_approval' },
+      {
+        id: 'approval:approval-rd-1',
+        type: 'approval_required',
+        approval_id: 'approval-rd-1',
+        title: 'Approval required',
+        summary: 'Update 6 jobs from medium to high',
+        rows,
+        details_collapsed: true,
+      },
+    ],
+  })
+  const chatState = createChatState({
+    session: { session_id: 'session-rd-approval', name: 'RD approval', status: 'WAITING_APPROVAL' },
+    sessionList: [{ session_id: 'session-rd-approval', name: 'RD approval', status: 'WAITING_APPROVAL' }],
+    activeSessionName: 'RD approval',
+    pendingApproval,
+    turns: [
+      responseDocumentTurn(document, {
+        approvals: [{ event_type: 'approval_required', approval_id: 'approval-rd-1' }],
+      }),
+    ],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Update 6 jobs from medium to high/))
+  assert.match(view.text(), /\+1 more/)
+  assert.match(view.text(), /Approve/)
+  assert.match(view.text(), /Reject/)
+  assert.doesNotMatch(view.text(), /Review and edit request/)
+  const affectedDetails = Array.from(view.container.querySelectorAll('details')).find((node) =>
+    node.textContent.includes('Affected records (6)'),
+  )
+  assert.equal(affectedDetails?.hasAttribute('open'), false)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel renders mutation result table from response_document typed blocks', async () => {
+  const rows = [
+    { job_id: 'JOB-SEED-005', previous_priority: 'low', new_priority: 'high', outcome: 'updated' },
+    { job_id: 'JOB-SEED-009', previous_priority: 'low', new_priority: 'high', outcome: 'updated' },
+  ]
+  const document = baseResponseDocument({
+    blocks: [
+      { id: 'message:mutation', type: 'short_message', message: 'Priority update finished.', status: 'completed' },
+      { id: 'mutation:op-1', type: 'mutation_result', summary: 'Updated 2 jobs.', rows },
+      { id: 'table:op-1', type: 'result_table', title: 'Affected records', rows },
+    ],
+  })
+  const chatState = createChatState({
+    session: { session_id: 'session-rd-table', name: 'RD table', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-rd-table', name: 'RD table', status: 'COMPLETED' }],
+    activeSessionName: 'RD table',
+    turns: [responseDocumentTurn(document)],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Priority update finished/))
+  assert.match(view.text(), /Affected records/)
+  assert.match(view.text(), /JOB-SEED-005/)
+  assert.match(view.text(), /Previous priority/)
+  assert.match(view.text(), /Outcome/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel renders RAG source block from response_document typed sources', async () => {
+  const document = baseResponseDocument({
+    blocks: [
+      { id: 'message:knowledge', type: 'short_message', message: 'Use the cited LOTO procedure before lockout.', status: 'completed' },
+      { id: 'knowledge:op-1', type: 'knowledge_answer', answer: 'Use the cited LOTO procedure before lockout.' },
+      {
+        id: 'sources:op-1',
+        type: 'source_list',
+        sources: [
+          { source_number: 1, title: 'Machine LOTO Procedure', doc_id: 'LOTO-M-CNC-01', machine_id: 'M-CNC-01' },
+        ],
+      },
+    ],
+  })
+  const chatState = createChatState({
+    session: { session_id: 'session-rd-source', name: 'RD source', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-rd-source', name: 'RD source', status: 'COMPLETED' }],
+    activeSessionName: 'RD source',
+    turns: [responseDocumentTurn(document)],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Use the cited LOTO procedure/))
+  assert.match(view.text(), /Knowledge sources/)
+  assert.match(view.text(), /Machine LOTO Procedure/)
+  assert.match(view.text(), /LOTO-M-CNC-01/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel renders response_document failure diagnostic safely', async () => {
+  const document = baseResponseDocument({
+    state: 'failed',
+    status: 'failed',
+    run_steps: [
+      { step_id: 'diagnostic:tool_http_error', kind: 'diagnostic', state: 'failed', title: 'Backend tool failed', current: true },
+    ],
+    blocks: [
+      { id: 'message:failure', type: 'short_message', message: 'I could not finish because a backend tool returned an error.', status: 'failed' },
+      {
+        id: 'diagnostic:tool_http_error',
+        type: 'diagnostic',
+        severity: 'error',
+        reason: 'tool_http_error',
+        title: 'Backend tool failed',
+        user_message: 'I could not finish because a backend tool returned an error.',
+        cause: 'A backend tool returned an unsuccessful HTTP response.',
+        impact: { changes_applied: false, incomplete_steps: ['step-2'] },
+        current_state: 'The run stopped at the failed backend tool call.',
+        next_action: 'Check current status before retrying.',
+        technical_details: { error_code: 'http_500_database_unavailable', sanitized: true },
+        details_collapsed: true,
+      },
+    ],
+  })
+  const chatState = createChatState({
+    session: { session_id: 'session-rd-failure', name: 'RD failure', status: 'FAILED' },
+    sessionList: [{ session_id: 'session-rd-failure', name: 'RD failure', status: 'FAILED' }],
+    activeSessionName: 'RD failure',
+    turns: [responseDocumentTurn(document, { summary: 'Still running...' })],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Backend tool failed/))
+  assert.match(view.text(), /Cause:/)
+  assert.match(view.text(), /Current state:/)
+  assert.match(view.text(), /Next action:/)
+  assert.match(view.text(), /http_500_database_unavailable/)
+  assert.doesNotMatch(view.text(), /Traceback/)
+  assert.doesNotMatch(view.text(), /Still running/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel preserves completed response_document evidence while approval 2 is pending', async () => {
+  const approvalRows = [
+    { job_id: 'JOB-SEED-001', previous_priority: 'high', new_priority: 'low' },
+    { job_id: 'JOB-SEED-003', previous_priority: 'high', new_priority: 'low' },
+  ]
+  const completedRows = [{ job_id: 'JOB-SEED-002', previous_priority: 'medium', new_priority: 'high' }]
+  const document = baseResponseDocument({
+    state: 'waiting_approval',
+    status: 'waiting_approval',
+    run_steps: [
+      { step_id: 'analysis-1', kind: 'analysis', state: 'completed', title: 'Understood request' },
+      { step_id: 'approval-1', kind: 'approval', state: 'completed', title: 'Approval 1 received' },
+      { step_id: 'mutation-1', kind: 'mutation', state: 'completed', title: 'Updated 10 jobs: medium -> high' },
+      { step_id: 'approval-2', kind: 'approval', state: 'waiting', title: 'Waiting for approval 2', current: true },
+    ],
+    blocks: [
+      {
+        id: 'message:approval-2',
+        type: 'short_message',
+        message: 'Done. Updated 10 jobs from medium to high. Please review approval 2 before I update the original high-priority jobs.',
+        status: 'waiting_approval',
+      },
+      {
+        id: 'completed-step:approval-1',
+        type: 'completed_step',
+        title: 'Completed step',
+        summary: 'Updated 10 jobs from medium to high.',
+        rows: completedRows,
+      },
+      {
+        id: 'approval:approval-2',
+        type: 'approval_required',
+        approval_id: 'approval-2',
+        summary: 'Update 11 jobs from high to low',
+        rows: approvalRows,
+      },
+    ],
+  })
+  const pendingApproval = {
+    approval_id: 'approval-2',
+    tool_name: '__langgraph_commit__',
+    side_effect_level: 'HIGH',
+    risk_summary: 'Update 11 jobs from high to low',
+    args: { bundle_ui: { rows: approvalRows } },
+  }
+  const chatState = createChatState({
+    session: { session_id: 'session-rd-two-step', name: 'RD two step', status: 'WAITING_APPROVAL' },
+    sessionList: [{ session_id: 'session-rd-two-step', name: 'RD two step', status: 'WAITING_APPROVAL' }],
+    activeSessionName: 'RD two step',
+    pendingApproval,
+    turns: [
+      responseDocumentTurn(document, {
+        summary: 'All requested changes completed.',
+        approvals: [{ event_type: 'approval_required', approval_id: 'approval-2' }],
+      }),
+    ],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Approval 1 received/))
+  assert.match(view.text(), /Updated 10 jobs from medium to high/)
+  assert.match(view.text(), /Waiting for approval 2/)
+  assert.match(view.text(), /Update 11 jobs from high to low/)
+  assert.match(view.text(), /JOB-SEED-002/)
+  assert.doesNotMatch(view.text(), /All requested changes completed/)
+  assert.doesNotMatch(view.text(), /Run complete/)
 
   await view.unmount()
 })

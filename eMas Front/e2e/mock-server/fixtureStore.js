@@ -21,6 +21,7 @@ import {
   notificationSseAnswer,
   notificationSsePrompt,
   orderedSseActivitySteps,
+  responseDocumentRendererPrompt,
   planCreatedEvent,
   retryExecuteAnswer,
   retryExecutePrompt,
@@ -866,6 +867,137 @@ export const scenarioCatalog = {
         }),
       )
       return { status: 200, body: { status: 'WAITING_APPROVAL', plan_id: 'pw-plan-typed-pending' } }
+    },
+    async onExecute() {
+      return { status: 200, body: { status: 'WAITING_APPROVAL', session_id: null } }
+    },
+    snapshot(session) {
+      return snapshotFromSession(session)
+    },
+  },
+
+  responseDocumentApprovalPending: {
+    name: 'responseDocumentApprovalPending',
+    description: 'Phase 4 response_document renderer preserves completed evidence while latest approval is pending.',
+    prompts: [responseDocumentRendererPrompt],
+    onMessage(session, content) {
+      const turnId = addUserTurn(session, content || responseDocumentRendererPrompt, 'pw-turn-response-document')
+      session.response_document_turn_id = turnId
+    },
+    onPlan(session) {
+      const turnId = session.response_document_turn_id || session.current_turn_id || 'pw-turn-response-document'
+      const operationId = 'pw-plan-response-document'
+      session.status = 'WAITING_APPROVAL'
+      session.operation_id = operationId
+      session.presentation = {
+        kind: 'mutation_result',
+        state: 'completed',
+        operation_id: operationId,
+        summary: 'All requested changes completed.',
+        rows: [{ job_id: 'JOB-STALE-001', priority: 'low' }],
+      }
+      session.plan = buildFactoryAgentPlan(session, {
+        planId: operationId,
+        objective: 'Render response document approval fixture.',
+        stepId: 'pw-step-response-document',
+        toolName: 'typed_priority_update',
+        status: 'PENDING_APPROVAL',
+      })
+      session.steps = session.plan.steps.map((step) => ({ ...step, status: 'DONE' }))
+      const pendingRows = [
+        { job_id: 'JOB-SEED-001', previous_priority: 'high', new_priority: 'low' },
+        { job_id: 'JOB-SEED-003', previous_priority: 'high', new_priority: 'low' },
+        { job_id: 'JOB-SEED-006', previous_priority: 'high', new_priority: 'low' },
+        { job_id: 'JOB-SEED-008', previous_priority: 'high', new_priority: 'low' },
+        { job_id: 'JOB-SEED-011', previous_priority: 'high', new_priority: 'low' },
+        { job_id: 'JOB-SEED-014', previous_priority: 'high', new_priority: 'low' },
+      ]
+      session.pending_approval = {
+        approval_id: 'pw-approval-response-document-2',
+        session_id: session.session_id,
+        subject_type: 'tool',
+        tool_name: 'typed_priority_update',
+        side_effect_level: 'HIGH',
+        risk_summary: 'Update 11 jobs from high to low.',
+        args: { bundle_ui: { rows: pendingRows } },
+        status: 'PENDING',
+        created_at: fixtureTime(4),
+        expires_at: fixtureTime(300),
+      }
+      session.response_document = {
+        version: 1,
+        id: `rd:${session.session_id}:${turnId}`,
+        document_id: `rd:${session.session_id}:${turnId}`,
+        turn_id: turnId,
+        operation_id: operationId,
+        revision: 4,
+        revision_source: 'mock_fixture',
+        state: 'waiting_approval',
+        status: 'waiting_approval',
+        summary: 'Done. Updated 10 jobs from medium to high. Please review approval 2 before I update original high-priority jobs.',
+        message: 'Done. Updated 10 jobs from medium to high. Please review approval 2 before I update original high-priority jobs.',
+        current_step_id: 'approval-2',
+        run_steps: [
+          { step_id: 'analysis-1', kind: 'analysis', state: 'completed', title: 'Understood request', summary: 'Parsed the two-step priority update.' },
+          { step_id: 'approval-1', kind: 'approval', state: 'completed', title: 'Approval 1 received', summary: 'The first approval was accepted.' },
+          { step_id: 'mutation-1', kind: 'mutation', state: 'completed', title: 'Updated 10 jobs: medium -> high', summary: 'First-step result remains visible.' },
+          { step_id: 'approval-2', kind: 'approval', state: 'waiting', title: 'Waiting for approval 2', summary: '11 original high-priority jobs are ready for review.', current: true },
+        ],
+        blocks: [
+          { id: 'activity:response-document', type: 'run_activity', step_ids: ['analysis-1', 'approval-1', 'mutation-1', 'approval-2'] },
+          {
+            id: 'message:approval-2',
+            type: 'short_message',
+            message: 'Done. Updated 10 jobs from medium to high. Please review approval 2 before I update original high-priority jobs.',
+            status: 'waiting_approval',
+          },
+          {
+            id: 'completed-step:approval-1',
+            type: 'completed_step',
+            approval_id: 'pw-approval-response-document-1',
+            title: 'Completed step',
+            summary: 'Updated 10 jobs from medium to high.',
+            rows: [{ job_id: 'JOB-SEED-002', previous_priority: 'medium', new_priority: 'high' }],
+          },
+          {
+            id: 'approval:approval-2',
+            type: 'approval_required',
+            approval_id: 'pw-approval-response-document-2',
+            title: 'Approval required',
+            summary: 'Update 11 jobs from high to low',
+            rows: pendingRows,
+            details_collapsed: true,
+          },
+        ],
+        invariants: { full_success_forbidden: true },
+        diagnostics: {},
+      }
+      appendTimeline(
+        session,
+        planCreatedEvent({
+          turnId,
+          eventId: 'pw-response-document-plan-created',
+          planId: operationId,
+          content: 'Preparing response document approval fixture.',
+          status: 'PENDING_APPROVAL',
+        }),
+      )
+      appendTimeline(session, {
+        event_id: 'pw-response-document-approval-required',
+        turn_id: turnId,
+        event_type: 'approval_required',
+        approval_id: session.pending_approval.approval_id,
+        tool_name: session.pending_approval.tool_name,
+        content: 'Update 11 jobs from high to low',
+        status: 'PENDING',
+        operation_id: operationId,
+        details: {
+          args: session.pending_approval.args,
+          side_effect_level: session.pending_approval.side_effect_level,
+        },
+        created_at: fixtureTime(4),
+      })
+      return { status: 200, body: { status: 'WAITING_APPROVAL', plan_id: operationId } }
     },
     async onExecute() {
       return { status: 200, body: { status: 'WAITING_APPROVAL', session_id: null } }

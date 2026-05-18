@@ -6,6 +6,11 @@ import {
   tablePresentationFromTypedPresentation,
   typedPresentationIsAuthoritative,
 } from '../factory-agent/presentationContract.js'
+import {
+  normalizeResponseDocument,
+  responseDocumentMessage,
+  sourcesFromResponseDocument,
+} from '../factory-agent/responseDocumentContract.js'
 
 export const getReadableAction = (toolName) => {
   const raw = String(toolName || '').trim()
@@ -320,6 +325,9 @@ export function assembleFactoryAgentTurns(timeline = [], options = {}) {
       presentation: null,
       presentationRank: 0,
       typedTablePresentation: null,
+      responseDocument: null,
+      responseDocumentStatus: 'absent',
+      responseDocumentViolations: [],
       diagnostics: {},
       invariants: {},
     }
@@ -490,8 +498,18 @@ export function assembleFactoryAgentTurns(timeline = [], options = {}) {
   turns.sort((a, b) => safeStr(a.user?.created_at || a.created_at).localeCompare(safeStr(b.user?.created_at || b.created_at)))
 
   const snapshotPresentation = normalizeTypedPresentation(options.snapshotPresentation || options.presentation)
+  const snapshotDocumentResult = normalizeResponseDocument(options.snapshotResponseDocument)
+  const snapshotResponseDocument = snapshotDocumentResult.document
   if (snapshotPresentation && turns.length) {
     mergeTypedPresentationIntoTurn(turns[turns.length - 1], snapshotPresentation, 'snapshot')
+  }
+  if (snapshotResponseDocument && turns.length) {
+    const latest = turns[turns.length - 1]
+    latest.responseDocument = snapshotResponseDocument
+    latest.responseDocumentStatus = snapshotDocumentResult.status
+    latest.responseDocumentViolations = snapshotDocumentResult.violations || []
+    const documentSources = sourcesFromResponseDocument(snapshotResponseDocument)
+    if (documentSources.length) latest.sources = documentSources
   }
 
   return turns
@@ -515,6 +533,8 @@ function stripApprovalWaitPhrases(text) {
 
 export function computeFactoryAgentTurnSummary(turn) {
   if (!turn) return 'Working...'
+  const documentSummary = responseDocumentMessage(turn.responseDocument)
+  if (documentSummary) return documentSummary
   const typedSummary = summaryFromTypedPresentation(turn.presentation)
   const typedKind = String(turn.presentation?.kind || '')
   const typedState = String(turn.presentation?.state || '')

@@ -5,6 +5,7 @@ import ActivityTimeline from './ActivityTimeline'
 import DeleteSessionDialog from './DeleteSessionDialog'
 import FactoryAgentChatComposer from './FactoryAgentChatComposer'
 import FactoryAgentSessionSidebar from './FactoryAgentSessionSidebar'
+import ResponseDocumentRenderer from './ResponseDocumentRenderer'
 import { useFactoryAgentChat } from './useFactoryAgentChat'
 import { FACTORY_AGENT_STATUS } from '../../../../services/factoryAgentApi'
 import { compactInterruptApprovalHeadline, resolveApprovalTablePresentation } from './approvalInterruptDisplay.js'
@@ -14,6 +15,7 @@ import {
   diagnosticFactsForPresentation,
   tablePresentationFromTypedPresentation,
 } from './presentationContract.js'
+import { normalizeResponseDocument, sourcesFromResponseDocument } from './responseDocumentContract.js'
 import {
   formatInlineCitationLabel,
   stripSourceFootnoteDefinitions,
@@ -590,6 +592,9 @@ function AssistantTurnBubble({
   session,
   isLatestTurn,
 }) {
+  const responseDocumentResult = normalizeResponseDocument(turn?.responseDocument)
+  const responseDocument = responseDocumentResult.document
+  const hasResponseDocument = responseDocumentResult.status !== 'absent'
   const rawSummary = turn?.presentation
     ? completedVisibleSummary(turn, turn?.summary || 'Working...')
     : pendingApprovalVisibleSummary(pendingApproval) || completedVisibleSummary(turn, turn?.summary || 'Working...')
@@ -626,57 +631,72 @@ function AssistantTurnBubble({
     turn.approvals.some((a) => a?.event_type === 'approval_decided'),
   )
   const collapseBundleTable = Boolean(presentation && !pendingApproval && hasServerDecidedApproval)
+  const chatSources = hasResponseDocument
+    ? sourcesFromResponseDocument(responseDocument)
+    : turn.sources
 
   return (
     <ChatMessage
       message=""
       isUser={false}
       timestamp={timestamp}
-      sources={turn.sources}
+      sources={chatSources}
       safetyContent={turn.safetyContent}
       showStreamGatedExtras={textStreamDone && answerAllowed}
       renderBlocks={() => (
         <>
-          <ActivityTimeline steps={activitySteps} />
-          {showResumeBanner ? (
-            <div className="mb-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-ink">
-              Applying approved changes{'\u2026'}
-            </div>
-          ) : null}
-          {showSummary ? (
-            <div className="whitespace-pre-wrap break-words text-ink">
-              <StreamedAssistantText
-                text={summary}
-                streamKey={`${turn?.id || 'turn'}:${summary}`}
-                enabled={streamEnabled}
-                sources={turn.sources}
-                onStreamComplete={handleAssistantTextStreamComplete}
-              />
-            </div>
-          ) : null}
-          {presentation && showDetails ? (
-            <TablePresentation
-              presentation={presentation}
-              animate={shouldAnimateText && showDetails}
-              animateKey={tableAnimKey}
-              defaultCollapsed={collapseBundleTable}
+          {hasResponseDocument ? (
+            <ResponseDocumentRenderer
+              document={responseDocument}
+              pendingApproval={pendingApproval}
+              showApprovalActions={showApprovalCard}
+              decideApproval={decideApproval}
+              isDecidingApproval={isDecidingApproval}
             />
-          ) : null}
-          {showDetails && !pendingApproval ? <TurnDetails mode={mode} turn={turn} /> : null}
-          <ConfirmationOptions turn={turn} onConfirm={decideConfirmation} disabled={isSending} />
-          {showApprovalCard ? (
-            <div className="mt-3">
-              <ApprovalCard
-                approval={pendingApproval}
-                mode={mode}
-                reason={approvalReason}
-                onReasonChange={setApprovalReason}
-                onApprove={(args) => decideApproval('approve', args)}
-                onReject={() => decideApproval('reject')}
-                deciding={isDecidingApproval}
-              />
-            </div>
-          ) : null}
+          ) : (
+            <>
+              <ActivityTimeline steps={activitySteps} />
+              {showResumeBanner ? (
+                <div className="mb-2 rounded-md border border-primary/25 bg-primary/5 px-3 py-2 text-xs text-ink">
+                  Applying approved changes{'\u2026'}
+                </div>
+              ) : null}
+              {showSummary ? (
+                <div className="whitespace-pre-wrap break-words text-ink">
+                  <StreamedAssistantText
+                    text={summary}
+                    streamKey={`${turn?.id || 'turn'}:${summary}`}
+                    enabled={streamEnabled}
+                    sources={turn.sources}
+                    onStreamComplete={handleAssistantTextStreamComplete}
+                  />
+                </div>
+              ) : null}
+              {presentation && showDetails ? (
+                <TablePresentation
+                  presentation={presentation}
+                  animate={shouldAnimateText && showDetails}
+                  animateKey={tableAnimKey}
+                  defaultCollapsed={collapseBundleTable}
+                />
+              ) : null}
+              {showDetails && !pendingApproval ? <TurnDetails mode={mode} turn={turn} /> : null}
+              <ConfirmationOptions turn={turn} onConfirm={decideConfirmation} disabled={isSending} />
+              {showApprovalCard ? (
+                <div className="mt-3">
+                  <ApprovalCard
+                    approval={pendingApproval}
+                    mode={mode}
+                    reason={approvalReason}
+                    onReasonChange={setApprovalReason}
+                    onApprove={(args) => decideApproval('approve', args)}
+                    onReject={() => decideApproval('reject')}
+                    deciding={isDecidingApproval}
+                  />
+                </div>
+              ) : null}
+            </>
+          )}
         </>
       )}
     />
@@ -978,7 +998,7 @@ const FactoryAgentChatPanel = ({ onClose, onHeaderMouseDown, useChatState = useF
                 const hideLegacyProgress = ACTIVITY_TIMELINE_ENABLED && isLatestTurn && isProgressSummary(turn?.summary)
                 const latestActivitySteps = isLatestTurn ? activitySteps : []
                 const shouldRenderAssistant =
-                  !hideLegacyProgress || latestActivitySteps.length > 0 || hasApprovalCard
+                  turn?.responseDocument != null || !hideLegacyProgress || latestActivitySteps.length > 0 || hasApprovalCard
                 const showResumeBanner =
                   isLatestTurn &&
                   isResumingAfterApproval &&

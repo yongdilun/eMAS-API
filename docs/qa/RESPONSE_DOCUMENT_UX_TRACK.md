@@ -11,7 +11,7 @@ Created: 2026-05-18
 | 1 | Backend response document schema | Done | Codex | Added additive backend `response_document.version=1`, `run_steps`, typed blocks, snapshot revision, and backend contract tests. |
 | 2 | Deterministic composer and run steps | Done | Codex | Added backend-owned deterministic composer, run-step evidence, completed-step preservation, read/RAG/no-result blocks, and Phase 2 contract tests. |
 | 3 | Failure recovery response documents | Done | Codex | Added typed failure taxonomy, operator-friendly diagnostic cards, sanitized technical details, impact/retry policies, and failure-focused backend tests. |
-| 4 | Frontend response document renderer | Not Started | Next agent | Render block types directly; keep legacy presentation only as missing-document fallback. |
+| 4 | Frontend response document renderer | Done | Codex | Added frontend response-document normalizer/renderer, direct block rendering, compact approvals, invalid-document diagnostic, fallback only when missing, unit/component coverage, and a focused mocked Playwright proof. |
 | 5 | Response document reducer and busy-traffic ordering | Not Started | Next agent | Centralize revision ordering, validation, SSE/polling conflict handling, coalescing, and collapse preservation. |
 | 6 | Final response quality E2E gate | Not Started | Next agent | Add typed and visible browser checks for multi-step response quality. |
 | 7 | Compact approval and progressive disclosure hardening | Not Started | Next agent | Make approval cards compact, stable, expandable, and usable across multi-step workflows. |
@@ -476,17 +476,74 @@ python -m pytest tests/test_approval_atomicity.py -q
 
 ## Phase 4 Checklist
 
-- [ ] Add frontend response-document normalizer.
-- [ ] Add response document renderer component.
-- [ ] Render run activity block.
-- [ ] Render short message block.
-- [ ] Render compact approval card.
-- [ ] Render completed step card.
-- [ ] Render result summary/table/source/diagnostic blocks.
-- [ ] Preserve completed steps when latest approval is pending.
-- [ ] Keep latest pending approval primary.
-- [ ] Keep legacy `presentation` fallback only when `response_document` is absent.
-- [ ] Add component/unit tests.
+- [x] Add frontend response-document normalizer.
+- [x] Add response document renderer component.
+- [x] Render run activity block.
+- [x] Render short message block.
+- [x] Render compact approval card.
+- [x] Render completed step card.
+- [x] Render result summary/table/source/diagnostic blocks.
+- [x] Preserve completed steps when latest approval is pending.
+- [x] Keep latest pending approval primary.
+- [x] Keep legacy `presentation` fallback only when `response_document` is absent.
+- [x] Add component/unit tests.
+
+## Phase 4 Implementation Notes
+
+Date: 2026-05-18
+
+Phase 4 is complete. No product bug was found while implementing or verifying this phase.
+
+### Files Changed
+
+- `eMas Front/src/components/features/chat/factory-agent/responseDocumentContract.js`
+- `eMas Front/src/components/features/chat/factory-agent/ResponseDocumentRenderer.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/useFactoryAgentChat.js`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs`
+- `eMas Front/src/components/features/chat/turns/turnAssembler.js`
+- `eMas Front/src/components/features/chat/turns/turnAssembler.test.mjs`
+- `eMas Front/e2e/fixtures/factoryAgentFixtures.js`
+- `eMas Front/e2e/mock-server/fixtureStore.js`
+- `eMas Front/e2e/specs/chat-fixtures.spec.js`
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+
+### Decisions Made
+
+- Normalize `response_document` in a dedicated frontend contract module before rendering.
+- Render typed response-document blocks in `ResponseDocumentRenderer` and bypass legacy summary/table/presentation heuristics whenever a document is present.
+- Keep legacy `presentation` rendering only for snapshots/turns where `response_document` is absent.
+- Treat invalid existing `response_document` as a safe diagnostic and do not fall back to stale `presentation`.
+- Keep approval rendering compact by default with top affected-record chips, collapsed detail tables, and visible approve/reject actions.
+- Render run activity from `response_document.run_steps` instead of reconstructing it from timeline phrases when a response document is present.
+- Preserve completed-step blocks beside the latest pending approval so approval 1 evidence remains visible while approval 2 waits.
+- Do not implement response-document revision reducer/event-storm ordering in Phase 4; Phase 5 remains responsible for stale revision rejection and coalescing.
+- Do not introduce LLM final-response generation.
+
+### Commands Run
+
+```powershell
+Set-Location "eMas Front"
+npm test -- --test-name-pattern "response_document|response document|legacy presentation fallback|invalid snapshot response_document|snapshot response_document"
+node --test --test-concurrency=1 "src/components/features/chat/turns/turnAssembler.test.mjs"
+npm run test:e2e -- --project=chromium --grep "response_document renderer" e2e/specs/chat-fixtures.spec.js
+npm test
+```
+
+### Test Results
+
+- Focused frontend test command: 86 passed.
+- Focused `turnAssembler.test.mjs`: 23 passed.
+- Focused mocked Playwright response-document renderer check: 1 passed.
+- Full `npm test`: 86 passed.
+
+### Remaining Phase 5 Work
+
+- Add centralized response-document reducer/store update logic.
+- Apply `snapshot_revision`, `document_id`, `turn_id`, and `response_document.revision` ordering.
+- Handle stale, duplicate, and conflicting revisions across polling/SSE.
+- Preserve expand/collapse state across accepted newer revisions.
+- Add event-storm and traffic-focused Playwright coverage.
 
 ## Phase 5 Checklist
 

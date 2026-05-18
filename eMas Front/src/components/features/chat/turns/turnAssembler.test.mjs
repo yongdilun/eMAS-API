@@ -876,3 +876,83 @@ test('typed knowledge answer carries sources independently of exact answer text'
   assert.equal(computeFactoryAgentTurnSummary(turns[0]), 'Follow the machine-specific LOTO notification procedure.')
   assert.equal(turns[0].sources[0].doc_id, 'LOTO-M-CNC-01')
 })
+
+test('snapshot response_document overrides stale presentation summary', () => {
+  const turns = assembleFactoryAgentTurns([
+    userEvent,
+    {
+      event_id: 'completed:stale',
+      event_type: 'session_completed',
+      content: 'All requested changes completed.',
+      created_at: '2026-05-16T10:00:02.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      status: 'COMPLETED',
+    },
+  ], {
+    snapshotPresentation: {
+      kind: 'mutation_result',
+      state: 'completed',
+      summary: 'Stale presentation success.',
+      rows: [{ job_id: 'JOB-STALE-001' }],
+    },
+    snapshotResponseDocument: {
+      version: 1,
+      id: 'rd-session-turn-1',
+      document_id: 'rd-session-turn-1',
+      turn_id: 'turn-1',
+      revision: 7,
+      revision_source: 'test',
+      state: 'waiting_approval',
+      status: 'waiting_approval',
+      run_steps: [
+        { step_id: 'approval-2', kind: 'approval', state: 'waiting', title: 'Waiting for approval 2', current: true },
+      ],
+      blocks: [
+        {
+          id: 'message:approval-2',
+          type: 'short_message',
+          message: 'Approval 2 is pending.',
+          status: 'waiting_approval',
+        },
+      ],
+    },
+  })
+
+  assert.equal(computeFactoryAgentTurnSummary(turns[0]), 'Approval 2 is pending.')
+  assert.equal(turns[0].responseDocument.state, 'waiting_approval')
+  assert.equal(turns[0].responseDocumentStatus, 'valid')
+})
+
+test('invalid snapshot response_document becomes safe diagnostic instead of presentation fallback', () => {
+  const turns = assembleFactoryAgentTurns([
+    userEvent,
+    {
+      event_id: 'completed:stale',
+      event_type: 'session_completed',
+      content: 'All requested changes completed.',
+      created_at: '2026-05-16T10:00:02.000Z',
+      role: 'assistant',
+      turn_id: 'turn-1',
+      status: 'COMPLETED',
+    },
+  ], {
+    snapshotPresentation: {
+      kind: 'mutation_result',
+      state: 'completed',
+      summary: 'Stale presentation success.',
+      rows: [{ job_id: 'JOB-STALE-001' }],
+    },
+    snapshotResponseDocument: {
+      version: 1,
+      state: 'completed',
+      blocks: [],
+    },
+  })
+
+  const summary = computeFactoryAgentTurnSummary(turns[0])
+  assert.equal(summary, 'I could not render a valid response document for this run.')
+  assert.equal(turns[0].responseDocumentStatus, 'invalid')
+  assert.equal(turns[0].responseDocument.diagnostics.reason, 'response_document_invalid')
+  assert.doesNotMatch(summary, /Stale presentation/)
+})
