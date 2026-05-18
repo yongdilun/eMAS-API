@@ -405,6 +405,71 @@ async def test_create_plan_without_draft_uses_planner_adapter(sessionmaker_overr
 
 
 @pytest.mark.asyncio
+async def test_actionable_prompt_with_empty_generated_plan_blocks_instead_of_orphan_idle(
+    sessionmaker_override,
+    db_session,
+):
+    await _seed_tool(
+        db_session,
+        name="patch__jobs_{id}",
+        endpoint="/jobs/{id}",
+        method="PATCH",
+        input_schema={
+            "type": "object",
+            "properties": {"id": {"type": "string"}, "priority": {"type": "string"}},
+            "required": ["id", "priority"],
+        },
+        capability_tags='["job","priority","update"]',
+        is_read_only=False,
+        requires_approval=True,
+    )
+
+    class EmptyActionPlanner:
+        async def generate_plan(self, *, intent, scoped_tools, context=None):
+            del intent, scoped_tools, context
+            return type(
+                "X",
+                (),
+                {
+                    "draft": PlanDraft(
+                        plan_explanation="No safe execution step could be produced.",
+                        risk_summary="No approved action can be started.",
+                        steps=[],
+                    ),
+                    "backend_used": "langchain",
+                    "llm_calls": 1,
+                },
+            )()
+
+    app, _ = await _make_app(sessionmaker_override, planner_adapter=EmptyActionPlanner())
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        session_id = (await client.post("/sessions", json={"user_id": "u1"})).json()["session_id"]
+        await client.post(
+            f"/sessions/{session_id}/messages",
+            json={
+                "role": "user",
+                "content": "change all medium priority job to high then change all high priority job to low",
+                "mode": "normal",
+            },
+        )
+
+        created = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert created.status_code == 200
+        snapshot = (await client.get(f"/sessions/{session_id}/snapshot")).json()
+
+    assert snapshot["session"]["status"] == "BLOCKED"
+    assert snapshot["pending_approval"] is None
+    document = snapshot["response_document"]
+    assert document["state"] == "blocked"
+    assert document["diagnostics"]["reason"] == "planner_no_action"
+    assert "non_terminal_snapshot" not in json.dumps(document)
+    diagnostic = next(block for block in document["blocks"] if block["type"] == "diagnostic")
+    assert diagnostic["reason"] == "planner_no_action"
+    assert diagnostic["title"] == "Request could not start"
+    assert "planner" in diagnostic["cause"].lower()
+
+
+@pytest.mark.asyncio
 async def test_create_plan_answers_osha_loto_knowledge_question_without_tool_plan(sessionmaker_override):
     class FakeRAGPipeline:
         def __init__(self):

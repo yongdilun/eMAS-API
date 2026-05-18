@@ -17,14 +17,14 @@ Created: 2026-05-18
 | 7 | Compact approval and progressive disclosure hardening | Done | Codex | Hardened typed approval/result/diagnostic progressive disclosure, duplicate table suppression, controlled collapse state, and mobile/desktop overflow checks. |
 | 8 | Mandatory compatibility cleanup | Done | Codex | Isolated legacy presentation/table heuristics behind missing-document fallback and added guardrails for valid/invalid `response_document`. |
 | 9 | Release gate and future LLM handoff | Done | Codex | Added response-document release lane and documented blocking/non-blocking gates, manual limits, and future LLM polish contract. |
-| 10 | Orphan turn and session state invariant gate | Not Started | Codex | New post-gate phase for the Chat 514 style bug: normal prompts must not settle as `IDLE/non_terminal_snapshot` with generic Needs attention UI. |
+| 10 | Orphan turn and session state invariant gate | Done | Codex | Added backend orphan-turn invariant, typed `planner_no_action` / `orphan_turn_state` diagnostics, and mocked browser state-agreement coverage for the Chat 514 class. |
 | 11 | Real flow browser state-transition oracle | Not Started | Codex | Add visible transition checkpoints that compare header, sidebar, backend snapshot, response document, and DOM after send/approve/final. |
 | 12 | Semantic snapshot probe and artifact quality | Not Started | Codex | Replace huge low-signal browser snapshots as the primary oracle with compact current-turn semantic probes. |
 | 13 | Manual screenshot regression intake | Not Started | Codex | Convert every manual screenshot bug into an executable backend/frontend/browser regression before adding more scenario volume. |
 
 ## Current Blockers
 
-- Chat 514 style orphan state: a normal prompt can appear as `IDLE` + `non_terminal_snapshot` + generic `Needs attention` in the visible UI. Phase 10 must convert this into a blocked invariant and product fix.
+- Chat 514 style orphan state is fixed and covered by Phase 10 backend plus mocked browser regressions. Normal prompts must not settle as `IDLE/non_terminal_snapshot` with generic `Needs attention`.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -661,12 +661,12 @@ npm run test:e2e -- --project=chromium --grep "response_document revision|event 
 
 ## Phase 10 Checklist
 
-- [ ] Add backend invariant for latest user message + `IDLE` + no terminal/pending/blocked/failed/cancelled state.
-- [ ] Add product fix so actionable prompts cannot emit `non_terminal_snapshot` as user-facing final state.
-- [ ] Add RD-001/RD-003 backend snapshot regression.
-- [ ] Add browser forbidden-text assertions for `non_terminal_snapshot`, `Session status: IDLE`, and generic `Needs attention`.
-- [ ] Assert active session header, sidebar, snapshot status, and response-document state agree after refresh.
-- [ ] Update manual regression bank with the Chat 514 screenshot failure.
+- [x] Add backend invariant for latest user message + `IDLE` + no terminal/pending/blocked/failed/cancelled state.
+- [x] Add product fix so actionable prompts cannot emit `non_terminal_snapshot` as user-facing final state.
+- [x] Add RD-001/RD-003 backend snapshot regression.
+- [x] Add browser forbidden-text assertions for `non_terminal_snapshot`, `Session status: IDLE`, and generic `Needs attention`.
+- [x] Assert active session header, sidebar, snapshot status, and response-document state agree after refresh.
+- [x] Update manual regression bank with the Chat 514 screenshot failure.
 
 ## Phase 11 Checklist
 
@@ -690,6 +690,58 @@ npm run test:e2e -- --project=chromium --grep "response_document revision|event 
 - [ ] Register the Chat 514 orphan-state screenshot as a manual regression.
 - [ ] Require each accepted screenshot bug to identify the first executable test layer.
 - [ ] Add regression-bank/schema checks so screenshot-only bugs cannot stay undocumented.
+
+## Phase 10 Implementation Notes
+
+Date: 2026-05-18
+
+Phase 10 is complete. Product bugs found and fixed:
+
+- New user messages from `IDLE`, `COMPLETED`, `BLOCKED`, or `FAILED` sessions did not immediately move the session into a live working state, so a poll between message send and plan creation could observe `IDLE`.
+- `_persist_plan(... status="DRAFT")` with an empty generated execution draft set `Session.status = IDLE`, leaving an actionable prompt with no plan, approval, terminal event, or typed failure.
+- The response-document composer treated non-terminal diagnostic snapshots as generic visible `Needs attention` cards, exposing `non_terminal_snapshot` instead of progress or a typed blocked reason.
+- Background execution failures logged the exception without moving the session to a terminal failed state.
+
+### Product Fix
+
+- Normal user messages now advance terminal/idle sessions to `PLANNING` and bump `event_seq`.
+- Empty actionable execution plans are converted to `BLOCKED` with typed `planner_no_action` context, operator-friendly cause/current-state/next-action copy, and no data-change claim.
+- Legacy orphan snapshots are virtually repaired to `BLOCKED` with typed `orphan_turn_state` diagnostics, preserving the original status only in sanitized technical details.
+- Non-terminal progress snapshots render progress/short-message blocks instead of a generic diagnostic card.
+- Execution now keeps `BLOCKED`/`FAILED` sessions terminal and marks background startup failures as `FAILED` with typed `unable_to_start_request` evidence.
+
+### Regression Coverage Added
+
+- `factory-agent/tests/test_response_document_contract.py::test_orphan_idle_after_actionable_prompt_becomes_typed_blocked_diagnostic`
+- `factory-agent/tests/test_api_endpoints.py::test_actionable_prompt_with_empty_generated_plan_blocks_instead_of_orphan_idle`
+- `eMas Front/e2e/specs/final-response-quality.spec.js` RD-001 orphan/session-state browser gate
+- `tests/e2e/scenarios/manual_prompt_regressions.json::phase10-chat514-orphan-idle-non-terminal-snapshot`
+- `docs/qa/manual_prompt_regression_bank.md` Phase 10 Chat 514 entry
+
+### Commands Run
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py::test_orphan_idle_after_actionable_prompt_becomes_typed_blocked_diagnostic -q
+python -m pytest tests/test_api_endpoints.py::test_actionable_prompt_with_empty_generated_plan_blocks_instead_of_orphan_idle -q
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+python -m pytest tests/test_api_endpoints.py::test_graph_approval_returns_before_resume_and_keeps_one_activity_operation -q
+python -m pytest tests/test_phase18_manual_prompt_bank.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "orphan|non_terminal|RD-001|session state"
+```
+
+### Test Results
+
+- New backend orphan snapshot regression: passed after failing before the fix with `session.status == IDLE`.
+- New backend empty-plan API regression: passed after failing before the fix with `session.status == IDLE`.
+- Backend response-document contract/failure lane: 23 passed.
+- Existing approval-resume regression: 1 passed.
+- Manual prompt bank gate: 5 passed.
+- Frontend unit/component lane: 98 passed.
+- Focused mocked response-document browser gate: 1 passed.
 
 ## Phase 6-9 Implementation Notes
 
@@ -844,7 +896,7 @@ Status: In Progress
 
 Date: 2026-05-18
 
-Status: Planned for Phases 10-13
+Status: Fixed in Phase 10; later phases add broader transition/probe hardening.
 
 ### Symptom
 
@@ -870,7 +922,7 @@ Status: Planned for Phases 10-13
 
 ### Testing Direction
 
-- Phase 10 blocks the invalid backend state.
+- Phase 10 blocks the invalid backend state and adds the first executable Chat 514 regression.
 - Phase 11 adds visible transition oracles.
 - Phase 12 improves artifacts with compact semantic probes.
 - Phase 13 forces every manual screenshot bug into a regression bank and executable test.

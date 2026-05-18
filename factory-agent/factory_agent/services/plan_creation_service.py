@@ -55,6 +55,14 @@ def _bump_session_revision(sess: SessionRow) -> None:
     sess.event_seq = (getattr(sess, "event_seq", None) or 0) + 1
 
 
+PLANNER_NO_ACTION_REASON = "planner_no_action"
+PLANNER_NO_ACTION_MESSAGE = (
+    "planner_no_action: The planner did not produce a safe plan, approval, or final result for this actionable "
+    "request. Current state: blocked before execution. Next action: refine the request or check tool availability, "
+    "then retry."
+)
+
+
 class PlanCreationService:
     def __init__(
         self,
@@ -492,6 +500,16 @@ class PlanCreationService:
         context_to_keep: dict[str, Any] | None = None,
         tool_outputs: list[dict[str, Any]] | None = None,
     ) -> PlanResponse:
+        draft_steps = getattr(draft, "steps", []) or []
+        planner_no_action = (
+            kind == "execution"
+            and not draft_steps
+            and (
+                status != "COMPLETED"
+                or (backend_used not in {"system"} and not tool_outputs)
+            )
+        )
+        persisted_status = "DRAFT" if planner_no_action and status == "COMPLETED" else status
         validation = validate_plan(
             draft,
             tools_by_name,
@@ -499,7 +517,7 @@ class PlanCreationService:
                 draft,
                 backend_used=backend_used,
                 kind=kind,
-                status=status,
+                status=persisted_status,
                 tool_outputs=tool_outputs,
             ),
         )
@@ -521,7 +539,7 @@ class PlanCreationService:
             session_id=sess.session_id,
             version=plan_version,
             kind=kind,
-            status=status,
+            status=persisted_status,
             dependency_graph=validation.normalized_dependency_graph,
             parallel_groups=validation.normalized_parallel_groups,
             plan_hash=validation.plan_hash,
@@ -535,15 +553,15 @@ class PlanCreationService:
         )
         db.add(plan_row)
 
-        completed_at = datetime.utcnow() if status == "COMPLETED" else None
-        step_status = "DONE" if status == "COMPLETED" else "NOT_STARTED"
+        completed_at = datetime.utcnow() if persisted_status == "COMPLETED" else None
+        step_status = "DONE" if persisted_status == "COMPLETED" else "NOT_STARTED"
         step_completed_at = completed_at
-        step_names = [s.tool_name for s in draft.steps]
+        step_names = [s.tool_name for s in draft_steps]
         aligned = align_tool_outputs_to_steps(step_tool_names=step_names, tool_outputs=tool_outputs)
         raw_outputs_by_step = self._align_raw_tool_outputs_to_steps(step_tool_names=step_names, tool_outputs=tool_outputs)
         first_failed_summary: str | None = None
         blocked_by_failed_step = False
-        for i, step in enumerate(draft.steps):
+        for i, step in enumerate(draft_steps):
             tool = tools_by_name.get(step.tool_name)
             pair = aligned[i] if i < len(aligned) else (None, None)
             step_result, step_summary = pair
@@ -552,10 +570,10 @@ class PlanCreationService:
             output_error = self._tool_output_error(raw_output)
             resolved_step_status = step_status
             resolved_completed_at = step_completed_at
-            if status == "COMPLETED" and blocked_by_failed_step:
+            if persisted_status == "COMPLETED" and blocked_by_failed_step:
                 resolved_step_status = "NOT_STARTED"
                 resolved_completed_at = None
-            elif status == "COMPLETED" and output_status in {"FAILED", "AMBIGUOUS"}:
+            elif persisted_status == "COMPLETED" and output_status in {"FAILED", "AMBIGUOUS"}:
                 resolved_step_status = output_status
                 resolved_completed_at = completed_at or datetime.utcnow()
                 blocked_by_failed_step = True
@@ -592,10 +610,25 @@ class PlanCreationService:
         sess.plan_hash = plan_row.plan_hash
         sess.current_step_index = 0
         sess.pending_user_message = None
-        sess.replan_context = context_to_keep if context_to_keep else None
-        sess.error = None
+        if planner_no_action:
+            blocked_context = dict(context_to_keep or {})
+            blocked_context["blocked_reason"] = PLANNER_NO_ACTION_REASON
+            blocked_context["planner_no_action"] = {
+                "backend_used": backend_used,
+                "requested_status": status,
+                "persisted_status": persisted_status,
+                "step_count": 0,
+            }
+            sess.replan_context = blocked_context
+            sess.error = PLANNER_NO_ACTION_MESSAGE
+        else:
+            sess.replan_context = context_to_keep if context_to_keep else None
+            sess.error = None
         _bump_session_revision(sess)
-        if status == "COMPLETED":
+        if planner_no_action:
+            sess.status = "BLOCKED"
+            sess.completed_at = None
+        elif persisted_status == "COMPLETED":
             if first_failed_summary:
                 sess.status = "FAILED"
                 sess.error = first_failed_summary
@@ -603,10 +636,10 @@ class PlanCreationService:
             else:
                 sess.status = "COMPLETED"
                 sess.completed_at = sess.completed_at or completed_at or datetime.utcnow()
-        elif status == "PENDING_APPROVAL":
+        elif persisted_status == "PENDING_APPROVAL":
             sess.status = "WAITING_APPROVAL"
         else:
-            sess.status = "PLANNING" if draft.steps else "IDLE"
+            sess.status = "PLANNING" if draft_steps else "IDLE"
         if not sess.name:
             sess.name = "New chat"
 
@@ -616,7 +649,7 @@ class PlanCreationService:
             if isinstance(summary, str) and summary.strip()
         ]
         result_summary = " ".join(dict.fromkeys(result_summaries))
-        quick_summary = result_summary or draft.plan_explanation or "Execution plan created."
+        quick_summary = result_summary or (PLANNER_NO_ACTION_MESSAGE if planner_no_action else draft.plan_explanation) or "Execution plan created."
         plan_message = MessageRow(
             message_id=self._generate_uuid(),
             session_id=sess.session_id,
@@ -630,7 +663,7 @@ class PlanCreationService:
         await db.commit()
 
         bundle_markdown = ""
-        if str(status) == "COMPLETED" and str(kind) == "execution" and tool_outputs and not first_failed_summary:
+        if str(persisted_status) == "COMPLETED" and str(kind) == "execution" and tool_outputs and not first_failed_summary:
             try:
                 tool_outputs_compact = compact_tool_outputs_for_narrative(tool_outputs)
                 bundle = await self._summary_adapter.synthesize_bundle_markdown(
@@ -661,7 +694,7 @@ class PlanCreationService:
             except SummaryBackendError:
                 bundle_markdown = ""
 
-        if not result_summary and not bundle_markdown:
+        if not planner_no_action and not result_summary and not bundle_markdown:
             # Two-phase response for better UX:
             # 1) quick summary appears immediately
             # 2) richer summary replaces it when ready

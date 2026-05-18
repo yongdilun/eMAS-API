@@ -261,6 +261,45 @@ _FAILURE_TEMPLATES: dict[str, FailureTemplate] = {
         retry_policy="retry_failed_rows_only",
         safe_to_retry=True,
     ),
+    "planner_no_action": FailureTemplate(
+        reason="planner_no_action",
+        title="Request could not start",
+        user_message=(
+            "I could not start this request because the planner did not produce a safe plan, approval, "
+            "or final result."
+        ),
+        cause="The planner returned no executable steps or approval request for an actionable prompt.",
+        current_state="The request is blocked before execution; no data changes were applied.",
+        next_action="Check tool availability or refine the request, then start a new request.",
+        action_ids=("check_status", "start_new_request", "view_diagnostics"),
+        retry_policy="retry_requires_plan_or_tool_fix",
+        safe_to_retry=False,
+    ),
+    "unable_to_start_request": FailureTemplate(
+        reason="unable_to_start_request",
+        title="Request could not start",
+        user_message="I could not start this request before the backend reached a safe running or terminal state.",
+        cause="The backend stopped before it created a plan, approval, or terminal result.",
+        current_state="The request is failed before execution; no successful result is being claimed.",
+        next_action="Check diagnostics, then retry only after confirming the current state.",
+        action_ids=("check_status", "start_new_request", "view_diagnostics"),
+        retry_policy="check_status_first",
+        safe_to_retry=False,
+    ),
+    "orphan_turn_state": FailureTemplate(
+        reason="orphan_turn_state",
+        title="Request state needs repair",
+        user_message=(
+            "I could not continue because the current state has a user request but no running work, "
+            "approval, or terminal result."
+        ),
+        cause="The session snapshot violated the orphan-turn invariant.",
+        current_state="The request is blocked; no data changes are being claimed.",
+        next_action="Check current status, then start a new request if the original one did not continue.",
+        action_ids=("check_status", "start_new_request", "view_diagnostics"),
+        retry_policy="check_status_first",
+        safe_to_retry=False,
+    ),
     "malformed_response_payload": FailureTemplate(
         reason="malformed_response_payload",
         title="Malformed response",
@@ -430,6 +469,14 @@ def _failure_reason(
     latest_closed_approval = _latest_closed_approval(approvals)
     text = _failure_probe_text(presentation=presentation, steps=steps, approvals=approvals)
 
+    if legacy_reason in {"planner_no_action", "unable_to_start_request", "orphan_turn_state"}:
+        return legacy_reason
+    if "planner_no_action" in text:
+        return "planner_no_action"
+    if "unable_to_start_request" in text:
+        return "unable_to_start_request"
+    if "orphan_turn_state" in text:
+        return "orphan_turn_state"
     if presentation.kind == "cancelled" or legacy_reason == "cancelled_by_user":
         return "cancelled_by_user"
     if presentation.kind == "rejected" or legacy_reason == "approval_rejected":
@@ -511,6 +558,7 @@ def _failure_technical_details(
         "error_code": reason,
         "legacy_reason": _trimmed(diagnostics.get("reason")) or None,
         "session_status": diagnostics.get("session_status"),
+        "original_session_status": diagnostics.get("original_session_status"),
         "session_error_code": _error_code(session_error) if session_error else None,
         "terminal_event_id": terminal_event_id,
         "terminal_event_type": terminal_event_type,
@@ -1292,6 +1340,15 @@ def _read_summary(rows: list[dict[str, Any]], fallback: str | None) -> str:
     return f"Found {len(rows)} {_plural(len(rows), 'record')}."
 
 
+def _is_non_terminal_progress_presentation(*, presentation: PresentationResponse, state: str) -> bool:
+    diagnostics = presentation.diagnostics if isinstance(presentation.diagnostics, dict) else {}
+    return (
+        presentation.kind == "diagnostic"
+        and state in {"running", "waiting_confirmation"}
+        and _trimmed(diagnostics.get("reason")) == "non_terminal_snapshot"
+    )
+
+
 def _stateful_activity_fallback(
     *,
     activity_steps: list[ActivityStepResponse],
@@ -1354,6 +1411,7 @@ def _compose_run_steps(
     failure_profile: FailureProfile | None,
 ) -> list[RunStep]:
     run_steps: list[RunStep] = []
+    non_terminal_progress = _is_non_terminal_progress_presentation(presentation=presentation, state=state)
     has_request_evidence = bool(timeline or approvals or mutation_groups or read_evidence or sources)
     if has_request_evidence:
         run_steps.append(
@@ -1504,7 +1562,7 @@ def _compose_run_steps(
             )
         )
 
-    if presentation.kind in {"diagnostic", "cancelled", "rejected", "expired", "partial_failure"}:
+    if presentation.kind in {"diagnostic", "cancelled", "rejected", "expired", "partial_failure"} and not non_terminal_progress:
         diagnostic_state = state if state in {"failed", "rejected", "expired", "cancelled"} else "failed"
         run_steps.append(
             RunStep(
@@ -1540,6 +1598,18 @@ def _compose_run_steps(
         )
 
     if not run_steps:
+        if non_terminal_progress:
+            return [
+                RunStep(
+                    step_id=f"analysis:{operation_id or document_id}",
+                    kind="analysis",
+                    state="current",
+                    title="Working on request",
+                    summary="The backend is preparing the next state.",
+                    operation_id=operation_id,
+                    current=True,
+                )
+            ]
         return _stateful_activity_fallback(
             activity_steps=activity_steps,
             operation_id=operation_id,
@@ -1621,6 +1691,11 @@ def _short_message(
 
     if presentation.kind == "answer" and state == "completed":
         return _trimmed(presentation.summary) or "No matching records were found."
+
+    if _is_non_terminal_progress_presentation(presentation=presentation, state=state):
+        if state == "waiting_confirmation":
+            return _trimmed(presentation.summary) or "Please confirm the next step before I continue."
+        return _trimmed(presentation.summary) or "I'm working on the request and waiting for the next backend update."
 
     return _trimmed(presentation.summary) or "The request needs attention before it can continue."
 
@@ -1805,7 +1880,10 @@ def _compose_blocks(
         blocks.append(SourceListBlock(id=f"sources:{operation_id or document_id}", sources=sources, operation_id=operation_id))
 
     no_result = presentation.kind == "answer" and not read_rows and not sources and state == "completed"
-    diagnostic_kind = presentation.kind in {"diagnostic", "cancelled", "rejected", "expired", "partial_failure"}
+    diagnostic_kind = (
+        presentation.kind in {"diagnostic", "cancelled", "rejected", "expired", "partial_failure"}
+        and not _is_non_terminal_progress_presentation(presentation=presentation, state=state)
+    )
     if no_result or diagnostic_kind:
         diagnostics = _sanitize_diagnostic_value(presentation.diagnostics if isinstance(presentation.diagnostics, dict) else {})
         reason = (
@@ -1939,6 +2017,11 @@ def compose_response_document(
         "mutation_group_count": len(mutation_groups),
         "read_result_shape": read_shape,
         "failure_reason": failure_profile.reason if failure_profile else None,
+        "orphan_turn_state": (
+            failure_profile.reason == "orphan_turn_state"
+            if failure_profile
+            else diagnostics.get("reason") == "orphan_turn_state"
+        ),
         "diagnostics_sanitized": True,
         "full_success_forbidden": bool(latest_pending) or bool(
             (presentation.invariants if isinstance(presentation.invariants, dict) else {}).get("full_success_forbidden")

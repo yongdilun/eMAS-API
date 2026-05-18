@@ -99,6 +99,12 @@ Review cadence: the QA regression bank owner reviews new entries and accepted ga
 | `phase11-medium-high-high-low-final-response` | `change all medium priority job to high then change all high priority job to low` | Use original-state semantics for both write sets, commit original medium -> high and original high -> low under separate approvals, show approval 2 copy/table while approval 2 is pending, and make the final assistant response summarize both write sets instead of only the last approval. | SO-041 oracle, summary contract, LangGraph state-machine oracle, frontend pending-approval projection unit, seeded workflow, real LangGraph browser proof |
 | `phase11-so041-live-activity-final-ui-regression` | Same prompt, after approving approval 1 and while approval 2 is pending/final. | While approval 2 is pending, visible activity current state must be `Waiting for your approval`, not `Improving the response / Current`; collapsing the activity timeline must not auto-expand on refresh. After final completion, the visible response must show the aggregate final summary and must not show stale `Approved request to change record`, waiting-approval detail text, or an approval-2-only affected-records table as the final answer. | Backend activity projection pytest, frontend activity/turn/component tests, real LangGraph browser DOM assertions |
 
+## Phase 10 Response Document Orphan State Regression
+
+| ID | Prompt / flow | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `phase10-chat514-orphan-idle-non-terminal-snapshot` | `change all medium priority job to high then change all high priority job to low` after a normal send. | The active turn must never settle as `IDLE` + `non_terminal_snapshot` + generic `Needs attention`. It must show waiting approval, completed results, or a typed blocked/failed diagnostic such as `planner_no_action` or `orphan_turn_state`; header, sidebar, backend snapshot, response document state, pending approval, and visible block type must agree. | Backend snapshot/API regressions plus focused mocked browser DOM/state-agreement gate |
+
 ## Phase 12 SO-005 Rejection Variant
 
 | ID | Prompt / flow | Expected deterministic behavior | Coverage |

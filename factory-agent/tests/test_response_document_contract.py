@@ -466,6 +466,51 @@ async def test_response_document_reports_approval_received_before_mutation_resul
 
 
 @pytest.mark.asyncio
+async def test_orphan_idle_after_actionable_prompt_becomes_typed_blocked_diagnostic(db_session):
+    created_at = datetime(2026, 5, 18, 10, 30, 0)
+    session_id = "rd-orphan-idle-actionable"
+    plan_id = "rd-orphan-idle-plan"
+    db_session.add_all(
+        [
+            _session(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                event_seq=3,
+                status="IDLE",
+                current_intent="change all medium priority job to high then change all high priority job to low",
+                completed_at=None,
+            ),
+            _user_message(session_id=session_id, created_at=created_at),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _assistant_message(
+                session_id=session_id,
+                content="No safe discovery steps are required before preparing an execution proposal.",
+                step_id=plan_id,
+                created_at=created_at + timedelta(seconds=1),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    body = await _snapshot(db_session, session_id)
+    document = body["response_document"]
+
+    assert body["session"]["status"] == "BLOCKED"
+    assert body["pending_approval"] is None
+    assert document["state"] == "blocked"
+    assert document["diagnostics"]["reason"] == "orphan_turn_state"
+    assert document["diagnostics"]["session_status"] == "BLOCKED"
+    assert document["diagnostics"]["original_session_status"] == "IDLE"
+    assert document["invariants"]["orphan_turn_state"] is True
+    diagnostic = next(block for block in document["blocks"] if block["type"] == "diagnostic")
+    assert diagnostic["reason"] == "orphan_turn_state"
+    assert diagnostic["title"] != "Needs attention"
+    assert "current state" in diagnostic["user_message"].lower()
+    assert "check current status" in diagnostic["next_action"].lower()
+
+
+@pytest.mark.asyncio
 async def test_two_step_approval_document_preserves_completed_mutation_during_second_pending(db_session):
     created_at = datetime(2026, 5, 18, 12, 0, 0)
     session_id = "rd-two-step-pending"

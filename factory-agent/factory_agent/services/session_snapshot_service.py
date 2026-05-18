@@ -18,6 +18,7 @@ from factory_agent.persistence.models import Approval as ApprovalRow
 from factory_agent.persistence.models import Message as MessageRow
 from factory_agent.persistence.models import Plan as PlanRow
 from factory_agent.persistence.models import PlanStep as PlanStepRow
+from factory_agent.planning.intent import assess_intent
 from factory_agent.planning.tool_output_alignment import summarize_tool_result
 from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import (
@@ -50,6 +51,12 @@ from factory_agent.session_state import (
     USER_CANCELLED_TIMELINE_CONTENT,
     is_user_cancelled_session,
     timeline_details_indicate_user_cancelled,
+)
+
+ORPHAN_TURN_REASON = "orphan_turn_state"
+ORPHAN_TURN_MESSAGE = (
+    "orphan_turn_state: The session has a user request but no running work, pending approval, or terminal result. "
+    "Current state: blocked for operator review. Next action: check current status and start a new request if needed."
 )
 
 def _timeline_event(
@@ -993,6 +1000,52 @@ def _latest_terminal_event(timeline: list[TimelineEventResponse]) -> TimelineEve
     return max(terminal_events, key=lambda event: event.created_at)
 
 
+def _latest_user_event(timeline: list[TimelineEventResponse]) -> TimelineEventResponse | None:
+    user_events = [event for event in timeline if event.event_type == "user_message"]
+    if not user_events:
+        return None
+    return max(user_events, key=lambda event: event.created_at)
+
+
+def _has_terminal_event_after_latest_user(timeline: list[TimelineEventResponse]) -> bool:
+    latest_user = _latest_user_event(timeline)
+    if latest_user is None:
+        return False
+    return any(
+        event.event_type in _PRESENTATION_TERMINAL_EVENTS
+        and event.created_at >= latest_user.created_at
+        and (not latest_user.turn_id or event.turn_id in {None, latest_user.turn_id})
+        for event in timeline
+    )
+
+
+def _is_actionable_prompt_text(text: str | None) -> bool:
+    if not text or not text.strip():
+        return False
+    try:
+        return assess_intent(text).kind == "operations"
+    except Exception:
+        return False
+
+
+def _is_orphan_turn_state(
+    *,
+    session: Any,
+    pending_approval: ApprovalResponse | None,
+    timeline: list[TimelineEventResponse],
+) -> bool:
+    session_status = str(getattr(session, "status", "") or "").upper()
+    if session_status != "IDLE" or pending_approval is not None or is_user_cancelled_session(session):
+        return False
+    latest_user = _latest_user_event(timeline)
+    if latest_user is None:
+        return False
+    if _has_terminal_event_after_latest_user(timeline):
+        return False
+    intent = getattr(session, "current_intent", None) or latest_user.content
+    return _is_actionable_prompt_text(intent)
+
+
 def _rows_from_steps(
     steps: list[PlanStepResponse],
     *,
@@ -1131,6 +1184,19 @@ def _presentation_diagnostics(
             if str(step.status or "").upper() in {"FAILED", "AMBIGUOUS"} or step.last_error
         ],
     }
+
+
+def _typed_blocked_reason(session: Any, *, default: str = "session_blocked") -> str:
+    context = getattr(session, "replan_context", None)
+    if isinstance(context, dict):
+        reason = str(context.get("blocked_reason") or "").strip()
+        if reason:
+            return reason
+    error = str(getattr(session, "error", "") or "")
+    for reason in ("planner_no_action", "unable_to_start_request", "orphan_turn_state"):
+        if reason in error:
+            return reason
+    return default
 
 
 def _derive_snapshot_presentation(
@@ -1278,6 +1344,16 @@ def _derive_snapshot_presentation(
         )
 
     if session_status == "BLOCKED":
+        reason = _typed_blocked_reason(session)
+        diagnostics = _presentation_diagnostics(
+            session=session,
+            terminal_event=terminal_event,
+            reason=reason,
+            steps=steps,
+        )
+        context = getattr(session, "replan_context", None)
+        if isinstance(context, dict) and context.get("original_session_status"):
+            diagnostics["original_session_status"] = context.get("original_session_status")
         return PresentationResponse(
             kind="diagnostic",
             state="blocked",
@@ -1285,12 +1361,7 @@ def _derive_snapshot_presentation(
             summary=getattr(session, "error", None) or (terminal_event.content if terminal_event else "Execution blocked."),
             rows=step_rows,
             sources=sources,
-            diagnostics=_presentation_diagnostics(
-                session=session,
-                terminal_event=terminal_event,
-                reason="session_blocked",
-                steps=steps,
-            ),
+            diagnostics=diagnostics,
             invariants={**invariants, "full_success_forbidden": True},
         )
 
@@ -2676,19 +2747,33 @@ class SessionSnapshotService:
 
         # Also cross-check against approval state: a pending approval must keep the
         # browser in WAITING_APPROVAL even if a stale terminal row is still present.
+        orphan_turn_state = _is_orphan_turn_state(
+            session=sess,
+            pending_approval=approval_to_response(healed_pending_approval) if healed_pending_approval else None,
+            timeline=events,
+        )
         if healed_pending_approval is not None:
             _effective_status = "WAITING_APPROVAL"
+        elif orphan_turn_state:
+            _effective_status = "BLOCKED"
         elif healed_pending_approval is None and sess.status == "WAITING_APPROVAL":
             _effective_status = sess.status
         else:
             _effective_status = sess.status
         _session_response = session_to_response(sess)
         if _effective_status != sess.status:
+            update_payload: dict[str, Any] = {
+                "status": _effective_status,
+                "completed_at": None if _effective_status != "COMPLETED" else _session_response.completed_at,
+            }
+            if orphan_turn_state:
+                context = dict(_session_response.replan_context or {})
+                context["blocked_reason"] = ORPHAN_TURN_REASON
+                context["original_session_status"] = sess.status
+                update_payload["error"] = ORPHAN_TURN_MESSAGE
+                update_payload["replan_context"] = context
             _session_response = _session_response.model_copy(
-                update={
-                    "status": _effective_status,
-                    "completed_at": None if _effective_status != "COMPLETED" else _session_response.completed_at,
-                }
+                update=update_payload
             )
 
         # Derive resume_hint: session is applying approved changes if it is EXECUTING

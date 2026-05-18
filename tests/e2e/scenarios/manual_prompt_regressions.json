@@ -398,6 +398,43 @@
       "coverage": ["seeded-workflow", "seeded-browser", "real-langgraph-browser"]
     },
     {
+      "id": "phase10-chat514-orphan-idle-non-terminal-snapshot",
+      "source_prompt": "change all medium priority job to high then change all high priority job to low",
+      "prompt": "change all medium priority job to high then change all high priority job to low",
+      "observed_failure": "Manual Chat 514 screenshot showed Header: Ready, sidebar: WAITING FOR APPROVAL, assistant card: Needs attention, message: The request needs attention before it can continue, and technical details Reason: non_terminal_snapshot / Session status: IDLE after a normal actionable prompt.",
+      "expected_behavior": "After the latest user message, the active chat must be running/planning/executing, waiting approval, waiting confirmation, completed, cancelled, or blocked/failed with a typed reason. It must never show IDLE plus non_terminal_snapshot plus generic Needs attention for RD-001.",
+      "artifact_link": "docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md#post-gate-regression-chat-514-orphan-idle-diagnostic",
+      "selected_oracle": "SO-041",
+      "proposed_oracle": null,
+      "owner": "qa",
+      "severity": "high",
+      "lowest_test_layer": "pytest_snapshot",
+      "browser_coverage": true,
+      "regression": {
+        "test_file": "factory-agent/tests/test_response_document_contract.py; factory-agent/tests/test_api_endpoints.py; eMas Front/e2e/specs/final-response-quality.spec.js",
+        "command": "Set-Location \"factory-agent\"; python -m pytest tests/test_response_document_contract.py::test_orphan_idle_after_actionable_prompt_becomes_typed_blocked_diagnostic tests/test_api_endpoints.py::test_actionable_prompt_with_empty_generated_plan_blocks_instead_of_orphan_idle -q; Set-Location \"..\\eMas Front\"; npm run test:e2e:response-document -- --grep \"orphan|non_terminal|RD-001|session state\"",
+        "failing_before_closure_required": true,
+        "failure_evidence": "Focused backend regressions failed before the fix with session.status == IDLE.",
+        "passing_evidence": "Required after Phase 10 focused backend and browser runs."
+      },
+      "test_layer": "pytest_snapshot+pytest_api+mocked-browser",
+      "expected": {
+        "primary_route": "tool.write.jobs.bulk_update_priority",
+        "machine_ids": [],
+        "job_ids": [],
+        "clarification_expected": false,
+        "required_final_state": "WAITING_APPROVAL|COMPLETED|BLOCKED|FAILED",
+        "required_answer_terms": ["Approval required", "Updated 21 jobs across 2 approved steps", "Request could not start"],
+        "forbidden_answer_terms": [
+          "non_terminal_snapshot",
+          "Session status: IDLE",
+          "The request needs attention before it can continue.",
+          "Header: Ready with sidebar WAITING FOR APPROVAL"
+        ]
+      },
+      "coverage": ["pytest_snapshot", "pytest_api", "mocked-browser"]
+    },
+    {
       "id": "phase12-so005-medium-high-high-low-reject-approval-2",
       "source_prompt": "change all medium priority job to high then change all high priority job to low",
       "prompt": "change all medium priority job to high then change all high priority job to low",

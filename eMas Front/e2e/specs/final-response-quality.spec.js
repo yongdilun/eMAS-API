@@ -16,6 +16,9 @@ import {
   responseDocumentTimeoutPrompt,
 } from '../support/responseDocumentScenarios.js'
 
+const mockBaseUrl = `http://127.0.0.1:${Number(process.env.PLAYWRIGHT_FACTORY_AGENT_PORT || 8015)}`
+const activeSessionStorageKey = 'factory_agent_active_session_id'
+
 async function openChat(page) {
   await page.goto('/')
   await page.getByRole('button', { name: chatSelectors.openAssistantButtonName }).click()
@@ -42,6 +45,98 @@ async function expectForbiddenTextAbsent(page, patterns = forbiddenResponseDocum
   for (const pattern of patterns) {
     expect(text).not.toMatch(pattern)
   }
+}
+
+async function activeSessionId(page) {
+  let sessionId = await page.evaluate((key) => window.localStorage.getItem(key), activeSessionStorageKey)
+  if (!sessionId) {
+    await page.waitForFunction((key) => window.localStorage.getItem(key), activeSessionStorageKey, { timeout: 5000 })
+    sessionId = await page.evaluate((key) => window.localStorage.getItem(key), activeSessionStorageKey)
+  }
+  if (!sessionId) throw new Error('No active Factory Agent session id in localStorage')
+  return sessionId
+}
+
+async function snapshotForPage(page) {
+  const sessionId = await activeSessionId(page)
+  const response = await fetch(`${mockBaseUrl}/sessions/${sessionId}/snapshot`, {
+    headers: { 'X-User-Id': 'frontend-operator' },
+  })
+  const body = await response.json()
+  if (!response.ok) throw new Error(`Snapshot fetch failed: ${response.status} ${JSON.stringify(body)}`)
+  return body
+}
+
+const uiStatusByBackendStatus = {
+  PLANNING: 'Understanding',
+  EXECUTING: 'Checking',
+  WAITING_APPROVAL: 'Waiting for approval',
+  WAITING_CONFIRMATION: 'Waiting for confirmation',
+  BLOCKED: 'Needs attention',
+  FAILED: 'Needs attention',
+  COMPLETED: 'Complete',
+  IDLE: 'Ready',
+}
+
+async function collectStateProbe(page) {
+  return page.evaluate(() => {
+    const statusLabels = new Set([
+      'Ready',
+      'Understanding',
+      'Checking',
+      'Waiting for approval',
+      'Waiting for confirmation',
+      'Needs attention',
+      'Complete',
+      'Working',
+    ])
+    const dialog = document.querySelector('[role="dialog"]') || document.body
+    const text = document.body.innerText || ''
+    const heading = dialog.querySelector('h2')
+    const headerRegion = heading?.parentElement || dialog
+    const headerStatus = Array.from(headerRegion.querySelectorAll('span'))
+      .map((node) => (node.textContent || '').trim())
+      .find((value) => statusLabels.has(value)) || null
+    const activeSessionButton = dialog.querySelector('aside [aria-current="page"]')
+    const activeSidebarStatus = activeSessionButton
+      ? Array.from(activeSessionButton.querySelectorAll('span'))
+        .map((node) => (node.textContent || '').trim())
+        .find((value) => statusLabels.has(value)) || null
+      : null
+    const blockTypes = Array.from(document.querySelectorAll('[data-response-block-type]'))
+      .map((node) => node.getAttribute('data-response-block-type'))
+      .filter(Boolean)
+    return { headerStatus, activeSidebarStatus, blockTypes, text }
+  })
+}
+
+async function expectNoOrphanTurnVisible(page) {
+  const probe = await collectStateProbe(page)
+  expect(probe.text).not.toMatch(/non_terminal_snapshot/i)
+  expect(probe.text).not.toMatch(/Session status:\s*IDLE/i)
+  expect(probe.text).not.toMatch(/Needs attention\s+The request needs attention before it can continue/i)
+  expect(probe.text).not.toMatch(/The request needs attention before it can continue\./i)
+  if (probe.activeSidebarStatus === 'Waiting for approval') {
+    expect(probe.headerStatus).toBe('Waiting for approval')
+  }
+}
+
+async function expectActiveStateAgreement(page, {
+  sessionStatus,
+  responseState,
+  pendingApproval,
+  visibleBlockType,
+}) {
+  const snapshot = await snapshotForPage(page)
+  const probe = await collectStateProbe(page)
+  expect(snapshot.session.status).toBe(sessionStatus)
+  expect(Boolean(snapshot.pending_approval)).toBe(pendingApproval)
+  expect(snapshot.response_document?.state).toBe(responseState)
+  expect(probe.headerStatus).toBe(uiStatusByBackendStatus[sessionStatus])
+  expect(probe.activeSidebarStatus).toBe(uiStatusByBackendStatus[sessionStatus])
+  expect(probe.blockTypes).toContain(visibleBlockType)
+  await expectNoOrphanTurnVisible(page)
+  return { snapshot, probe }
 }
 
 async function expectDetailsClosed(locator) {
@@ -139,6 +234,45 @@ async function runCascade(page, { prompt, finalMessage, firstStep, secondStep, f
 }
 
 test.describe('Final response quality response_document gate', () => {
+  test('RD-001 orphan/session state invariant forbids IDLE non_terminal_snapshot UI', async ({ page }) => {
+    await openChat(page)
+    await sendChatPrompt(page, responseDocumentCascadePrompt)
+
+    await expect(page.getByText('Waiting for approval 1').first()).toBeVisible()
+    const firstApprovalCard = page.locator('[data-response-block-type="approval_required"]')
+      .filter({ hasText: 'Update 10 jobs from medium to high' })
+      .last()
+    await expect(firstApprovalCard).toBeVisible()
+    await expectActiveStateAgreement(page, {
+      sessionStatus: 'WAITING_APPROVAL',
+      responseState: 'waiting_approval',
+      pendingApproval: true,
+      visibleBlockType: 'approval_required',
+    })
+
+    await decideApproval(page, 'approve')
+    await expect(page.getByText('Waiting for approval 2').first()).toBeVisible({ timeout: 10_000 })
+    const secondApprovalCard = page.locator('[data-response-block-type="approval_required"]')
+      .filter({ hasText: 'Update 11 jobs from high to low' })
+      .last()
+    await expect(secondApprovalCard).toBeVisible()
+    await expectActiveStateAgreement(page, {
+      sessionStatus: 'WAITING_APPROVAL',
+      responseState: 'waiting_approval',
+      pendingApproval: true,
+      visibleBlockType: 'approval_required',
+    })
+
+    await decideApproval(page, 'approve')
+    await expect(page.getByText('Updated 21 jobs across 2 approved steps.').first()).toBeVisible({ timeout: 10_000 })
+    await expectActiveStateAgreement(page, {
+      sessionStatus: 'COMPLETED',
+      responseState: 'completed',
+      pendingApproval: false,
+      visibleBlockType: 'result_summary',
+    })
+  })
+
   test('two-approval cascade keeps compact pending state and final aggregate truth', async ({ page }) => {
     await runCascade(page, {
       prompt: responseDocumentCascadePrompt,

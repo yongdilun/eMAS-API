@@ -23,6 +23,7 @@ from factory_agent.persistence.models import Plan as PlanRow
 from factory_agent.persistence.models import PlanStep as PlanStepRow
 from factory_agent.persistence.models import Session as SessionRow
 from factory_agent.schemas import MessageCreateRequest, MessageResponse
+from factory_agent.services.plan_creation_service import _bump_session_revision
 from factory_agent.session_state import USER_CANCELLED_MESSAGE
 
 
@@ -133,7 +134,7 @@ def build_messages_router(
                 sess.status = "IDLE"
                 sess.error = USER_CANCELLED_MESSAGE
                 sess.pending_user_message = None
-                sess.version += 1
+                _bump_session_revision(sess)
                 await event_bus.publish(
                     AgentEvent(
                         event_type="session_cancel",
@@ -187,10 +188,16 @@ def build_messages_router(
                 sess.status = "PLANNING"
                 sess.error = "Replan requested from user message"
                 sess.pending_user_message = None
-                sess.version += 1
+                _bump_session_revision(sess)
             elif sess.status == "EXECUTING":
                 sess.pending_user_message = req.content[:5000]
-                sess.version += 1
+                _bump_session_revision(sess)
+            elif sess.status in {"IDLE", "COMPLETED", "BLOCKED", "FAILED"}:
+                sess.status = "PLANNING"
+                sess.error = None
+                sess.completed_at = None
+                sess.pending_user_message = None
+                _bump_session_revision(sess)
             await db.commit()
         return message_to_response(msg)
 

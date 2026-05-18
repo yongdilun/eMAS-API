@@ -16,7 +16,7 @@ from factory_agent.persistence.models import Session as SessionRow
 from factory_agent.planner import PlannerApprovalRequired, PlannerBackendError, PlannerClarificationError, PlannerPlanRejected
 from factory_agent.planning.tool_selector import ToolSelector
 from factory_agent.security.permissions import filter_tools_for_role, role_from_claims
-from factory_agent.services.plan_creation_service import PlanCreationService
+from factory_agent.services.plan_creation_service import PlanCreationService, _bump_session_revision
 
 
 class ExecutionService:
@@ -86,19 +86,19 @@ class ExecutionService:
         except PlannerClarificationError as e:
             sess.status = "BLOCKED"
             sess.error = str(e)
-            sess.version += 1
+            _bump_session_revision(sess)
             await db.commit()
             return sess
         except PlannerPlanRejected as e:
             sess.status = "BLOCKED"
             sess.error = str(e)
-            sess.version += 1
+            _bump_session_revision(sess)
             await db.commit()
             raise HTTPException(status_code=400, detail={"errors": [str(e)]}) from e
         except PlannerBackendError as e:
             sess.status = "FAILED"
             sess.error = str(e)
-            sess.version += 1
+            _bump_session_revision(sess)
             await db.commit()
             raise HTTPException(status_code=503, detail={"errors": [str(e)]}) from e
 
@@ -136,7 +136,7 @@ class ExecutionService:
             sess.status = "COMPLETED"
             sess.completed_at = datetime.utcnow()
             sess.error = None
-            sess.version += 1
+            _bump_session_revision(sess)
             await db.commit()
         return sess
 
@@ -165,6 +165,8 @@ class ExecutionService:
             return sess
         if sess.status == "WAITING_APPROVAL":
             return sess
+        if sess.status in {"BLOCKED", "FAILED"}:
+            return sess
         if current_plan and current_plan.status == "COMPLETED" and sess.status == "COMPLETED":
             return sess
         if sess.status == "COMPLETED":
@@ -186,9 +188,21 @@ class ExecutionService:
                             await self.run_langgraph_session(db=bg_db, sess=bg_sess, user=user)
                 except Exception as e:
                     log_event("background_execute_failed", session_id=session_id, error=str(e))
+                    async with bg_sessionmaker() as bg_db:
+                        failed_sess = await self._session_mgr.get_session(bg_db, session_id=session_id)
+                        if failed_sess and failed_sess.status not in {"COMPLETED", "WAITING_APPROVAL", "BLOCKED", "FAILED"}:
+                            failed_sess.status = "FAILED"
+                            failed_sess.error = (
+                                "unable_to_start_request: Background execution stopped before a terminal result. "
+                                "Current state: failed. Next action: check diagnostics and retry if it is safe."
+                            )
+                            failed_sess.completed_at = None
+                            _bump_session_revision(failed_sess)
+                            await bg_db.commit()
 
             asyncio.create_task(_runner())
             sess.status = "EXECUTING"
+            _bump_session_revision(sess)
             await db.commit()
             return sess
 
