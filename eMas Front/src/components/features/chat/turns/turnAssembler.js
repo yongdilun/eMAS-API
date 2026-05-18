@@ -497,9 +497,11 @@ export function assembleFactoryAgentTurns(timeline = [], options = {}) {
 
   turns.sort((a, b) => safeStr(a.user?.created_at || a.created_at).localeCompare(safeStr(b.user?.created_at || b.created_at)))
 
-  const snapshotPresentation = normalizeTypedPresentation(options.snapshotPresentation || options.presentation)
   const snapshotDocumentResult = normalizeResponseDocument(options.snapshotResponseDocument)
   const snapshotResponseDocument = snapshotDocumentResult.document
+  const snapshotPresentation = snapshotResponseDocument
+    ? null
+    : normalizeTypedPresentation(options.snapshotPresentation || options.presentation)
   if (snapshotPresentation && turns.length) {
     mergeTypedPresentationIntoTurn(turns[turns.length - 1], snapshotPresentation, 'snapshot')
   }

@@ -16,7 +16,7 @@ const FactoryAgentSessionSidebar = ({
   onDeleteSession,
 }) => (
   <aside
-    className={`${collapsed ? 'w-14' : 'w-72'} border-r border-hairline bg-surface-1 transition-all duration-200 flex flex-col`}
+    className={`${collapsed ? 'sm:w-14' : 'sm:w-72'} hidden shrink-0 border-r border-hairline bg-surface-1 transition-all duration-200 sm:flex sm:flex-col`}
   >
     <div className="px-2.5 py-2 border-b border-hairline flex items-center gap-2">
       {!collapsed ? (

@@ -20,6 +20,14 @@ GitHub Actions equivalent: `Chatbot Oracle Gates` runs this gate on pull request
 
 ## Release And Pre-Merge Oracle Gates
 
+Run the response-document UX gate before response-document releases or when changing Factory Agent chat rendering:
+
+```powershell
+npm run test:e2e:response-document
+```
+
+This is a blocking gate for response-document UX changes. It covers typed final response rendering, compact approvals, failure diagnostics, stale revision/event-storm convergence, legacy fallback isolation, and browser failure artifacts through the Playwright config.
+
 Run seeded stateful oracles before release signoff or from the `Chatbot Oracle Gates` workflow dispatch input:
 
 ```powershell
@@ -43,6 +51,12 @@ Run synthetic monitoring as a read-only gate. The default command uses the local
 ```powershell
 npm run test:e2e:synthetic
 ```
+
+Blocking lanes for response-document release signoff are `npm run test:backend-oracles`, `npm test`, `npm run test:e2e:response-document`, focused seeded oracles that cover affected flows, and `npm run test:e2e:release`. Broader real LangGraph and synthetic lanes remain release/pre-merge or opt-in unless the changed area touches LangGraph routing, live-stack proxy behavior, or synthetic monitoring.
+
+Manual testing is allowed only as supporting evidence for layout inspection, copy review, and operator workflow sanity checks. It cannot replace a failing response-document contract, unit, mocked browser, seeded oracle, or release validation lane.
+
+Future LLM polish is a separate handoff after deterministic response-document quality is stable. A future LLM layer may only rewrite safe explanatory copy and must not change facts, rows, approvals, sources, diagnostics, state, retry safety, or next action. It must validate against the response-document schema and fall back to deterministic copy on any violation.
 
 ## Production-Grade Gate
 

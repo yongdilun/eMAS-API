@@ -154,6 +154,16 @@ function authorizeSessionRequest(req, url, res, session, { allowMissingStreamUse
   return true
 }
 
+function latestSessionWithPendingApproval(approvalId) {
+  const ts = (value) => {
+    const parsed = Date.parse(value || '')
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return Array.from(sessions.values())
+    .filter((candidate) => candidate.pending_approval?.approval_id === approvalId)
+    .sort((a, b) => ts(b.updated_at) - ts(a.updated_at))[0] || null
+}
+
 function seedSecuritySession({ sessionId, userId, name, secret, scenarioName = 'securityOwnerIsolatedRead', requireStreamAuth = false }) {
   const session = createScenarioSession({
     sessionId,
@@ -785,6 +795,18 @@ const server = http.createServer(async (req, res) => {
     }
     if (!authorizeSessionRequest(req, url, res, session)) return
     const body = await readJson(req)
+    const scenario = getScenario(session.scenario_name)
+    if (typeof scenario.onCancel === 'function') {
+      const result = await scenario.onCancel(session, body)
+      session.updated_at = now()
+      sendJson(req, url, res, result.status, result.body, {
+        sessionId: session.session_id,
+        scenarioName: session.scenario_name,
+        prompt: session.last_prompt,
+        body,
+      })
+      return
+    }
     const turnId = session.current_turn_id || `pw-cancel-${session.messages.length || 1}`
     session.status = 'FAILED'
     session.operation_id = null
@@ -826,12 +848,24 @@ const server = http.createServer(async (req, res) => {
   const approveMatch = url.pathname.match(/^\/approvals\/([^/]+)\/approve$/)
   if (req.method === 'POST' && approveMatch) {
     const approvalId = approveMatch[1]
-    const session = Array.from(sessions.values()).find((candidate) => candidate.pending_approval?.approval_id === approvalId)
+    const session = latestSessionWithPendingApproval(approvalId)
     if (!session) {
       sendJson(req, url, res, 404, { detail: 'Approval not found' })
       return
     }
     if (!authorizeSessionRequest(req, url, res, session)) return
+    const body = await readJson(req)
+    const scenario = getScenario(session.scenario_name)
+    if (typeof scenario.onApprove === 'function') {
+      const result = await scenario.onApprove(session, approvalId, body)
+      session.updated_at = now()
+      sendJson(req, url, res, result.status, result.body, {
+        sessionId: session.session_id,
+        scenarioName: session.scenario_name,
+        body,
+      })
+      return
+    }
     if (session.scenario_name === 'securityUnsafeToolBlocked') {
       session.status = 'FAILED'
       session.pending_approval = null
@@ -858,12 +892,24 @@ const server = http.createServer(async (req, res) => {
   const rejectMatch = url.pathname.match(/^\/approvals\/([^/]+)\/reject$/)
   if (req.method === 'POST' && rejectMatch) {
     const approvalId = rejectMatch[1]
-    const session = Array.from(sessions.values()).find((candidate) => candidate.pending_approval?.approval_id === approvalId)
+    const session = latestSessionWithPendingApproval(approvalId)
     if (!session) {
       sendJson(req, url, res, 404, { detail: 'Approval not found' })
       return
     }
     if (!authorizeSessionRequest(req, url, res, session)) return
+    const body = await readJson(req)
+    const scenario = getScenario(session.scenario_name)
+    if (typeof scenario.onReject === 'function') {
+      const result = await scenario.onReject(session, approvalId, body)
+      session.updated_at = now()
+      sendJson(req, url, res, result.status, result.body, {
+        sessionId: session.session_id,
+        scenarioName: session.scenario_name,
+        body,
+      })
+      return
+    }
     session.status = 'FAILED'
     session.pending_approval = null
     session.updated_at = now()

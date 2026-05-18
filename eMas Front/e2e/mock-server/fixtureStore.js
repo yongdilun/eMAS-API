@@ -63,6 +63,33 @@ import {
   phase19UnknownPrompt,
 } from '../support/promptRegressionScenarios.js'
 import {
+  approvalPayload,
+  cancelledDocument,
+  cascadeDefinition,
+  cascadeFinalDocument,
+  cascadeWaitingDocument,
+  closedApprovalDocument,
+  lotoDocument,
+  noResultsDocument,
+  partialFailureDocument,
+  readStatusDocument,
+  rejectedDocument,
+  responseDocumentCancelledRunPrompt,
+  responseDocumentCascadePrompt,
+  responseDocumentCompatibilityPrompt,
+  responseDocumentExpiredApprovalPrompt,
+  responseDocumentLotoPrompt,
+  responseDocumentNoResultsPrompt,
+  responseDocumentPartialFailurePrompt,
+  responseDocumentReadStatusPrompt,
+  responseDocumentRejectedApprovalPrompt,
+  responseDocumentReverseCascadePrompt,
+  responseDocumentStaleApprovalPrompt,
+  responseDocumentTimeoutPrompt,
+  runningCancellableDocument,
+  timeoutDocument,
+} from '../support/responseDocumentScenarios.js'
+import {
   reliabilityConcurrentTurns,
   reliabilityLargeResultAnswer,
   reliabilityLargeResultPresentation,
@@ -427,6 +454,307 @@ function defaultIdleSnapshot(session) {
   return snapshotFromSession(session)
 }
 
+function responseDocumentTurnPrefix(name) {
+  return `pw-turn-${String(name || 'response-document').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`
+}
+
+function beginResponseDocumentTurn(session, content, name) {
+  const turnId = addUserTurn(session, content, responseDocumentTurnPrefix(name))
+  session.response_document_turn_id = turnId
+  session.response_document_snapshot_count = 0
+  session.response_document_revision_base = Number(session.messages?.length || 1) * 100
+  return turnId
+}
+
+function installResponseDocumentPlan(session, { turnId, operationId, objective, toolName = 'response_document_fixture', status = 'EXECUTING' }) {
+  session.status = status
+  session.operation_id = operationId
+  session.plan = buildFactoryAgentPlan(session, {
+    planId: operationId,
+    objective,
+    stepId: `${operationId}-step`,
+    toolName,
+    status,
+  })
+  session.steps = [...session.plan.steps]
+  appendTimeline(
+    session,
+    planCreatedEvent({
+      turnId,
+      eventId: `${operationId}-plan-created`,
+      planId: operationId,
+      content: objective,
+      status,
+    }),
+  )
+}
+
+function appendResponseDocumentCompletion(session, { turnId, operationId, content, reason = 'response_document_quality_fixture' }) {
+  appendTimeline(
+    session,
+    sessionCompletedEvent({
+      turnId,
+      eventId: `${operationId}-completed`,
+      planId: operationId,
+      content,
+      reason,
+      offsetSeconds: 6,
+    }),
+  )
+}
+
+function responseDocumentCompletionScenario({ name, prompt, operationId, objective, buildDocument, status = 'COMPLETED' }) {
+  return {
+    name,
+    description: `Response document quality fixture for ${name}.`,
+    prompts: [prompt],
+    onMessage(session, content) {
+      beginResponseDocumentTurn(session, content || prompt, name)
+    },
+    onPlan(session) {
+      const turnId = session.response_document_turn_id || session.current_turn_id || responseDocumentTurnPrefix(name)
+      installResponseDocumentPlan(session, { turnId, operationId, objective })
+      return { status: 200, body: { status: 'EXECUTING', plan_id: operationId } }
+    },
+    async onExecute(session, sleep) {
+      const turnId = session.response_document_turn_id || session.current_turn_id || responseDocumentTurnPrefix(name)
+      session.execute_count += 1
+      session.status = status
+      completeSteps(session)
+      await sleep(80)
+      session.response_document = buildDocument(session)
+      session.presentation = {
+        kind: 'mutation_result',
+        state: 'completed',
+        summary: 'All requested changes completed.',
+        rows: [{ job_id: 'JOB-STALE-PRESENTATION', priority: 'stale' }],
+      }
+      appendResponseDocumentCompletion(session, {
+        turnId,
+        operationId,
+        content: session.response_document.message,
+      })
+      return { status: 200, body: { status, session_id: session.session_id } }
+    },
+    snapshot(session) {
+      return snapshotFromSession(session)
+    },
+  }
+}
+
+function responseDocumentCascadeScenario(kind = 'forward') {
+  const definition = cascadeDefinition(kind)
+  const name = kind === 'reverse' ? 'responseDocumentReverseCascade' : 'responseDocumentCascade'
+  return {
+    name,
+    description: 'Response document two-approval cascade fixture.',
+    prompts: [definition.prompt],
+    onMessage(session, content) {
+      beginResponseDocumentTurn(session, content || definition.prompt, name)
+      session.response_document_cascade_kind = kind
+      session.response_document_cascade_phase = 'approval1'
+    },
+    onPlan(session) {
+      const turnId = session.response_document_turn_id || session.current_turn_id || responseDocumentTurnPrefix(name)
+      installResponseDocumentPlan(session, {
+        turnId,
+        operationId: definition.operationId,
+        objective: 'Exercise response_document two-approval cascade quality.',
+        status: 'PENDING_APPROVAL',
+      })
+      session.status = 'WAITING_APPROVAL'
+      session.pending_approval = {
+        ...approvalPayload(session, definition.first),
+        created_at: fixtureTime(3),
+        expires_at: fixtureTime(300),
+      }
+      session.response_document = cascadeWaitingDocument(session, definition, 1)
+      appendTimeline(session, {
+        event_id: `${definition.first.approvalId}-required`,
+        turn_id: turnId,
+        event_type: 'approval_required',
+        approval_id: definition.first.approvalId,
+        tool_name: 'typed_priority_update',
+        content: `Update ${definition.first.rows.length} jobs from ${definition.first.source} to ${definition.first.target}`,
+        status: 'PENDING',
+        operation_id: definition.operationId,
+        details: { args: session.pending_approval.args, side_effect_level: 'HIGH' },
+        created_at: fixtureTime(3),
+      })
+      return { status: 200, body: { status: 'WAITING_APPROVAL', plan_id: definition.operationId } }
+    },
+    async onExecute() {
+      return { status: 200, body: { status: 'WAITING_APPROVAL', session_id: null } }
+    },
+    onApprove(session, approvalId) {
+      const turnId = session.response_document_turn_id || session.current_turn_id || responseDocumentTurnPrefix(name)
+      if (approvalId === definition.first.approvalId) {
+        appendTimeline(session, {
+          event_id: `${definition.first.approvalId}-approved`,
+          turn_id: turnId,
+          event_type: 'approval_decided',
+          approval_id: definition.first.approvalId,
+          tool_name: 'typed_priority_update',
+          content: 'Approval 1 received.',
+          status: 'APPROVED',
+          operation_id: definition.operationId,
+          created_at: fixtureTime(4),
+        })
+        session.response_document_cascade_phase = 'approval2'
+        session.status = 'WAITING_APPROVAL'
+        session.pending_approval = {
+          ...approvalPayload(session, definition.second),
+          created_at: fixtureTime(5),
+          expires_at: fixtureTime(300),
+        }
+        session.response_document = cascadeWaitingDocument(session, definition, 2)
+        appendTimeline(session, {
+          event_id: `${definition.second.approvalId}-required`,
+          turn_id: turnId,
+          event_type: 'approval_required',
+          approval_id: definition.second.approvalId,
+          tool_name: 'typed_priority_update',
+          content: `Update ${definition.second.rows.length} jobs from ${definition.second.source} to ${definition.second.target}`,
+          status: 'PENDING',
+          operation_id: definition.operationId,
+          details: { args: session.pending_approval.args, side_effect_level: 'HIGH' },
+          created_at: fixtureTime(5),
+        })
+        return { status: 200, body: { status: 'WAITING_APPROVAL', approval_id: approvalId } }
+      }
+      if (approvalId === definition.second.approvalId) {
+        appendTimeline(session, {
+          event_id: `${definition.second.approvalId}-approved`,
+          turn_id: turnId,
+          event_type: 'approval_decided',
+          approval_id: definition.second.approvalId,
+          tool_name: 'typed_priority_update',
+          content: 'Approval 2 received.',
+          status: 'APPROVED',
+          operation_id: definition.operationId,
+          created_at: fixtureTime(6),
+        })
+        session.response_document_cascade_phase = 'completed'
+        session.status = 'COMPLETED'
+        session.pending_approval = null
+        completeSteps(session)
+        session.response_document = cascadeFinalDocument(session, definition)
+        appendResponseDocumentCompletion(session, {
+          turnId,
+          operationId: definition.operationId,
+          content: definition.finalMessage,
+        })
+        return { status: 200, body: { status: 'COMPLETED', approval_id: approvalId } }
+      }
+      return { status: 404, body: { detail: 'Approval not found for response_document cascade.' } }
+    },
+    snapshot(session) {
+      if (session.response_document_cascade_phase === 'approval1') {
+        session.response_document_snapshot_count = Math.min(Number(session.response_document_snapshot_count || 0) + 1, 2)
+        session.response_document = cascadeWaitingDocument(session, definition, 1)
+      }
+      return snapshotFromSession(session)
+    },
+  }
+}
+
+function responseDocumentRejectedScenario() {
+  const definition = cascadeDefinition('forward')
+  return {
+    name: 'responseDocumentRejectedApproval',
+    description: 'Response document rejected approval fixture.',
+    prompts: [responseDocumentRejectedApprovalPrompt],
+    onMessage(session, content) {
+      beginResponseDocumentTurn(session, content || responseDocumentRejectedApprovalPrompt, 'responseDocumentRejectedApproval')
+    },
+    onPlan(session) {
+      const turnId = session.response_document_turn_id || session.current_turn_id || 'pw-turn-response-document-rejected'
+      installResponseDocumentPlan(session, {
+        turnId,
+        operationId: 'pw-plan-rd-rejected',
+        objective: 'Render response_document rejected approval quality fixture.',
+        status: 'PENDING_APPROVAL',
+      })
+      session.status = 'WAITING_APPROVAL'
+      session.pending_approval = {
+        ...approvalPayload(session, definition.second),
+        approval_id: 'pw-rd-rejected-approval-2',
+        created_at: fixtureTime(5),
+        expires_at: fixtureTime(300),
+      }
+      session.response_document = cascadeWaitingDocument(session, definition, 2)
+      session.response_document = {
+        ...session.response_document,
+        revision: 5,
+        operation_id: 'pw-plan-rd-rejected',
+      }
+      return { status: 200, body: { status: 'WAITING_APPROVAL', plan_id: 'pw-plan-rd-rejected' } }
+    },
+    async onExecute() {
+      return { status: 200, body: { status: 'WAITING_APPROVAL', session_id: null } }
+    },
+    onReject(session, approvalId) {
+      session.status = 'FAILED'
+      session.pending_approval = null
+      session.response_document = rejectedDocument(session, definition)
+      appendTimeline(session, {
+        event_id: `${approvalId}-rejected`,
+        turn_id: session.response_document_turn_id || session.current_turn_id,
+        event_type: 'approval_decided',
+        approval_id: approvalId,
+        tool_name: 'typed_priority_update',
+        content: 'Approval 2 rejected.',
+        status: 'REJECTED',
+        operation_id: 'pw-plan-rd-rejected',
+        created_at: fixtureTime(7),
+      })
+      return { status: 200, body: { status: 'REJECTED', approval_id: approvalId } }
+    },
+    snapshot(session) {
+      return snapshotFromSession(session)
+    },
+  }
+}
+
+function responseDocumentCancelledScenario() {
+  return {
+    name: 'responseDocumentCancelledRun',
+    description: 'Response document cancelled run fixture.',
+    prompts: [responseDocumentCancelledRunPrompt],
+    onMessage(session, content) {
+      beginResponseDocumentTurn(session, content || responseDocumentCancelledRunPrompt, 'responseDocumentCancelledRun')
+    },
+    onPlan(session) {
+      const turnId = session.response_document_turn_id || session.current_turn_id || 'pw-turn-response-document-cancelled'
+      installResponseDocumentPlan(session, {
+        turnId,
+        operationId: 'pw-plan-rd-cancellable',
+        objective: 'Keep response_document run active until cancellation.',
+      })
+      session.response_document = runningCancellableDocument(session)
+      return { status: 200, body: { status: 'EXECUTING', plan_id: 'pw-plan-rd-cancellable' } }
+    },
+    async onExecute(session) {
+      session.execute_count += 1
+      session.status = 'EXECUTING'
+      session.response_document = runningCancellableDocument(session)
+      return { status: 200, body: { status: 'EXECUTING', session_id: session.session_id } }
+    },
+    onCancel(session) {
+      session.status = 'FAILED'
+      session.pending_approval = null
+      session.response_document = cancelledDocument(session)
+      return { status: 200, body: { status: 'FAILED', session_id: session.session_id } }
+    },
+    snapshot(session) {
+      return snapshotFromSession(session)
+    },
+    notificationStream() {
+      return longRunningNotificationStream()
+    },
+  }
+}
+
 function normalUseIds(session, turn) {
   const safeKey = String(turn?.key || 'turn').replace(/[^a-z0-9-]/gi, '-').toLowerCase()
   const sequence = session.messages.length || 1
@@ -492,6 +820,82 @@ function reliabilityIds(session, key = 'run') {
 }
 
 export const scenarioCatalog = {
+  responseDocumentCascade: responseDocumentCascadeScenario('forward'),
+
+  responseDocumentReverseCascade: responseDocumentCascadeScenario('reverse'),
+
+  responseDocumentReadStatus: responseDocumentCompletionScenario({
+    name: 'responseDocumentReadStatus',
+    prompt: responseDocumentReadStatusPrompt,
+    operationId: 'pw-plan-rd-read-status',
+    objective: 'Render response_document read-only machine status.',
+    buildDocument: readStatusDocument,
+  }),
+
+  responseDocumentLoto: responseDocumentCompletionScenario({
+    name: 'responseDocumentLoto',
+    prompt: responseDocumentLotoPrompt,
+    operationId: 'pw-plan-rd-loto',
+    objective: 'Render response_document sourced LOTO answer.',
+    buildDocument: lotoDocument,
+  }),
+
+  responseDocumentNoResults: responseDocumentCompletionScenario({
+    name: 'responseDocumentNoResults',
+    prompt: responseDocumentNoResultsPrompt,
+    operationId: 'pw-plan-rd-no-results',
+    objective: 'Render response_document no-results diagnostic.',
+    buildDocument: noResultsDocument,
+  }),
+
+  responseDocumentPartialFailure: responseDocumentCompletionScenario({
+    name: 'responseDocumentPartialFailure',
+    prompt: responseDocumentPartialFailurePrompt,
+    operationId: 'pw-plan-rd-partial-failure',
+    objective: 'Render response_document partial failure.',
+    buildDocument: partialFailureDocument,
+    status: 'FAILED',
+  }),
+
+  responseDocumentTimeoutFailure: responseDocumentCompletionScenario({
+    name: 'responseDocumentTimeoutFailure',
+    prompt: responseDocumentTimeoutPrompt,
+    operationId: 'pw-plan-rd-timeout',
+    objective: 'Render response_document planner timeout diagnostic.',
+    buildDocument: timeoutDocument,
+    status: 'FAILED',
+  }),
+
+  responseDocumentRejectedApproval: responseDocumentRejectedScenario(),
+
+  responseDocumentExpiredApproval: responseDocumentCompletionScenario({
+    name: 'responseDocumentExpiredApproval',
+    prompt: responseDocumentExpiredApprovalPrompt,
+    operationId: 'pw-plan-rd-expired',
+    objective: 'Render response_document expired approval diagnostic.',
+    buildDocument: (session) => closedApprovalDocument(session, 'approval_expired'),
+    status: 'FAILED',
+  }),
+
+  responseDocumentStaleApproval: responseDocumentCompletionScenario({
+    name: 'responseDocumentStaleApproval',
+    prompt: responseDocumentStaleApprovalPrompt,
+    operationId: 'pw-plan-rd-stale',
+    objective: 'Render response_document stale approval diagnostic.',
+    buildDocument: (session) => closedApprovalDocument(session, 'approval_stale'),
+    status: 'FAILED',
+  }),
+
+  responseDocumentCancelledRun: responseDocumentCancelledScenario(),
+
+  responseDocumentCompatibility: responseDocumentCompletionScenario({
+    name: 'responseDocumentCompatibility',
+    prompt: responseDocumentCompatibilityPrompt,
+    operationId: 'pw-plan-rd-compatibility',
+    objective: 'Render valid response_document while stale presentation is present.',
+    buildDocument: readStatusDocument,
+  }),
+
   reliabilityConcurrentReadOnly: {
     name: 'reliabilityConcurrentReadOnly',
     description: 'Phase 15 ten concurrent read-only sessions with per-session answers.',

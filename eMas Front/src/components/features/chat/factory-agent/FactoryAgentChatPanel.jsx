@@ -369,6 +369,20 @@ function pendingApprovalVisibleSummary(approval) {
   return 'Waiting for approval.'
 }
 
+function pendingApprovalFromResponseDocument(document) {
+  if (!document || document.state !== 'waiting_approval') return null
+  const blocks = Array.isArray(document.blocks) ? document.blocks : []
+  const block = [...blocks].reverse().find((item) => item?.type === 'approval_required' && item.approval_id)
+  if (!block) return null
+  return {
+    approval_id: block.approval_id,
+    operation_id: block.operation_id || document.operation_id || null,
+    risk_summary: block.summary || block.title || 'Review the proposed change before it is applied.',
+    status: 'PENDING',
+    ...(block.args && typeof block.args === 'object' ? { args: block.args } : {}),
+  }
+}
+
 /** Snapshot table still all "low" while the bubble text is the approval bundle or claims high - hide. */
 function targetPriorityFromSummary(summaryText) {
   const s = String(summaryText || '').toLowerCase()
@@ -595,9 +609,18 @@ function AssistantTurnBubble({
   const responseDocumentResult = normalizeResponseDocument(turn?.responseDocument)
   const responseDocument = responseDocumentResult.document
   const hasResponseDocument = responseDocumentResult.status !== 'absent'
-  const rawSummary = turn?.presentation
-    ? completedVisibleSummary(turn, turn?.summary || 'Working...')
-    : pendingApprovalVisibleSummary(pendingApproval) || completedVisibleSummary(turn, turn?.summary || 'Working...')
+  const effectivePendingApproval = pendingApproval || pendingApprovalFromResponseDocument(responseDocument)
+  const showResponseDocumentApprovalActions = Boolean(
+    hasResponseDocument &&
+    isLatestTurn &&
+    effectivePendingApproval?.approval_id &&
+    responseDocument?.state === 'waiting_approval',
+  )
+  const rawSummary = hasResponseDocument
+    ? responseDocument?.message || responseDocument?.summary || 'Working...'
+    : turn?.presentation
+      ? completedVisibleSummary(turn, turn?.summary || 'Working...')
+      : pendingApprovalVisibleSummary(pendingApproval) || completedVisibleSummary(turn, turn?.summary || 'Working...')
   const summary = useStagedAssistantSummary(rawSummary)
   const summaryIsProgress = isProgressSummary(summary)
   const answerAllowed = assistantAnswerAllowed({
@@ -620,8 +643,10 @@ function AssistantTurnBubble({
     setTextStreamDone(true)
   }, [])
 
-  const bundlePresentation = bundleUiPresentationFromTurn(turn, pendingApproval, getStashedBundlePresentation)
-  const presentation = bundlePresentation || getLatestToolPresentation(turn)
+  const bundlePresentation = hasResponseDocument
+    ? null
+    : bundleUiPresentationFromTurn(turn, pendingApproval, getStashedBundlePresentation)
+  const presentation = hasResponseDocument ? null : (bundlePresentation || getLatestToolPresentation(turn))
   const tableAnimKey = `${turn?.id || 'turn'}:${presentation?.table?.total_rows || 0}:${summary}`
   // Collapse the bundle table only once the server confirms approval_decided in the
   // timeline. Do NOT use !pendingApproval - that can be optimistically null on click,
@@ -648,8 +673,8 @@ function AssistantTurnBubble({
           {hasResponseDocument ? (
             <ResponseDocumentRenderer
               document={responseDocument}
-              pendingApproval={pendingApproval}
-              showApprovalActions={showApprovalCard}
+              pendingApproval={effectivePendingApproval}
+              showApprovalActions={showApprovalCard || showResponseDocumentApprovalActions}
               decideApproval={decideApproval}
               isDecidingApproval={isDecidingApproval}
             />

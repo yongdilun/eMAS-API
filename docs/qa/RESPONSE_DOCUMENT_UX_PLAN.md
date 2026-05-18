@@ -755,6 +755,13 @@ Acceptance criteria:
 - Old `presentation` fallback is clearly isolated.
 - Tests fail if frontend ignores `response_document` and chooses old presentation/phrase logic.
 
+Implementation clarification after Phase 8:
+
+- Legacy `presentation` remains only as a compatibility fallback for snapshots where `response_document` is absent.
+- When `response_document` is present, the assistant bubble must not compute primary tables, summaries, or approval state from old `presentation`, tool table heuristics, or approval-wait phrases.
+- If `response_document` is present but invalid, the frontend renders the safe response-document diagnostic and does not fall back to legacy presentation.
+- Backend `PresentationResponse` remains in the API for compatibility until a separate API retirement plan proves old snapshots and clients no longer need it.
+
 Verification command:
 
 ```powershell
@@ -776,6 +783,8 @@ Implementation steps:
 - Document final response quality coverage and remaining accepted gaps.
 - Record that LLM polish is out of scope until deterministic response quality is stable.
 - If future LLM polish is added, require schema validation and fallback to deterministic text.
+- Future LLM polish may only rewrite safe explanatory copy. It must not change facts, rows, approval ids, approval state, sources, diagnostics, run state, current/next action, retry safety, or any mutation outcome.
+- Promptfoo or broad semantic LLM evaluation remains out of scope for this deterministic response-document release gate.
 
 Acceptance criteria:
 
@@ -790,8 +799,10 @@ Set-Location "eMas Front"
 npm run test:backend-oracles
 npm test
 npm run test:e2e:mocked
+npm run test:e2e:response-document
 npm run test:e2e:seeded-oracles
 npm run test:e2e:real-langgraph
+npm run test:e2e:release
 ```
 
 ## Stop Conditions

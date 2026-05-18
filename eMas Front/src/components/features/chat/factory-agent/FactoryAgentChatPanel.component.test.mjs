@@ -841,6 +841,102 @@ test('FactoryAgentChatPanel renders pending response_document approval compact b
     node.textContent.includes('Affected records (6)'),
   )
   assert.equal(affectedDetails?.hasAttribute('open'), false)
+  assert.equal(view.container.querySelectorAll('[data-response-block-type="approval_required"]').length, 1)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel suppresses duplicate response_document approval tables and stale legacy tables', async () => {
+  const rows = Array.from({ length: 8 }, (_, index) => ({
+    job_id: `JOB-SEED-${String(index + 1).padStart(3, '0')}`,
+    previous_priority: 'high',
+    new_priority: 'low',
+  }))
+  const document = baseResponseDocument({
+    state: 'waiting_approval',
+    status: 'waiting_approval',
+    run_steps: [
+      { step_id: 'approval-2', kind: 'approval', state: 'waiting', title: 'Waiting for approval 2', current: true },
+    ],
+    blocks: [
+      { id: 'message:approval-2', type: 'short_message', message: 'Approval 2 is pending.', status: 'waiting_approval' },
+      {
+        id: 'approval:approval-2',
+        type: 'approval_required',
+        approval_id: 'approval-2',
+        operation_id: 'op-approval-2',
+        summary: 'Update 8 jobs from high to low',
+        rows,
+      },
+      {
+        id: 'record-preview:approval-2',
+        type: 'record_preview',
+        approval_id: 'approval-2',
+        operation_id: 'op-approval-2',
+        title: 'Affected records',
+        rows: rows.slice(0, 5),
+      },
+      {
+        id: 'table:approval-2',
+        type: 'result_table',
+        approval_id: 'approval-2',
+        operation_id: 'op-approval-2',
+        title: 'Affected records',
+        rows,
+      },
+    ],
+  })
+  const chatState = createChatState({
+    session: { session_id: 'session-rd-guardrail', name: 'RD guardrail', status: 'WAITING_APPROVAL' },
+    sessionList: [{ session_id: 'session-rd-guardrail', name: 'RD guardrail', status: 'WAITING_APPROVAL' }],
+    activeSessionName: 'RD guardrail',
+    pendingApproval: {
+      approval_id: 'approval-2',
+      tool_name: '__langgraph_commit__',
+      side_effect_level: 'HIGH',
+      risk_summary: 'Update 8 jobs from high to low',
+      args: { bundle_ui: { rows } },
+    },
+    turns: [
+      responseDocumentTurn(document, {
+        summary: 'All requested changes completed.',
+        presentation: {
+          kind: 'mutation_result',
+          state: 'completed',
+          summary: 'Stale presentation success should not render.',
+          rows: [{ job_id: 'JOB-STALE-PRESENTATION' }],
+        },
+        tools: [
+          {
+            tool_name: 'list__jobs',
+            status: 'DONE',
+            content: 'Stale table result.',
+            details: {
+              presentation: {
+                render_hint: 'table',
+                table: {
+                  columns: [{ key: 'job_id', label: 'Job ID' }],
+                  rows: [{ job_id: 'JOB-STALE-TOOL-TABLE' }],
+                },
+              },
+            },
+          },
+        ],
+        approvals: [{ event_type: 'approval_required', approval_id: 'approval-2' }],
+      }),
+    ],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Approval 2 is pending/))
+  assert.match(view.text(), /Update 8 jobs from high to low/)
+  assert.equal(view.container.querySelectorAll('[data-response-block-type="approval_required"]').length, 1)
+  assert.equal(view.container.querySelectorAll('[data-response-block-type="record_preview"]').length, 0)
+  assert.doesNotMatch(view.text(), /Stale presentation success/)
+  assert.doesNotMatch(view.text(), /JOB-STALE-PRESENTATION/)
+  assert.doesNotMatch(view.text(), /JOB-STALE-TOOL-TABLE/)
+  assert.doesNotMatch(view.text(), /All requested changes completed/)
 
   await view.unmount()
 })

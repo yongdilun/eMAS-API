@@ -922,6 +922,7 @@ test('snapshot response_document overrides stale presentation summary', () => {
   assert.equal(computeFactoryAgentTurnSummary(turns[0]), 'Approval 2 is pending.')
   assert.equal(turns[0].responseDocument.state, 'waiting_approval')
   assert.equal(turns[0].responseDocumentStatus, 'valid')
+  assert.equal(turns[0].presentation, null)
 })
 
 test('invalid snapshot response_document becomes safe diagnostic instead of presentation fallback', () => {
@@ -955,4 +956,5 @@ test('invalid snapshot response_document becomes safe diagnostic instead of pres
   assert.equal(turns[0].responseDocumentStatus, 'invalid')
   assert.equal(turns[0].responseDocument.diagnostics.reason, 'response_document_invalid')
   assert.doesNotMatch(summary, /Stale presentation/)
+  assert.equal(turns[0].presentation, null)
 })

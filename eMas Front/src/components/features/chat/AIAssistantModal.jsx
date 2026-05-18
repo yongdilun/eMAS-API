@@ -15,16 +15,26 @@ const AIAssistantModal = ({ isOpen, onClose }) => {
     const dragStart = useRef({ x: 0, y: 0, left: 0, top: 0 })
     const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0, edge: '' })
 
-    useEffect(() => {
-        if (!isOpen) return
+    const fitToViewport = useCallback(() => {
         const w = Math.min(DEFAULT_WIDTH, window.innerWidth - 32)
         const h = Math.min(DEFAULT_HEIGHT, window.innerHeight - 48)
         setSize({ width: w, height: h })
         setPosition({
-            x: (window.innerWidth - w) / 2,
-            y: (window.innerHeight - h) / 2,
+            x: Math.max(0, (window.innerWidth - w) / 2),
+            y: Math.max(0, (window.innerHeight - h) / 2),
         })
-    }, [isOpen])
+    }, [])
+
+    useEffect(() => {
+        if (!isOpen) return
+        fitToViewport()
+    }, [fitToViewport, isOpen])
+
+    useEffect(() => {
+        if (!isOpen || isDragging || isResizing) return undefined
+        window.addEventListener('resize', fitToViewport)
+        return () => window.removeEventListener('resize', fitToViewport)
+    }, [fitToViewport, isDragging, isOpen, isResizing])
 
     const handleMouseDown = useCallback((e) => {
         if (!e.target.closest('[data-drag-handle]')) return

@@ -206,7 +206,11 @@ export function useFactoryAgentChat() {
       transport: meta?.transport || 'snapshot',
     })
     responseDocumentStateRef.current = responseDocumentUpdate.state
-    if (!responseDocumentUpdate.accepted) {
+    const canApplySnapshotWithCurrentDocument = [
+      'ignored_duplicate_revision',
+      'ignored_absent_after_response_document',
+    ].includes(responseDocumentUpdate.decision)
+    if (!responseDocumentUpdate.accepted && !canApplySnapshotWithCurrentDocument) {
       return null
     }
 
@@ -699,8 +703,9 @@ export function useFactoryAgentChat() {
     }
   }, [refreshSessionList, safelyRefreshSnapshot, session?.session_id])
 
-  const decideApproval = useCallback(async (decision, argsOverride) => {
-    if (!pendingApproval?.approval_id || isDecidingApproval) return
+  const decideApproval = useCallback(async (decision, argsOverride, approvalOverride = null) => {
+    const activeApproval = approvalOverride?.approval_id ? approvalOverride : pendingApproval
+    if (!activeApproval?.approval_id || isDecidingApproval) return
     setIsDecidingApproval(true)
     setError(null)
 
@@ -721,7 +726,7 @@ export function useFactoryAgentChat() {
       if (decision === 'approve') {
         const payload = { decided_by: DEFAULT_USER_ID }
         if (argsOverride && typeof argsOverride === 'object') payload.args = argsOverride
-        const snapshotApproval = pendingApproval
+        const snapshotApproval = activeApproval
         const resolvedId = snapshotApproval.approval_id
         // Optimistically clear the pending approval card immediately so the UI
         // does not re-show the stale card while the next snapshot arrives.
@@ -761,9 +766,9 @@ export function useFactoryAgentChat() {
           }
         }
       } else {
-        const rejectId = pendingApproval.approval_id
+        const rejectId = activeApproval.approval_id
         setPendingApproval(null)
-        stashBundle(pendingApproval, pendingApproval.args || {})
+        stashBundle(activeApproval, activeApproval.args || {})
         await factoryAgentApi.reject(rejectId, {
           decided_by: DEFAULT_USER_ID,
           rejection_reason: approvalReason?.trim() || undefined,
