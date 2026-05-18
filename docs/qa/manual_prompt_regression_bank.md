@@ -226,8 +226,8 @@ This response-document phase is separate from the broader normal-use Phase 16 ba
 
 | ID | Prompt / flow | Expected deterministic behavior | Coverage |
 |---|---|---|---|
-| `response-document-phase17-partial-noop-mutation` | Mutation prompt where one requested edit group has no matching records and another requested edit group has valid records. | The no-match group appears as `Not changed` before approval and in the final response. The approval card includes only records that will actually change. No mutation or audit row is attempted for the no-op group. | Planned: backend response-document/API contract plus focused mocked browser semantic probe |
-| `response-document-phase17-all-noop-mutation` | Mutation prompt where every requested edit group has zero matching records. | The run completes as `No changes were made`, no approval card appears, no fake success is shown, and no mutation audit rows are created. | Planned: backend response-document/API contract plus focused mocked browser semantic probe |
+| `response-document-phase17-partial-noop-mutation` | Mutation prompt where one requested edit group has no matching records and another requested edit group has valid records. | The no-match group appears as `Not changed` before approval and in the final response. The approval card includes only records that will actually change. No mutation or audit row is attempted for the no-op group. | Covered: `factory-agent/tests/test_response_document_contract.py::test_partial_noop_plus_valid_mutation_is_visible_before_approval_and_final`; mocked browser semantic probe `final-response-quality.spec.js` RD-006 |
+| `response-document-phase17-all-noop-mutation` | Mutation prompt where every requested edit group has zero matching records. | The run completes as `No changes were made`, no approval card appears, no fake success is shown, and no mutation audit rows are created. | Covered: `factory-agent/tests/test_response_document_contract.py::test_all_noop_mutation_completes_without_approval_or_fake_success`; mocked browser semantic probe `final-response-quality.spec.js` RD-006/RD-007 |
 
 ## Response Document Phase 18 Read-Only Status Regression
 

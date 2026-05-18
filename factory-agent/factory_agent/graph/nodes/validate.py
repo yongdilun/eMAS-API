@@ -488,6 +488,7 @@ def make_final_validator_node(settings: Settings):
 
     def _approval_payload(state: AgentState) -> dict[str, Any]:
         from ..approval_summary import build_approval_required_payload
+        from ..noop_mutations import add_no_op_mutations_to_payload
         from ..state import user_query_text
 
         staged = [x for x in (state.get("staged_writes") or []) if isinstance(x, dict)]
@@ -497,7 +498,7 @@ def make_final_validator_node(settings: Settings):
             intent_text = str(cur.get("description") or "").strip()
         if not intent_text:
             intent_text = user_query_text(state)
-        return build_approval_required_payload(staged, intent_text=intent_text)
+        return add_no_op_mutations_to_payload(build_approval_required_payload(staged, intent_text=intent_text), state)
 
     def _hard_constraints_present(state: AgentState) -> bool:
         cur = state.get("current_intent")

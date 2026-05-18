@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from factory_agent.config import Settings
 from factory_agent.orchestration.memory_manager import MemoryManager
@@ -67,6 +68,7 @@ def _session(
     current_intent: str | None = None,
     completed_at: datetime | None = None,
     error: str | None = None,
+    replan_context: dict[str, Any] | None = None,
 ) -> Session:
     return Session(
         session_id=session_id,
@@ -85,6 +87,7 @@ def _session(
         updated_at=created_at + timedelta(seconds=3),
         completed_at=completed_at if completed_at is not None else (created_at + timedelta(seconds=3) if status == "COMPLETED" else None),
         error=error,
+        replan_context=replan_context,
     )
 
 
@@ -251,6 +254,23 @@ def _cascade_args(
         "summary": f"Change {len(job_ids)} original {source}-priority jobs to {target}.",
         "count": len(job_ids),
         "bundle_ui": bundle_ui,
+    }
+
+
+def _noop_contract(
+    *,
+    entity_type: str,
+    selector_summary: str,
+    change_summary: str,
+) -> dict[str, Any]:
+    return {
+        "entity_type": entity_type,
+        "selector_summary": selector_summary,
+        "change_summary": change_summary,
+        "matched_count": 0,
+        "changed_count": 0,
+        "status": "not_changed",
+        "reason": "no_matching_records",
     }
 
 
@@ -905,6 +925,214 @@ async def test_final_completed_mutation_document_aggregates_all_approved_changes
         "Row ID",
     ]:
         assert forbidden not in serialized_document
+
+
+@pytest.mark.asyncio
+async def test_partial_noop_plus_valid_mutation_is_visible_before_approval_and_final(db_session):
+    created_at = datetime(2026, 5, 18, 13, 30, 0)
+    session_id = "rd-partial-noop"
+    plan_id = "rd-partial-noop-plan"
+    approval_id = "approval-rd-partial-noop-valid"
+    no_op = _noop_contract(
+        entity_type="job",
+        selector_summary="priority = medium",
+        change_summary="priority -> high",
+    )
+    valid_rows = [
+        {"job_id": "JOB-RD-HIGH-001", "original_priority": "high", "new_priority": "low"},
+        {"job_id": "JOB-RD-HIGH-002", "original_priority": "high", "new_priority": "low"},
+    ]
+    approval_args = {
+        "summary": "Change 2 original high-priority jobs to low.",
+        "count": 2,
+        "no_op_mutations": [no_op],
+        "bundle_ui": {
+            "kind": "phase17_partial_noop",
+            "write_set": "original_high_to_low",
+            "headline": "Update 2 jobs from high to low",
+            "rows": valid_rows,
+            "original_state_semantics": "Original priority groups are evaluated before any approved writes are applied.",
+        },
+    }
+    db_session.add_all(
+        [
+            _session(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                event_seq=11,
+                status="WAITING_APPROVAL",
+                current_intent="change all medium priority job to high then change all high priority job to low",
+            ),
+            _user_message(session_id=session_id, created_at=created_at),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _approval(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                approval_id=approval_id,
+                status="PENDING",
+                args=approval_args,
+                risk_summary="Update 2 jobs from high to low",
+                created_offset_s=3,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    waiting = (await _snapshot(db_session, session_id))["response_document"]
+
+    assert waiting["state"] == "waiting_approval"
+    assert "Not changed" in waiting["message"]
+    assert "no matching jobs for priority = medium" in waiting["message"]
+    block_types = [block["type"] for block in waiting["blocks"]]
+    noop_index = next(index for index, block in enumerate(waiting["blocks"]) if block["type"] == "completed_step")
+    approval_index = next(index for index, block in enumerate(waiting["blocks"]) if block["type"] == "approval_required")
+    assert noop_index < approval_index
+    approval_block = waiting["blocks"][approval_index]
+    assert approval_block["approval_id"] == approval_id
+    assert [row["job_id"] for row in approval_block["rows"]] == ["JOB-RD-HIGH-001", "JOB-RD-HIGH-002"]
+    assert "JOB-RD-MEDIUM" not in json.dumps(approval_block)
+    run_step_titles = [step["title"] for step in waiting["run_steps"]]
+    assert run_step_titles.index("Not changed") < run_step_titles.index("Waiting for approval 1")
+
+    approval = await db_session.get(Approval, approval_id)
+    assert approval is not None
+    approval.status = "APPROVED"
+    approval.decided_at = created_at + timedelta(seconds=4)
+    approval.decided_by = "operator"
+    session = await db_session.get(Session, session_id)
+    assert session is not None
+    session.status = "COMPLETED"
+    session.completed_at = created_at + timedelta(seconds=6)
+    session.updated_at = created_at + timedelta(seconds=6)
+    session.event_seq = 16
+    db_session.add(
+        _write_step(
+            session_id=session_id,
+            plan_id=plan_id,
+            step_id="rd-partial-noop-valid-write",
+            step_index=0,
+            completed_at=created_at + timedelta(seconds=5),
+            approval_id=approval_id,
+            outcomes=valid_rows,
+        )
+    )
+    await db_session.commit()
+
+    final = (await _snapshot(db_session, session_id))["response_document"]
+
+    assert final["state"] == "completed"
+    assert final["message"] == (
+        "Done. I updated 2 jobs across 1 approved business change. "
+        "1 business change not changed because no matching records were found."
+    )
+    assert not any(block["type"] == "approval_required" for block in final["blocks"])
+    result_summary = next(block for block in final["blocks"] if block["type"] == "result_summary")
+    assert [step["business_change"] for step in result_summary["steps"]] == ["Not changed", "Original High -> Low"]
+    assert result_summary["steps"][0] == {
+        "step_number": 1,
+        "business_change": "Not changed",
+        "summary": "Not changed: no matching jobs for priority = medium; priority -> high.",
+        "record_count": 0,
+        "status": "not_changed",
+    }
+    mutation = next(block for block in final["blocks"] if block["type"] == "mutation_result")
+    assert [group["business_change"] for group in mutation["groups"]] == ["Not changed", "Original High -> Low"]
+    not_changed_group = mutation["groups"][0]
+    assert not_changed_group["rows"] == []
+    assert not_changed_group["entity_type"] == "job"
+    assert not_changed_group["selector_summary"] == "priority = medium"
+    assert not_changed_group["change_summary"] == "priority -> high"
+    assert not_changed_group["matched_count"] == 0
+    assert not_changed_group["changed_count"] == 0
+    assert not_changed_group["status"] == "not_changed"
+    assert not_changed_group["reason"] == "no_matching_records"
+    assert len(mutation["rows"]) == 2
+    assert final["invariants"]["approved_business_change_count"] == 1
+    assert final["invariants"]["not_changed_group_count"] == 1
+    assert final["invariants"]["no_op_mutation_contract"] == "entity_agnostic_no_matching_records_v1"
+
+    write_steps = (await db_session.execute(select(PlanStep).where(PlanStep.session_id == session_id))).scalars().all()
+    assert len([step for step in write_steps if step.requires_approval]) == 1
+    assert "priority = medium" not in json.dumps([step.result for step in write_steps], default=str)
+
+
+@pytest.mark.asyncio
+async def test_all_noop_mutation_completes_without_approval_or_fake_success(db_session):
+    created_at = datetime(2026, 5, 18, 13, 45, 0)
+    session_id = "rd-all-noop"
+    plan_id = "rd-all-noop-plan"
+    no_op = _noop_contract(
+        entity_type="job",
+        selector_summary="priority = medium",
+        change_summary="priority -> high",
+    )
+    db_session.add_all(
+        [
+            _session(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                event_seq=9,
+                status="COMPLETED",
+                current_intent="change all medium priority job to high",
+                replan_context={"intent_contract": {"no_op_mutations": [no_op]}},
+            ),
+            _user_message(session_id=session_id, created_at=created_at),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _read_step(
+                session_id=session_id,
+                plan_id=plan_id,
+                step_id="rd-all-noop-read",
+                completed_at=created_at + timedelta(seconds=2),
+                rows=[],
+                summary="No medium-priority jobs were found.",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    body = await _snapshot(db_session, session_id)
+    document = body["response_document"]
+
+    assert document["state"] == "completed"
+    assert document["message"] == "No changes were made."
+    assert not any(block["type"] == "approval_required" for block in document["blocks"])
+    assert not any(step["kind"] == "approval" for step in document["run_steps"])
+    assert not any(step["title"].startswith("Updated") for step in document["run_steps"])
+    assert "fake success" not in document["message"].lower()
+    assert "I updated" not in document["message"]
+    result_summary = next(block for block in document["blocks"] if block["type"] == "result_summary")
+    mutation = next(block for block in document["blocks"] if block["type"] == "mutation_result")
+    assert result_summary["title"] == "No changes made"
+    assert result_summary["total_count"] == 0
+    assert result_summary["steps"] == [
+        {
+            "step_number": 1,
+            "business_change": "Not changed",
+            "summary": "Not changed: no matching jobs for priority = medium; priority -> high.",
+            "record_count": 0,
+            "status": "not_changed",
+        }
+    ]
+    assert mutation["title"] == "Not changed"
+    assert mutation["rows"] == []
+    assert mutation["groups"][0]["status"] == "not_changed"
+    assert mutation["groups"][0]["reason"] == "no_matching_records"
+    assert document["invariants"]["affected_record_count"] == 0
+    assert document["invariants"]["approved_business_change_count"] == 0
+    assert document["invariants"]["not_changed_group_count"] == 1
+    assert document["invariants"]["no_op_mutation_contract"] == "entity_agnostic_no_matching_records_v1"
+
+    approvals = (await db_session.execute(select(Approval).where(Approval.session_id == session_id))).scalars().all()
+    write_steps = (
+        await db_session.execute(
+            select(PlanStep).where(PlanStep.session_id == session_id).where(PlanStep.requires_approval.is_(True))
+        )
+    ).scalars().all()
+    assert approvals == []
+    assert write_steps == []
 
 
 @pytest.mark.asyncio

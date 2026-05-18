@@ -7,10 +7,12 @@ import {
   cascadeDefinition,
   forbiddenResponseDocumentText,
   responseDocumentCancelledRunPrompt,
+  responseDocumentAllNoOpPrompt,
   responseDocumentCascadePrompt,
   responseDocumentExpiredApprovalPrompt,
   responseDocumentLotoPrompt,
   responseDocumentNoResultsPrompt,
+  responseDocumentPartialNoOpPrompt,
   responseDocumentPartialFailurePrompt,
   responseDocumentReadStatusPrompt,
   responseDocumentRejectedApprovalPrompt,
@@ -517,6 +519,92 @@ test.describe('Final response quality response_document gate', () => {
       secondStep: 'Update 5 jobs from low to medium',
       firstRowsLabel: 'Found 11 original high-priority jobs',
       secondRowsLabel: 'Found 5 original low-priority jobs',
+    })
+  })
+
+  test('RD-006 no-op mutation contract shows Not changed, no matching records, and no fake approval', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await openChat(page)
+    await sendChatPrompt(page, responseDocumentPartialNoOpPrompt)
+
+    const afterSend = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-006 partial no-op after send',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'WAITING_APPROVAL',
+        responseState: 'waiting_approval',
+        pendingApprovalId: 'pw-rd-partial-noop-approval',
+        visibleBlockTypes: ['completed_step', 'approval_required'],
+        backendBlockTypes: ['completed_step', 'approval_required'],
+        approvalActionCount: 2,
+        textIncludes: ['Not changed', 'no matching jobs', 'Update 3 jobs from high to low'],
+        textExcludes: [/No changes were made/i],
+      },
+    })
+    const approvalCard = page.locator('[data-response-block-type="approval_required"]').last()
+    await expect(approvalCard).toContainText('Update 3 jobs from high to low')
+    await expect(approvalCard).toContainText('JOB-SEED-001')
+    await expect(approvalCard).not.toContainText('archived')
+
+    await decideApproval(page, 'approve')
+    await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-006 partial no-op final',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        revisionGreaterThan: afterSend.backend.responseDocumentRevision,
+        visibleBlockTypes: ['result_summary', 'mutation_result'],
+        hiddenBlockTypes: ['approval_required'],
+        approvalActionCount: 0,
+        textIncludes: [
+          'Run complete',
+          'Not changed',
+          'no matching jobs',
+          'Done. I updated 3 jobs across 1 approved business change',
+          'High -> Low: 3 jobs',
+        ],
+        textExcludes: [/Approval required/i],
+        finalResponseQuality: finalBusinessQualityExpected({
+          summary: /Done\. I updated 3 jobs across 1 approved business change/i,
+          groups: [
+            { label: 'Not changed', count: 0 },
+            { label: 'High -> Low', count: 3 },
+          ],
+        }),
+      },
+    })
+
+    await sendChatPrompt(page, responseDocumentAllNoOpPrompt)
+    const allNoop = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-007 all no-op final',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['result_summary', 'mutation_result'],
+        hiddenBlockTypes: ['approval_required'],
+        approvalActionCount: 0,
+        textIncludes: ['No changes were made', 'Not changed', 'no matching jobs'],
+        textExcludes: [/Approval required/i],
+        finalResponseQuality: {
+          finalResultCardCount: 1,
+          finalSummaryText: /No changes were made/i,
+          businessGroups: [{ label: 'Not changed', count: 0 }],
+          affectedRecordPreviewMax: 0,
+          expandableAuditPresent: true,
+          forbidDuplicateAffectedRecords: true,
+        },
+      },
+    })
+    await testInfo.attach('rd-006-no-op-semantic-probe.json', {
+      body: serializeSemanticProbe(allNoop),
+      contentType: 'application/json',
     })
   })
 

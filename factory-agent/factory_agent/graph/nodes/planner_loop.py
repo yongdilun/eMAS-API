@@ -12,6 +12,7 @@ from ...observability.telemetry import log_event, log_llm_prompt
 from ...schemas import ControlAction, PlannerDecision, ToolCall, ToolInfo
 from ...security.guardrails import promote_user_provenance, sanitize_tool_args_against_schema, strip_unsupported_optional_args
 from ..errors import LangGraphPlannerError
+from ..noop_mutations import no_op_mutation_for_selector
 from ..planner_graph_helpers import (
     _deterministic_plan_repair,
     _infer_bulk_job_priority_mutation,
@@ -546,12 +547,28 @@ def _bulk_job_priority_decision(
             risk_level="read",
         )
     if not ids:
+        if mutation["action"] == "delete":
+            change_summary = "delete matching records"
+        else:
+            target = str(mutation.get("target_priority") or "").strip()
+            change_summary = f"priority -> {target}" if target else "requested change"
+        no_op_mutation = no_op_mutation_for_selector(
+            entity_type="job",
+            selector_summary=f"priority = {source}",
+            change_summary=change_summary,
+            matched_count=0,
+            changed_count=0,
+        )
         return PlannerDecision(
             intent_id=str(current_intent.get("intent_id") or "unknown"),
             kind="intent_completed",
             tool_calls=[],
             decision_summary=f"No {source}-priority jobs were found to change.",
             risk_level="read",
+            control_action=ControlAction(
+                name="mark_intent_completed",
+                payload={"no_op_mutation": no_op_mutation},
+            ),
         )
 
     capped = ids[: max(1, int(getattr(settings, "max_foreach_items", 50) or 50))]
@@ -576,6 +593,25 @@ def _bulk_job_priority_decision(
         decision_summary=summary,
         risk_level="write_dry_run",
     )
+
+
+def _planner_trace_from_decision(decision: PlannerDecision, *, iteration: int) -> dict[str, Any]:
+    trace = {
+        "phase": "planner",
+        "intent_id": decision.intent_id,
+        "kind": decision.kind,
+        "summary": decision.decision_summary,
+        "iteration": iteration,
+    }
+    payload = (
+        decision.control_action.payload
+        if decision.control_action and isinstance(decision.control_action.payload, dict)
+        else {}
+    )
+    no_op_mutation = payload.get("no_op_mutation")
+    if isinstance(no_op_mutation, dict):
+        trace["no_op_mutation"] = no_op_mutation
+    return trace
 
 
 def _next_bundleable_write_intent_index(state: AgentState) -> int | None:
@@ -846,15 +882,7 @@ def make_planner_node(settings: Settings):
                         "current_intent": current_next,
                         "pending_decision": decision.model_dump(mode="json"),
                         "decisions": [decision.model_dump(mode="json")],
-                        "completed_actions": [
-                            {
-                                "phase": "planner",
-                                "intent_id": decision.intent_id,
-                                "kind": decision.kind,
-                                "summary": decision.decision_summary,
-                                "iteration": iteration,
-                            }
-                        ],
+                        "completed_actions": [_planner_trace_from_decision(decision, iteration=iteration)],
                         "next_route": "decision_guard",
                         "status": "planning",
                     }
@@ -959,15 +987,7 @@ def make_planner_node(settings: Settings):
                     "current_intent": working[later] if later is not None else current,
                     "pending_decision": None,
                     "decisions": prev_decisions + [bulk_decision.model_dump(mode="json")],
-                    "completed_actions": [
-                        {
-                            "phase": "planner",
-                            "intent_id": bulk_decision.intent_id,
-                            "kind": bulk_decision.kind,
-                            "summary": bulk_decision.decision_summary,
-                            "iteration": iteration,
-                        }
-                    ],
+                    "completed_actions": [_planner_trace_from_decision(bulk_decision, iteration=iteration)],
                     "next_route": "continue_planner" if later is not None else "synthesize_plan",
                     "status": "planning" if later is not None else "validating",
                 }
@@ -978,15 +998,7 @@ def make_planner_node(settings: Settings):
                 "current_intent": current,
                 "pending_decision": bulk_decision.model_dump(mode="json"),
                 "decisions": prev_decisions + [bulk_decision.model_dump(mode="json")],
-                "completed_actions": [
-                    {
-                        "phase": "planner",
-                        "intent_id": bulk_decision.intent_id,
-                        "kind": bulk_decision.kind,
-                        "summary": bulk_decision.decision_summary,
-                        "iteration": iteration,
-                    }
-                ],
+                "completed_actions": [_planner_trace_from_decision(bulk_decision, iteration=iteration)],
                 "next_route": "decision_guard",
                 "status": "planning",
             }
@@ -1005,15 +1017,7 @@ def make_planner_node(settings: Settings):
                 "current_intent": current,
                 "pending_decision": direct_write_decision.model_dump(mode="json"),
                 "decisions": prev_decisions + [direct_write_decision.model_dump(mode="json")],
-                "completed_actions": [
-                    {
-                        "phase": "planner",
-                        "intent_id": direct_write_decision.intent_id,
-                        "kind": direct_write_decision.kind,
-                        "summary": direct_write_decision.decision_summary,
-                        "iteration": iteration,
-                    }
-                ],
+                "completed_actions": [_planner_trace_from_decision(direct_write_decision, iteration=iteration)],
                 "next_route": "decision_guard",
                 "status": "planning",
             }
@@ -1184,15 +1188,7 @@ def make_planner_node(settings: Settings):
             next_route = "decision_guard"
 
         prev_decisions = list(state.get("decisions") or [])
-        planner_trace = [
-            {
-                "phase": "planner",
-                "intent_id": decision.intent_id,
-                "kind": decision.kind,
-                "summary": decision.decision_summary,
-                "iteration": iteration,
-            }
-        ]
+        planner_trace = [_planner_trace_from_decision(decision, iteration=iteration)]
 
         new_cursor = int(extra.get("intent_cursor", cursor))
         if working and 0 <= new_cursor < len(working):

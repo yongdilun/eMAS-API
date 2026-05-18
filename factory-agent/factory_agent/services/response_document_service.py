@@ -6,6 +6,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from factory_agent.graph.noop_mutations import (
+    NO_OP_MUTATION_REASON,
+    NO_OP_MUTATION_STATUS,
+    normalize_no_op_mutation,
+)
 from factory_agent.schemas import (
     ActivityStepResponse,
     ApprovalRequiredBlock,
@@ -347,6 +352,12 @@ class MutationGroup:
     completed_at: datetime | None = None
     status: str = "completed"
     first_seen: int = 0
+    entity_type: str | None = None
+    selector_summary: str | None = None
+    change_summary: str | None = None
+    matched_count: int | None = None
+    changed_count: int | None = None
+    reason: str | None = None
 
 
 @dataclass
@@ -467,6 +478,11 @@ def _failure_reason(
 
     diagnostics = presentation.diagnostics if isinstance(presentation.diagnostics, dict) else {}
     legacy_reason = _trimmed(diagnostics.get("reason"))
+    if mutation_groups and all(_is_no_op_group(group) for group in mutation_groups) and legacy_reason in {
+        "empty_final_response",
+        "no_results",
+    }:
+        return None
     latest_closed_approval = _latest_closed_approval(approvals)
     text = _failure_probe_text(presentation=presentation, steps=steps, approvals=approvals)
 
@@ -738,8 +754,40 @@ def _business_record_identifier(row: dict[str, Any]) -> str | None:
     return None
 
 
+def _is_no_op_group(group: MutationGroup) -> bool:
+    return group.status == NO_OP_MUTATION_STATUS or group.reason == NO_OP_MUTATION_REASON
+
+
+def _noop_group_count(group: MutationGroup) -> int:
+    return max(0, int(group.changed_count or 0))
+
+
+def _mutation_group_record_count(group: MutationGroup) -> int:
+    if _is_no_op_group(group):
+        return _noop_group_count(group)
+    return len(group.rows)
+
+
+def _entity_noun(entity_type: str | None, count: int) -> str:
+    base = _trimmed(entity_type).lower() or "record"
+    if base.endswith("s"):
+        singular = base[:-1] or base
+    else:
+        singular = base
+    return singular if count == 1 else f"{singular}s"
+
+
+def _noop_change_summary(group: MutationGroup) -> str:
+    entity = _entity_noun(group.entity_type, int(group.matched_count or 0))
+    selector = _trimmed(group.selector_summary) or "requested selector"
+    change = _trimmed(group.change_summary) or "requested change"
+    return f"Not changed: no matching {entity} for {selector}; {change}."
+
+
 def _normalize_row_status(status: Any, *, default: str) -> str:
     normalized = _trimmed(status).lower()
+    if normalized in {NO_OP_MUTATION_STATUS, "unchanged", "no_op", "noop", "skipped_no_match"}:
+        return NO_OP_MUTATION_STATUS
     if normalized in _SUCCESS_ROW_STATES:
         return "succeeded"
     if normalized in _FAILED_ROW_STATES:
@@ -1076,12 +1124,111 @@ def _approval_summary(approval: ApprovalResponse, *, fallback: str = "Approval i
     return fallback
 
 
+def _no_op_payloads_from_args(args: dict[str, Any] | None) -> list[dict[str, Any]]:
+    payload = args if isinstance(args, dict) else {}
+    candidates: list[Any] = []
+    for key in ("no_op_mutations", "noop_mutations", "not_changed"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            candidates.extend(value)
+        elif isinstance(value, dict):
+            candidates.append(value)
+    bundle_ui = payload.get("bundle_ui") if isinstance(payload.get("bundle_ui"), dict) else {}
+    for key in ("no_op_mutations", "noop_mutations", "not_changed"):
+        value = bundle_ui.get(key)
+        if isinstance(value, list):
+            candidates.extend(value)
+        elif isinstance(value, dict):
+            candidates.append(value)
+    out: list[dict[str, Any]] = []
+    for candidate in candidates:
+        normalized = normalize_no_op_mutation(candidate)
+        if normalized is not None:
+            out.append(normalized)
+    return out
+
+
+def _no_op_payloads_from_session(session: Any) -> list[dict[str, Any]]:
+    context = getattr(session, "replan_context", None)
+    if not isinstance(context, dict):
+        return []
+    candidates: list[Any] = []
+    contract = context.get("intent_contract")
+    if isinstance(contract, dict):
+        value = contract.get("no_op_mutations")
+        if isinstance(value, list):
+            candidates.extend(value)
+        elif isinstance(value, dict):
+            candidates.append(value)
+    value = context.get("no_op_mutations")
+    if isinstance(value, list):
+        candidates.extend(value)
+    elif isinstance(value, dict):
+        candidates.append(value)
+    out: list[dict[str, Any]] = []
+    for candidate in candidates:
+        normalized = normalize_no_op_mutation(candidate)
+        if normalized is not None:
+            out.append(normalized)
+    return out
+
+
+def _no_op_mutation_groups(
+    *,
+    session: Any,
+    approvals: list[ApprovalResponse],
+    operation_id: str | None,
+) -> list[MutationGroup]:
+    raw: list[tuple[dict[str, Any], str | None, datetime | None]] = []
+    for payload in _no_op_payloads_from_session(session):
+        raw.append((payload, None, None))
+    for approval in approvals:
+        for payload in _no_op_payloads_from_args(approval.args if isinstance(approval.args, dict) else None):
+            raw.append((payload, _approval_operation_id(approval, operation_id), approval.created_at))
+
+    groups: list[MutationGroup] = []
+    seen: set[str] = set()
+    for index, (payload, payload_operation_id, completed_at) in enumerate(raw):
+        key_payload = {
+            "entity_type": payload["entity_type"],
+            "selector_summary": payload["selector_summary"],
+            "change_summary": payload["change_summary"],
+            "status": payload["status"],
+            "reason": payload["reason"],
+        }
+        key = f"noop:{json.dumps(key_payload, sort_keys=True)}"
+        if key in seen:
+            continue
+        seen.add(key)
+        groups.append(
+            MutationGroup(
+                key=key,
+                operation_id=payload_operation_id or operation_id,
+                approval_id=None,
+                rows=[],
+                step_ids=[],
+                completed_at=completed_at,
+                status=NO_OP_MUTATION_STATUS,
+                first_seen=-1000 + index,
+                entity_type=payload["entity_type"],
+                selector_summary=payload["selector_summary"],
+                change_summary=payload["change_summary"],
+                matched_count=int(payload["matched_count"]),
+                changed_count=int(payload["changed_count"]),
+                reason=payload["reason"],
+            )
+        )
+    return groups
+
+
 def _approval_position_by_id(approvals: list[ApprovalResponse]) -> dict[str, int]:
     ordered = sorted(approvals, key=lambda row: (row.created_at, row.approval_id))
     return {row.approval_id: index for index, row in enumerate(ordered, start=1)}
 
 
 def _group_sort_key(group: MutationGroup, approval_positions: dict[str, int]) -> tuple[int, datetime, int, str]:
+    if _is_no_op_group(group):
+        return -1, group.completed_at or datetime.min, group.first_seen, group.key
     approval_rank = approval_positions.get(group.approval_id or "", 10_000)
     completed_at = group.completed_at or datetime.min
     return approval_rank, completed_at, group.first_seen, group.key
@@ -1113,6 +1260,8 @@ def _add_group_rows(
         group.status = "partial_failure"
     elif counts.get("failed", 0) and not counts.get("succeeded", 0):
         group.status = "failed"
+    elif counts.get(NO_OP_MUTATION_STATUS, 0) and not counts.get("succeeded", 0):
+        group.status = NO_OP_MUTATION_STATUS
     else:
         group.status = "completed"
 
@@ -1153,6 +1302,8 @@ def _business_group_sort_key(
     approval_positions: dict[str, int],
     business_order: dict[str, int],
 ) -> tuple[int, int, int, datetime, str]:
+    if _is_no_op_group(group):
+        return -1, group.first_seen, group.first_seen, group.completed_at or datetime.min, group.key
     approval_rank = approval_positions.get(group.approval_id or "", 10_000)
     sources = {_source_priority(row) for row in group.rows if _source_priority(row)}
     targets = {_target_priority(row) for row in group.rows if _target_priority(row)}
@@ -1186,6 +1337,32 @@ def _merge_mutation_groups_by_business_change(groups: list[MutationGroup]) -> li
                 hints_by_approval_record.setdefault((group.approval_id, record_id), hint)
 
     for group in groups:
+        if _is_no_op_group(group):
+            target = merged.get(group.key)
+            if target is None:
+                target = MutationGroup(
+                    key=group.key,
+                    operation_id=group.operation_id,
+                    approval_id=None,
+                    completed_at=group.completed_at,
+                    status=NO_OP_MUTATION_STATUS,
+                    first_seen=group.first_seen,
+                    entity_type=group.entity_type,
+                    selector_summary=group.selector_summary,
+                    change_summary=group.change_summary,
+                    matched_count=group.matched_count,
+                    changed_count=group.changed_count,
+                    reason=group.reason or NO_OP_MUTATION_REASON,
+                )
+                merged[group.key] = target
+                seen_rows[group.key] = set()
+            if group.first_seen < target.first_seen:
+                target.first_seen = group.first_seen
+            if target.operation_id is None and group.operation_id:
+                target.operation_id = group.operation_id
+            if group.completed_at and (target.completed_at is None or group.completed_at > target.completed_at):
+                target.completed_at = group.completed_at
+            continue
         for index, row in enumerate(group.rows):
             record_id = _business_record_identifier(row)
             hint = None
@@ -1233,11 +1410,16 @@ def _merge_mutation_groups_by_business_change(groups: list[MutationGroup]) -> li
             target.rows.append(row)
 
     for group in merged.values():
+        if _is_no_op_group(group):
+            group.status = NO_OP_MUTATION_STATUS
+            continue
         counts = _row_status_counts(group.rows)
         if counts.get("succeeded", 0) and counts.get("failed", 0):
             group.status = "partial_failure"
         elif counts.get("failed", 0) and not counts.get("succeeded", 0):
             group.status = "failed"
+        elif counts.get(NO_OP_MUTATION_STATUS, 0) and not counts.get("succeeded", 0):
+            group.status = NO_OP_MUTATION_STATUS
         else:
             group.status = "completed"
 
@@ -1456,6 +1638,8 @@ def _priority_label(value: str) -> str:
 
 
 def _business_change_label(group: MutationGroup, *, index: int) -> str:
+    if _is_no_op_group(group):
+        return "Not changed"
     sources = {_source_priority(row) for row in group.rows if _source_priority(row)}
     targets = {_target_priority(row) for row in group.rows if _target_priority(row)}
     if len(sources) == 1 and len(targets) == 1:
@@ -1467,6 +1651,8 @@ def _business_change_label(group: MutationGroup, *, index: int) -> str:
 
 
 def _business_change_summary(group: MutationGroup, *, index: int) -> str:
+    if _is_no_op_group(group):
+        return _noop_change_summary(group)
     label = _business_change_label(group, index=index)
     count = len(group.rows)
     noun = "jobs" if _mutation_total_noun([group]) == "jobs" else _plural(count, "record")
@@ -1504,18 +1690,29 @@ def _mutation_business_payloads(groups: list[MutationGroup]) -> tuple[list[dict[
     all_rows: list[dict[str, Any]] = []
     for index, group in enumerate(groups, start=1):
         label = _business_change_label(group, index=index)
-        rows = _dedupe_rows(
+        rows = [] if _is_no_op_group(group) else _dedupe_rows(
             [_clean_business_mutation_row(row, business_change=label) for row in group.rows]
         )
         summary = _business_change_summary(group, index=index)
-        group_payloads.append(
-            {
-                "business_change": label,
-                "summary": summary,
-                "record_count": len(rows),
-                "rows": rows,
-            }
-        )
+        group_payload = {
+            "business_change": label,
+            "summary": summary,
+            "record_count": _mutation_group_record_count(group),
+            "rows": rows,
+        }
+        if _is_no_op_group(group):
+            group_payload.update(
+                {
+                    "entity_type": group.entity_type,
+                    "selector_summary": group.selector_summary,
+                    "change_summary": group.change_summary,
+                    "matched_count": int(group.matched_count or 0),
+                    "changed_count": int(group.changed_count or 0),
+                    "status": group.status,
+                    "reason": group.reason or NO_OP_MUTATION_REASON,
+                }
+            )
+        group_payloads.append(group_payload)
         all_rows.extend(rows)
     return group_payloads, all_rows
 
@@ -1537,6 +1734,8 @@ def _priority_change_summary(rows: list[dict[str, Any]], *, approval_id: str | N
 
 
 def _generic_mutation_summary(group: MutationGroup) -> str:
+    if _is_no_op_group(group):
+        return _noop_change_summary(group)
     count = len(group.rows)
     counts = _row_status_counts(group.rows)
     if counts.get("failed", 0) and counts.get("succeeded", 0):
@@ -1555,6 +1754,11 @@ def _mutation_group_summary(group: MutationGroup, *, include_approval: bool = Fa
 
 def _mutation_total_noun(groups: list[MutationGroup]) -> str:
     all_rows = [row for group in groups for row in group.rows]
+    if not all_rows:
+        entity_types = {_trimmed(group.entity_type).lower() for group in groups if _is_no_op_group(group) and _trimmed(group.entity_type)}
+        if len(entity_types) == 1:
+            return _entity_noun(next(iter(entity_types)), 2)
+        return "records"
     if all(_row_identifier(row).upper().startswith("JOB-") for row in all_rows if _row_identifier(row)):
         return "jobs"
     return "records"
@@ -1674,6 +1878,31 @@ def _compose_run_steps(
 
     groups_by_approval = {group.approval_id: group for group in mutation_groups if group.approval_id}
     approval_positions = _approval_position_by_id(approvals)
+    emitted_no_op_keys: set[str] = set()
+    for group in mutation_groups:
+        if not _is_no_op_group(group):
+            continue
+        emitted_no_op_keys.add(group.key)
+        run_steps.append(
+            RunStep(
+                step_id=f"mutation:{group.key}",
+                kind="mutation",
+                state="completed",
+                title="Not changed",
+                summary=_mutation_group_summary(group),
+                operation_id=group.operation_id or operation_id,
+                record_count=_mutation_group_record_count(group),
+                diagnostics={
+                    "entity_type": group.entity_type,
+                    "selector_summary": group.selector_summary,
+                    "change_summary": group.change_summary,
+                    "matched_count": int(group.matched_count or 0),
+                    "changed_count": int(group.changed_count or 0),
+                    "status": group.status,
+                    "reason": group.reason or NO_OP_MUTATION_REASON,
+                },
+            )
+        )
     for approval in sorted(approvals, key=lambda row: (row.created_at, row.approval_id)):
         approval_index = approval_positions.get(approval.approval_id, 1)
         approval_status = str(approval.status or "").upper()
@@ -1776,7 +2005,7 @@ def _compose_run_steps(
             )
 
     for group in mutation_groups:
-        if group.approval_id:
+        if group.approval_id or group.key in emitted_no_op_keys:
             continue
         run_steps.append(
             RunStep(
@@ -1886,24 +2115,36 @@ def _current_response_step_id(run_steps: list[RunStep]) -> str | None:
 
 
 def _aggregate_mutation_summary(groups: list[MutationGroup]) -> str:
-    total = sum(len(group.rows) for group in groups)
-    change_count = len(groups)
-    noun = _mutation_total_noun(groups)
-    if all(group.status == "completed" for group in groups):
+    changed_groups = [group for group in groups if not _is_no_op_group(group)]
+    no_op_groups = [group for group in groups if _is_no_op_group(group)]
+    if no_op_groups and not changed_groups:
+        return "No changes were made."
+
+    total = sum(len(group.rows) for group in changed_groups)
+    change_count = len(changed_groups)
+    noun = _mutation_total_noun(changed_groups)
+    no_op_suffix = ""
+    if no_op_groups:
+        no_op_count = len(no_op_groups)
+        no_op_suffix = (
+            f" {no_op_count} {_plural(no_op_count, 'business change')} not changed "
+            "because no matching records were found."
+        )
+    if changed_groups and all(group.status == "completed" for group in changed_groups):
         return (
             f"Done. I updated {total} {noun} across {change_count} "
-            f"{_plural(change_count, 'approved business change')}."
+            f"{_plural(change_count, 'approved business change')}.{no_op_suffix}"
         )
-    succeeded = sum(_row_status_counts(group.rows).get("succeeded", 0) for group in groups)
-    failed = sum(_row_status_counts(group.rows).get("failed", 0) for group in groups)
+    succeeded = sum(_row_status_counts(group.rows).get("succeeded", 0) for group in changed_groups)
+    failed = sum(_row_status_counts(group.rows).get("failed", 0) for group in changed_groups)
     if succeeded and failed:
         return (
             f"{succeeded} of {total} {noun} updated across {change_count} "
-            f"{_plural(change_count, 'approved business change')}; {failed} failed."
+            f"{_plural(change_count, 'approved business change')}; {failed} failed.{no_op_suffix}"
         )
     if failed and not succeeded:
-        return f"{total} {noun} failed across {change_count} {_plural(change_count, 'approved business change')}."
-    return f"Updated {total} {noun} across {change_count} {_plural(change_count, 'approved business change')}."
+        return f"{total} {noun} failed across {change_count} {_plural(change_count, 'approved business change')}.{no_op_suffix}"
+    return f"Updated {total} {noun} across {change_count} {_plural(change_count, 'approved business change')}.{no_op_suffix}"
 
 
 def _aggregate_step_payloads(groups: list[MutationGroup]) -> list[dict[str, Any]]:
@@ -1914,7 +2155,7 @@ def _aggregate_step_payloads(groups: list[MutationGroup]) -> list[dict[str, Any]
                 "step_number": index,
                 "business_change": _business_change_label(group, index=index),
                 "summary": _business_change_summary(group, index=index),
-                "record_count": len(group.rows),
+                "record_count": _mutation_group_record_count(group),
                 "status": group.status,
             }
         )
@@ -2053,7 +2294,7 @@ def _compose_blocks(
         )
 
     show_completed_step_blocks = latest_pending is not None or state != "completed" or any(
-        group.status != "completed" for group in mutation_groups
+        group.status in {"failed", "partial_failure"} for group in mutation_groups
     )
     if show_completed_step_blocks:
         for group in mutation_groups:
@@ -2105,6 +2346,7 @@ def _compose_blocks(
     if mutation_groups:
         all_rows = [row for group in mutation_groups for row in group.rows]
         summary = _aggregate_mutation_summary(mutation_groups)
+        all_no_op = all(_is_no_op_group(group) for group in mutation_groups)
         status = "partial_failure" if any(group.status == "partial_failure" for group in mutation_groups) else "completed"
         if any(group.status == "failed" for group in mutation_groups) and not any(group.status == "completed" for group in mutation_groups):
             status = "failed"
@@ -2114,7 +2356,7 @@ def _compose_blocks(
             ResultSummaryBlock(
                 id=f"result-summary:{operation_id or document_id}",
                 operation_id=operation_id,
-                title="Changes completed" if status == "completed" else "Result summary",
+                title="No changes made" if all_no_op else "Changes completed" if status == "completed" else "Result summary",
                 summary=summary,
                 steps=_aggregate_step_payloads(mutation_groups),
                 total_count=len(result_rows),
@@ -2126,7 +2368,7 @@ def _compose_blocks(
                 id=f"mutation:{operation_id or anchor}",
                 operation_id=operation_id,
                 approval_id=presentation.approval_id,
-                title="Affected records" if status == "completed" else "Mutation result",
+                title="Not changed" if all_no_op else "Affected records" if status == "completed" else "Mutation result",
                 summary=summary,
                 rows=result_rows,
                 groups=business_groups if status == "completed" else [],
@@ -2163,7 +2405,7 @@ def _compose_blocks(
     if sources:
         blocks.append(SourceListBlock(id=f"sources:{operation_id or document_id}", sources=sources, operation_id=operation_id))
 
-    no_result = presentation.kind == "answer" and not read_rows and not sources and state == "completed"
+    no_result = presentation.kind == "answer" and not read_rows and not sources and state == "completed" and not mutation_groups
     diagnostic_kind = (
         presentation.kind in {"diagnostic", "cancelled", "rejected", "expired", "partial_failure"}
         and not _is_non_terminal_progress_presentation(presentation=presentation, state=state)
@@ -2227,6 +2469,14 @@ def compose_response_document(
         operation_id=operation_id,
         approvals=approvals,
     )
+    no_op_groups = _no_op_mutation_groups(session=session, approvals=approvals, operation_id=operation_id)
+    if no_op_groups:
+        approval_positions = _approval_position_by_id(approvals)
+        business_order = _business_change_order_from_text(presentation.summary)
+        mutation_groups = sorted(
+            _merge_mutation_groups_by_business_change([*no_op_groups, *mutation_groups]),
+            key=lambda group: _business_group_sort_key(group, approval_positions, business_order),
+        )
     read_groups = _read_evidence(steps=steps, timeline=timeline, presentation=presentation, operation_id=operation_id)
     read_rows = _dedupe_rows([row for item in read_groups for row in item.rows if not _is_empty_result_envelope(row)])
     sources = presentation.sources if isinstance(presentation.sources, list) else []
@@ -2282,7 +2532,7 @@ def compose_response_document(
 
     read_shape = _read_result_shape(read_rows) if read_rows or presentation.kind == "answer" else None
     diagnostics = _sanitize_diagnostic_value(dict(presentation.diagnostics if isinstance(presentation.diagnostics, dict) else {}))
-    if presentation.kind == "answer" and state == "completed" and not read_rows and not sources:
+    if presentation.kind == "answer" and state == "completed" and not read_rows and not sources and not mutation_groups:
         diagnostics["reason"] = "no_results"
     if failure_profile is not None:
         diagnostics = {
@@ -2293,15 +2543,20 @@ def compose_response_document(
             "next_action": failure_profile.next_action,
             "retry_safety": failure_profile.retry_safety,
         }
+    changed_mutation_groups = [group for group in mutation_groups if not _is_no_op_group(group)]
+    no_op_mutation_groups = [group for group in mutation_groups if _is_no_op_group(group)]
     invariants = {
         **(presentation.invariants if isinstance(presentation.invariants, dict) else {}),
         "response_document_composer": "deterministic_v3_failure_recovery",
         "latest_pending_approval_id": latest_pending.approval_id if latest_pending else None,
         "completed_approval_ids": [group.approval_id for group in mutation_groups if group.approval_id],
         "mutation_group_count": len(mutation_groups),
+        "not_changed_group_count": len(no_op_mutation_groups) if no_op_mutation_groups else None,
+        "no_op_mutation_count": len(no_op_mutation_groups) if no_op_mutation_groups else None,
+        "no_op_mutation_contract": "entity_agnostic_no_matching_records_v1" if no_op_mutation_groups else None,
         "mutation_business_contract": "business_level_v1" if mutation_groups and state == "completed" and not latest_pending else None,
-        "affected_record_count": sum(len(group.rows) for group in mutation_groups) if mutation_groups else None,
-        "approved_business_change_count": len(mutation_groups) if mutation_groups and not latest_pending else None,
+        "affected_record_count": sum(len(group.rows) for group in changed_mutation_groups) if mutation_groups else None,
+        "approved_business_change_count": len(changed_mutation_groups) if mutation_groups and not latest_pending else None,
         "affected_record_preview_limit": 5 if mutation_groups else None,
         "read_result_shape": read_shape,
         "failure_reason": failure_profile.reason if failure_profile else None,

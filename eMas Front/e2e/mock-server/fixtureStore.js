@@ -64,6 +64,7 @@ import {
 } from '../support/promptRegressionScenarios.js'
 import {
   approvalPayload,
+  allNoOpDocument,
   cancelledDocument,
   cascadeDefinition,
   cascadeFinalDocument,
@@ -72,14 +73,20 @@ import {
   lotoDocument,
   noResultsDocument,
   partialFailureDocument,
+  partialNoOpApprovalPayload,
+  partialNoOpDefinition,
+  partialNoOpFinalDocument,
+  partialNoOpWaitingDocument,
   readStatusDocument,
   rejectedDocument,
+  responseDocumentAllNoOpPrompt,
   responseDocumentCancelledRunPrompt,
   responseDocumentCascadePrompt,
   responseDocumentCompatibilityPrompt,
   responseDocumentExpiredApprovalPrompt,
   responseDocumentLotoPrompt,
   responseDocumentNoResultsPrompt,
+  responseDocumentPartialNoOpPrompt,
   responseDocumentPartialFailurePrompt,
   responseDocumentReadStatusPrompt,
   responseDocumentRejectedApprovalPrompt,
@@ -674,6 +681,85 @@ function responseDocumentCascadeScenario(kind = 'forward') {
   }
 }
 
+function responseDocumentPartialNoOpScenario() {
+  const definition = partialNoOpDefinition()
+  return {
+    name: 'responseDocumentPartialNoOp',
+    description: 'Response document partial no-op plus valid mutation fixture.',
+    prompts: [responseDocumentPartialNoOpPrompt],
+    onMessage(session, content) {
+      beginResponseDocumentTurn(session, content || responseDocumentPartialNoOpPrompt, 'responseDocumentPartialNoOp')
+      session.response_document_partial_noop_phase = 'approval'
+    },
+    onPlan(session) {
+      const turnId = session.response_document_turn_id || session.current_turn_id || responseDocumentTurnPrefix('responseDocumentPartialNoOp')
+      installResponseDocumentPlan(session, {
+        turnId,
+        operationId: definition.operationId,
+        objective: 'Exercise response_document no-op mutation quality.',
+        status: 'PENDING_APPROVAL',
+      })
+      session.status = 'WAITING_APPROVAL'
+      session.pending_approval = {
+        ...partialNoOpApprovalPayload(session, definition),
+        created_at: fixtureTime(3),
+        expires_at: fixtureTime(300),
+      }
+      session.response_document = partialNoOpWaitingDocument(session, definition)
+      appendTimeline(session, {
+        event_id: `${definition.approvalId}-required`,
+        turn_id: turnId,
+        event_type: 'approval_required',
+        approval_id: definition.approvalId,
+        tool_name: 'typed_priority_update',
+        content: 'Update 3 jobs from high to low',
+        status: 'PENDING',
+        operation_id: definition.operationId,
+        details: { args: session.pending_approval.args, side_effect_level: 'HIGH' },
+        created_at: fixtureTime(3),
+      })
+      return { status: 200, body: { status: 'WAITING_APPROVAL', plan_id: definition.operationId } }
+    },
+    async onExecute() {
+      return { status: 200, body: { status: 'WAITING_APPROVAL', session_id: null } }
+    },
+    onApprove(session, approvalId) {
+      if (approvalId !== definition.approvalId) {
+        return { status: 404, body: { detail: 'Approval not found for response_document partial no-op.' } }
+      }
+      const turnId = session.response_document_turn_id || session.current_turn_id || responseDocumentTurnPrefix('responseDocumentPartialNoOp')
+      appendTimeline(session, {
+        event_id: `${definition.approvalId}-approved`,
+        turn_id: turnId,
+        event_type: 'approval_decided',
+        approval_id: definition.approvalId,
+        tool_name: 'typed_priority_update',
+        content: 'Approval 1 received.',
+        status: 'APPROVED',
+        operation_id: definition.operationId,
+        created_at: fixtureTime(4),
+      })
+      session.response_document_partial_noop_phase = 'completed'
+      session.status = 'COMPLETED'
+      session.pending_approval = null
+      completeSteps(session)
+      session.response_document = partialNoOpFinalDocument(session, definition)
+      appendResponseDocumentCompletion(session, {
+        turnId,
+        operationId: definition.operationId,
+        content: definition.finalMessage,
+      })
+      return { status: 200, body: { status: 'COMPLETED', approval_id: approvalId } }
+    },
+    snapshot(session) {
+      if (session.response_document_partial_noop_phase === 'approval') {
+        session.response_document = partialNoOpWaitingDocument(session, definition)
+      }
+      return snapshotFromSession(session)
+    },
+  }
+}
+
 function responseDocumentRejectedScenario() {
   const definition = cascadeDefinition('forward')
   return {
@@ -839,6 +925,16 @@ export const scenarioCatalog = {
   responseDocumentCascade: responseDocumentCascadeScenario('forward'),
 
   responseDocumentReverseCascade: responseDocumentCascadeScenario('reverse'),
+
+  responseDocumentPartialNoOp: responseDocumentPartialNoOpScenario(),
+
+  responseDocumentAllNoOp: responseDocumentCompletionScenario({
+    name: 'responseDocumentAllNoOp',
+    prompt: responseDocumentAllNoOpPrompt,
+    operationId: 'pw-plan-rd-all-noop',
+    objective: 'Render response_document all-no-op mutation.',
+    buildDocument: allNoOpDocument,
+  }),
 
   responseDocumentReadStatus: responseDocumentCompletionScenario({
     name: 'responseDocumentReadStatus',

@@ -12,6 +12,8 @@ export const responseDocumentExpiredApprovalPrompt = 'Run response_document expi
 export const responseDocumentStaleApprovalPrompt = 'Run response_document stale approval fixture'
 export const responseDocumentCancelledRunPrompt = 'Start response_document active run that I will cancel'
 export const responseDocumentCompatibilityPrompt = 'Render response_document with stale legacy presentation fixture'
+export const responseDocumentPartialNoOpPrompt = 'Run response_document partial no-op mutation fixture'
+export const responseDocumentAllNoOpPrompt = 'Run response_document all no-op mutation fixture'
 
 export const forbiddenResponseDocumentText = [
   /All requested changes completed/i,
@@ -347,6 +349,229 @@ export function cascadeFinalDocument(session, definition) {
       mutation_business_contract: 'business_level_v1',
       affected_record_count: rows.length,
       approved_business_change_count: 2,
+      affected_record_preview_limit: 5,
+    },
+  })
+}
+
+export function partialNoOpDefinition() {
+  return {
+    prompt: responseDocumentPartialNoOpPrompt,
+    operationId: 'pw-plan-rd-partial-noop',
+    approvalId: 'pw-rd-partial-noop-approval',
+    noOp: {
+      entity_type: 'job',
+      selector_summary: 'priority = archived',
+      change_summary: 'priority -> high',
+      matched_count: 0,
+      changed_count: 0,
+      status: 'not_changed',
+      reason: 'no_matching_records',
+    },
+    rows: highPriorityRows.slice(0, 3),
+    finalMessage: 'Done. I updated 3 jobs across 1 approved business change. 1 business change not changed because no matching records were found.',
+  }
+}
+
+export function partialNoOpApprovalPayload(session, definition = partialNoOpDefinition()) {
+  return {
+    approval_id: definition.approvalId,
+    session_id: session.session_id,
+    subject_type: 'tool',
+    tool_name: 'typed_priority_update',
+    side_effect_level: 'HIGH',
+    risk_summary: 'Update 3 jobs from high to low.',
+    args: {
+      count: definition.rows.length,
+      no_op_mutations: [definition.noOp],
+      bundle_ui: {
+        kind: 'response_document_partial_noop',
+        write_set: 'original_high_to_low',
+        headline: 'Update 3 jobs from high to low',
+        rows: definition.rows,
+      },
+    },
+    status: 'PENDING',
+  }
+}
+
+export function partialNoOpWaitingDocument(session, definition = partialNoOpDefinition()) {
+  const noopSummary = 'Not changed: no matching jobs for priority = archived; priority -> high.'
+  return baseDocument(session, {
+    operationId: definition.operationId,
+    revision: 2,
+    state: 'waiting_approval',
+    message: `${noopSummary} Update 3 jobs from high to low`,
+    currentStepId: 'approval-partial-noop',
+    runSteps: [
+      { step_id: 'analysis-1', kind: 'analysis', state: 'completed', title: 'Understood request', summary: 'Parsed the no-op plus valid mutation request.' },
+      { step_id: 'mutation-noop-1', kind: 'mutation', state: 'completed', title: 'Not changed', summary: noopSummary, record_count: 0 },
+      { step_id: 'read-valid-1', kind: 'read', state: 'completed', title: 'Found 3 records', summary: '3 jobs are ready for review.' },
+      { step_id: 'approval-partial-noop', kind: 'approval', state: 'waiting', title: 'Waiting for approval 1', summary: '3 jobs are ready for review.', approval_id: definition.approvalId, current: true },
+    ],
+    blocks: [
+      {
+        id: 'completed-step:partial-noop',
+        type: 'completed_step',
+        title: 'Completed step',
+        summary: noopSummary,
+        rows: [],
+        details_collapsed: true,
+      },
+      {
+        id: `approval:${definition.approvalId}`,
+        type: 'approval_required',
+        approval_id: definition.approvalId,
+        operation_id: definition.operationId,
+        title: 'Approval required',
+        summary: 'Update 3 jobs from high to low',
+        rows: definition.rows,
+        details_collapsed: true,
+      },
+    ],
+    invariants: {
+      latest_pending_approval_id: definition.approvalId,
+      no_op_mutation_contract: 'entity_agnostic_no_matching_records_v1',
+      not_changed_group_count: 1,
+    },
+  })
+}
+
+export function partialNoOpFinalDocument(session, definition = partialNoOpDefinition()) {
+  const changedLabel = 'High -> Low'
+  const changedRows = definition.rows.map((row) => ({
+    ...row,
+    business_change: changedLabel,
+    change: 'high -> low',
+    status: 'updated',
+  }))
+  const noopGroup = {
+    business_change: 'Not changed',
+    summary: 'Not changed: no matching jobs for priority = archived; priority -> high.',
+    record_count: 0,
+    rows: [],
+    ...definition.noOp,
+  }
+  const changedGroup = {
+    business_change: changedLabel,
+    summary: `${changedLabel}: ${changedRows.length} jobs`,
+    record_count: changedRows.length,
+    rows: changedRows,
+  }
+  return baseDocument(session, {
+    operationId: definition.operationId,
+    revision: 5,
+    state: 'completed',
+    message: definition.finalMessage,
+    currentStepId: 'completed-partial-noop',
+    runSteps: [
+      { step_id: 'analysis-1', kind: 'analysis', state: 'completed', title: 'Understood request' },
+      { step_id: 'mutation-noop-1', kind: 'mutation', state: 'completed', title: 'Not changed', summary: noopGroup.summary, record_count: 0 },
+      { step_id: 'approval-partial-noop', kind: 'approval', state: 'completed', title: 'Approval 1 received', approval_id: definition.approvalId },
+      { step_id: 'mutation-valid-1', kind: 'mutation', state: 'completed', title: 'Updated 3 records', summary: '3 high priority jobs changed to low.' },
+      { step_id: 'completed-partial-noop', kind: 'completed', state: 'completed', title: 'Run complete', summary: definition.finalMessage },
+    ],
+    blocks: [
+      {
+        id: `result-summary:${definition.operationId}`,
+        type: 'result_summary',
+        operation_id: definition.operationId,
+        title: 'Changes completed',
+        summary: definition.finalMessage,
+        steps: [
+          { step_number: 1, business_change: 'Not changed', summary: noopGroup.summary, record_count: 0, status: 'not_changed' },
+          { step_number: 2, business_change: changedLabel, summary: changedGroup.summary, record_count: changedRows.length, status: 'completed' },
+        ],
+        total_count: changedRows.length,
+        status: 'completed',
+      },
+      {
+        id: `mutation:${definition.operationId}`,
+        type: 'mutation_result',
+        operation_id: definition.operationId,
+        title: 'Affected records',
+        summary: definition.finalMessage,
+        rows: changedRows,
+        groups: [noopGroup, changedGroup],
+        preview_limit: 5,
+        details_collapsed: true,
+        status: 'completed',
+      },
+    ],
+    invariants: {
+      latest_pending_approval_id: null,
+      completed_approval_ids: [definition.approvalId],
+      mutation_group_count: 2,
+      not_changed_group_count: 1,
+      no_op_mutation_count: 1,
+      no_op_mutation_contract: 'entity_agnostic_no_matching_records_v1',
+      mutation_business_contract: 'business_level_v1',
+      affected_record_count: changedRows.length,
+      approved_business_change_count: 1,
+      affected_record_preview_limit: 5,
+    },
+  })
+}
+
+export function allNoOpDocument(session) {
+  const summary = 'No changes were made.'
+  const noopGroup = {
+    business_change: 'Not changed',
+    summary: 'Not changed: no matching jobs for priority = archived; priority -> high.',
+    record_count: 0,
+    rows: [],
+    entity_type: 'job',
+    selector_summary: 'priority = archived',
+    change_summary: 'priority -> high',
+    matched_count: 0,
+    changed_count: 0,
+    status: 'not_changed',
+    reason: 'no_matching_records',
+  }
+  return baseDocument(session, {
+    operationId: 'pw-plan-rd-all-noop',
+    revision: 3,
+    state: 'completed',
+    message: summary,
+    currentStepId: 'completed-all-noop',
+    runSteps: [
+      { step_id: 'analysis-1', kind: 'analysis', state: 'completed', title: 'Understood request' },
+      { step_id: 'mutation-noop-1', kind: 'mutation', state: 'completed', title: 'Not changed', summary: noopGroup.summary, record_count: 0 },
+      { step_id: 'completed-all-noop', kind: 'completed', state: 'completed', title: 'Run complete', summary },
+    ],
+    blocks: [
+      {
+        id: 'result-summary:all-noop',
+        type: 'result_summary',
+        operation_id: 'pw-plan-rd-all-noop',
+        title: 'No changes made',
+        summary,
+        steps: [{ step_number: 1, business_change: 'Not changed', summary: noopGroup.summary, record_count: 0, status: 'not_changed' }],
+        total_count: 0,
+        status: 'completed',
+      },
+      {
+        id: 'mutation:all-noop',
+        type: 'mutation_result',
+        operation_id: 'pw-plan-rd-all-noop',
+        title: 'Not changed',
+        summary,
+        rows: [],
+        groups: [noopGroup],
+        preview_limit: 5,
+        details_collapsed: true,
+        status: 'completed',
+      },
+    ],
+    invariants: {
+      latest_pending_approval_id: null,
+      mutation_group_count: 1,
+      not_changed_group_count: 1,
+      no_op_mutation_count: 1,
+      no_op_mutation_contract: 'entity_agnostic_no_matching_records_v1',
+      mutation_business_contract: 'business_level_v1',
+      affected_record_count: 0,
+      approved_business_change_count: 0,
       affected_record_preview_limit: 5,
     },
   })

@@ -24,7 +24,7 @@ Created: 2026-05-18
 | 14 | Final response business contract | Done | Codex | Backend `response_document` now emits clean business-level completed mutation results: grouped changes, deduped affected records, compact preview contract, and no raw assistant/internal-id noise in final mutation blocks. |
 | 15 | Final response visual quality oracle | Done | Codex | Added browser semantic oracle coverage for RD-001 final visual quality, compact grouped rendering, expandable clean audit, forbidden-text detection, and duplicate affected-record evidence. |
 | 16 | Approval copy and pending guidance cleanup | Done | Codex | Removed always-visible pending-approval helper copy from normal approval cards and added component plus RD-001 semantic-probe assertions forbidding it. |
-| 17 | Entity-agnostic no-op mutation result contract | Not Started | Codex | Make no-data mutation steps explicit as `Not changed`, avoid approvals for no-op groups, prove no mutation is attempted, and avoid job-priority-only handling. |
+| 17 | Entity-agnostic no-op mutation result contract | Done | Codex | Added typed no-op mutation groups with entity/selector/change/count fields, approval-safe partial and all-no-op backend contracts, and mocked browser semantic proof. |
 | 18 | Read-only status response contract | Not Started | Codex | Make machine/status read-only answers typed and clean: no raw assistant markers, no dump-style API labels, no duplicate answer blocks, and no approval/mutation UI. |
 | 19 | RAG question-type routing contract | Not Started | Codex | Separate document-content RAG questions from entity-specific procedure selection so LOTO/procedure questions do not wrongly require machine IDs. |
 | 20 | Entity-specific overfitting audit | Not Started | Codex | Audit code, tests, fixtures, and docs for job/machine/product/material-specific fixes that should become generic contracts before Phase 21. |
@@ -34,7 +34,7 @@ Created: 2026-05-18
 - Chat 514 style orphan state is fixed and covered by Phase 10 backend plus mocked browser regressions. Normal prompts must not settle as `IDLE/non_terminal_snapshot` with generic `Needs attention`.
 - RD-001 noisy final mutation output is fixed in Phase 14/15 at the backend response-document contract and browser visual oracle: final completed mutation blocks summarize 21 jobs across 2 approved business changes and omit raw assistant/internal-id noise.
 - Phase 16 removed the always-visible helper sentence `Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.` from normal approval display.
-- No-data mutation steps still need an explicit no-op contract. Phase 17 will require visible `Not changed` groups and prove no edit attempt occurs for no-op groups.
+- No-data mutation steps now have an explicit Phase 17 no-op contract with visible `Not changed` groups, approval exclusion, and no mutation attempt for zero-match groups.
 - Read-only status responses can still leak raw assistant markdown and API-dump labels. Example: `Show status for machine with machine id M-CNC-01` renders `done_all`, raw `**Success**`, duplicated answer text, `Machineid`, `Machinename`, `Capacityperhour`, and a weak generic `Results` block. Phase 18 fixes this class.
 - LOTO document-content questions can still be misclassified as machine-specific procedure selection. Example: `According to the LOTO procedure, what notification is required before starting lockout` can ask for a machine ID instead of answering from RAG. Phase 19 fixes this class.
 - Several recent fixes are still at risk of becoming entity-specific special cases. Phase 20 audits job/machine/product/material-specific implementation, tests, and docs before Phase 21 is planned.
@@ -1097,22 +1097,75 @@ npm run test:e2e:response-document -- --grep "approval copy|RD-001|Waiting for a
 
 ## Phase 17 Checklist
 
-- [ ] Define the no-op mutation response-document shape with entity-agnostic fields such as `entity_type`, `selector_summary`, `change_summary`, `matched_count`, `changed_count`, and `reason=no_matching_records`.
-- [ ] Add backend contract for partial no-op plus valid mutation.
-- [ ] Add backend contract for all-no-op mutation.
-- [ ] Ensure no-op mutation groups are rendered as `Not changed`.
-- [ ] Ensure no approval is requested for no-op groups.
-- [ ] Ensure all-no-op mutation completes as `No changes were made`.
-- [ ] Ensure no mutation audit rows are created for no-op groups.
-- [ ] Include a non-job-priority no-op contract if existing fixtures support one, or document the missing fixture as a Phase 20 finding.
-- [ ] Add browser/semantic-probe proof for at least one no-op mutation flow.
-- [ ] Update manual regression bank and tracker.
-- [ ] Run backend and frontend verification.
-- [ ] Commit Phase 17.
+- [x] Define the no-op mutation response-document shape with entity-agnostic fields such as `entity_type`, `selector_summary`, `change_summary`, `matched_count`, `changed_count`, and `reason=no_matching_records`.
+- [x] Add backend contract for partial no-op plus valid mutation.
+- [x] Add backend contract for all-no-op mutation.
+- [x] Ensure no-op mutation groups are rendered as `Not changed`.
+- [x] Ensure no approval is requested for no-op groups.
+- [x] Ensure all-no-op mutation completes as `No changes were made`.
+- [x] Ensure no mutation audit rows are created for no-op groups.
+- [x] Include a non-job-priority no-op contract if existing fixtures support one, or document the missing fixture as a Phase 20 finding.
+- [x] Add browser/semantic-probe proof for at least one no-op mutation flow.
+- [x] Update manual regression bank and tracker.
+- [x] Run backend and frontend verification.
+- [x] Commit Phase 17.
 
 ## Phase 17 Implementation Notes
 
-Status: Not Started
+Status: Done
+
+Date: 2026-05-18
+
+### Implemented Contract
+
+No-data mutation groups now enter the response document as typed no-op business groups, not skipped prose. The normalized shape is:
+
+```json
+{
+  "entity_type": "job",
+  "selector_summary": "priority = medium",
+  "change_summary": "priority -> high",
+  "matched_count": 0,
+  "changed_count": 0,
+  "status": "not_changed",
+  "reason": "no_matching_records"
+}
+```
+
+The response-document composer accepts this shape from pending approval args and from saved intent contracts. It renders `Not changed` groups before approval, excludes them from approval cards, keeps them in final grouped mutation results, and counts only real write groups as approved business changes.
+
+### Product Bug Fixed
+
+The existing zero-match bulk-edit path completed planner intent with a summary such as "No matching jobs were found" but did not preserve a typed no-op mutation outcome. This could make a requested no-data edit disappear from the approval/final response. Phase 17 stores the no-op outcome in planner completed actions, carries it into approval payloads or final intent contracts, and composes it generically.
+
+### Non-Job Coverage
+
+Deferred to Phase 20 audit. Existing safe executable fixtures for no-op mutation flow are job-priority based; machine not-found write checks exist, but the active response-document fixture set does not yet provide a safe non-job mutation-selector no-op flow without broadening product scope. Phase 20 should audit whether machine/product/material no-op mutation sources should emit the same generic contract.
+
+### Files Changed
+
+- `factory-agent/factory_agent/graph/noop_mutations.py`
+- `factory-agent/factory_agent/graph/nodes/planner_loop.py`
+- `factory-agent/factory_agent/graph/nodes/validate.py`
+- `factory-agent/factory_agent/graph/planner_graph.py`
+- `factory-agent/factory_agent/services/response_document_service.py`
+- `factory-agent/tests/test_response_document_contract.py`
+- `eMas Front/e2e/support/responseDocumentScenarios.js`
+- `eMas Front/e2e/mock-server/fixtureStore.js`
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+
+### Phase 17 Verification Results
+
+- `python -m compileall factory_agent` -> passed.
+- `node --check e2e/support/responseDocumentScenarios.js` -> passed.
+- `node --check e2e/mock-server/fixtureStore.js` -> passed.
+- `node --check e2e/specs/final-response-quality.spec.js` -> passed.
+- `python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q` -> 27 passed.
+- `python -m pytest tests/test_api_endpoints.py -q` -> 44 passed, 20 xfailed, 5 failed. Failures are existing legacy/tool-scope/DLQ endpoint expectations outside the Phase 17 response-document no-op path.
+- `npm test` -> 113 passed.
+- `npm run test:e2e:response-document -- --grep "no-op|Not changed|No changes were made|no matching"` -> 1 passed.
 
 ### Required Partial No-Op Behavior
 

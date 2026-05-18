@@ -7,6 +7,7 @@ from ..schemas import PlanDraft, PlanStepDraft, ToolInfo
 from .approval_summary import build_approval_required_payload
 from .builder import compile_planner_graph
 from .errors import LangGraphPlannerApprovalRequired, LangGraphPlannerClarification, LangGraphPlannerError
+from .noop_mutations import add_no_op_mutations_to_contract, add_no_op_mutations_to_payload
 from .state import AgentState, normalize_graph_messages, user_query_text
 
 try:
@@ -49,7 +50,7 @@ def _approval_payload_from_state(state: Any) -> dict[str, Any] | None:
         intent_text = str(cur.get("description") or "").strip()
     if not intent_text:
         intent_text = user_query_text(state)
-    return build_approval_required_payload(staged, intent_text=intent_text)
+    return add_no_op_mutations_to_payload(build_approval_required_payload(staged, intent_text=intent_text), state)
 
 
 def _not_found_clarification_from_state(state: Any) -> str | None:
@@ -216,8 +217,9 @@ class LangGraphPlanner:
             intent_text = str(cur.get("description") or "").strip()
         if not intent_text:
             intent_text = user_query_text(values)
-        payload = _approval_payload_from_state(values) or build_approval_required_payload(
-            staged, intent_text=intent_text
+        payload = _approval_payload_from_state(values) or add_no_op_mutations_to_payload(
+            build_approval_required_payload(staged, intent_text=intent_text),
+            values,
         )
         commit_state = {
             **values,
@@ -235,6 +237,7 @@ class LangGraphPlanner:
                 "backend": "langgraph",
                 "steps": [],
             }
+        contract = add_no_op_mutations_to_contract(contract, values)
         draft, contract = _append_create_followup_read(draft, contract, values)
         return (draft, contract, [*tool_outputs, *commit_outputs])
 
@@ -278,11 +281,13 @@ class LangGraphPlanner:
             raise LangGraphPlannerError("LangGraph planner did not return a validated PlanDraft.")
         raw_outputs = result.get("tool_outputs")
         tool_outputs = raw_outputs if isinstance(raw_outputs, list) else []
-        return draft, result.get("intent_contract") or {
+        contract = result.get("intent_contract") or {
             "intent": intent,
             "backend": "langgraph",
             "steps": [],
-        }, tool_outputs
+        }
+        contract = add_no_op_mutations_to_contract(contract, state_for_fallback)
+        return draft, contract, tool_outputs
 
     async def resume_after_approval(
         self,
@@ -339,6 +344,7 @@ class LangGraphPlanner:
             "backend": "langgraph",
             "steps": [],
         }
+        contract = add_no_op_mutations_to_contract(contract, snapshot_values or result)
         draft, contract = _append_create_followup_read(draft, contract, snapshot_values)
         raw_outputs = result.get("tool_outputs")
         tool_outputs = raw_outputs if isinstance(raw_outputs, list) else []
