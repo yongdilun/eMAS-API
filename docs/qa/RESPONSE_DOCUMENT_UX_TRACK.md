@@ -21,10 +21,13 @@ Created: 2026-05-18
 | 11 | Real flow browser state-transition oracle | Done | Codex | Added reusable browser transition oracle, mocked RD-001/RD-002 coverage, and real LangGraph SO-041 proof; fixed stale revision/session and completed-approval copy bugs found by the oracle. |
 | 12 | Semantic snapshot probe and artifact quality | Done | Codex | Added compact semantic probe helper, oracle failure attachments, diagnosis classification, redaction/size tests, and a browser artifact proof. |
 | 13 | Manual screenshot regression intake | Done | Codex | Added strict screenshot intake template, structured Chat 514 regression entry, and a bank gate that rejects vague/manual-only screenshot issues. |
+| 14 | Final response business contract | Not Started | Codex | Backend `response_document` must emit clean business-level mutation results: grouped changes, deduped affected records, compact preview, and no raw assistant/internal-id noise. |
+| 15 | Final response visual quality oracle | Not Started | Codex | Browser semantic oracle must prove the rendered final response is compact, grouped, expandable, and free of raw/internal noise. |
 
 ## Current Blockers
 
 - Chat 514 style orphan state is fixed and covered by Phase 10 backend plus mocked browser regressions. Normal prompts must not settle as `IDLE/non_terminal_snapshot` with generic `Needs attention`.
+- RD-001 final mutation result can still render noisy raw/internal response content: `done_all`, giant duplicate tables, wrong aggregate counts such as `Updated 63 jobs across 22 approved steps`, and internal fields such as `Operation ID`, `Step ID`, or `Row ID`.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -32,7 +35,7 @@ Created: 2026-05-18
 
 - Should `response_document` live directly on the snapshot response, timeline terminal event, or both?
 - Which backend module should own composition: `session_snapshot_service.py` or a new `response_document_service.py`?
-- What exact compact-card record preview count should be standard: 3 or 5?
+- Should any privileged support-only UI ever expose operation/step ids, or should they stay only in probe artifacts/backend logs?
 - Should expanded/collapsed state be keyed by block id, approval id, or operation id?
 - Which real LangGraph scenario should be the first non-seeded proof after Prompt A: Prompt B, partial failure, or RAG/source answer?
 - What coalescing strategy is best after implementation: next animation frame, 50ms debounce, or 100ms debounce?
@@ -73,6 +76,12 @@ Created: 2026-05-18
 - Normal user prompts must never settle into an orphan `IDLE/non_terminal_snapshot` state. They must be running, waiting approval/confirmation, completed, cancelled, blocked, or failed with a typed reason.
 - Browser tests must compare visible UI with backend snapshot state at transition checkpoints, not only final backend JSON.
 - Compact semantic probes should be the primary failure artifact; full Playwright/a11y snapshots are supporting evidence.
+- Completed mutation final responses use a short summary, grouped business changes, and a compact affected-record preview.
+- The default affected-record preview limit is 5 rows, with expandable clean audit details.
+- Expanded affected records are grouped by business change, not backend operation or step id.
+- Raw assistant final markdown is not display truth for mutation results.
+- Internal ids such as `operation_id`, `step_id`, and `row_id` do not appear in normal rendered chat.
+- Final mutation aggregates are based on business write sets, not individual backend operations, execution steps, tool calls, or audit rows.
 
 ## Flagship Inputs
 
@@ -81,6 +90,7 @@ Created: 2026-05-18
 | RD-001 | `change all medium priority job to high then change all high priority job to low` | First flagship. Proves approval 1, approval 2, completed-step preservation, latest pending approval, and final aggregate result. |
 | RD-002 | `change all high priority job to low then change all low priority job to medium` | Reverse cascade. Proves original-state semantics and prevents overfitting RD-001. |
 | RD-003 | `change all medium priority job to high then change all high priority job to low` | Post-gate orphan-state regression. Proves the flow cannot show `IDLE/non_terminal_snapshot` or generic `Needs attention` after send/approval. |
+| RD-004 | `change all medium priority job to high then change all high priority job to low` | Final-response business-quality regression. Proves final result is 21 jobs across 2 approved business changes, not raw assistant markdown or backend step noise. |
 
 ## Additional Required Scenario Groups
 
@@ -849,6 +859,94 @@ git status --short --branch
 - Frontend unit/component lane: 109 passed.
 - Focused response-document Playwright grep: 4 passed.
 
+## Phase 14 Checklist
+
+- [ ] Reproduce the noisy RD-001 final mutation result as a backend response-document contract failure where possible.
+- [ ] Compose completed mutation results from typed business facts, not raw assistant markdown.
+- [ ] Aggregate completed mutations by approved business write set.
+- [ ] Deduplicate affected records within each business change group.
+- [ ] Limit default affected-record preview to 5 rows.
+- [ ] Provide expandable clean audit grouped by business change.
+- [ ] Forbid raw assistant markers such as `done_all` in visible mutation blocks.
+- [ ] Forbid `Operation ID`, `Step ID`, `Row ID`, and raw internal ids in normal response-document blocks.
+- [ ] Enforce RD-001 as 21 jobs across 2 approved business changes: 10 medium -> high and 11 original high -> low.
+- [ ] Update manual regression bank and tracker with the product bug/fix evidence.
+- [ ] Run backend response-document contract/failure verification.
+- [ ] Commit Phase 14.
+
+## Phase 14 Implementation Notes
+
+Status: Not Started
+
+### Known Bad Output
+
+Manual verification showed RD-001 final completion rendering:
+
+- raw assistant marker `done_all`;
+- raw `**Success**` markdown;
+- `Updated 63 jobs across 22 approved steps`;
+- duplicate affected-record tables;
+- internal fields such as `Operation ID`, `Step ID`, and `Row ID`;
+- one visible block per backend operation/step instead of one business-level result.
+
+### Required Good Output
+
+The completed RD-001 final response should be readable before expanding details:
+
+```text
+Done. I updated 21 jobs across 2 approved changes.
+
+Changes completed
+1. Medium -> High: 10 jobs
+2. Original High -> Low: 11 jobs
+
+Affected records
+JOB-SEED-002 medium -> high
+JOB-SEED-004 medium -> high
+JOB-SEED-007 medium -> high
+JOB-SEED-010 medium -> high
+JOB-SEED-014 medium -> high
++16 more
+```
+
+Expanded details should show a clean audit grouped by business change, without internal ids.
+
+### Phase 14 Verification Target
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+python -m pytest tests/test_api_endpoints.py::test_graph_approval_returns_before_resume_and_keeps_one_activity_operation -q
+```
+
+## Phase 15 Checklist
+
+- [ ] Extend `responseDocumentProbe` to capture final-response quality structure.
+- [ ] Add browser semantic oracle for RD-001 final completion.
+- [ ] Assert one final result card only.
+- [ ] Assert exactly 2 business change groups.
+- [ ] Assert total affected count is 21 and preview count is at most 5.
+- [ ] Assert expandable clean audit exists and is grouped by business change.
+- [ ] Forbid `done_all`, `Updated 63 jobs across 22 approved steps`, `Operation ID`, `Step ID`, and `Row ID`.
+- [ ] Assert no duplicate affected records appear in the same rendered section.
+- [ ] Run mocked response-document E2E and real LangGraph critical proof.
+- [ ] Commit Phase 15.
+
+## Phase 15 Implementation Notes
+
+Status: Not Started
+
+Phase 15 should not repair backend data in the frontend. It should prove that the backend Phase 14 contract renders correctly and fail loudly if raw/internal/noisy content reaches the visible chat.
+
+### Phase 15 Verification Target
+
+```powershell
+Set-Location "eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "final response quality|RD-001|business result|visual quality"
+npm run test:e2e:real-langgraph -- --grep "RD-001|SO-041|final response quality|@critical"
+```
+
 ## Phase 10 Implementation Notes
 
 Date: 2026-05-18
@@ -1003,7 +1101,7 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 
 ## Next Action
 
-Start Phase 1 by adding additive backend response-document schemas and a minimal snapshot response-document mapper beside existing `presentation`; keep frontend behavior unchanged.
+Start Phase 14 by tightening the backend response-document business contract for completed mutation results. Reproduce RD-001 noisy final output as a backend contract failure where possible, then fix the composer so the final response is 21 jobs across 2 approved business changes with grouped, deduped, operator-friendly affected records.
 
 ## Post-Gate Regression: Approved Data But UI Still Shows Approval
 

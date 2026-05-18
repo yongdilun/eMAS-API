@@ -51,6 +51,12 @@ The chatbot can now pass strong backend, seeded browser, and real LangGraph test
 | Failure detail | Show operator-friendly summary by default; technical diagnostics stay collapsed. |
 | Failure actions | Actions are context-aware and gated by safety/retry policy. |
 | Partial-progress failure | Show both completed progress and failure impact together. |
+| Final mutation result shape | Short summary plus grouped business changes plus compact affected-record preview. |
+| Final mutation detail | Expandable clean audit grouped by business change. |
+| Final mutation display source | Backend `response_document` typed facts, not raw assistant final markdown. |
+| Internal identifiers | `operation_id`, `step_id`, `row_id`, and raw audit ids stay out of normal rendered chat. |
+| Final response row preview | Show at most 5 affected records by default, with expandable full clean audit. |
+| Final response aggregation | Aggregate by business write set, not backend operation, tool call, audit row, or execution step count. |
 
 ## Target Architecture
 
@@ -1004,6 +1010,124 @@ npm test
 npm run test:e2e:response-document -- --grep "manual regression|non_terminal|RD-001|Chat 514|state transition"
 ```
 
+### Phase 14: Final Response Business Contract
+
+Goal: Make completed mutation response documents clean, compact, business-level, and deterministic before the frontend renders them.
+
+Problem this phase targets:
+
+- A completed multi-step mutation can render a raw assistant marker such as `done_all`.
+- The final card can mix raw assistant markdown, run activity, individual completed steps, duplicated affected rows, and internal ids.
+- Aggregates can be based on backend execution artifacts, for example `Updated 63 jobs across 22 approved steps`, instead of the user's business request.
+- The visible result can include low-level fields such as `Operation ID`, `Step ID`, `Row ID`, or duplicate rows that are not meaningful to the operator.
+
+Files likely touched:
+
+- `factory-agent/factory_agent/services/response_document_service.py`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/schemas.py`
+- `factory-agent/tests/test_response_document_contract.py`
+- `factory-agent/tests/test_response_document_failures.py`
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+
+Implementation steps:
+
+- Add or strengthen backend response-document contract tests for RD-001 final completion.
+- Reproduce the bad final response shape as a failing backend contract before the fix when possible.
+- Compose completed mutation results from typed DB/audit/tool facts, not raw assistant final markdown.
+- Add a business-level mutation result shape with:
+  - one short final summary;
+  - grouped business changes;
+  - compact affected-record preview with at most 5 records;
+  - expandable clean audit grouped by business change;
+  - no internal ids in normal display blocks.
+- Deduplicate affected records by business identity and change group.
+- Aggregate by approved business write set, not individual operation, execution step, or audit row.
+- For RD-001, enforce:
+  - total affected jobs = 21;
+  - approved business changes = 2;
+  - `Medium -> High` group has 10 jobs;
+  - `Original High -> Low` group has 11 jobs;
+  - no `done_all`;
+  - no `Updated 63 jobs across 22 approved steps`;
+  - no `Operation ID`, `Step ID`, or `Row ID` in visible response-document blocks.
+- Preserve technical identifiers only in backend logs, test probe artifacts, or non-rendered diagnostics if already present for support.
+
+Acceptance criteria:
+
+- Backend response-document contract tests fail before the fix for the noisy RD-001 final result and pass after the fix.
+- Completed mutation response documents expose a clean business result without raw assistant mutation prose.
+- The response document has one final mutation result, not one visible block per backend operation.
+- Full audit detail is clean and grouped by business change.
+- Existing partial failure, rejected, expired, cancelled, read-only, RAG, and diagnostic response documents still pass.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+python -m pytest tests/test_api_endpoints.py::test_graph_approval_returns_before_resume_and_keeps_one_activity_operation -q
+```
+
+### Phase 15: Final Response Visual Quality Oracle
+
+Goal: Prove in the browser that the final response is readable, compact, grouped by business change, and free of raw/internal noise.
+
+Problem this phase targets:
+
+- Backend truth can be correct while the rendered chat is still too long, duplicated, or visually misleading.
+- Existing E2E tests can pass by checking backend state or final status while ignoring response readability.
+- Full screenshots are useful for humans but are not strict enough to block duplicated tables, raw markers, or internal ids.
+
+Files likely touched:
+
+- `eMas Front/e2e/support/responseDocumentProbe.js`
+- `eMas Front/e2e/support/factoryAgentTransitionOracle.js`
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+- `eMas Front/src/components/features/chat/factory-agent/ResponseDocumentRenderer.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/ResponseDocumentRenderer` tests if present
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+
+Implementation steps:
+
+- Extend the semantic probe to capture final response visual quality:
+  - final result card count;
+  - business change group count and labels;
+  - affected-record preview count;
+  - expandable audit presence;
+  - forbidden text hits;
+  - duplicate affected-record rows within the same rendered section.
+- Add a browser semantic oracle for RD-001 final completion.
+- Assert the default visible final response is readable without expanding details.
+- Assert the expanded audit is grouped by business change, not backend operation id or step id.
+- Forbid:
+  - `done_all`;
+  - `Updated 63 jobs across 22 approved steps`;
+  - `Operation ID`;
+  - `Step ID`;
+  - `Row ID`;
+  - duplicate noisy completed-step blocks;
+  - raw assistant mutation markdown as the primary result.
+- Keep screenshots/traces as supporting artifacts; the semantic probe should explain failures first.
+
+Acceptance criteria:
+
+- RD-001 browser flow passes only when the visible final response is compact and grouped correctly.
+- The browser oracle fails if internal ids or raw assistant markers appear in the rendered final response.
+- The oracle fails if the default view shows a huge audit dump instead of a compact preview.
+- The oracle fails if the final response aggregates backend operation rows instead of business write sets.
+
+Verification command:
+
+```powershell
+Set-Location "eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "final response quality|RD-001|business result|visual quality"
+npm run test:e2e:real-langgraph -- --grep "RD-001|SO-041|final response quality|@critical"
+```
+
 ## Stop Conditions
 
 Stop and fix before continuing when:
@@ -1027,6 +1151,10 @@ Stop and fix before continuing when:
 - Failure card offers retry/action that is unsafe for the current operation state.
 - Technical diagnostics leak raw stack traces, secrets, tokens, or environment values by default.
 - Browser E2E passes only because it ignores visible UX and checks backend state only.
+- Final mutation response shows raw assistant markers such as `done_all`.
+- Final mutation response shows internal ids such as `Operation ID`, `Step ID`, or `Row ID`.
+- Final mutation response duplicates affected rows or counts backend operations as business changes.
+- RD-001 final result does not summarize 21 jobs across 2 approved business changes.
 
 ## Out Of Scope For This Plan
 
