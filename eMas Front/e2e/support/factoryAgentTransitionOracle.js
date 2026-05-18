@@ -3,7 +3,13 @@ import path from 'node:path'
 
 import { expect } from '@playwright/test'
 
-import { redactSensitiveArtifactText } from './artifactRedaction.js'
+import {
+  baseForbiddenProbeText,
+  buildSemanticProbe,
+  collectVisibleResponseDocumentUi,
+  semanticProbeHumanSummary,
+  serializeSemanticProbe,
+} from './responseDocumentProbe.js'
 
 const PASS = '__factory_agent_transition_pass__'
 
@@ -18,32 +24,7 @@ export const uiStatusByBackendStatus = Object.freeze({
   IDLE: 'Ready',
 })
 
-const statusLabels = Object.freeze([
-  'Ready',
-  'Understanding',
-  'Checking',
-  'Waiting for approval',
-  'Waiting for confirmation',
-  'Needs attention',
-  'Complete',
-  'Working',
-])
-
-export const baseForbiddenTransitionText = Object.freeze([
-  { label: 'internal non_terminal_snapshot reason', pattern: /non_terminal_snapshot/i },
-  { label: 'orphan idle diagnostic', pattern: /Session status:\s*IDLE/i },
-  {
-    label: 'generic needs-attention diagnostic',
-    pattern: /Needs attention\s+The request needs attention before it can continue/i,
-  },
-  { label: 'raw JSON object', pattern: /(?:^|\n)\s*[\[{]\s*"[^"\n]+"\s*:/ },
-  { label: 'traceback or stack trace', pattern: /Traceback|stack trace|^\s*at\s+\S+.*:\d+:\d+/im },
-  {
-    label: 'secret or token diagnostic',
-    pattern: /\b(?:api[_-]?key|authorization|bearer|password|secret|token)\b\s*[:=]\s*(?!\[redacted\])[\w.+/=-]{6,}/i,
-  },
-  { label: 'known secret sample', pattern: /\b(?:sk-[a-z0-9_-]{12,}|raw-secret-token|super-secret)\b/i },
-])
+export const baseForbiddenTransitionText = baseForbiddenProbeText
 
 function asArray(value) {
   if (value === undefined || value === null) return []
@@ -66,23 +47,6 @@ function labelForPattern(pattern) {
   return JSON.stringify(pattern)
 }
 
-function compactText(value, limit = 900) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim()
-  if (text.length <= limit) return text
-  return `${text.slice(0, limit)}...`
-}
-
-function blockTextSummary(blocks, type) {
-  return blocks
-    .filter((block) => block.type === type)
-    .map((block) => ({
-      id: block.id || null,
-      text: compactText(block.text, 400),
-      hasApprove: block.hasApprove,
-      hasReject: block.hasReject,
-    }))
-}
-
 function backendSummary(snapshot) {
   const document = snapshot?.response_document || {}
   const blocks = Array.isArray(document.blocks) ? document.blocks : []
@@ -98,29 +62,14 @@ function backendSummary(snapshot) {
   }
 }
 
-function uiSummary(ui) {
-  return {
-    headerStatus: ui.headerStatus || null,
-    activeSidebarStatus: ui.activeSidebarStatus || null,
-    visibleBlockTypes: ui.visibleBlockTypes || [],
-    visibleBlockIds: ui.visibleBlockIds || [],
-    approvalActionLabels: ui.approvalActionLabels || [],
-    approvalTexts: blockTextSummary(ui.visibleBlocks || [], 'approval_required'),
-    resultTexts: [
-      ...blockTextSummary(ui.visibleBlocks || [], 'result_summary'),
-      ...blockTextSummary(ui.visibleBlocks || [], 'mutation_result'),
-    ],
-    diagnosticTexts: blockTextSummary(ui.visibleBlocks || [], 'diagnostic'),
-    assistantText: compactText(ui.latestAssistantText, 900),
-  }
-}
-
-export function summarizeTransitionProbe(probe) {
-  return {
+export function summarizeTransitionProbe(probe, { expected = {}, violations = [] } = {}) {
+  return buildSemanticProbe({
     checkpoint: probe.checkpoint || null,
-    backend: backendSummary(probe.snapshot),
-    ui: uiSummary(probe.ui || {}),
-  }
+    snapshot: probe.snapshot,
+    ui: probe.ui || {},
+    expected,
+    violations,
+  })
 }
 
 function expectedStatuses(expected) {
@@ -251,25 +200,16 @@ export function evaluateTransitionProbe(probe, expected = {}) {
   return {
     ok: violations.length === 0,
     violations,
-    summary: summarizeTransitionProbe(probe),
+    summary: summarizeTransitionProbe(probe, { expected, violations }),
   }
 }
 
 export function formatTransitionFailure({ checkpoint, expected, result }) {
-  return JSON.stringify({
+  return serializeSemanticProbe(result?.summary || buildSemanticProbe({
     checkpoint,
-    violations: result.violations,
-    expected: {
-      sessionStatus: expected.sessionStatus || expected.sessionStatuses || null,
-      responseState: expected.responseState || expected.responseStates || null,
-      pendingApprovalId: Object.hasOwn(expected, 'pendingApprovalId') ? expected.pendingApprovalId || null : undefined,
-      visibleBlockTypes: expected.visibleBlockTypes || undefined,
-      hiddenBlockTypes: expected.hiddenBlockTypes || undefined,
-      textIncludes: asArray(expected.textIncludes).map(labelForPattern),
-      textExcludes: asArray(expected.textExcludes).map(labelForPattern),
-    },
-    ...result.summary,
-  }, null, 2)
+    expected,
+    violations: result?.violations || [],
+  }))
 }
 
 function safeArtifactName(value) {
@@ -282,8 +222,8 @@ function safeArtifactName(value) {
 
 async function attachTransitionArtifact(testInfo, checkpoint, payload) {
   if (!testInfo) return
-  const name = `${safeArtifactName(checkpoint)}-transition-oracle.json`
-  const body = redactSensitiveArtifactText(payload)
+  const name = `${safeArtifactName(checkpoint)}-semantic-probe.json`
+  const body = serializeSemanticProbe(payload)
   const artifactPath = testInfo.outputPath(name)
   fs.mkdirSync(path.dirname(artifactPath), { recursive: true })
   fs.writeFileSync(artifactPath, body)
@@ -294,46 +234,7 @@ async function attachTransitionArtifact(testInfo, checkpoint, payload) {
 }
 
 export async function collectVisibleTransitionUi(page) {
-  return page.evaluate((labels) => {
-    const statusSet = new Set(labels)
-    const dialog = document.querySelector('[role="dialog"]') || document.body
-    const heading = dialog.querySelector('h2')
-    const headerRegion = heading?.parentElement || dialog
-    const headerStatus = Array.from(headerRegion.querySelectorAll('span'))
-      .map((node) => (node.textContent || '').trim())
-      .find((value) => statusSet.has(value)) || null
-    const activeSessionButton = dialog.querySelector('aside [aria-current="page"]')
-    const activeSidebarStatus = activeSessionButton
-      ? Array.from(activeSessionButton.querySelectorAll('span'))
-        .map((node) => (node.textContent || '').trim())
-        .find((value) => statusSet.has(value)) || null
-      : null
-    const roots = Array.from(dialog.querySelectorAll('[data-response-document-root]'))
-    const latestRoot = roots[roots.length - 1] || dialog
-    const visibleBlocks = Array.from(latestRoot.querySelectorAll('[data-response-block-type]')).map((node) => {
-      const text = node.innerText || node.textContent || ''
-      return {
-        type: node.getAttribute('data-response-block-type') || null,
-        id: node.getAttribute('data-response-block-id') || null,
-        text,
-        hasApprove: Array.from(node.querySelectorAll('button')).some((button) => (button.textContent || '').trim() === 'Approve'),
-        hasReject: Array.from(node.querySelectorAll('button')).some((button) => (button.textContent || '').trim() === 'Reject'),
-      }
-    })
-    const approvalActionLabels = Array.from(latestRoot.querySelectorAll('button'))
-      .map((button) => (button.textContent || '').trim())
-      .filter((label) => label === 'Approve' || label === 'Reject')
-    return {
-      headerStatus,
-      activeSidebarStatus,
-      visibleBlockTypes: visibleBlocks.map((block) => block.type).filter(Boolean),
-      visibleBlockIds: visibleBlocks.map((block) => block.id).filter(Boolean),
-      visibleBlocks,
-      approvalActionLabels,
-      latestAssistantText: latestRoot.innerText || latestRoot.textContent || '',
-      visibleText: dialog.innerText || document.body.innerText || '',
-    }
-  }, statusLabels)
+  return collectVisibleResponseDocumentUi(page)
 }
 
 export async function collectTransitionProbe(page, { checkpoint, snapshotForPage }) {
@@ -368,11 +269,20 @@ export async function expectTransitionCheckpoint(page, {
       })
       .toBe(PASS)
   } catch (error) {
-    const payload = lastResult
-      ? formatTransitionFailure({ checkpoint, expected, result: lastResult })
-      : JSON.stringify({ checkpoint, error: error?.message || String(error), probe: lastProbe }, null, 2)
-    await attachTransitionArtifact(testInfo, checkpoint, payload)
-    throw new Error(`Factory Agent transition checkpoint failed: ${checkpoint}\n${payload}`)
+    const semanticProbe = lastResult?.summary || buildSemanticProbe({
+      checkpoint,
+      snapshot: lastProbe?.snapshot,
+      ui: lastProbe?.ui || {},
+      expected,
+      violations: [error?.message || String(error)],
+    })
+    const payload = serializeSemanticProbe(semanticProbe)
+    await attachTransitionArtifact(testInfo, checkpoint, semanticProbe)
+    throw new Error(
+      `Factory Agent transition checkpoint failed: ${checkpoint}\n` +
+      `${semanticProbeHumanSummary(semanticProbe)}\n` +
+      `Semantic probe JSON:\n${payload}`,
+    )
   }
   return lastResult.summary
 }

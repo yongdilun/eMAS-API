@@ -92,6 +92,7 @@ test('transition oracle reports compact mismatches when visible UI is stale', ()
   })
   assert.match(message, /after approval 1/)
   assert.match(message, /approval:approval-1/)
+  assert.equal(result.summary.diagnosis.classification, 'reducer_ordering_gap')
 })
 
 test('transition oracle forbids internal diagnostics and final stale approval text', () => {
@@ -135,15 +136,15 @@ test('transition oracle forbids internal diagnostics and final stale approval te
 
 test('transition oracle summary keeps only high-signal fields', () => {
   const summary = summarizeTransitionProbe(probe())
-  assert.deepEqual(summary.backend, {
-    sessionStatus: 'WAITING_APPROVAL',
-    phase: 'WAITING_APPROVAL',
-    pendingApprovalId: 'approval-2',
-    responseDocumentState: 'waiting_approval',
-    responseDocumentRevision: 8,
-    responseDocumentCurrentStepId: 'approval-2',
-    responseBlockTypes: ['completed_step', 'approval_required'],
-    responseApprovalIds: ['approval-1', 'approval-2'],
-  })
-  assert.deepEqual(summary.ui.visibleBlockTypes, ['completed_step', 'approval_required'])
+  assert.equal(summary.kind, 'factory_agent_response_document_semantic_probe')
+  assert.equal(summary.backend.sessionStatus, 'WAITING_APPROVAL')
+  assert.equal(summary.backend.phase, 'WAITING_APPROVAL')
+  assert.equal(summary.backend.pendingApprovalId, 'approval-2')
+  assert.equal(summary.backend.responseDocumentState, 'waiting_approval')
+  assert.equal(summary.backend.responseDocumentRevision, 8)
+  assert.equal(summary.backend.responseDocumentCurrentStepId, 'approval-2')
+  assert.deepEqual(summary.backend.responseBlockTypes, ['completed_step', 'approval_required'])
+  assert.deepEqual(summary.backend.responseApprovalIds, ['approval-1', 'approval-2'])
+  assert.deepEqual(summary.visible.visibleBlockTypes, ['completed_step', 'approval_required'])
+  assert.equal(summary.artifactUse, 'Read this semantic probe first; screenshots and traces are supporting evidence.')
 })

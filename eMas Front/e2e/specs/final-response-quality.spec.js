@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { chatSelectors } from '../fixtures/selectors.js'
 import { responseDocumentTrafficPrompt } from '../fixtures/factoryAgentFixtures.js'
 import { expectTransitionCheckpoint } from '../support/factoryAgentTransitionOracle.js'
+import { serializeSemanticProbe } from '../support/responseDocumentProbe.js'
 import {
   cascadeDefinition,
   forbiddenResponseDocumentText,
@@ -334,6 +335,40 @@ test.describe('Final response quality response_document gate', () => {
       firstRowsLabel: 'Found 10 original medium-priority jobs',
       secondRowsLabel: 'Found 11 original high-priority jobs',
     })
+  })
+
+  test('RD-001 response_document semantic probe artifact captures first state transition evidence', async ({ page }, testInfo) => {
+    const definition = cascadeDefinition('forward')
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await openChat(page)
+    await sendChatPrompt(page, definition.prompt)
+
+    const summary = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-001 phase 12 semantic probe proof after send',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'WAITING_APPROVAL',
+        responseState: 'waiting_approval',
+        pendingApprovalId: definition.first.approvalId,
+        visibleBlockTypes: ['approval_required'],
+        visibleBlockIds: [`approval:${definition.first.approvalId}`],
+        backendBlockTypes: ['approval_required'],
+        approvalActionCount: 2,
+        textIncludes: ['Waiting for approval 1', 'Update 10 jobs from medium to high'],
+        textExcludes: [/Run complete/i],
+      },
+    })
+    const body = serializeSemanticProbe(summary)
+    await testInfo.attach('phase12-semantic-probe-proof.json', {
+      body,
+      contentType: 'application/json',
+    })
+
+    expect(summary.visible.latestUserPrompt).toContain(definition.prompt)
+    expect(summary.backend.pendingApprovalId).toBe(definition.first.approvalId)
+    expect(summary.visible.visibleBlockTypes).toContain('approval_required')
+    expect(body.split(/\r?\n/).length).toBeLessThan(200)
   })
 
   test('RD-002 state transition oracle covers reverse cascade without overfitting RD-001', async ({ page }, testInfo) => {

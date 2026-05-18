@@ -19,7 +19,7 @@ Created: 2026-05-18
 | 9 | Release gate and future LLM handoff | Done | Codex | Added response-document release lane and documented blocking/non-blocking gates, manual limits, and future LLM polish contract. |
 | 10 | Orphan turn and session state invariant gate | Done | Codex | Added backend orphan-turn invariant, typed `planner_no_action` / `orphan_turn_state` diagnostics, and mocked browser state-agreement coverage for the Chat 514 class. |
 | 11 | Real flow browser state-transition oracle | Done | Codex | Added reusable browser transition oracle, mocked RD-001/RD-002 coverage, and real LangGraph SO-041 proof; fixed stale revision/session and completed-approval copy bugs found by the oracle. |
-| 12 | Semantic snapshot probe and artifact quality | Not Started | Codex | Replace huge low-signal browser snapshots as the primary oracle with compact current-turn semantic probes. |
+| 12 | Semantic snapshot probe and artifact quality | Done | Codex | Added compact semantic probe helper, oracle failure attachments, diagnosis classification, redaction/size tests, and a browser artifact proof. |
 | 13 | Manual screenshot regression intake | Not Started | Codex | Convert every manual screenshot bug into an executable backend/frontend/browser regression before adding more scenario volume. |
 
 ## Current Blockers
@@ -739,11 +739,65 @@ python -m pytest tests/test_response_document_contract.py tests/test_response_do
 
 ## Phase 12 Checklist
 
-- [ ] Add semantic current-turn probe helper for Playwright.
-- [ ] Capture UI status, sidebar status, visible blocks, snapshot status, response-document revision/state, and approval ids.
-- [ ] Save probe JSON on failure.
-- [ ] Document how to read the probe before opening full screenshots/traces.
-- [ ] Add artifact size/readability budget.
+- [x] Add semantic current-turn probe helper for Playwright.
+- [x] Capture UI status, sidebar status, visible blocks, snapshot status, response-document revision/state, and approval ids.
+- [x] Save probe JSON on failure.
+- [x] Document how to read the probe before opening full screenshots/traces.
+- [x] Add artifact size/readability budget.
+
+## Phase 12 Implementation Notes
+
+Date: 2026-05-18
+
+Phase 12 is complete. No product bug was found.
+
+### Semantic Probe
+
+- Helper: `eMas Front/e2e/support/responseDocumentProbe.js`.
+- Unit tests: `eMas Front/e2e/support/responseDocumentProbe.test.mjs`.
+- The probe captures only active-session/current-turn evidence: active session id/name, visible header status, active sidebar row status, latest user prompt, latest assistant title/message, visible response block types/ids, visible run-step titles/states, visible approval ids/buttons, forbidden text hits, backend `session.status`, backend pending approval id, backend `response_document.state`, revision, block types, current step id, run steps, and compact block summaries.
+- The probe avoids full backend snapshots, full DOM/a11y snapshots, rows, traces, and stack dumps. Repeated blocks/run steps are capped and text is truncated/redacted so formatted JSON stays under the 200-line readability budget.
+- Diagnosis classification currently reports `backend_state_gap`, `response_document_gap`, `reducer_ordering_gap`, `renderer_dom_gap`, `session_list_sync_gap`, or `unknown`.
+
+### Oracle Integration
+
+- `eMas Front/e2e/support/factoryAgentTransitionOracle.js` now builds semantic probes for transition summaries and failure artifacts.
+- On checkpoint failure, the thrown error starts with a short human-readable diagnosis and attaches `<checkpoint>-semantic-probe.json`.
+- The oracle assertions from Phase 11 were not weakened; the semantic probe changes only the diagnostic surface around the same backend/UI checks.
+- Full Playwright screenshots, traces, video, console logs, and stack logs remain available as supporting evidence. The semantic probe is the first artifact to read for response-document transition failures.
+
+### Regression Coverage Added
+
+- `eMas Front/e2e/support/responseDocumentProbe.test.mjs`
+  - compact current-turn summary construction;
+  - header/sidebar/backend mismatch classification;
+  - response-document state mismatch classification;
+  - stale approval UI after backend completion classification;
+  - secret/token/stack-trace redaction;
+  - artifact line-budget enforcement.
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+  - `RD-001 response_document semantic probe artifact captures first state transition evidence`
+
+### Commands Run
+
+```powershell
+Set-Location "C:\Users\dilun\OneDrive\Documents\eMas APi"
+git status --short --branch
+# -> ## codex/playwright-e2e-plan
+
+Set-Location "C:\Users\dilun\OneDrive\Documents\eMas APi\eMas Front"
+node --test --test-concurrency=1 e2e/support/responseDocumentProbe.test.mjs
+# -> 6 passed
+
+node --test --test-concurrency=1 e2e/support/factoryAgentTransitionOracle.test.mjs
+# -> 4 passed
+
+npm test
+# -> 109 passed
+
+npm run test:e2e:response-document -- --grep "state transition|RD-001|RD-002"
+# -> 4 passed
+```
 
 ## Phase 13 Checklist
 
