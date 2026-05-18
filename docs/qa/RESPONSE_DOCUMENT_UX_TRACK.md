@@ -17,10 +17,14 @@ Created: 2026-05-18
 | 7 | Compact approval and progressive disclosure hardening | Done | Codex | Hardened typed approval/result/diagnostic progressive disclosure, duplicate table suppression, controlled collapse state, and mobile/desktop overflow checks. |
 | 8 | Mandatory compatibility cleanup | Done | Codex | Isolated legacy presentation/table heuristics behind missing-document fallback and added guardrails for valid/invalid `response_document`. |
 | 9 | Release gate and future LLM handoff | Done | Codex | Added response-document release lane and documented blocking/non-blocking gates, manual limits, and future LLM polish contract. |
+| 10 | Orphan turn and session state invariant gate | Not Started | Codex | New post-gate phase for the Chat 514 style bug: normal prompts must not settle as `IDLE/non_terminal_snapshot` with generic Needs attention UI. |
+| 11 | Real flow browser state-transition oracle | Not Started | Codex | Add visible transition checkpoints that compare header, sidebar, backend snapshot, response document, and DOM after send/approve/final. |
+| 12 | Semantic snapshot probe and artifact quality | Not Started | Codex | Replace huge low-signal browser snapshots as the primary oracle with compact current-turn semantic probes. |
+| 13 | Manual screenshot regression intake | Not Started | Codex | Convert every manual screenshot bug into an executable backend/frontend/browser regression before adding more scenario volume. |
 
 ## Current Blockers
 
-- None for the deterministic response-document UX release gate as of Phase 9.
+- Chat 514 style orphan state: a normal prompt can appear as `IDLE` + `non_terminal_snapshot` + generic `Needs attention` in the visible UI. Phase 10 must convert this into a blocked invariant and product fix.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -66,6 +70,9 @@ Created: 2026-05-18
 - Technical diagnostics are collapsed and sanitized by default.
 - Failure-card actions are context-aware and gated by safety/retry policy.
 - Partial-progress failures show both completed progress and failure impact.
+- Normal user prompts must never settle into an orphan `IDLE/non_terminal_snapshot` state. They must be running, waiting approval/confirmation, completed, cancelled, blocked, or failed with a typed reason.
+- Browser tests must compare visible UI with backend snapshot state at transition checkpoints, not only final backend JSON.
+- Compact semantic probes should be the primary failure artifact; full Playwright/a11y snapshots are supporting evidence.
 
 ## Flagship Inputs
 
@@ -73,6 +80,7 @@ Created: 2026-05-18
 | --- | --- | --- |
 | RD-001 | `change all medium priority job to high then change all high priority job to low` | First flagship. Proves approval 1, approval 2, completed-step preservation, latest pending approval, and final aggregate result. |
 | RD-002 | `change all high priority job to low then change all low priority job to medium` | Reverse cascade. Proves original-state semantics and prevents overfitting RD-001. |
+| RD-003 | `change all medium priority job to high then change all high priority job to low` | Post-gate orphan-state regression. Proves the flow cannot show `IDLE/non_terminal_snapshot` or generic `Needs attention` after send/approval. |
 
 ## Additional Required Scenario Groups
 
@@ -651,6 +659,38 @@ npm run test:e2e -- --project=chromium --grep "response_document revision|event 
 - [x] Record accepted gaps.
 - [x] Document that LLM polish/Promptfoo is future separate work.
 
+## Phase 10 Checklist
+
+- [ ] Add backend invariant for latest user message + `IDLE` + no terminal/pending/blocked/failed/cancelled state.
+- [ ] Add product fix so actionable prompts cannot emit `non_terminal_snapshot` as user-facing final state.
+- [ ] Add RD-001/RD-003 backend snapshot regression.
+- [ ] Add browser forbidden-text assertions for `non_terminal_snapshot`, `Session status: IDLE`, and generic `Needs attention`.
+- [ ] Assert active session header, sidebar, snapshot status, and response-document state agree after refresh.
+- [ ] Update manual regression bank with the Chat 514 screenshot failure.
+
+## Phase 11 Checklist
+
+- [ ] Build reusable browser state-transition oracle for response-document flows.
+- [ ] Add transition checkpoints for send -> approval 1 -> applying -> approval 2 -> completed.
+- [ ] Include forbidden stale text at every checkpoint.
+- [ ] Add real LangGraph or seeded critical coverage for at least RD-001.
+- [ ] Save compact transition artifact on failure.
+
+## Phase 12 Checklist
+
+- [ ] Add semantic current-turn probe helper for Playwright.
+- [ ] Capture UI status, sidebar status, visible blocks, snapshot status, response-document revision/state, and approval ids.
+- [ ] Save probe JSON on failure.
+- [ ] Document how to read the probe before opening full screenshots/traces.
+- [ ] Add artifact size/readability budget.
+
+## Phase 13 Checklist
+
+- [ ] Add manual screenshot regression intake template.
+- [ ] Register the Chat 514 orphan-state screenshot as a manual regression.
+- [ ] Require each accepted screenshot bug to identify the first executable test layer.
+- [ ] Add regression-bank/schema checks so screenshot-only bugs cannot stay undocumented.
+
 ## Phase 6-9 Implementation Notes
 
 Date: 2026-05-18
@@ -799,3 +839,38 @@ Status: In Progress
 - `python -m pytest tests/test_api_endpoints.py::test_graph_approval_returns_before_resume_and_keeps_one_activity_operation tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_typed_snapshot_presentation_contract.py tests/test_snapshot_timeline_final_response_contract.py tests/test_phase7_api_ui_alignment.py -q` -> 91 passed.
 - `node --test --test-concurrency=1 "src/components/features/chat/factory-agent/responseDocumentReducer.test.mjs"` -> 11 passed.
 - `git diff --check` -> passed with line-ending warnings only.
+
+## Post-Gate Regression: Chat 514 Orphan IDLE Diagnostic
+
+Date: 2026-05-18
+
+Status: Planned for Phases 10-13
+
+### Symptom
+
+- Manual browser screenshot shows active chat `Chat 514` with the user prompt `change all medium priority job to high then change all high priority job to low`.
+- Assistant bubble renders:
+  - `Needs attention`;
+  - `The request needs attention before it can continue.`;
+  - technical details containing `Reason: non_terminal_snapshot` and `Session status: IDLE`.
+- Header shows `Ready`, while the sidebar row for the same chat can still show `WAITING FOR APPROVAL`.
+
+### Why This Page Exists
+
+- `response_document` is doing what it was told for an impossible state: it received a snapshot that looked non-terminal and not actionable.
+- The backend snapshot had enough state to render a diagnostic, but not enough state to prove the request was running, waiting for approval, completed, cancelled, blocked, or failed.
+- For a normal sent prompt, `IDLE + non_terminal_snapshot + no terminal result` is not a valid user-facing state. It should be prevented upstream or converted into a clear blocked/failure reason.
+
+### Why Existing E2E Did Not Catch It
+
+- The response-document E2E gate focused on mocked fixtures whose revisions and terminal states were already well shaped.
+- Existing backend tests asserted many final states, but did not encode the invariant: "after the latest user message, a normal actionable prompt must not settle as IDLE with no terminal/pending/failure state."
+- Existing browser tests often checked final success or specific blocks, but did not globally forbid `non_terminal_snapshot` / `Session status: IDLE` / generic `Needs attention` for normal prompts.
+- Full Playwright snapshots are too long and low-signal; they show the page but do not directly compare UI header/sidebar/status with backend snapshot and response-document state.
+
+### Testing Direction
+
+- Phase 10 blocks the invalid backend state.
+- Phase 11 adds visible transition oracles.
+- Phase 12 improves artifacts with compact semantic probes.
+- Phase 13 forces every manual screenshot bug into a regression bank and executable test.

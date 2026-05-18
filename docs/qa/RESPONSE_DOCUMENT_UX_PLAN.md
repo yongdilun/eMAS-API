@@ -805,6 +805,200 @@ npm run test:e2e:real-langgraph
 npm run test:e2e:release
 ```
 
+### Phase 10: Orphan Turn And Session State Invariant Gate
+
+Goal: Prevent user-visible orphan turns such as `IDLE` + `non_terminal_snapshot` + "Needs attention" after a normal prompt.
+
+Problem this phase targets:
+
+- A user can send a real request and end up with a chat bubble that says the request needs attention, with technical detail `Reason: non_terminal_snapshot` and `Session status: IDLE`.
+- This page exists because the backend has a user turn but no terminal result, no pending approval, no blocked/failed reason, and no completed response document.
+- That state is a contract violation for normal chatbot flow. It should either continue running, show a real pending approval, complete, or fail/block with an operator-friendly reason.
+
+Files likely touched:
+
+- `factory-agent/factory_agent/services/plan_creation_service.py`
+- `factory-agent/factory_agent/services/execution_service.py`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/services/response_document_service.py`
+- `factory-agent/tests/test_response_document_contract.py`
+- `factory-agent/tests/test_api_endpoints.py`
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+
+Implementation steps:
+
+- Define an orphan-turn invariant: after the latest user message, the session must not settle as `IDLE` with no terminal event, no pending approval, no confirmation, no explicit cancellation, and no blocked/failed reason.
+- Add backend tests that seed/send a user request and assert the snapshot is never `IDLE/non_terminal_snapshot` for an actionable prompt.
+- If the planner produces no executable steps for an actionable prompt, transition to `BLOCKED` with a typed `planner_no_action` or `unable_to_start_request` diagnostic instead of `IDLE/non_terminal_snapshot`.
+- If the request should create an approval, ensure the snapshot has `WAITING_APPROVAL`, `pending_approval`, an approval block, and matching session-list status.
+- Add a frontend/browser test that sends RD-001 and fails if visible text includes `non_terminal_snapshot`, generic `Needs attention`, or `Session status: IDLE` before a terminal result.
+
+Acceptance criteria:
+
+- Normal user prompts cannot produce an orphan `IDLE/non_terminal_snapshot` response document.
+- The user never sees internal `non_terminal_snapshot` as the main response for RD-001/RD-002.
+- If the backend cannot start the request, it returns a typed blocked/failure reason with next action.
+- Session header, session list, snapshot status, and response document state agree for the active chat.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_api_endpoints.py tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+
+Set-Location "..\eMas Front"
+npm run test:e2e:response-document -- --grep "orphan|non_terminal|RD-001|session state"
+```
+
+### Phase 11: Real Flow Browser State-Transition Oracle
+
+Goal: Add browser tests that prove the real UI follows every critical state transition, not only final backend state.
+
+Problem this phase targets:
+
+- Existing E2E coverage was strong on backend assertions and mocked response documents, but weak on visible transition checkpoints.
+- A bug can pass if data changes correctly while the UI remains stuck on an old approval or diagnostic card.
+
+Files likely touched:
+
+- `eMas Front/e2e/support/responseDocumentScenarios.js`
+- `eMas Front/e2e/support/factoryAgentAssertions.js` or equivalent support file
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+- `eMas Front/e2e/specs/real-langgraph-critical.spec.js`
+- `factory-agent/tests/test_api_endpoints.py`
+
+Implementation steps:
+
+- Build a reusable Playwright state-transition oracle for each turn:
+  - visible header status;
+  - session-sidebar status;
+  - latest snapshot status;
+  - `pending_approval.approval_id`;
+  - `response_document.state`;
+  - `response_document.revision`;
+  - visible approval/result/diagnostic blocks.
+- For RD-001 and RD-002, assert each transition:
+  - after send: planning/executing or waiting approval, not orphan idle;
+  - approval 1 visible;
+  - after approve 1: approval 1 disappears or becomes completed evidence;
+  - approval 2 visible when expected;
+  - after approve 2: no approval card remains;
+  - final aggregate result visible.
+- Include forbidden visible text at every checkpoint:
+  - `non_terminal_snapshot`;
+  - `Session status: IDLE`;
+  - stale `Waiting for approval 1` after approval 1 is decided;
+  - stale `Approval required` after final completion;
+  - raw JSON/stack trace/secret-like diagnostics.
+- Store a compact JSON artifact per failed transition with only high-signal fields.
+
+Acceptance criteria:
+
+- A real browser flow fails if backend data changes but the visible UI remains pending.
+- Tests identify the exact transition that failed instead of only timing out at the final assertion.
+- Header, sidebar, snapshot, response document, and visible DOM are compared in the same assertion helper.
+
+Verification command:
+
+```powershell
+Set-Location "eMas Front"
+npm run test:e2e:response-document -- --grep "state transition|RD-001|RD-002"
+npm run test:e2e:real-langgraph -- --grep "state transition|RD-001|SO-041|@critical"
+```
+
+### Phase 12: Semantic Snapshot Probe And Artifact Quality
+
+Goal: Replace huge low-signal Playwright/a11y snapshots as the primary debugging artifact with compact semantic probes.
+
+Problem this phase targets:
+
+- Full browser snapshots are long because they contain the whole accessibility tree and repeated chat/session content.
+- They are also low-signal for this bug class because they do not directly compare visible UI state with backend snapshot state.
+
+Files likely touched:
+
+- `eMas Front/e2e/support/responseDocumentProbe.js`
+- `eMas Front/e2e/support/factoryAgentAssertions.js`
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+- `eMas Front/playwright.config.*`
+- docs for QA artifacts
+
+Implementation steps:
+
+- Add a semantic probe helper that collects:
+  - active session id/name/status from UI;
+  - sidebar status for the active session;
+  - latest visible user prompt;
+  - latest assistant card title/message/block types;
+  - visible approval ids/buttons;
+  - visible run-step titles/states;
+  - backend snapshot status, pending approval id, response-document state/revision/block types.
+- Save this compact probe as JSON on failure.
+- Keep screenshots/traces for visual debugging, but make the semantic probe the first artifact future agents read.
+- Add assertions that fail with the semantic probe summary, not with a vague timeout.
+- Add a size/readability budget for artifacts: one compact current-turn probe should be enough to identify state disagreement.
+
+Acceptance criteria:
+
+- A failing chatbot E2E test produces a readable current-turn probe under 200 lines.
+- The probe clearly shows whether the fault is backend state, response-document composition, reducer ordering, or renderer/display.
+- Full Playwright snapshots are supporting evidence only, not the main oracle.
+
+Verification command:
+
+```powershell
+Set-Location "eMas Front"
+npm run test:e2e:response-document -- --grep "probe|artifact|state transition"
+```
+
+### Phase 13: Manual Screenshot Regression Intake
+
+Goal: Turn every manual screenshot failure into an executable regression before adding more scenario volume.
+
+Problem this phase targets:
+
+- Manual testing still finds UI states that automated tests did not encode.
+- Adding more scenario prompts is low value unless every discovered failure becomes a precise invariant.
+
+Files likely touched:
+
+- `docs/qa/manual_prompt_regression_bank.md`
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+- `tests/e2e/scenarios/manual_prompt_regressions.json`
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+- `factory-agent/tests/test_response_document_contract.py`
+
+Implementation steps:
+
+- Add a regression intake template with:
+  - screenshot symptom;
+  - user prompt;
+  - expected backend state;
+  - expected response document state;
+  - expected visible DOM;
+  - forbidden visible text;
+  - minimal backend fixture or real-flow reproducer;
+  - exact test layer to add first.
+- Add this `Chat 514 / non_terminal_snapshot / IDLE` failure as the first response-document UX manual regression.
+- Require a failing test before a product fix whenever the failure can be reproduced or seeded.
+- Track whether the test is backend contract, frontend reducer/component, mocked Playwright, seeded Playwright, or real LangGraph.
+
+Acceptance criteria:
+
+- Manual screenshot issues cannot remain as chat-only knowledge.
+- Each accepted screenshot bug has a regression id and an executable test.
+- Scenario volume increases only after root-cause invariants are covered.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py -q
+
+Set-Location "..\eMas Front"
+npm run test:e2e:response-document -- --grep "manual regression|non_terminal"
+```
+
 ## Stop Conditions
 
 Stop and fix before continuing when:
@@ -820,6 +1014,9 @@ Stop and fix before continuing when:
 - SSE and polling disagree and the frontend chooses by transport instead of revision.
 - Invalid `response_document` silently falls back to old `presentation`.
 - Old turn/document updates change the active turn's primary UI.
+- A normal sent prompt lands in `IDLE` with no terminal result, no pending approval, and `non_terminal_snapshot`.
+- Active session header/status, sidebar status, backend snapshot status, and response-document state disagree after a refresh window.
+- Browser E2E has no compact semantic probe explaining a failed chatbot transition.
 - Broken flow renders blank chat, raw JSON, endless spinner, or vague generic failure copy.
 - Failure response hides already-applied changes or implies no work happened when partial progress exists.
 - Failure card offers retry/action that is unsafe for the current operation state.
