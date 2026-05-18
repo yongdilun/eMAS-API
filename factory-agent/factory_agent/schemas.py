@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
@@ -354,6 +354,151 @@ PresentationState = Literal[
     "cancelled",
 ]
 
+ResponseDocumentState = Literal[
+    "running",
+    "waiting_approval",
+    "waiting_confirmation",
+    "completed",
+    "failed",
+    "blocked",
+    "rejected",
+    "expired",
+    "cancelled",
+]
+RunStepKind = Literal[
+    "analysis",
+    "read",
+    "approval",
+    "mutation",
+    "knowledge",
+    "diagnostic",
+    "cancelled",
+    "completed",
+]
+RunStepState = Literal[
+    "pending",
+    "current",
+    "waiting",
+    "completed",
+    "failed",
+    "rejected",
+    "expired",
+    "cancelled",
+]
+
+
+class RunStep(BaseModel):
+    step_id: str = Field(min_length=1)
+    kind: RunStepKind
+    state: RunStepState
+    title: str = Field(min_length=1)
+    summary: str | None = None
+    approval_id: str | None = None
+    operation_id: str | None = None
+    record_count: int | None = Field(default=None, ge=0)
+    current: bool = False
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+
+class ResponseBlockBase(BaseModel):
+    id: str = Field(min_length=1)
+
+
+class RunActivityBlock(ResponseBlockBase):
+    type: Literal["run_activity"] = "run_activity"
+    title: str = "Run activity"
+    step_ids: list[str] = Field(default_factory=list)
+
+
+class ShortMessageBlock(ResponseBlockBase):
+    type: Literal["short_message"] = "short_message"
+    message: str = Field(min_length=1)
+    status: ResponseDocumentState | None = None
+
+
+class ApprovalRequiredBlock(ResponseBlockBase):
+    type: Literal["approval_required"] = "approval_required"
+    approval_id: str = Field(min_length=1)
+    operation_id: str | None = None
+    title: str = "Approval required"
+    summary: str = Field(min_length=1)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    details_collapsed: bool = True
+
+
+class MutationResultBlock(ResponseBlockBase):
+    type: Literal["mutation_result"] = "mutation_result"
+    operation_id: str | None = None
+    approval_id: str | None = None
+    title: str = "Mutation result"
+    summary: str = Field(min_length=1)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    status: Literal["completed", "partial_failure", "failed"] = "completed"
+
+
+class ResultTableBlock(ResponseBlockBase):
+    type: Literal["result_table"] = "result_table"
+    title: str = "Affected records"
+    rows: list[dict[str, Any]] = Field(min_length=1)
+    operation_id: str | None = None
+    approval_id: str | None = None
+
+
+class KnowledgeAnswerBlock(ResponseBlockBase):
+    type: Literal["knowledge_answer"] = "knowledge_answer"
+    answer: str = Field(min_length=1)
+    operation_id: str | None = None
+
+
+class SourceListBlock(ResponseBlockBase):
+    type: Literal["source_list"] = "source_list"
+    sources: list[dict[str, Any]] = Field(min_length=1)
+    operation_id: str | None = None
+
+
+class DiagnosticBlock(ResponseBlockBase):
+    type: Literal["diagnostic"] = "diagnostic"
+    severity: Literal["info", "warning", "error"] = "error"
+    reason: str = Field(min_length=1)
+    title: str = "Needs attention"
+    user_message: str = Field(min_length=1)
+    impact: dict[str, Any] = Field(default_factory=dict)
+    next_actions: list[dict[str, Any]] = Field(default_factory=list)
+    technical_details: dict[str, Any] = Field(default_factory=dict)
+    details_collapsed: bool = True
+
+
+ResponseBlock = Annotated[
+    RunActivityBlock
+    | ShortMessageBlock
+    | ApprovalRequiredBlock
+    | MutationResultBlock
+    | ResultTableBlock
+    | KnowledgeAnswerBlock
+    | SourceListBlock
+    | DiagnosticBlock,
+    Field(discriminator="type"),
+]
+
+
+class ResponseDocument(BaseModel):
+    version: Literal[1] = 1
+    id: str = Field(min_length=1)
+    document_id: str = Field(min_length=1)
+    turn_id: str | None = None
+    operation_id: str | None = None
+    revision: int = Field(ge=0)
+    revision_source: str = Field(min_length=1)
+    state: ResponseDocumentState
+    status: ResponseDocumentState
+    summary: str | None = None
+    message: str | None = None
+    current_step_id: str | None = None
+    run_steps: list[RunStep] = Field(default_factory=list)
+    blocks: list[ResponseBlock] = Field(default_factory=list)
+    invariants: dict[str, Any] = Field(default_factory=dict)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+
 
 class PresentationResponse(BaseModel):
     kind: PresentationKind
@@ -426,6 +571,10 @@ class SessionSnapshotResponse(BaseModel):
     steps: list[PlanStepResponse] = Field(default_factory=list)
     pending_approval: ApprovalResponse | None = None
     timeline: list[TimelineEventResponse] = Field(default_factory=list)
+    snapshot_revision: int = Field(
+        default=0,
+        description="Monotonic session snapshot revision. Mirrors event_seq during the response-document migration.",
+    )
     cursor: int = Field(
         default=0,
         description="Monotonic event_seq cursor. Advances on every state-changing write. Used by the notification SSE stream to detect staleness.",
@@ -450,6 +599,10 @@ class SessionSnapshotResponse(BaseModel):
             diagnostics={"reason": "presentation_not_derived"},
         ),
         description="Authoritative typed presentation for the current snapshot/final response.",
+    )
+    response_document: ResponseDocument | None = Field(
+        default=None,
+        description="Additive typed response document. Frontend rendering continues to use presentation until migration phases enable this contract.",
     )
 
 

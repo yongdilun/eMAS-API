@@ -22,14 +22,25 @@ from factory_agent.planning.tool_output_alignment import summarize_tool_result
 from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import (
     ActivityStepResponse,
+    ApprovalRequiredBlock,
     ApprovalResponse,
+    DiagnosticBlock,
+    KnowledgeAnswerBlock,
+    MutationResultBlock,
     PlanResponse,
     PlanStepResponse,
     PresentationResponse,
+    ResponseBlock,
+    ResponseDocument,
+    ResultTableBlock,
     ResumeHintResponse,
+    RunActivityBlock,
+    RunStep,
+    ShortMessageBlock,
     SessionSnapshotResponse,
     TimelineEventResponse,
     ToolInfo,
+    SourceListBlock,
 )
 from factory_agent.session_state import (
     USER_CANCELLED_ACTIVITY_DETAIL,
@@ -1501,6 +1512,283 @@ def _attach_typed_presentations_to_events(
     return out
 
 
+def _response_document_turn_id(timeline: list[TimelineEventResponse], *, session_id: str) -> str:
+    for event in reversed(timeline):
+        if event.turn_id:
+            return event.turn_id
+    return f"session:{session_id}"
+
+
+def _response_document_revision(
+    *,
+    cursor: int,
+    session: Any,
+    timeline: list[TimelineEventResponse],
+) -> tuple[int, str]:
+    if cursor > 0:
+        return cursor, "event_seq"
+    updated_at = getattr(session, "updated_at", None)
+    if isinstance(updated_at, datetime):
+        return max(0, int(updated_at.timestamp() * 1000)), "session_updated_at"
+    if timeline:
+        latest = max(event.created_at for event in timeline)
+        return max(0, int(latest.timestamp() * 1000)), "timeline_timestamp"
+    return 0, "empty_snapshot"
+
+
+def _response_document_state(
+    *,
+    session: Any,
+    pending_approval: ApprovalResponse | None,
+    presentation: PresentationResponse,
+) -> str:
+    session_status = str(getattr(session, "status", "") or "").upper()
+    if pending_approval is not None:
+        return "waiting_approval"
+    if session_status == "WAITING_CONFIRMATION":
+        return "waiting_confirmation"
+    if presentation.state == "completed":
+        return "completed"
+    if presentation.state == "failed":
+        return "failed"
+    if presentation.state == "blocked":
+        return "blocked"
+    if presentation.state == "rejected":
+        return "rejected"
+    if presentation.state == "expired":
+        return "expired"
+    if presentation.state == "cancelled":
+        return "cancelled"
+    return "running"
+
+
+def _run_step_kind_for_activity(step: ActivityStepResponse) -> str:
+    group = str(step.group or "")
+    label = str(step.label or "").lower()
+    if group == "planning":
+        return "analysis"
+    if group == "approval":
+        return "approval"
+    if group == "response":
+        return "completed"
+    if group == "system":
+        return "cancelled" if "cancel" in label else "diagnostic"
+    if group == "research":
+        return "mutation" if "updating" in label or "updated" in label else "read"
+    return "analysis"
+
+
+def _run_step_state_for_activity(step: ActivityStepResponse) -> str:
+    state = str(step.state or "")
+    if state == "running":
+        return "current"
+    if state == "waiting":
+        return "waiting"
+    if state in {"success", "complete"}:
+        return "completed"
+    if state == "error":
+        return "failed"
+    return "pending"
+
+
+def _run_steps_from_activity(
+    *,
+    activity_steps: list[ActivityStepResponse],
+    operation_id: str | None,
+    pending_approval: ApprovalResponse | None,
+    presentation: PresentationResponse,
+) -> list[RunStep]:
+    rows = presentation.rows if isinstance(presentation.rows, list) else []
+    run_steps: list[RunStep] = []
+    for step in activity_steps:
+        step_state = _run_step_state_for_activity(step)
+        step_kind = _run_step_kind_for_activity(step)
+        approval_id = (
+            pending_approval.approval_id
+            if pending_approval is not None and step_kind == "approval" and step_state in {"waiting", "current"}
+            else None
+        )
+        run_steps.append(
+            RunStep(
+                step_id=step.id,
+                kind=step_kind,  # type: ignore[arg-type]
+                state=step_state,  # type: ignore[arg-type]
+                title=step.label,
+                summary=step.detail,
+                approval_id=approval_id,
+                operation_id=operation_id,
+                record_count=len(rows) if step_kind in {"approval", "mutation"} and rows else None,
+                current=step_state in {"current", "waiting"},
+            )
+        )
+    return run_steps
+
+
+def _current_response_step_id(run_steps: list[RunStep]) -> str | None:
+    current = next((step for step in reversed(run_steps) if step.current), None)
+    if current is not None:
+        return current.step_id
+    return run_steps[-1].step_id if run_steps else None
+
+
+def _response_block_anchor(*, document_id: str, operation_id: str | None, approval_id: str | None) -> str:
+    return approval_id or operation_id or document_id
+
+
+def _diagnostic_severity(state: str) -> str:
+    if state in {"failed", "blocked", "rejected", "expired", "cancelled"}:
+        return "error"
+    if state == "running":
+        return "info"
+    return "warning"
+
+
+def _response_blocks_from_presentation(
+    *,
+    document_id: str,
+    state: str,
+    run_steps: list[RunStep],
+    presentation: PresentationResponse,
+) -> list[ResponseBlock]:
+    operation_id = presentation.operation_id
+    approval_id = presentation.approval_id
+    anchor = _response_block_anchor(document_id=document_id, operation_id=operation_id, approval_id=approval_id)
+    summary = _trimmed(presentation.summary) or ""
+    rows = presentation.rows if isinstance(presentation.rows, list) else []
+    sources = presentation.sources if isinstance(presentation.sources, list) else []
+    diagnostics = presentation.diagnostics if isinstance(presentation.diagnostics, dict) else {}
+    reason = str(diagnostics.get("reason") or presentation.kind)
+
+    blocks: list[ResponseBlock] = []
+    if run_steps:
+        blocks.append(
+            RunActivityBlock(
+                id=f"activity:{document_id}",
+                step_ids=[step.step_id for step in run_steps],
+            )
+        )
+    if summary:
+        blocks.append(
+            ShortMessageBlock(
+                id=f"message:{anchor}:{state}",
+                message=summary,
+                status=state,  # type: ignore[arg-type]
+            )
+        )
+
+    if presentation.kind == "approval_required" and presentation.state == "pending" and approval_id:
+        blocks.append(
+            ApprovalRequiredBlock(
+                id=f"approval:{approval_id}",
+                approval_id=approval_id,
+                operation_id=operation_id,
+                summary=summary or "Approval is required before the operation can continue.",
+                rows=rows,
+            )
+        )
+
+    if presentation.kind in {"mutation_result", "partial_failure"}:
+        blocks.append(
+            MutationResultBlock(
+                id=f"mutation:{anchor}",
+                operation_id=operation_id,
+                approval_id=approval_id,
+                summary=summary or "Mutation completed.",
+                rows=rows,
+                status="partial_failure" if presentation.kind == "partial_failure" else "completed",
+            )
+        )
+
+    if presentation.kind == "knowledge_answer" and summary:
+        blocks.append(
+            KnowledgeAnswerBlock(
+                id=f"knowledge:{anchor}",
+                answer=summary,
+                operation_id=operation_id,
+            )
+        )
+
+    if rows:
+        blocks.append(
+            ResultTableBlock(
+                id=f"table:{anchor}:affected-records",
+                rows=rows,
+                operation_id=operation_id,
+                approval_id=approval_id,
+            )
+        )
+
+    if sources:
+        blocks.append(
+            SourceListBlock(
+                id=f"sources:{anchor}",
+                sources=sources,
+                operation_id=operation_id,
+            )
+        )
+
+    if presentation.kind in {"diagnostic", "cancelled", "rejected", "expired", "partial_failure"}:
+        blocks.append(
+            DiagnosticBlock(
+                id=f"diagnostic:{anchor}:{reason}",
+                severity=_diagnostic_severity(state),  # type: ignore[arg-type]
+                reason=reason,
+                user_message=summary or "The request needs attention before it can continue.",
+                technical_details=diagnostics,
+            )
+        )
+
+    return blocks
+
+
+def _build_response_document(
+    *,
+    session: Any,
+    plan: PlanResponse | None,
+    pending_approval: ApprovalResponse | None,
+    timeline: list[TimelineEventResponse],
+    activity_steps: list[ActivityStepResponse],
+    presentation: PresentationResponse,
+    cursor: int,
+) -> ResponseDocument:
+    session_id = str(getattr(session, "session_id", "") or "unknown-session")
+    turn_id = _response_document_turn_id(timeline, session_id=session_id)
+    operation_id = presentation.operation_id or (plan.plan_id if plan else None)
+    document_id = f"rd:{session_id}:{turn_id}"
+    revision, revision_source = _response_document_revision(cursor=cursor, session=session, timeline=timeline)
+    state = _response_document_state(session=session, pending_approval=pending_approval, presentation=presentation)
+    run_steps = _run_steps_from_activity(
+        activity_steps=activity_steps,
+        operation_id=operation_id,
+        pending_approval=pending_approval,
+        presentation=presentation,
+    )
+    blocks = _response_blocks_from_presentation(
+        document_id=document_id,
+        state=state,
+        run_steps=run_steps,
+        presentation=presentation,
+    )
+    summary = _trimmed(presentation.summary)
+    return ResponseDocument(
+        id=document_id,
+        document_id=document_id,
+        turn_id=turn_id,
+        operation_id=operation_id,
+        revision=revision,
+        revision_source=revision_source,
+        state=state,  # type: ignore[arg-type]
+        status=state,  # type: ignore[arg-type]
+        summary=summary,
+        message=summary,
+        current_step_id=_current_response_step_id(run_steps),
+        run_steps=run_steps,
+        blocks=blocks,
+        invariants=presentation.invariants,
+        diagnostics=presentation.diagnostics,
+    )
+
+
 class SessionSnapshotService:
     def __init__(
         self,
@@ -2457,6 +2745,16 @@ class SessionSnapshotService:
             presentation=_presentation,
         )
         _activity_steps = _activity_steps_for_snapshot(_snapshot_for_activity)
+        _cursor = int(getattr(sess, "event_seq", None) or 0)
+        _response_document = _build_response_document(
+            session=_session_response,
+            plan=_plan_response,
+            pending_approval=_pending_approval_response,
+            timeline=events,
+            activity_steps=_activity_steps,
+            presentation=_presentation,
+            cursor=_cursor,
+        )
 
         return SessionSnapshotResponse(
             session=_session_response,
@@ -2464,11 +2762,13 @@ class SessionSnapshotService:
             steps=_step_responses,
             pending_approval=_pending_approval_response,
             timeline=events,
-            cursor=int(getattr(sess, "event_seq", None) or 0),
+            snapshot_revision=_response_document.revision,
+            cursor=_cursor,
             phase=_effective_status,
             resume_hint=_resume_hint,
             activity_steps=_activity_steps,
             presentation=_presentation,
+            response_document=_response_document,
         )
 
     @staticmethod

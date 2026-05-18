@@ -8,7 +8,7 @@ Created: 2026-05-18
 | Phase | Name | Status | Owner | Notes |
 | --- | --- | --- | --- | --- |
 | 0 | Response gap audit and contract inventory | Completed | Codex | Current backend/frontend response paths, existing coverage, missing gates, blockers, and Phase 1 starting point documented below. |
-| 1 | Backend response document schema | Not Started | Next agent | Add additive `response_document.version=1`, `run_steps`, and typed blocks beside existing `presentation`. |
+| 1 | Backend response document schema | Done | Codex | Added additive backend `response_document.version=1`, `run_steps`, typed blocks, snapshot revision, and backend contract tests. |
 | 2 | Deterministic composer and run steps | Not Started | Next agent | Build backend-owned deterministic response composer with progressive disclosure rules. |
 | 3 | Failure recovery response documents | Not Started | Next agent | Add typed failure taxonomy, operator-friendly diagnostic cards, impact summaries, and context-aware next actions. |
 | 4 | Frontend response document renderer | Not Started | Next agent | Render block types directly; keep legacy presentation only as missing-document fallback. |
@@ -293,12 +293,59 @@ Start with `factory-agent/factory_agent/schemas.py` and `factory-agent/factory_a
 
 ## Phase 1 Checklist
 
-- [ ] Define backend `ResponseDocument` schema.
-- [ ] Define backend `RunStep` schema.
-- [ ] Define response block schema.
-- [ ] Add additive `response_document` to snapshot/final response payload.
-- [ ] Add agreement tests between `presentation` and `response_document`.
-- [ ] Keep frontend behavior unchanged.
+- [x] Define backend `ResponseDocument` schema.
+- [x] Define backend `RunStep` schema.
+- [x] Define response block schema.
+- [x] Add additive `response_document` to snapshot/final response payload.
+- [x] Add agreement tests between `presentation` and `response_document`.
+- [x] Keep frontend behavior unchanged.
+
+## Phase 1 Implementation Notes
+
+Date: 2026-05-18
+
+Phase 1 is complete. No product bug was found while implementing or verifying this phase.
+
+### Files Changed
+
+- `factory-agent/factory_agent/schemas.py`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/tests/test_response_document_contract.py`
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+
+### Decisions Made
+
+- Keep `PresentationResponse` unchanged and continue deriving it exactly as before.
+- Add `response_document` as an optional additive field on `SessionSnapshotResponse`; the snapshot service now populates it for loaded snapshots.
+- Add `snapshot_revision` as an additive field and mirror the generated response-document revision during migration.
+- Use `session.event_seq` as the preferred response-document revision source; fall back to session/timeline timestamps only when `event_seq` is unavailable.
+- Generate stable document ids from session and turn identity, and stable block ids from document, operation, approval, and source identity.
+- Keep the Phase 1 mapper intentionally minimal: it maps the current `presentation` and server activity rows into the new contract, but does not implement the final deterministic composer.
+- Include all later-phase block families in the schema now: run activity, short message, approval required, mutation result, affected-record table, knowledge answer, source list, and diagnostic.
+- Do not introduce LLM final response generation.
+- Do not change frontend rendering behavior.
+
+### Commands Run
+
+```powershell
+git status --short --branch
+python -m pytest tests/test_response_document_contract.py -q
+python -m pytest tests/test_typed_snapshot_presentation_contract.py tests/test_snapshot_timeline_final_response_contract.py tests/test_phase7_api_ui_alignment.py tests/test_response_document_contract.py -q
+```
+
+### Test Results
+
+- `python -m pytest tests/test_response_document_contract.py -q`: 4 passed.
+- `python -m pytest tests/test_typed_snapshot_presentation_contract.py tests/test_snapshot_timeline_final_response_contract.py tests/test_phase7_api_ui_alignment.py tests/test_response_document_contract.py -q`: 72 passed.
+
+### Remaining Phase 2 Work
+
+- Build the deterministic backend response-document composer in a dedicated service or clearly isolated module.
+- Derive richer `run_steps` from execution state, approvals, audit evidence, timeline, and current operation state instead of only mapping current activity rows.
+- Implement deterministic block ordering and lifecycle rules for completed-step preservation during later pending approvals.
+- Add compact preview versus table rules and multi-step aggregation.
+- Cover flagship RD-001 and RD-002 backend states, including approval 1 complete/approval 2 pending and final aggregate completion.
+- Add deeper diagnostic/rejection/expiry/cancel/RAG/source/long-table contract coverage.
 
 ## Phase 2 Checklist
 
