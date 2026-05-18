@@ -187,15 +187,24 @@ def _write_step(
     approval_id: str,
     outcomes: list[dict[str, Any]],
     status: str = "DONE",
+    tool_name: str = "put__jobs_{id}",
+    args: dict[str, Any] | None = None,
 ) -> PlanStep:
-    target_priority = str((outcomes[0] if outcomes else {}).get("priority") or (outcomes[0] if outcomes else {}).get("new_priority") or "high")
+    target_args = args
+    if target_args is None:
+        target_priority = str(
+            (outcomes[0] if outcomes else {}).get("priority")
+            or (outcomes[0] if outcomes else {}).get("new_priority")
+            or "high"
+        )
+        target_args = {"write_set": f"write-set-{approval_id}", "priority": target_priority}
     return PlanStep(
         step_id=step_id,
         plan_id=plan_id,
         session_id=session_id,
         step_index=step_index,
-        tool_name="put__jobs_{id}",
-        args={"write_set": f"write-set-{approval_id}", "priority": target_priority},
+        tool_name=tool_name,
+        args=target_args,
         bindings=[],
         status=status,
         idempotency_key=f"{step_id}-key",
@@ -1544,6 +1553,258 @@ async def test_safe_non_job_noop_contract_proof_completes_without_approval(db_se
     ).scalars().all()
     assert approvals == []
     assert write_steps == []
+
+
+@pytest.mark.asyncio
+async def test_phase24_product_status_read_result_uses_entity_status_contract(db_session):
+    created_at = datetime(2026, 5, 19, 9, 0, 0)
+    session_id = "rd-phase24-product-status"
+    plan_id = "rd-phase24-product-status-plan"
+    prompt = "Show status for product P-RD-024"
+    raw_assistant_markdown = (
+        "done_all\n\n"
+        "**Success**\n\n"
+        "Product **P-RD-024** is currently **ACTIVE**.\n\n"
+        "- **ProductID:** P-RD-024\n"
+        "- **ProductName:** Pump Assembly\n"
+        "- **InternalRouteID:** route-99"
+    )
+    product_payload = {
+        "productID": "P-RD-024",
+        "productName": "Pump Assembly",
+        "status": "ACTIVE",
+        "revision": "B",
+        "internalRouteID": "route-99",
+    }
+    db_session.add_all(
+        [
+            _session(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                event_seq=10,
+                status="COMPLETED",
+                current_intent=prompt,
+            ),
+            _user_message(session_id=session_id, created_at=created_at, content=prompt),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _read_step(
+                session_id=session_id,
+                plan_id=plan_id,
+                step_id="rd-phase24-product-status-read",
+                completed_at=created_at + timedelta(seconds=2),
+                rows=[],
+                summary=raw_assistant_markdown,
+                tool_name="get__products_{id}",
+                args={"id": "P-RD-024"},
+                result={"success": True, "data": product_payload},
+            ),
+            _assistant_message(
+                session_id=session_id,
+                content=raw_assistant_markdown,
+                step_id=plan_id,
+                created_at=created_at + timedelta(seconds=3),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    document = (await _snapshot(db_session, session_id))["response_document"]
+    status_block = next(block for block in document["blocks"] if block["type"] == "status_result")
+    serialized = json.dumps(document)
+
+    assert document["state"] == "completed"
+    assert document["message"] == "Product P-RD-024 is active."
+    assert document["invariants"]["read_result_shape"] == "status"
+    assert document["invariants"]["read_status_contract"] == ENTITY_STATUS_CONTRACT
+    assert document["invariants"]["read_status_entity_type"] == "product"
+    assert [block["type"] for block in document["blocks"]].count("status_result") == 1
+    assert not any(block["type"] in {"approval_required", "mutation_result", "result_table"} for block in document["blocks"])
+    assert any(step["kind"] == "read" and step["title"] == "Read product status" for step in document["run_steps"])
+
+    assert status_block["contract"] == ENTITY_STATUS_CONTRACT
+    assert status_block["title"] == "Product status"
+    assert status_block["entity_type"] == "product"
+    assert status_block["entity_id"] == "P-RD-024"
+    assert status_block["primary_status"] == "active"
+    assert status_block["fields"] == [
+        {"key": "product_id", "label": "Product ID", "value": "P-RD-024"},
+        {"key": "status", "label": "Status", "value": "active", "primary": True},
+    ]
+
+    for forbidden in ["done_all", "**Success**", "ProductID", "ProductName", "InternalRouteID", "route-99"]:
+        assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_phase24_material_partial_noop_plus_valid_group_uses_generic_contracts(db_session):
+    created_at = datetime(2026, 5, 19, 9, 20, 0)
+    session_id = "rd-phase24-material-partial-noop"
+    plan_id = "rd-phase24-material-partial-noop-plan"
+    approval_id = "approval-rd-phase24-material-valid"
+    no_op = _noop_contract(
+        entity_type="material",
+        selector_summary="material_id = MAT-RD-404",
+        change_summary="hold_status -> quality_hold",
+    )
+    staged_change = {
+        "contract": BUSINESS_CHANGE_CONTRACT,
+        "business_change_id": "bc-material-quality-hold",
+        "business_change": "Material hold status",
+        "entity_type": "material",
+        "change_type": "update",
+        "selector_summary": "material_id = MAT-RD-024",
+        "source_state_basis": "current_state",
+        "material_id": "MAT-RD-024",
+        "display_id": "Material MAT-RD-024",
+        "field_changes": [
+            {
+                "field": "hold_status",
+                "label": "Hold status",
+                "from": "available",
+                "to": "quality_hold",
+            }
+        ],
+        "status": "pending",
+    }
+    applied_change = {**staged_change, "status": "succeeded"}
+    approval_args = {
+        "summary": "Put one material on quality hold.",
+        "count": 1,
+        "no_op_mutations": [no_op],
+        "bundle_ui": {
+            "kind": "phase24_material_partial_noop",
+            "write_set": "material_quality_hold",
+            "headline": "Put 1 material on quality hold",
+            "rows": [staged_change],
+        },
+    }
+    db_session.add_all(
+        [
+            _session(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                event_seq=13,
+                status="WAITING_APPROVAL",
+                current_intent="Put material MAT-RD-024 and MAT-RD-404 on quality hold",
+            ),
+            _user_message(
+                session_id=session_id,
+                created_at=created_at,
+                content="Put material MAT-RD-024 and MAT-RD-404 on quality hold",
+            ),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _approval(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                approval_id=approval_id,
+                status="PENDING",
+                args=approval_args,
+                risk_summary="Put 1 material on quality hold",
+                created_offset_s=3,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    waiting = (await _snapshot(db_session, session_id))["response_document"]
+    approval_block = next(block for block in waiting["blocks"] if block["type"] == "approval_required")
+    noop_block = next(block for block in waiting["blocks"] if block["type"] == "completed_step")
+
+    assert waiting["state"] == "waiting_approval"
+    assert "Not changed" in waiting["message"]
+    assert "no matching materials for material_id = MAT-RD-404" in waiting["message"]
+    assert approval_block["approval_id"] == approval_id
+    assert [row["row_id"] for row in approval_block["rows"]] == ["MAT-RD-024"]
+    assert "MAT-RD-404" not in json.dumps(approval_block)
+    assert "no matching materials for material_id = MAT-RD-404" in noop_block["summary"]
+
+    approval = await db_session.get(Approval, approval_id)
+    assert approval is not None
+    approval.status = "APPROVED"
+    approval.decided_at = created_at + timedelta(seconds=4)
+    approval.decided_by = "operator"
+    session = await db_session.get(Session, session_id)
+    assert session is not None
+    session.status = "COMPLETED"
+    session.completed_at = created_at + timedelta(seconds=6)
+    session.updated_at = created_at + timedelta(seconds=6)
+    session.event_seq = 17
+    db_session.add(
+        _write_step(
+            session_id=session_id,
+            plan_id=plan_id,
+            step_id="rd-phase24-material-valid-write",
+            step_index=0,
+            completed_at=created_at + timedelta(seconds=5),
+            approval_id=approval_id,
+            outcomes=[applied_change],
+            tool_name="put__materials_{id}",
+            args={"write_set": "material_quality_hold", "id": "MAT-RD-024", "hold_status": "quality_hold"},
+        )
+    )
+    await db_session.commit()
+
+    final = (await _snapshot(db_session, session_id))["response_document"]
+    result_summary = next(block for block in final["blocks"] if block["type"] == "result_summary")
+    mutation = next(block for block in final["blocks"] if block["type"] == "mutation_result")
+    not_changed_group, changed_group = mutation["groups"]
+    changed_row = mutation["rows"][0]
+
+    assert final["state"] == "completed"
+    assert final["message"] == (
+        "Done. I updated 1 material across 1 approved business change. "
+        "1 business change not changed because no matching records were found."
+    )
+    assert final["invariants"]["mutation_business_contract"] == BUSINESS_CHANGE_CONTRACT
+    assert final["invariants"]["no_op_mutation_contract"] == NO_OP_MUTATION_CONTRACT
+    assert final["invariants"]["not_changed_group_count"] == 1
+    assert final["invariants"]["no_op_mutation_count"] == 1
+    assert final["invariants"]["affected_record_count"] == 1
+    assert final["invariants"]["approved_business_change_count"] == 1
+    assert not any(block["type"] == "approval_required" for block in final["blocks"])
+
+    assert result_summary["steps"][0]["contract"] == NO_OP_MUTATION_CONTRACT
+    assert result_summary["steps"][0]["entity_type"] == "material"
+    assert result_summary["steps"][0]["matched_count"] == 0
+    assert result_summary["steps"][0]["changed_count"] == 0
+    assert result_summary["steps"][0]["reason"] == "no_matching_records"
+    assert result_summary["steps"][1]["contract"] == BUSINESS_CHANGE_CONTRACT
+    assert result_summary["steps"][1]["entity_type"] == "material"
+    assert result_summary["steps"][1]["field_changes"] == staged_change["field_changes"]
+
+    assert mutation["contract"] == BUSINESS_CHANGE_CONTRACT
+    assert not_changed_group["contract"] == NO_OP_MUTATION_CONTRACT
+    assert not_changed_group["rows"] == []
+    assert not_changed_group["entity_type"] == "material"
+    assert not_changed_group["selector_summary"] == "material_id = MAT-RD-404"
+    assert not_changed_group["change_summary"] == "hold_status -> quality_hold"
+    assert not_changed_group["matched_count"] == 0
+    assert not_changed_group["changed_count"] == 0
+    assert changed_group["contract"] == BUSINESS_CHANGE_CONTRACT
+    assert changed_group["business_change_id"] == "bc-material-quality-hold"
+    assert changed_group["entity_type"] == "material"
+    assert changed_group["selector_summary"] == "material_id = MAT-RD-024"
+    assert changed_group["source_state_basis"] == "current_state"
+    assert changed_group["field_changes"] == staged_change["field_changes"]
+    assert changed_row["record_id"] == "MAT-RD-024"
+    assert changed_row["display_id"] == "Material MAT-RD-024"
+    assert changed_row["entity_type"] == "material"
+    assert changed_row["outcome"] == "succeeded"
+    assert changed_row["field_changes"] == staged_change["field_changes"]
+    assert "job_id" not in changed_row
+    assert "priority" not in json.dumps(final).lower()
+
+    write_steps = (
+        await db_session.execute(
+            select(PlanStep).where(PlanStep.session_id == session_id).where(PlanStep.requires_approval.is_(True))
+        )
+    ).scalars().all()
+    assert len(write_steps) == 1
+    assert write_steps[0].tool_name == "put__materials_{id}"
+    assert "MAT-RD-404" not in json.dumps([step.result for step in write_steps], default=str)
 
 
 @pytest.mark.asyncio
