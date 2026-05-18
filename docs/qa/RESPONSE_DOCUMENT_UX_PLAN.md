@@ -973,15 +973,18 @@ Implementation steps:
 - Add a regression intake template with:
   - screenshot symptom;
   - user prompt;
+  - observed bad state;
   - expected backend state;
-  - expected response document state;
+  - expected response document state, revision behavior, block types, and current step;
   - expected visible DOM;
   - forbidden visible text;
   - minimal backend fixture or real-flow reproducer;
-  - exact test layer to add first.
+  - exact test layer to add first;
+  - owner, status, and verification command.
 - Add this `Chat 514 / non_terminal_snapshot / IDLE` failure as the first response-document UX manual regression.
 - Require a failing test before a product fix whenever the failure can be reproduced or seeded.
 - Track whether the test is backend contract, frontend reducer/component, mocked Playwright, seeded Playwright, or real LangGraph.
+- Link existing semantic-probe and transition-oracle coverage from each screenshot regression entry when visible DOM can diverge from backend state.
 
 Acceptance criteria:
 
@@ -993,10 +996,12 @@ Verification command:
 
 ```powershell
 Set-Location "factory-agent"
-python -m pytest tests/test_response_document_contract.py -q
+python -m pytest tests/test_phase18_manual_prompt_bank.py -q
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
 
 Set-Location "..\eMas Front"
-npm run test:e2e:response-document -- --grep "manual regression|non_terminal"
+npm test
+npm run test:e2e:response-document -- --grep "manual regression|non_terminal|RD-001|Chat 514|state transition"
 ```
 
 ## Stop Conditions

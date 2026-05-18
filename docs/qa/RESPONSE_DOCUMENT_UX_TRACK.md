@@ -20,7 +20,7 @@ Created: 2026-05-18
 | 10 | Orphan turn and session state invariant gate | Done | Codex | Added backend orphan-turn invariant, typed `planner_no_action` / `orphan_turn_state` diagnostics, and mocked browser state-agreement coverage for the Chat 514 class. |
 | 11 | Real flow browser state-transition oracle | Done | Codex | Added reusable browser transition oracle, mocked RD-001/RD-002 coverage, and real LangGraph SO-041 proof; fixed stale revision/session and completed-approval copy bugs found by the oracle. |
 | 12 | Semantic snapshot probe and artifact quality | Done | Codex | Added compact semantic probe helper, oracle failure attachments, diagnosis classification, redaction/size tests, and a browser artifact proof. |
-| 13 | Manual screenshot regression intake | Not Started | Codex | Convert every manual screenshot bug into an executable backend/frontend/browser regression before adding more scenario volume. |
+| 13 | Manual screenshot regression intake | Done | Codex | Added strict screenshot intake template, structured Chat 514 regression entry, and a bank gate that rejects vague/manual-only screenshot issues. |
 
 ## Current Blockers
 
@@ -801,10 +801,53 @@ npm run test:e2e:response-document -- --grep "state transition|RD-001|RD-002"
 
 ## Phase 13 Checklist
 
-- [ ] Add manual screenshot regression intake template.
-- [ ] Register the Chat 514 orphan-state screenshot as a manual regression.
-- [ ] Require each accepted screenshot bug to identify the first executable test layer.
-- [ ] Add regression-bank/schema checks so screenshot-only bugs cannot stay undocumented.
+- [x] Add manual screenshot regression intake template.
+- [x] Register the Chat 514 orphan-state screenshot as a manual regression.
+- [x] Require each accepted screenshot bug to identify the first executable test layer.
+- [x] Add regression-bank/schema checks so screenshot-only bugs cannot stay undocumented.
+
+## Phase 13 Implementation Notes
+
+Date: 2026-05-18
+
+Phase 13 is complete. No new product bug was found in this phase; the Chat 514 product bug was already fixed in Phase 10 and is now captured as a completed screenshot intake example.
+
+### Intake Contract Added
+
+- Added a response-document screenshot intake template to `docs/qa/manual_prompt_regression_bank.md`.
+- Added a structured `manual_screenshot_regressions` bank section in `tests/e2e/scenarios/manual_prompt_regressions.json`.
+- Added a pytest gate that requires screenshot entries to include exact prompt, screenshot symptom, observed bad state, expected backend state, expected response-document state/revision/block types/current step, expected visible DOM, forbidden visible text, reproducer, first executable layer, owner/status, linked coverage, and verification command.
+- Added the future-agent screenshot workflow: reproduce, classify expected backend/frontend state, add a failing executable regression first, fix product bug, prove with semantic probe/oracle, and commit only after verification.
+
+### Chat 514 Coverage
+
+- `phase13-chat514-non-terminal-snapshot-idle` captures the manual `Chat 514 / non_terminal_snapshot / IDLE` screenshot as promoted regression evidence.
+- First executable layer: backend contract, using `factory-agent/tests/test_response_document_contract.py::test_orphan_idle_after_actionable_prompt_becomes_typed_blocked_diagnostic`.
+- Browser proof: RD-001 orphan/session-state gate in `eMas Front/e2e/specs/final-response-quality.spec.js`.
+- Linked browser state coverage: RD-001 and RD-002 transition-oracle tests plus the Phase 12 semantic-probe artifact proof.
+
+### Commands Run
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_phase18_manual_prompt_bank.py -q
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "manual regression|non_terminal|RD-001|Chat 514|state transition"
+
+Set-Location ".."
+git diff --check
+git status --short --branch
+```
+
+### Test Results
+
+- Manual prompt/screenshot bank gate: 6 passed.
+- Backend response-document contract/failure lane: 24 passed.
+- Frontend unit/component lane: 109 passed.
+- Focused response-document Playwright grep: 4 passed.
 
 ## Phase 10 Implementation Notes
 

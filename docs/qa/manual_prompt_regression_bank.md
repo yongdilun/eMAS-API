@@ -76,6 +76,76 @@ Closure rule: `tested manually only` is never an acceptable terminal state for a
 
 Review cadence: the QA regression bank owner reviews new entries and accepted gaps weekly until two consecutive release cycles complete without a new manual prompt/workflow miss.
 
+## Phase 13 Response-Document Screenshot Intake
+
+Manual screenshots are supporting evidence, not closure evidence. Every screenshot/UI miss must be converted into the smallest useful executable regression before the issue can close or before new scenario volume is added.
+
+Copy this template for response-document screenshot misses:
+
+```markdown
+## Manual Screenshot Regression Intake
+
+- Regression ID:
+- Status: open | in_progress | promoted_regression | accepted_gap
+- Date found:
+- Reporter:
+- Owner:
+- Severity: critical | high | medium | low
+- Screenshot symptom:
+- User prompt:
+- Observed bad state:
+- Expected backend session state:
+- Expected response_document state/revision/block types/current step:
+- Expected visible DOM:
+- Forbidden visible text:
+- Minimal backend fixture or real-flow reproducer:
+- First test layer to add: backend contract | reducer/component | mocked Playwright | seeded Playwright | real LangGraph
+- Existing linked coverage: RD/SO oracle, semantic probe, browser spec, backend test
+- Regression test file:
+- Failing regression command/evidence:
+- Passing verification command/evidence:
+
+## Screenshot Closure Gate
+
+- [ ] User prompt is exact, not paraphrased.
+- [ ] Observed bad state names visible UI plus backend/session or response_document evidence.
+- [ ] Expected backend state is concrete.
+- [ ] Expected response_document state, revision behavior, block types, and current step are concrete.
+- [ ] Expected visible DOM is concrete.
+- [ ] Forbidden visible text is listed whenever stale/internal/error copy is part of the symptom.
+- [ ] Minimal backend fixture or real-flow reproducer is named.
+- [ ] First executable test layer is selected before adding broader browser/scenario coverage.
+- [ ] Regression test file and command are linked.
+- [ ] Semantic probe or transition oracle covers browser-visible state divergence when relevant.
+```
+
+How future agents should handle screenshots:
+
+1. Reproduce the screenshot failure, or create the smallest backend/seeded fixture that represents it.
+2. Classify the expected backend session state and frontend response_document state before changing product code.
+3. Add the failing executable regression at the first useful layer.
+4. Fix any product bug found by that regression.
+5. Prove the browser-visible state with the semantic probe or transition oracle when DOM can diverge from backend state.
+6. Commit only after focused verification passes and the structured bank entry is complete.
+
+## Phase 13 Completed Screenshot Intake: Chat 514
+
+| Field | Value |
+|---|---|
+| Regression ID | `phase13-chat514-non-terminal-snapshot-idle` |
+| Status | `promoted_regression` |
+| Screenshot symptom | Chat 514 showed RD-001 with header `Ready`, sidebar `WAITING FOR APPROVAL`, assistant `Needs attention`, and technical details `Reason: non_terminal_snapshot` / `Session status: IDLE`. |
+| User prompt | `change all medium priority job to high then change all high priority job to low` |
+| Observed bad state | A normal actionable prompt produced `IDLE` + `non_terminal_snapshot` + generic user-facing needs-attention copy while another UI region implied waiting approval. |
+| Expected backend session state | `WAITING_APPROVAL`, `COMPLETED`, `BLOCKED`, or `FAILED`; never plain `IDLE` for this active actionable turn. |
+| Expected response_document | State is `waiting_approval`, `completed`, `blocked`, or `failed`; revision is monotonic; block types include `approval_required`, `result_summary`, or typed `diagnostic`; current step points at approval/result/diagnostic evidence, never `non_terminal_snapshot`. |
+| Expected visible DOM | Header/sidebar agree with backend status, and the latest turn shows approval, aggregate completion, or typed blocked/failed diagnostic evidence. |
+| Forbidden visible text | `non_terminal_snapshot`; `Session status: IDLE`; `The request needs attention before it can continue.`; generic `Needs attention` for this successful approval path. |
+| Minimal reproducer | `factory-agent/tests/test_response_document_contract.py::test_orphan_idle_after_actionable_prompt_becomes_typed_blocked_diagnostic` plus the RD-001 browser orphan/session-state gate. |
+| First test layer | Backend contract, then mocked Playwright because the screenshot showed visible state disagreement. |
+| Linked coverage | RD-001/RD-002 state-transition oracle in `eMas Front/e2e/specs/final-response-quality.spec.js`, semantic probe in `eMas Front/e2e/support/responseDocumentProbe.js`, transition oracle in `eMas Front/e2e/support/factoryAgentTransitionOracle.js`. |
+| Verification command | `python -m pytest tests/test_phase18_manual_prompt_bank.py -q`; `python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q`; `npm test`; `npm run test:e2e:response-document -- --grep "manual regression|non_terminal|RD-001|Chat 514|state transition"` |
+
 ## Phase 18 Seed
 
 | ID | Prompt | Expected deterministic behavior | Coverage |
@@ -201,6 +271,8 @@ Do not add a new browser test only because the prompt wording is slightly differ
 ## Required Bank Schema
 
 Every bank entry must include `source_prompt`, `observed_failure`, `expected_behavior`, `owner`, `severity`, `lowest_test_layer`, and `browser_coverage`. Compatibility fields `prompt`, `expected`, and `coverage` remain present so older Phase 18 gates and Playwright support helpers can read the same bank.
+
+Response-document screenshot entries live in `manual_screenshot_regressions` and are validated separately. Each entry must include `screenshot_symptom`, `user_prompt`, `observed_bad_state`, `expected_backend_session_state`, `expected_response_document`, `expected_visible_dom`, `forbidden_visible_text`, `reproducer`, `first_test_layer`, `linked_coverage`, `regression`, `owner`, `status`, and `verification_command`. Allowed first layers are `backend_contract`, `reducer_component`, `mocked_playwright`, `seeded_playwright`, and `real_langgraph`.
 
 Phase 8 adds promotion fields to every bank entry:
 

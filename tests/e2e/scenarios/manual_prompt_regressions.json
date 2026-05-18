@@ -17,7 +17,32 @@
       "regression"
     ],
     "severity_values": ["critical", "high", "medium", "low"],
-    "coverage_categories": ["parser", "route", "seeded-workflow", "mocked-browser", "seeded-browser", "real-langgraph-browser", "accepted-gap"]
+    "coverage_categories": ["parser", "route", "seeded-workflow", "mocked-browser", "seeded-browser", "real-langgraph-browser", "accepted-gap"],
+    "manual_screenshot_required_fields": [
+      "id",
+      "status",
+      "owner",
+      "severity",
+      "screenshot_symptom",
+      "user_prompt",
+      "observed_bad_state",
+      "expected_backend_session_state",
+      "expected_response_document",
+      "expected_visible_dom",
+      "forbidden_visible_text",
+      "reproducer",
+      "first_test_layer",
+      "linked_coverage",
+      "regression",
+      "verification_command"
+    ],
+    "manual_screenshot_first_test_layer_values": [
+      "backend_contract",
+      "reducer_component",
+      "mocked_playwright",
+      "seeded_playwright",
+      "real_langgraph"
+    ]
   },
   "promotion_workflow": {
     "required_intake_fields": [
@@ -58,6 +83,91 @@
     "closure_requirement": "Every new manual prompt or workflow miss must be mapped to parser, route, seeded-workflow, browser, or accepted-gap coverage before closure, with a failing regression before closure unless it is explicitly accepted as a gap.",
     "accepted_gap_required_fields": ["owner", "severity", "risk", "target_date_or_phase", "reason", "temporary_workaround", "blocking_status"]
   },
+  "manual_screenshot_workflow": {
+    "goal": "Manual screenshots are intake evidence only. Every screenshot/UI failure must be reproduced, classified by backend/frontend state, and closed through the smallest useful executable regression before scenario volume is increased.",
+    "future_agent_steps": [
+      "reproduce the screenshot failure or build the smallest seeded/backend fixture that represents it",
+      "classify expected backend session state and expected response_document state, revision, block types, and current step",
+      "add the failing executable regression at the first useful layer",
+      "fix any product bug before marking the phase or issue done",
+      "prove the fix with the semantic probe and transition oracle when browser state can diverge",
+      "commit only after verification commands pass and the structured bank entry is complete"
+    ],
+    "first_test_layer_order": [
+      "backend_contract",
+      "reducer_component",
+      "mocked_playwright",
+      "seeded_playwright",
+      "real_langgraph"
+    ],
+    "closure_rule": "A screenshot-only note is never a completed regression. Completed screenshot entries must include the prompt, observed bad state, expected backend state, expected response_document state, expected visible DOM, forbidden visible text, a reproducer or fixture, the first executable layer, owner/status, and verification command."
+  },
+  "manual_screenshot_regressions": [
+    {
+      "id": "phase13-chat514-non-terminal-snapshot-idle",
+      "status": "promoted_regression",
+      "owner": "qa",
+      "severity": "high",
+      "screenshot_symptom": "Manual Chat 514 screenshot shows the RD-001 prompt with header Ready, active sidebar WAITING FOR APPROVAL, assistant title Needs attention, message The request needs attention before it can continue, and technical details Reason: non_terminal_snapshot / Session status: IDLE.",
+      "user_prompt": "change all medium priority job to high then change all high priority job to low",
+      "observed_bad_state": {
+        "header_status": "Ready",
+        "active_sidebar_status": "WAITING FOR APPROVAL",
+        "visible_assistant_title": "Needs attention",
+        "visible_assistant_message": "The request needs attention before it can continue.",
+        "backend_session_status": "IDLE",
+        "response_document_reason": "non_terminal_snapshot"
+      },
+      "expected_backend_session_state": {
+        "allowed_statuses": ["WAITING_APPROVAL", "COMPLETED", "BLOCKED", "FAILED"],
+        "forbidden_statuses": ["IDLE"],
+        "pending_approval_rule": "WAITING_APPROVAL requires a pending_approval.approval_id; completed, blocked, or failed states must not expose active approval actions."
+      },
+      "expected_response_document": {
+        "allowed_states": ["waiting_approval", "completed", "blocked", "failed"],
+        "revision": "Monotonic event_seq-backed response_document.revision; the latest accepted revision wins across SSE and polling.",
+        "current_step": "Approval step while waiting, terminal result step when completed, or typed diagnostic step when blocked/failed; never non_terminal_snapshot for this actionable prompt.",
+        "required_block_types_any": ["approval_required", "result_summary", "diagnostic"],
+        "forbidden_reasons": ["non_terminal_snapshot"],
+        "forbidden_block_types_by_state": {
+          "completed": ["approval_required"]
+        }
+      },
+      "expected_visible_dom": {
+        "status_agreement": "Header and active sidebar status must match the backend session status mapping used by the response-document semantic probe.",
+        "required_visible_block_types_any": ["approval_required", "result_summary", "diagnostic"],
+        "required_text_any": ["Approval required", "Updated 21 jobs across 2 approved steps.", "Request could not start", "Run interrupted"]
+      },
+      "forbidden_visible_text": [
+        "non_terminal_snapshot",
+        "Session status: IDLE",
+        "The request needs attention before it can continue.",
+        "Needs attention The request needs attention before it can continue.",
+        "Header: Ready with sidebar WAITING FOR APPROVAL"
+      ],
+      "reproducer": {
+        "minimal_backend_fixture": "factory-agent/tests/test_response_document_contract.py::test_orphan_idle_after_actionable_prompt_becomes_typed_blocked_diagnostic",
+        "mocked_playwright_flow": "eMas Front/e2e/specs/final-response-quality.spec.js::RD-001 orphan/session state invariant forbids IDLE non_terminal_snapshot UI",
+        "real_flow_prompt": "RD-001 cascade prompt through the response-document transition oracle"
+      },
+      "first_test_layer": "backend_contract",
+      "linked_coverage": {
+        "RD-001_transition_oracle": "eMas Front/e2e/specs/final-response-quality.spec.js::RD-001 state transition oracle catches stale visible approval after backend advances",
+        "RD-002_transition_oracle": "eMas Front/e2e/specs/final-response-quality.spec.js::RD-002 state transition oracle covers reverse cascade without overfitting RD-001",
+        "semantic_probe": "eMas Front/e2e/specs/final-response-quality.spec.js::RD-001 response_document semantic probe artifact captures first state transition evidence",
+        "probe_support": "eMas Front/e2e/support/responseDocumentProbe.js",
+        "transition_oracle_support": "eMas Front/e2e/support/factoryAgentTransitionOracle.js"
+      },
+      "regression": {
+        "test_file": "factory-agent/tests/test_response_document_contract.py; factory-agent/tests/test_api_endpoints.py; eMas Front/e2e/specs/final-response-quality.spec.js",
+        "command": "Set-Location \"factory-agent\"; python -m pytest tests/test_response_document_contract.py::test_orphan_idle_after_actionable_prompt_becomes_typed_blocked_diagnostic tests/test_api_endpoints.py::test_actionable_prompt_with_empty_generated_plan_blocks_instead_of_orphan_idle -q; Set-Location \"..\\eMas Front\"; npm run test:e2e:response-document -- --grep \"manual regression|non_terminal|RD-001|Chat 514|state transition\"",
+        "failing_before_closure_required": true,
+        "failure_evidence": "Phase 10 backend snapshot regression failed before the fix with session.status == IDLE; manual screenshot evidence is recorded in docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md#post-gate-regression-chat-514-orphan-idle-diagnostic.",
+        "passing_evidence": "Phase 13 verification reruns the manual bank gate, backend response-document contract/failure lane, frontend unit lane, and focused response-document Playwright grep."
+      },
+      "verification_command": "Set-Location \"factory-agent\"; python -m pytest tests/test_phase18_manual_prompt_bank.py -q; python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q; Set-Location \"..\\eMas Front\"; npm test; npm run test:e2e:response-document -- --grep \"manual regression|non_terminal|RD-001|Chat 514|state transition\""
+    }
+  ],
   "prompts": [
     {
       "id": "phase18-loto-m-cnc-01",

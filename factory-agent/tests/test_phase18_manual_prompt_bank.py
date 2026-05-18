@@ -30,9 +30,47 @@ PHASE8_REQUIRED_CLOSURE_FIELDS = {
     "tracker_update",
 }
 
+PHASE13_SCREENSHOT_FIRST_TEST_LAYERS = {
+    "backend_contract",
+    "reducer_component",
+    "mocked_playwright",
+    "seeded_playwright",
+    "real_langgraph",
+}
+
+VAGUE_VALUES = {
+    "",
+    "unknown",
+    "tbd",
+    "todo",
+    "n/a",
+    "none",
+    "manual only",
+    "tested manually only",
+}
+
 
 def _load_bank():
     return json.loads(BANK_PATH.read_text(encoding="utf-8"))
+
+
+def _assert_concrete(value, label: str) -> None:
+    assert value is not None, f"{label} is missing"
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        assert normalized not in VAGUE_VALUES, f"{label} is vague: {value!r}"
+        assert "tested manually only" not in normalized, f"{label} is vague: {value!r}"
+        return
+    if isinstance(value, list):
+        assert value, f"{label} must not be empty"
+        for index, item in enumerate(value):
+            _assert_concrete(item, f"{label}[{index}]")
+        return
+    if isinstance(value, dict):
+        assert value, f"{label} must not be empty"
+        for key, item in value.items():
+            _assert_concrete(item, f"{label}.{key}")
+        return
 
 
 def test_phase18_manual_prompt_bank_has_seeded_loto_miss():
@@ -91,6 +129,71 @@ def test_phase8_bank_entries_map_manual_misses_to_oracles_and_regressions():
         assert regression.get("failing_before_closure_required") is True
         assert regression.get("failure_evidence")
         assert regression.get("passing_evidence")
+
+
+def test_phase13_manual_screenshot_entries_are_specific_and_executable():
+    bank = _load_bank()
+    required_fields = set(bank["schema"]["manual_screenshot_required_fields"])
+    allowed_layers = set(bank["schema"]["manual_screenshot_first_test_layer_values"])
+    entries = bank.get("manual_screenshot_regressions") or []
+
+    assert entries, "Phase 13 must keep manual screenshot regressions in the structured bank"
+    assert "phase13-chat514-non-terminal-snapshot-idle" in {entry.get("id") for entry in entries}
+    assert PHASE13_SCREENSHOT_FIRST_TEST_LAYERS <= allowed_layers
+
+    for entry in entries:
+        missing = required_fields - set(entry)
+        assert not missing, f"{entry.get('id')} missing manual screenshot fields: {sorted(missing)}"
+        assert entry["severity"] in {"critical", "high", "medium", "low"}
+        assert entry["first_test_layer"] in allowed_layers
+        assert entry["status"] in {"open", "in_progress", "promoted_regression", "accepted_gap"}
+
+        _assert_concrete(entry["screenshot_symptom"], f"{entry['id']}.screenshot_symptom")
+        _assert_concrete(entry["user_prompt"], f"{entry['id']}.user_prompt")
+        _assert_concrete(entry["observed_bad_state"], f"{entry['id']}.observed_bad_state")
+        _assert_concrete(entry["forbidden_visible_text"], f"{entry['id']}.forbidden_visible_text")
+
+        expected_backend = entry["expected_backend_session_state"]
+        assert expected_backend.get("allowed_statuses") or expected_backend.get("forbidden_statuses")
+        _assert_concrete(expected_backend, f"{entry['id']}.expected_backend_session_state")
+
+        expected_document = entry["expected_response_document"]
+        assert expected_document.get("allowed_states"), f"{entry['id']} must declare expected response_document states"
+        assert expected_document.get("revision"), f"{entry['id']} must declare expected response_document revision behavior"
+        assert expected_document.get("current_step"), f"{entry['id']} must declare expected current step behavior"
+        assert (
+            expected_document.get("required_block_types_any")
+            or expected_document.get("required_block_types_all")
+        ), f"{entry['id']} must declare expected response_document block types"
+        _assert_concrete(expected_document, f"{entry['id']}.expected_response_document")
+
+        expected_dom = entry["expected_visible_dom"]
+        assert (
+            expected_dom.get("required_visible_block_types_any")
+            or expected_dom.get("required_text_any")
+        ), f"{entry['id']} must declare expected visible DOM evidence"
+        _assert_concrete(expected_dom, f"{entry['id']}.expected_visible_dom")
+
+        repro = entry["reproducer"]
+        assert (
+            repro.get("minimal_backend_fixture")
+            or repro.get("mocked_playwright_flow")
+            or repro.get("real_flow_prompt")
+        ), f"{entry['id']} must map to a backend fixture or real-flow reproducer"
+        _assert_concrete(repro, f"{entry['id']}.reproducer")
+
+        regression = entry["regression"]
+        assert regression.get("test_file")
+        assert regression.get("command")
+        assert regression.get("failing_before_closure_required") is True
+        assert regression.get("failure_evidence")
+        assert regression.get("passing_evidence")
+
+        linked = entry["linked_coverage"]
+        assert linked.get("RD-001_transition_oracle")
+        assert linked.get("RD-002_transition_oracle")
+        assert linked.get("semantic_probe")
+        _assert_concrete(linked, f"{entry['id']}.linked_coverage")
 
 
 def test_phase18_bank_parser_gate_matches_expected_entities_and_clarification():
