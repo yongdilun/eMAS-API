@@ -23,11 +23,15 @@ Created: 2026-05-18
 | 13 | Manual screenshot regression intake | Done | Codex | Added strict screenshot intake template, structured Chat 514 regression entry, and a bank gate that rejects vague/manual-only screenshot issues. |
 | 14 | Final response business contract | Done | Codex | Backend `response_document` now emits clean business-level completed mutation results: grouped changes, deduped affected records, compact preview contract, and no raw assistant/internal-id noise in final mutation blocks. |
 | 15 | Final response visual quality oracle | Done | Codex | Added browser semantic oracle coverage for RD-001 final visual quality, compact grouped rendering, expandable clean audit, forbidden-text detection, and duplicate affected-record evidence. |
+| 16 | Approval copy and pending guidance cleanup | Not Started | Codex | Remove always-visible pending-approval helper copy from normal approval cards; keep guidance conditional to actual follow-up conflict paths. |
+| 17 | No-op mutation result contract | Not Started | Codex | Make no-data mutation steps explicit as `Not changed`, avoid approvals for no-op groups, and prove no mutation is attempted. |
 
 ## Current Blockers
 
 - Chat 514 style orphan state is fixed and covered by Phase 10 backend plus mocked browser regressions. Normal prompts must not settle as `IDLE/non_terminal_snapshot` with generic `Needs attention`.
 - RD-001 noisy final mutation output is fixed in Phase 14/15 at the backend response-document contract and browser visual oracle: final completed mutation blocks summarize 21 jobs across 2 approved business changes and omit raw assistant/internal-id noise.
+- Normal approval cards still show the always-visible helper sentence `Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.` Phase 16 removes it from normal approval display.
+- No-data mutation steps still need an explicit no-op contract. Phase 17 will require visible `Not changed` groups and prove no edit attempt occurs for no-op groups.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -82,6 +86,12 @@ Created: 2026-05-18
 - Raw assistant final markdown is not display truth for mutation results.
 - Internal ids such as `operation_id`, `step_id`, and `row_id` do not appear in normal rendered chat.
 - Final mutation aggregates are based on business write sets, not individual backend operations, execution steps, tool calls, or audit rows.
+- Normal approval cards should not show pending follow-up guidance by default.
+- Pending follow-up guidance appears only when a user sends or attempts a conflicting follow-up while approval is pending, or in collapsed help/details if explicitly designed.
+- No matching records in a requested mutation step is an explicit no-op, not a silent skip.
+- No-op mutation groups use `Not changed` wording.
+- Approval cards include only actual proposed mutations, not no-op groups.
+- All-no-op mutation requests complete as `No changes were made`, with no approval card and no mutation audit rows.
 
 ## Flagship Inputs
 
@@ -91,6 +101,9 @@ Created: 2026-05-18
 | RD-002 | `change all high priority job to low then change all low priority job to medium` | Reverse cascade. Proves original-state semantics and prevents overfitting RD-001. |
 | RD-003 | `change all medium priority job to high then change all high priority job to low` | Post-gate orphan-state regression. Proves the flow cannot show `IDLE/non_terminal_snapshot` or generic `Needs attention` after send/approval. |
 | RD-004 | `change all medium priority job to high then change all high priority job to low` | Final-response business-quality regression. Proves final result is 21 jobs across 2 approved business changes, not raw assistant markdown or backend step noise. |
+| RD-005 | `change all medium priority job to high then change all high priority job to low` | Approval-copy regression. Proves normal approval cards do not show the always-visible pending follow-up helper sentence. |
+| RD-006 | `change all medium priority job to high then change all high priority job to low` with no medium-priority jobs present | Partial no-op regression. Proves no medium-priority matches are shown as `Not changed`, no approval is requested for that group, and valid high-priority edits can still proceed. |
+| RD-007 | Mutation prompt where every requested edit has zero matching records | All-no-op regression. Proves `No changes were made`, no approval card appears, and no mutation audit rows are created. |
 
 ## Additional Required Scenario Groups
 
@@ -108,6 +121,9 @@ Created: 2026-05-18
 | Validation loop | Repeated planner/decision-guard repair exhaustion | Failure card explains the run stopped before unsafe execution and gives next action. |
 | Tool failure | Tool timeout, schema error, or HTTP 500 | Failure card states whether data changed, whether retry is safe, and what to check next. |
 | Partial-progress failure | Approval 1 completed, later step breaks | Completed work and incomplete work are both visible in one diagnostic response. |
+| Pending approval guidance | RD-001 approval 1 or approval 2 | Normal approval card omits generic follow-up guidance; conditional guidance appears only after follow-up conflict if implemented. |
+| Partial no-op mutation | No records for one requested edit group, valid records for another group | No-op group appears as `Not changed`; approval contains only valid proposed mutation; final response includes both changed and not changed. |
+| All no-op mutation | No records for every requested edit group | Completes as `No changes were made`; no approval card; no mutation audit rows. |
 
 ## Phase 0 Checklist
 
@@ -1005,6 +1021,98 @@ Set-Location "..\factory-agent"
 python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
 ```
 
+## Phase 16 Checklist
+
+- [ ] Remove the always-visible pending follow-up helper sentence from normal approval rendering.
+- [ ] Update component tests that currently expect the helper sentence in normal approval cards.
+- [ ] Add component/browser assertions that normal approval cards do not show the helper sentence.
+- [ ] Preserve or document conditional guidance for actual follow-up conflict paths.
+- [ ] Update manual regression bank and tracker with the approval-copy regression.
+- [ ] Run frontend unit/component and focused response-document browser checks.
+- [ ] Commit Phase 16.
+
+## Phase 16 Implementation Notes
+
+Status: Not Started
+
+### Known Bad Copy
+
+Normal approval cards currently show:
+
+```text
+Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.
+```
+
+This copy distracts from the decision. It should not appear in normal approval cards for RD-001 approval 1 or approval 2.
+
+### Required Good Behavior
+
+- Approval card shows what will change, affected-record preview/details, and approve/reject actions.
+- Pending follow-up guidance is hidden by default.
+- If follow-up conflict UX exists, guidance appears only after the user sends or attempts a conflicting follow-up while an approval is pending.
+
+### Phase 16 Verification Target
+
+```powershell
+Set-Location "eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "approval copy|RD-001|Waiting for approval|pending guidance"
+```
+
+## Phase 17 Checklist
+
+- [ ] Add backend contract for partial no-op plus valid mutation.
+- [ ] Add backend contract for all-no-op mutation.
+- [ ] Ensure no-op mutation groups are rendered as `Not changed`.
+- [ ] Ensure no approval is requested for no-op groups.
+- [ ] Ensure all-no-op mutation completes as `No changes were made`.
+- [ ] Ensure no mutation audit rows are created for no-op groups.
+- [ ] Add browser/semantic-probe proof for at least one no-op mutation flow.
+- [ ] Update manual regression bank and tracker.
+- [ ] Run backend and frontend verification.
+- [ ] Commit Phase 17.
+
+## Phase 17 Implementation Notes
+
+Status: Not Started
+
+### Required Partial No-Op Behavior
+
+When one requested edit group has no matching records but another edit group has valid records:
+
+- The no-op group appears before approval in run activity/message.
+- The approval card includes only records that will actually change.
+- The final response includes:
+  - `Changed` groups for applied mutations;
+  - `Not changed` groups for no matching records.
+- No mutation attempt or audit row exists for the no-op group.
+
+### Required All-No-Op Behavior
+
+When every requested edit group has zero matching records:
+
+```text
+No changes were made.
+
+Not changed
+- Medium -> High: no matching medium-priority jobs found, so no edit was attempted.
+- High -> Low: no matching high-priority jobs found, so no edit was attempted.
+```
+
+No approval card should appear, and no mutation audit rows should be created.
+
+### Phase 17 Verification Target
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+python -m pytest tests/test_api_endpoints.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "no-op|Not changed|No changes were made|no matching"
+```
+
 ## Phase 10 Implementation Notes
 
 Date: 2026-05-18
@@ -1159,7 +1267,7 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 
 ## Next Action
 
-Start Phase 14 by tightening the backend response-document business contract for completed mutation results. Reproduce RD-001 noisy final output as a backend contract failure where possible, then fix the composer so the final response is 21 jobs across 2 approved business changes with grouped, deduped, operator-friendly affected records.
+Start Phase 16 by removing the always-visible pending follow-up helper sentence from normal approval cards while keeping approval actions, affected-record context, and conditional follow-up guidance behavior intact.
 
 ## Post-Gate Regression: Approved Data But UI Still Shows Approval
 

@@ -214,6 +214,21 @@ Phase 15 does not add a new prompt scenario. It upgrades the existing RD-001 fin
 |---|---|---|---|
 | `phase15-rd001-final-visual-quality-oracle` | `change all medium priority job to high then change all high priority job to low` after both approvals complete. | The browser renders exactly one final result card. The visible summary says 21 jobs across 2 approved business changes, shows `Medium -> High: 10 jobs` and `Original High -> Low: 11 jobs`, previews at most 5 affected records, exposes a collapsed full clean audit grouped by business change, and forbids raw/internal/noisy output including `done_all`, `Updated 63 jobs across 22 approved steps`, `Operation ID`, `Step ID`, `Row ID`, raw assistant markdown as the primary result, duplicate noisy completed-step blocks, and duplicate affected rows in the same rendered section. | `eMas Front/e2e/specs/final-response-quality.spec.js`; `eMas Front/e2e/support/responseDocumentProbe.js`; `eMas Front/e2e/support/factoryAgentTransitionOracle.js`; `eMas Front/e2e/specs/real-langgraph-critical.spec.js`; `factory-agent/tests/test_response_document_contract.py` |
 
+## Response Document Phase 16 Approval Copy Regression
+
+This response-document phase is separate from the broader normal-use Phase 16 batch below. It targets approval-card UX copy only.
+
+| ID | Prompt / flow | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `response-document-phase16-approval-copy-cleanup` | RD-001 while approval 1 or approval 2 is pending. | Normal approval cards must not show `Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.` The card should focus on proposed changes, affected-record preview/details, and Approve/Reject actions. Follow-up guidance appears only after an actual follow-up/conflict path, if that path is implemented. | Planned: `FactoryAgentChatPanel.component.test.mjs`; `final-response-quality.spec.js`; `responseDocumentProbe.js` forbidden text assertion |
+
+## Response Document Phase 17 No-Op Mutation Regression
+
+| ID | Prompt / flow | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `response-document-phase17-partial-noop-mutation` | Mutation prompt where one requested edit group has no matching records and another requested edit group has valid records. | The no-match group appears as `Not changed` before approval and in the final response. The approval card includes only records that will actually change. No mutation or audit row is attempted for the no-op group. | Planned: backend response-document/API contract plus focused mocked browser semantic probe |
+| `response-document-phase17-all-noop-mutation` | Mutation prompt where every requested edit group has zero matching records. | The run completes as `No changes were made`, no approval card appears, no fake success is shown, and no mutation audit rows are created. | Planned: backend response-document/API contract plus focused mocked browser semantic probe |
+
 ## Phase 15 Release Enforcement Note
 
 Phase 15 assigns every fixed or newly found prompt/workflow miss to a blocking lane:

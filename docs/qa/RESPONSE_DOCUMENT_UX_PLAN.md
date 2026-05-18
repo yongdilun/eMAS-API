@@ -1128,6 +1128,113 @@ npm run test:e2e:response-document -- --grep "final response quality|RD-001|busi
 npm run test:e2e:real-langgraph -- --grep "RD-001|SO-041|final response quality|@critical"
 ```
 
+### Phase 16: Approval Copy And Pending Guidance Cleanup
+
+Goal: Remove always-visible pending-approval helper copy from the normal approval card while preserving useful guidance only when the user actually needs it.
+
+Problem this phase targets:
+
+- The approval view can show system-behavior copy that distracts from the approval decision:
+  `Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.`
+- Normal approval UI should focus on the proposed change, affected records, and approve/reject actions.
+- Guidance about follow-up messages is useful only when a user sends or attempts a conflicting follow-up while an approval is pending.
+
+Files likely touched:
+
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs`
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+- `eMas Front/e2e/support/responseDocumentProbe.js`
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+
+Implementation steps:
+
+- Remove the always-visible pending-approval helper copy from normal approval rendering.
+- Keep normal approval cards focused on:
+  - what will change;
+  - affected-record preview/details;
+  - approve/reject actions.
+- Add or update frontend component tests proving the helper copy is absent in the normal approval state.
+- Add or update browser/semantic-probe assertions forbidding the helper copy during RD-001 approval 1 and approval 2.
+- Preserve conditional guidance for cases where the user actually sends a follow-up or tries to start a conflicting new edit while approval is still pending.
+- If conditional guidance is already implemented, assert it remains available in that specific path; otherwise document it as the next targeted behavior before building broader follow-up conflict UX.
+
+Acceptance criteria:
+
+- Normal approval cards do not show the follow-up helper sentence.
+- Approval buttons and affected-record context remain visible and usable.
+- Browser tests fail if the helper sentence returns to normal approval display.
+- Any follow-up conflict guidance is conditional, not always visible.
+
+Verification command:
+
+```powershell
+Set-Location "eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "approval copy|RD-001|Waiting for approval|pending guidance"
+```
+
+### Phase 17: No-Op Mutation Result Contract
+
+Goal: Make no-data edit steps explicit, safe, and visible instead of silently skipping them.
+
+Problem this phase targets:
+
+- A mutation step that finds no matching records can be silently skipped.
+- Users need to know that no edit was attempted for a requested step when no data matches.
+- Approval should never be requested for a no-op group, but independent valid mutation groups may still proceed.
+
+Files likely touched:
+
+- `factory-agent/factory_agent/services/response_document_service.py`
+- `factory-agent/factory_agent/services/plan_creation_service.py`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/schemas.py`
+- `factory-agent/tests/test_response_document_contract.py`
+- `factory-agent/tests/test_api_endpoints.py`
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+- `eMas Front/e2e/support/responseDocumentProbe.js`
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+
+Implementation steps:
+
+- Add backend contract tests for partial no-op plus valid edit:
+  - no-op step appears before approval in run activity/message;
+  - approval card includes only actual proposed mutations;
+  - final response includes both `Changed` and `Not changed` groups;
+  - no mutation/audit rows are created for the no-op group.
+- Add backend contract tests for all-no-op mutation:
+  - terminal completed no-op response;
+  - no approval card;
+  - no mutation audit rows;
+  - response says `No changes were made`, not fake success.
+- Use `Not changed` wording for no-op mutation groups.
+- Treat `no matching records` as a valid business outcome, not a system failure, unless the specific requested record should exist and a domain rule says otherwise.
+- Continue independent valid mutation groups when safe; stop only dependent steps that require the no-op output.
+- Add browser/semantic-probe assertions for at least one no-op mutation flow.
+
+Acceptance criteria:
+
+- No matching records never disappears silently.
+- No approval is requested for a no-op group.
+- Partial no-op plus valid edit shows the no-op before approval and in the final response.
+- All-no-op edit completes with `No changes were made`.
+- Tests prove no data mutation was attempted for no-op groups.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+python -m pytest tests/test_api_endpoints.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "no-op|Not changed|No changes were made|no matching"
+```
+
 ## Stop Conditions
 
 Stop and fix before continuing when:
@@ -1155,6 +1262,10 @@ Stop and fix before continuing when:
 - Final mutation response shows internal ids such as `Operation ID`, `Step ID`, or `Row ID`.
 - Final mutation response duplicates affected rows or counts backend operations as business changes.
 - RD-001 final result does not summarize 21 jobs across 2 approved business changes.
+- Normal approval card shows always-visible pending guidance about follow-up messages.
+- A mutation step with no matching records is silently skipped.
+- Approval is requested for a no-op mutation group.
+- Final response omits a `Not changed` group for a requested no-op mutation.
 
 ## Out Of Scope For This Plan
 
