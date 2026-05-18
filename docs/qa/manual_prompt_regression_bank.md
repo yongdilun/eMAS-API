@@ -302,7 +302,14 @@ Phase 25 prevents product code and tests from drifting back to exact fixture ids
 
 | Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
 |---|---|---|---|
-| `response-document-phase25-hardcode-guardrails` | Static/contract guardrails for product code, composer logic, and frontend probes. | Fails when product code branches on `M-CNC-01`, `JOB-SEED`, exact prompt text, or entity labels outside fixtures; fails when typed business fields exist but composer uses summary prose; fails when generic frontend probes check only machine/job text. | Backend guardrail tests plus frontend support/helper tests. |
+| `response-document-phase25-hardcode-guardrails` | Static/contract guardrails for product code, composer logic, and frontend probes. | Fails when product code branches on `M-CNC-01`, `JOB-SEED`, exact prompt text, or entity labels outside fixtures; fails when typed business fields exist but composer uses summary prose; fails when generic frontend probes check only machine/job text. | Covered: `factory-agent/tests/test_hardcode_guardrails.py`; `factory-agent/tests/test_response_document_contract.py::test_business_change_v1_uses_typed_mutation_fields_without_summary_prose`; `eMas Front/e2e/support/responseDocumentProbe.test.mjs`. |
+
+Phase 25 closure evidence:
+
+- Product branch-condition guardrails distinguish product code from deterministic fixtures and seeded scenario data.
+- The composer guard fails if typed `business_change_v1` rows invoke summary-prose business ordering.
+- Frontend probe guardrails reject text-only final business-group expectations and require contract, entity type, and typed field-change evidence.
+- Fixture constants remain allowed only in deterministic fixtures, seeded adapters/scenarios, manual banks, explicit tests, and QA docs with tracker-owned reasons.
 
 ## Response Document Phase 26 Real Flow Release Proof
 

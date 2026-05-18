@@ -32,8 +32,8 @@ Created: 2026-05-18
 | 22 | Generic entity status and mutation business contract | Done | Codex | Added additive backend `entity_status_v1` and `business_change_v1` contract fields, typed business-change payload support, one safe synthetic non-job no-op proof, and a guard that machine status is only one entity-status example. |
 | 23 | Migrate existing machine/job outputs onto generic contracts | Done | Codex | Existing machine status now renders through `entity_status_v1`; RD-001/RD-002 job priority cascade final groups now emit `business_change_v1`; RD-006/RD-007 no-op output remains on the generic no-match/no-op contract with frontend contract evidence. |
 | 24 | Entity diversity coverage | Done | Codex | Added product status and material partial no-op plus valid-group backend contract fixtures proving `entity_status_v1`, `business_change_v1`, and `entity_agnostic_no_matching_records_v1` beyond jobs and machines. |
-| 25 | Hardcode regression guardrails | Ready To Start | Codex | Add guardrails against product-code branches on fixture ids, exact prompts, entity labels, summary-prose business inference, and weak machine/job-only probes. |
-| 26 | Real flow release proof | Not Started | Codex | Run the post-refactor real/seeded release proof for RD-001, machine status, LOTO RAG, no-op mutation, non-job generic proof if available, and final visual quality. |
+| 25 | Hardcode regression guardrails | Done | Codex | Added product branch-condition static guards, typed composer summary-prose guardrail, and frontend probe contract-evidence guardrails. |
+| 26 | Real flow release proof | Not Started | Codex | Ready after Phase 25; run the post-refactor real/seeded release proof for RD-001, machine status, LOTO RAG, no-op mutation, non-job generic proof if available, and final visual quality. |
 
 ## Current Blockers
 
@@ -1920,19 +1920,60 @@ git diff --check
 
 ## Phase 25 Checklist
 
-- [ ] Start only after Phase 24 is complete.
-- [ ] Add guardrails that fail when product code branches on `M-CNC-01`, `JOB-SEED`, exact prompt text, or specific entity labels outside fixtures/explicit exceptions.
-- [ ] Add composer guardrails that fail when business facts are derived from summary prose while typed fields are available.
-- [ ] Add frontend/probe guardrails that fail when generic checks only inspect machine/job text instead of contract type, block type, entity type, and typed field evidence.
-- [ ] Allow exact ids and labels only inside deterministic fixtures, manual banks, seeded scenario definitions, and explicitly named compatibility tests.
-- [ ] Document any accepted exception with owner, reason, and expiry/revisit condition.
-- [ ] Update tracker and manual regression bank.
-- [ ] Run backend and frontend guardrail verification.
-- [ ] Commit Phase 25.
+- [x] Start only after Phase 24 is complete.
+- [x] Add guardrails that fail when product code branches on `M-CNC-01`, `JOB-SEED`, exact prompt text, or specific entity labels outside fixtures/explicit exceptions.
+- [x] Add composer guardrails that fail when business facts are derived from summary prose while typed fields are available.
+- [x] Add frontend/probe guardrails that fail when generic checks only inspect machine/job text instead of contract type, block type, entity type, and typed field evidence.
+- [x] Allow exact ids and labels only inside deterministic fixtures, manual banks, seeded scenario definitions, and explicitly named compatibility tests.
+- [x] Document any accepted exception with owner, reason, and expiry/revisit condition.
+- [x] Update tracker and manual regression bank.
+- [x] Run backend and frontend guardrail verification.
+- [x] Commit Phase 25.
 
 ## Phase 25 Implementation Notes
 
-Status: Ready To Start
+Status: Done
+
+Date: 2026-05-19
+
+Phase 25 added executable guardrails instead of new broad product behavior:
+
+- `factory-agent/tests/test_hardcode_guardrails.py` now scans product branch conditions across backend runtime Python and frontend `src` files. It fails if behavior branches on `M-CNC-01`, `JOB-SEED`, exact RD prompt text, or canonical response-document labels such as `Medium -> High`, `Original High -> Low`, or the old noisy aggregate string.
+- `factory-agent/tests/test_response_document_contract.py::test_business_change_v1_uses_typed_mutation_fields_without_summary_prose` now monkeypatches the summary-prose order parser to fail if typed `business_change_v1` composition tries to use assistant summary text.
+- `factory-agent/factory_agent/services/response_document_service.py` now keeps summary-text business ordering only for older untyped mutation rows. Typed business-change rows use typed ids, field changes, selector summaries, and source-state basis.
+- `eMas Front/e2e/support/responseDocumentProbe.js` now rejects text-only final business-group expectations and requires `business_change_v1` checks to include contract, entity type, and typed field-change evidence.
+- `eMas Front/e2e/support/responseDocumentProbe.test.mjs` covers the new probe failures for text-only and missing-field-evidence expectations.
+
+### Accepted Fixture Exceptions
+
+| Scope | Owner | Reason | Expiry / revisit condition |
+| --- | --- | --- | --- |
+| `factory-agent/factory_agent/testing_seeded_scenarios.py` | QA / seeded scenario owner | Deterministic scenario catalog owns canonical prompts and fixture ids. | Revisit if a fixture literal is copied into product branch logic or if Phase 26 real proof replaces a fixture path. |
+| `factory-agent/factory_agent/testing_seeded_adapters.py` | QA / seeded adapter owner | Seeded adapters may carry deterministic ids and prompt text to drive browser and API fixtures. | Revisit if adapters become real-production routing/composition behavior. |
+| `factory-agent/tests`, `eMas Front/e2e`, `tests/e2e/scenarios`, `docs/qa` | QA / test owners | Tests, manual banks, seeded scenario data, and QA docs may preserve canonical ids and labels as oracle evidence. | Revisit when an entry is promoted from fixture/test data into product behavior, or when a compatibility test no longer names its fixture purpose. |
+
+No product-code exception was added for branching on fixture ids, exact prompts, or canonical response-document labels.
+
+### Commands Run
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py::test_business_change_v1_uses_typed_mutation_fields_without_summary_prose -q
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+python -m pytest tests/test_hardcode_guardrails.py -q
+
+Set-Location "..\eMas Front"
+npm test
+node --test --test-concurrency=1 e2e/support/responseDocumentProbe.test.mjs
+```
+
+### Test Results
+
+- Backend typed composer guardrail: 1 passed.
+- Backend response-document contract/failure lane: 34 passed.
+- Backend hardcode guardrail lane: 8 passed.
+- Frontend unit/component/support lane: 116 passed.
+- Focused frontend probe guard lane: 10 passed.
 
 Phase 25 prevents future one-off prompt/entity fixes from undoing the generic contract work. Guardrails should separate fixture constants from production logic and should be tight enough to fail before a regression reaches browser-only manual review.
 
@@ -1951,7 +1992,7 @@ Phase 25 prevents future one-off prompt/entity fixes from undoing the generic co
 
 ## Phase 26 Implementation Notes
 
-Status: Blocked Until Phase 25
+Status: Ready To Start
 
 Phase 26 is the release-confidence pass after backend metadata readiness, contract creation, existing-flow migration, entity diversity coverage, and hardcode guardrails are complete. It should prove backend state, response document, and visible UI agree in real or seeded flows.
 

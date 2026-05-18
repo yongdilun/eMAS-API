@@ -14,6 +14,7 @@ from factory_agent.orchestration.session_manager import SessionManager
 from factory_agent.persistence.models import Approval, Message, Plan, PlanStep, Session
 from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import ResponseDocument
+from factory_agent.services import response_document_service
 from factory_agent.services.response_document_service import (
     BUSINESS_CHANGE_CONTRACT,
     ENTITY_STATUS_CONTRACT,
@@ -1140,7 +1141,7 @@ async def test_final_completed_mutation_document_aggregates_all_approved_changes
 
 
 @pytest.mark.asyncio
-async def test_business_change_v1_uses_typed_mutation_fields_without_summary_prose(db_session):
+async def test_business_change_v1_uses_typed_mutation_fields_without_summary_prose(db_session, monkeypatch):
     created_at = datetime(2026, 5, 18, 13, 10, 0)
     session_id = "rd-business-change-v1"
     plan_id = "rd-business-change-v1-plan"
@@ -1165,6 +1166,16 @@ async def test_business_change_v1_uses_typed_mutation_fields_without_summary_pro
         ],
         "status": "succeeded",
     }
+
+    def fail_on_summary_prose_ordering(text: str) -> dict[str, int]:
+        raise AssertionError(f"typed business_change_v1 composition parsed summary prose: {text!r}")
+
+    monkeypatch.setattr(
+        response_document_service,
+        "_business_change_order_from_text",
+        fail_on_summary_prose_ordering,
+    )
+
     db_session.add_all(
         [
             _session(

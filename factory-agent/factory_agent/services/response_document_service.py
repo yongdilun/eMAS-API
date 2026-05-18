@@ -1537,7 +1537,14 @@ def _mutation_groups(
     approval_positions = _approval_position_by_id(approvals)
     sorted_groups = sorted(groups.values(), key=lambda group: _group_sort_key(group, approval_positions))
     business_groups = _merge_mutation_groups_by_business_change(sorted_groups)
-    business_order = _business_change_order_from_text(presentation.summary)
+    # Typed business-change groups carry their own ids, field changes, selector, and
+    # source-state basis. Summary text ordering is only a legacy compatibility path
+    # for older untyped mutation rows.
+    business_order = (
+        {}
+        if any(_group_has_business_change_contract(group) for group in business_groups)
+        else _business_change_order_from_text(presentation.summary)
+    )
     return sorted(business_groups, key=lambda group: _business_group_sort_key(group, approval_positions, business_order))
 
 

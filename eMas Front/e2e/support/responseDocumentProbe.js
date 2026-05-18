@@ -450,12 +450,39 @@ function expectedGroupMatches(actualGroup, expectedGroup) {
   return true
 }
 
+function typedBusinessGroupEvidenceViolations(rules = {}) {
+  if (rules.requireTypedContractEvidence === false) return []
+  const violations = []
+  for (const expectedGroup of asArray(rules.businessGroups)) {
+    const label = expectedGroup?.label || expectedGroup?.businessChange || '<business group>'
+    const contract = expectedGroup?.contract || null
+    const entityType = expectedGroup?.entityType || expectedGroup?.entity_type || null
+    const hasFieldChangeEvidence = (
+      Object.hasOwn(expectedGroup || {}, 'fieldChangeCountMin') ||
+      Object.hasOwn(expectedGroup || {}, 'fieldChangeCount') ||
+      Object.hasOwn(expectedGroup || {}, 'field_change_count')
+    )
+    if (!contract) {
+      violations.push(`text-only business group expectation ${label} must include typed contract evidence`)
+      continue
+    }
+    if (!entityType) {
+      violations.push(`business group expectation ${label} must include entity type contract evidence`)
+    }
+    if (contract === 'business_change_v1' && !hasFieldChangeEvidence) {
+      violations.push(`business_change_v1 expectation ${label} must include typed field-change evidence`)
+    }
+  }
+  return violations
+}
+
 export function finalResponseQualityViolations(quality = {}, expected = {}) {
   const violations = []
   const rules = expected.finalResponseQuality || (
     Object.hasOwn(expected, 'finalResultCardCount') ? expected : null
   )
   if (!rules || Object.keys(rules).length === 0) return violations
+  violations.push(...typedBusinessGroupEvidenceViolations(rules))
 
   if (Object.hasOwn(rules, 'finalResultCardCount') && quality.finalResultCardCount !== rules.finalResultCardCount) {
     violations.push(`final result card count expected ${rules.finalResultCardCount} but saw ${quality.finalResultCardCount}`)

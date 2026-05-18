@@ -268,6 +268,55 @@ test('semantic probe summarizes final response visual quality evidence', () => {
   )
 })
 
+test('final response quality guardrail rejects text-only business group expectations', () => {
+  const violations = finalResponseQualityViolations({
+    finalResultCardCount: 1,
+    finalSummaryText: 'Done. I updated 21 jobs across 2 approved business changes.',
+    businessGroups: [
+      { label: 'Medium -> High', count: 10 },
+      { label: 'Original High -> Low', count: 11 },
+    ],
+    affectedRecordPreviewCount: 5,
+    expandableAuditPresent: true,
+    forbiddenTextHits: [],
+    duplicateAffectedRecordEvidence: [],
+  }, {
+    finalResponseQuality: {
+      finalResultCardCount: 1,
+      businessGroups: [
+        { label: 'Medium -> High', count: 10 },
+        { label: 'Original High -> Low', count: 11 },
+      ],
+    },
+  })
+
+  assert.match(violations.join('\n'), /text-only business group expectation Medium -> High/)
+  assert.match(violations.join('\n'), /typed contract evidence/)
+})
+
+test('final response quality guardrail requires typed field evidence for business_change_v1 checks', () => {
+  const violations = finalResponseQualityViolations({
+    finalResultCardCount: 1,
+    finalSummaryText: 'Done. I updated 1 material across 1 approved business change.',
+    businessGroups: [
+      { label: 'Material hold status', count: 1, contract: 'business_change_v1', entityType: 'material' },
+    ],
+    affectedRecordPreviewCount: 1,
+    expandableAuditPresent: true,
+    forbiddenTextHits: [],
+    duplicateAffectedRecordEvidence: [],
+  }, {
+    finalResponseQuality: {
+      finalResultCardCount: 1,
+      businessGroups: [
+        { label: 'Material hold status', count: 1, contract: 'business_change_v1', entityType: 'material' },
+      ],
+    },
+  })
+
+  assert.match(violations.join('\n'), /business_change_v1 expectation Material hold status must include typed field-change evidence/)
+})
+
 test('final response quality violations explain noisy or duplicated rendered output', () => {
   const violations = finalResponseQualityViolations({
     finalResultCardCount: 2,
