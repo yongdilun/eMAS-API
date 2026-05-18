@@ -1,4 +1,5 @@
 import { test, expect } from '../support/realLangGraphArtifacts.js'
+import { expectTransitionCheckpoint } from '../support/factoryAgentTransitionOracle.js'
 import {
   activeSessionId,
   activityText,
@@ -202,7 +203,7 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
     })
   })
 
-  test('SO-041 aggregates both real LangGraph write sets in the final response', async ({ page }) => {
+  test('RD-001 state transition oracle: SO-041 aggregates both real LangGraph write sets in the final response', async ({ page }, testInfo) => {
     await openChat(page)
     await sendPrompt(page, so041Prompt)
     const sessionId = await activeSessionId(page)
@@ -213,6 +214,24 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
       jobIds: originalMediumJobIds,
       requestedPriority: 'high',
       originalPriority: 'medium',
+    })
+    const afterSend = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-001 real LangGraph after send shows approval 1',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'WAITING_APPROVAL',
+        responseState: 'waiting_approval',
+        pendingApprovalId: first.approval_id,
+        visibleBlockTypes: ['approval_required'],
+        visibleBlockIds: [`approval:${first.approval_id}`],
+        backendBlockTypes: ['approval_required'],
+        approvalActionCount: 2,
+        textIncludes: [
+          new RegExp(`${originalMediumJobIds.length} (?:jobs .*medium.*high|original medium-priority jobs)`, 'i'),
+        ],
+        textExcludes: [/Run complete/i],
+      },
     })
     await page.getByRole('button', { name: 'Approve' }).click()
 
@@ -235,6 +254,28 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
       expect(bundleJobIds(second)).not.toContain(newlyMutatedId)
     }
     await expect(page.getByText(`${originalHighJobIds.length} jobs will be updated from high to low priority.`).first()).toBeVisible()
+    const afterApproval1 = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-001 real LangGraph after approval 1 shows distinct approval 2',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'WAITING_APPROVAL',
+        responseState: 'waiting_approval',
+        pendingApprovalId: second.approval_id,
+        pendingApprovalMustDifferFrom: first.approval_id,
+        revisionGreaterThan: afterSend.backend.responseDocumentRevision,
+        visibleBlockTypes: ['approval_required'],
+        visibleBlockIds: [`approval:${second.approval_id}`],
+        hiddenBlockIds: [`approval:${first.approval_id}`],
+        backendBlockTypes: ['approval_required'],
+        approvalActionCount: 2,
+        forbidWaitingApproval1: true,
+        textIncludes: [
+          new RegExp(`${originalHighJobIds.length} (?:jobs .*high.*low|original high-priority jobs)`, 'i'),
+        ],
+        textExcludes: [/Run complete/i],
+      },
+    })
     const secondApprovalVisible = await visibleText(page)
     expect(secondApprovalVisible).not.toMatch(/Improving the response\s+Current|Current\s+Improving the response/i)
     expect(secondApprovalVisible).not.toContain(`${originalMediumJobIds.length} jobs will be updated from medium to high priority.`)
@@ -248,6 +289,28 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
     expect(await currentPriorityMap()).toEqual(expectedPriorityMapForCascade(so041Changes))
     await expect(page.getByText(`${originalMediumJobIds.length} medium priority jobs changed to high`).first()).toBeVisible()
     await expect(page.getByText(`${originalHighJobIds.length} original high priority jobs changed to low`).first()).toBeVisible()
+    await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-001 real LangGraph after final approval shows aggregate completion',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        revisionGreaterThan: afterApproval1.backend.responseDocumentRevision,
+        visibleBlockTypes: ['result_summary'],
+        hiddenBlockTypes: ['approval_required'],
+        hiddenBlockIds: [`approval:${first.approval_id}`, `approval:${second.approval_id}`],
+        hiddenBackendBlockTypes: ['approval_required'],
+        approvalActionCount: 0,
+        textIncludes: [
+          /Run complete/i,
+          new RegExp(`${originalMediumJobIds.length} medium priority jobs changed to high`, 'i'),
+          new RegExp(`${originalHighJobIds.length} original high priority jobs changed to low`, 'i'),
+        ],
+        textExcludes: [/Waiting for approval/i, /Approval required/i],
+      },
+    })
     const finalVisible = await visibleText(page)
     expect(finalVisible).not.toMatch(/Approved request to change record/i)
     expect(finalVisible).not.toMatch(/Waiting for your approval|Please approve to continue/i)
@@ -272,7 +335,7 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
     await sendPrompt(page, 'What is the status of M-CNC-01?')
     const sessionId = await activeSessionId(page)
 
-    await expect(page.getByText(/Machine M-CNC-01/i).first()).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByText(/M-CNC-01/i).first()).toBeVisible({ timeout: 30_000 })
     await expect
       .poll(async () => (await snapshotForPage(page)).session.status, { timeout: 30_000 })
       .toBe('COMPLETED')

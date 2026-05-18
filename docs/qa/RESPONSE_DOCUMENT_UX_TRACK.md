@@ -18,7 +18,7 @@ Created: 2026-05-18
 | 8 | Mandatory compatibility cleanup | Done | Codex | Isolated legacy presentation/table heuristics behind missing-document fallback and added guardrails for valid/invalid `response_document`. |
 | 9 | Release gate and future LLM handoff | Done | Codex | Added response-document release lane and documented blocking/non-blocking gates, manual limits, and future LLM polish contract. |
 | 10 | Orphan turn and session state invariant gate | Done | Codex | Added backend orphan-turn invariant, typed `planner_no_action` / `orphan_turn_state` diagnostics, and mocked browser state-agreement coverage for the Chat 514 class. |
-| 11 | Real flow browser state-transition oracle | Not Started | Codex | Add visible transition checkpoints that compare header, sidebar, backend snapshot, response document, and DOM after send/approve/final. |
+| 11 | Real flow browser state-transition oracle | Done | Codex | Added reusable browser transition oracle, mocked RD-001/RD-002 coverage, and real LangGraph SO-041 proof; fixed stale revision/session and completed-approval copy bugs found by the oracle. |
 | 12 | Semantic snapshot probe and artifact quality | Not Started | Codex | Replace huge low-signal browser snapshots as the primary oracle with compact current-turn semantic probes. |
 | 13 | Manual screenshot regression intake | Not Started | Codex | Convert every manual screenshot bug into an executable backend/frontend/browser regression before adding more scenario volume. |
 
@@ -670,11 +670,72 @@ npm run test:e2e -- --project=chromium --grep "response_document revision|event 
 
 ## Phase 11 Checklist
 
-- [ ] Build reusable browser state-transition oracle for response-document flows.
-- [ ] Add transition checkpoints for send -> approval 1 -> applying -> approval 2 -> completed.
-- [ ] Include forbidden stale text at every checkpoint.
-- [ ] Add real LangGraph or seeded critical coverage for at least RD-001.
-- [ ] Save compact transition artifact on failure.
+- [x] Build reusable browser state-transition oracle for response-document flows.
+- [x] Add transition checkpoints for send -> approval 1 -> applying -> approval 2 -> completed.
+- [x] Include forbidden stale text at every checkpoint.
+- [x] Add real LangGraph or seeded critical coverage for at least RD-001.
+- [x] Save compact transition artifact on failure.
+
+## Phase 11 Implementation Notes
+
+Date: 2026-05-18
+
+Phase 11 is complete. Product bugs found and fixed:
+
+- The frontend `responseDocumentReducer` compared revisions across different sessions, so opening a new session with a lower revision could preserve a previous session's response document and leave header/sidebar/body state contradictory.
+- Backend response-document revisions fell back to `updated_at` milliseconds when `event_seq` was 0, then dropped to revision 1 on the first user event; the frontend correctly rejected that later lower revision, leaving the visible UI stale while the backend had advanced.
+- Completed approval history still reused future-tense approval copy, so after approval 1 completed the real flow could show stale "will be updated" language for data that had already changed.
+
+### Transition Oracle
+
+- Helper: `eMas Front/e2e/support/factoryAgentTransitionOracle.js`.
+- Unit tests: `eMas Front/e2e/support/factoryAgentTransitionOracle.test.mjs`.
+- The oracle compares visible header status, active sidebar status, backend `session.status`, backend pending approval id, `response_document.state`, `response_document.revision`, visible/backend block types, approval/action text, result text, and diagnostic text at every checkpoint.
+- The oracle fails on forbidden stale/internal text including `non_terminal_snapshot`, `Session status: IDLE`, generic actionable `Needs attention`, stale approval-1 waiting text after approval 1 is decided, stale approval-required copy after completion, raw JSON, traceback/stack trace text, and token-like diagnostics.
+- Failure artifacts include a compact redacted transition probe summary beside the Playwright test output.
+
+### Regression Coverage Added
+
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+  - `RD-001 state transition oracle catches stale visible approval after backend advances`
+  - `RD-002 state transition oracle covers reverse cascade without overfitting RD-001`
+- `eMas Front/e2e/specs/real-langgraph-critical.spec.js`
+  - `RD-001 state transition oracle: SO-041 aggregates both real LangGraph write sets in the final response`
+- `eMas Front/src/components/features/chat/factory-agent/responseDocumentReducer.test.mjs`
+  - new-session lower-revision guard.
+- `factory-agent/tests/test_response_document_contract.py`
+  - event-seq-zero revision regression.
+  - completed approval history no longer shows stale future-tense mutation copy.
+
+### Commands Run
+
+```powershell
+Set-Location "C:\Users\dilun\OneDrive\Documents\eMas APi"
+git status --short --branch
+# -> ## codex/playwright-e2e-plan
+
+Set-Location "C:\Users\dilun\OneDrive\Documents\eMas APi\eMas Front"
+npm test
+# -> 103 passed
+
+npm run test:e2e:response-document -- --grep "state transition|RD-001|RD-002"
+# -> 3 passed
+
+npm run test:e2e:real-langgraph -- --grep "state transition|RD-001|SO-041|@critical"
+# -> 3 passed
+
+Set-Location "C:\Users\dilun\OneDrive\Documents\eMas APi\factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+# -> 24 passed
+
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_api_endpoints.py -q
+# -> 68 passed, 20 xfailed, 5 failed in tests/test_api_endpoints.py
+```
+
+### Accepted Verification Caveat
+
+- The required backend bundle still has five unrelated legacy API endpoint failures in `tests/test_api_endpoints.py`: missing-argument legacy planner clarification, job-slot tool selection, invalid-output execute rejection, `/tools` intent scoping, and replan validation DLQ. These failures reproduce when run directly as the only selected tests and are outside the response-document transition oracle path.
+- The response-document backend contract/failure suite that covers the touched backend code passes.
 
 ## Phase 12 Checklist
 

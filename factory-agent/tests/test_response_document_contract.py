@@ -594,6 +594,9 @@ async def test_two_step_approval_document_preserves_completed_mutation_during_se
     assert block_ids.index(f"completed-step:{approval_1}") < block_ids.index(f"approval:{approval_2}")
     completed = next(block for block in document["blocks"] if block["id"] == f"completed-step:{approval_1}")
     assert {row["row_id"] for row in completed["rows"]} == {"JOB-RD-MED-001", "JOB-RD-MED-002"}
+    run_step_text = "\n".join((step.get("summary") or "") for step in document["run_steps"])
+    assert "will be updated from medium to high" not in run_step_text
+    assert "2 original medium priority jobs changed to high." in run_step_text
     assert "Run complete" not in document["message"]
     assert "Updated 5 jobs across 2 approved steps" not in document["message"]
 
@@ -999,3 +1002,43 @@ async def test_response_document_revision_is_monotonic_and_block_ids_are_stable(
     assert [block["id"] for block in second_document["blocks"]] == first_block_ids
     assert [step["step_id"] for step in second_document["run_steps"]] == first_step_ids
     assert "approval:approval-rd-stable" in first_block_ids
+
+
+@pytest.mark.asyncio
+async def test_response_document_revision_starts_from_zero_event_seq_not_updated_at(db_session):
+    created_at = datetime(2026, 5, 18, 10, 0, 0)
+    session_id = "rd-revision-zero-event-seq"
+    session = Session(
+        session_id=session_id,
+        user_id="u1",
+        status="IDLE",
+        current_intent=None,
+        plan_id=None,
+        plan_version=0,
+        current_step_index=0,
+        step_count=0,
+        llm_call_count=0,
+        event_seq=0,
+        session_started_at=created_at,
+        created_at=created_at,
+        updated_at=created_at + timedelta(seconds=30),
+    )
+    db_session.add(session)
+    await db_session.commit()
+
+    initial = await _snapshot(db_session, session_id)
+    initial_document = initial["response_document"]
+    assert initial_document["revision"] == 0
+    assert initial_document["revision_source"] == "event_seq"
+
+    session.status = "PLANNING"
+    session.current_intent = "change all medium priority job to high"
+    session.event_seq = 1
+    db_session.add(_user_message(session_id=session_id, created_at=created_at + timedelta(seconds=31)))
+    await db_session.commit()
+
+    after_user_message = await _snapshot(db_session, session_id)
+    after_document = after_user_message["response_document"]
+    assert after_document["revision"] == 1
+    assert after_document["revision"] > initial_document["revision"]
+    assert after_document["revision_source"] == "event_seq"

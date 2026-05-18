@@ -222,6 +222,10 @@ export function applyResponseDocumentUpdate(currentState, rawIncoming) {
     turnId: incoming.turnId,
   }
 
+  if (cleanString(current.sessionId) !== cleanString(incoming.sessionId)) {
+    return accept(incoming, 'accepted_new_session_scope')
+  }
+
   if (!sameDocumentScope(currentScope, incomingScope)) {
     return compareOrder(incoming, current) >= 0
       ? accept(incoming, 'accepted_newer_document_scope')

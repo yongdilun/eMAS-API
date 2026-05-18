@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { chatSelectors } from '../fixtures/selectors.js'
 import { responseDocumentTrafficPrompt } from '../fixtures/factoryAgentFixtures.js'
+import { expectTransitionCheckpoint } from '../support/factoryAgentTransitionOracle.js'
 import {
+  cascadeDefinition,
   forbiddenResponseDocumentText,
   responseDocumentCancelledRunPrompt,
   responseDocumentCascadePrompt,
@@ -233,7 +235,118 @@ async function runCascade(page, { prompt, finalMessage, firstStep, secondStep, f
   ])
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+async function runCascadeStateTransitionOracle(page, testInfo, {
+  kind,
+  label,
+  firstStep,
+  secondStep,
+  firstRowsLabel,
+  secondRowsLabel,
+}) {
+  const definition = cascadeDefinition(kind)
+  const firstApprovalId = definition.first.approvalId
+  const secondApprovalId = definition.second.approvalId
+  expect(secondApprovalId).not.toBe(firstApprovalId)
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openChat(page)
+  await sendChatPrompt(page, definition.prompt)
+
+  const afterSend = await expectTransitionCheckpoint(page, {
+    checkpoint: `${label} after send shows approval 1`,
+    snapshotForPage,
+    testInfo,
+    expected: {
+      sessionStatus: 'WAITING_APPROVAL',
+      responseState: 'waiting_approval',
+      pendingApprovalId: firstApprovalId,
+      visibleBlockTypes: ['approval_required'],
+      visibleBlockIds: [`approval:${firstApprovalId}`],
+      backendBlockTypes: ['approval_required'],
+      approvalActionCount: 2,
+      textIncludes: ['Understood request', firstRowsLabel, 'Waiting for approval 1', firstStep],
+      textExcludes: [/Run complete/i, definition.finalMessage],
+    },
+  })
+
+  await decideApproval(page, 'approve')
+  const afterApproval1 = await expectTransitionCheckpoint(page, {
+    checkpoint: `${label} after approval 1 shows distinct approval 2`,
+    snapshotForPage,
+    testInfo,
+    expected: {
+      sessionStatus: 'WAITING_APPROVAL',
+      responseState: 'waiting_approval',
+      pendingApprovalId: secondApprovalId,
+      pendingApprovalMustDifferFrom: firstApprovalId,
+      revisionGreaterThan: afterSend.backend.responseDocumentRevision,
+      visibleBlockTypes: ['completed_step', 'approval_required'],
+      visibleBlockIds: [`approval:${secondApprovalId}`],
+      hiddenBlockIds: [`approval:${firstApprovalId}`],
+      backendBlockTypes: ['completed_step', 'approval_required'],
+      approvalActionCount: 2,
+      forbidWaitingApproval1: true,
+      textIncludes: [
+        'Approval 1 received',
+        secondRowsLabel,
+        'Waiting for approval 2',
+        secondStep,
+        new RegExp(escapeRegExp(firstStep).replace(/^Update/, 'Updated')),
+      ],
+      textExcludes: [/Run complete/i, firstStep],
+    },
+  })
+
+  await decideApproval(page, 'approve')
+  await expectTransitionCheckpoint(page, {
+    checkpoint: `${label} after final approval shows aggregate completion`,
+    snapshotForPage,
+    testInfo,
+    expected: {
+      sessionStatus: 'COMPLETED',
+      responseState: 'completed',
+      pendingApprovalId: null,
+      revisionGreaterThan: afterApproval1.backend.responseDocumentRevision,
+      visibleBlockTypes: ['result_summary', 'mutation_result'],
+      hiddenBlockTypes: ['approval_required'],
+      hiddenBlockIds: [`approval:${firstApprovalId}`, `approval:${secondApprovalId}`],
+      hiddenBackendBlockTypes: ['approval_required'],
+      approvalActionCount: 0,
+      textIncludes: [definition.finalMessage, 'Run complete', 'Step 1', 'Step 2'],
+      textExcludes: [/Waiting for approval \d/i, /Approval required/i],
+    },
+  })
+}
+
 test.describe('Final response quality response_document gate', () => {
+  test.describe.configure({ mode: 'default' })
+
+  test('RD-001 state transition oracle catches stale visible approval after backend advances', async ({ page }, testInfo) => {
+    await runCascadeStateTransitionOracle(page, testInfo, {
+      kind: 'forward',
+      label: 'RD-001',
+      firstStep: 'Update 10 jobs from medium to high',
+      secondStep: 'Update 11 jobs from high to low',
+      firstRowsLabel: 'Found 10 original medium-priority jobs',
+      secondRowsLabel: 'Found 11 original high-priority jobs',
+    })
+  })
+
+  test('RD-002 state transition oracle covers reverse cascade without overfitting RD-001', async ({ page }, testInfo) => {
+    await runCascadeStateTransitionOracle(page, testInfo, {
+      kind: 'reverse',
+      label: 'RD-002',
+      firstStep: 'Update 11 jobs from high to low',
+      secondStep: 'Update 5 jobs from low to medium',
+      firstRowsLabel: 'Found 11 original high-priority jobs',
+      secondRowsLabel: 'Found 5 original low-priority jobs',
+    })
+  })
+
   test('RD-001 orphan/session state invariant forbids IDLE non_terminal_snapshot UI', async ({ page }) => {
     await openChat(page)
     await sendChatPrompt(page, responseDocumentCascadePrompt)

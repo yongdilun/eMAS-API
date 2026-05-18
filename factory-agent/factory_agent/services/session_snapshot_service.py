@@ -1597,8 +1597,16 @@ def _response_document_revision(
     session: Any,
     timeline: list[TimelineEventResponse],
 ) -> tuple[int, str]:
-    if cursor > 0:
-        return cursor, "event_seq"
+    event_seq = getattr(session, "event_seq", None)
+    if event_seq is not None:
+        try:
+            return max(0, int(event_seq or 0)), "event_seq"
+        except (TypeError, ValueError):
+            pass
+    try:
+        return max(0, int(cursor or 0)), "event_seq"
+    except (TypeError, ValueError):
+        pass
     updated_at = getattr(session, "updated_at", None)
     if isinstance(updated_at, datetime):
         return max(0, int(updated_at.timestamp() * 1000)), "session_updated_at"

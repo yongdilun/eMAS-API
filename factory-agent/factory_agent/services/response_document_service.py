@@ -990,8 +990,16 @@ def _response_document_revision(
     session: Any,
     timeline: list[TimelineEventResponse],
 ) -> tuple[int, str]:
-    if cursor > 0:
-        return cursor, "event_seq"
+    event_seq = getattr(session, "event_seq", None)
+    if event_seq is not None:
+        try:
+            return max(0, int(event_seq or 0)), "event_seq"
+        except (TypeError, ValueError):
+            pass
+    try:
+        return max(0, int(cursor or 0)), "event_seq"
+    except (TypeError, ValueError):
+        pass
     updated_at = getattr(session, "updated_at", None)
     if isinstance(updated_at, datetime):
         return max(0, int(updated_at.timestamp() * 1000)), "session_updated_at"
@@ -1430,6 +1438,8 @@ def _compose_run_steps(
     for approval in sorted(approvals, key=lambda row: (row.created_at, row.approval_id)):
         approval_index = approval_positions.get(approval.approval_id, 1)
         approval_status = str(approval.status or "").upper()
+        group = groups_by_approval.get(approval.approval_id)
+        approved_with_result = approval_status in {"APPROVED", "ACCEPTED"} and group is not None
         expired = _approval_is_expired(approval)
         row_status = "pending"
         if approval_status in {"APPROVED", "ACCEPTED"}:
@@ -1439,6 +1449,13 @@ def _compose_run_steps(
         elif expired:
             row_status = "expired"
         rows = _approval_rows(approval, operation_id=operation_id, default_status=row_status)
+        if approved_with_result:
+            approval_summary = _mutation_group_summary(group)
+        elif approval_status in {"APPROVED", "ACCEPTED"}:
+            record_text = f" for {len(rows)} {_plural(len(rows), 'record')}" if rows else ""
+            approval_summary = f"Approval {approval_index} was received{record_text}."
+        else:
+            approval_summary = _approval_summary(approval)
         if rows:
             run_steps.append(
                 RunStep(
@@ -1446,7 +1463,7 @@ def _compose_run_steps(
                     kind="read",
                     state="completed",
                     title=f"Found {len(rows)} {_plural(len(rows), 'record')}",
-                    summary=_approval_summary(approval),
+                    summary=approval_summary,
                     approval_id=approval.approval_id,
                     operation_id=_approval_operation_id(approval, operation_id),
                     record_count=len(rows),
@@ -1479,7 +1496,7 @@ def _compose_run_steps(
                 kind="approval",
                 state=approval_state,  # type: ignore[arg-type]
                 title=title,
-                summary=_approval_summary(approval),
+                summary=approval_summary,
                 approval_id=approval.approval_id,
                 operation_id=_approval_operation_id(approval, operation_id),
                 record_count=len(rows) if rows else None,
@@ -1487,7 +1504,6 @@ def _compose_run_steps(
             )
         )
 
-        group = groups_by_approval.get(approval.approval_id)
         if group is not None:
             mutation_state = "failed" if group.status == "failed" else "completed"
             run_steps.append(

@@ -233,6 +233,43 @@ test('response document reducer refuses older turn and document scopes', () => {
   assert.equal(result.state.turnId, 'turn-2')
 })
 
+test('response document reducer accepts a new session even when its revision is lower', () => {
+  const current = applyResponseDocumentSnapshotUpdate(
+    createResponseDocumentReducerState(),
+    snapshot(doc({ revision: 12, document_id: 'rd-session-1-turn-2', id: 'rd-session-1-turn-2', turn_id: 'turn-2' }), {
+      snapshot_revision: 12,
+      session: { session_id: 'session-1', status: 'COMPLETED' },
+    }),
+    { transport: 'polling' },
+  ).state
+  const nextSessionDocument = doc({
+    revision: 2,
+    document_id: 'rd-session-2-turn-1',
+    id: 'rd-session-2-turn-1',
+    turn_id: 'turn-1',
+    message: 'Session 2 approval is ready.',
+    summary: 'Session 2 approval is ready.',
+    state: 'waiting_approval',
+    status: 'waiting_approval',
+  })
+
+  const result = applyResponseDocumentSnapshotUpdate(
+    current,
+    snapshot(nextSessionDocument, {
+      snapshot_revision: 2,
+      session: { session_id: 'session-2', status: 'WAITING_APPROVAL' },
+      pending_approval: { approval_id: 'approval-session-2' },
+    }),
+    { transport: 'polling' },
+  )
+
+  assert.equal(result.accepted, true)
+  assert.equal(result.decision, 'accepted_new_session_scope')
+  assert.equal(result.state.sessionId, 'session-2')
+  assert.equal(result.state.document.revision, 2)
+  assert.equal(result.state.document.message, 'Session 2 approval is ready.')
+})
+
 test('response document reducer allows newer absent documents to use legacy fallback during migration', () => {
   const current = applyResponseDocumentSnapshotUpdate(
     createResponseDocumentReducerState(),
