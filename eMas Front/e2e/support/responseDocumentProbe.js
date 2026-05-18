@@ -438,6 +438,8 @@ function expectedGroupMatches(actualGroup, expectedGroup) {
   const label = actualGroup?.label || ''
   const expectedLabel = expectedGroup?.label || expectedGroup?.businessChange || ''
   if (expectedLabel && label !== expectedLabel) return false
+  if (expectedGroup?.labelPattern && !matches(label, expectedGroup.labelPattern)) return false
+  if (expectedGroup?.labels && !asArray(expectedGroup.labels).includes(label)) return false
   if (Object.hasOwn(expectedGroup || {}, 'count') && Number(actualGroup?.count) !== Number(expectedGroup.count)) return false
   if (expectedGroup?.contract && actualGroup?.contract !== expectedGroup.contract) return false
   if (expectedGroup?.entityType && actualGroup?.entityType !== expectedGroup.entityType) return false
@@ -454,7 +456,7 @@ function typedBusinessGroupEvidenceViolations(rules = {}) {
   if (rules.requireTypedContractEvidence === false) return []
   const violations = []
   for (const expectedGroup of asArray(rules.businessGroups)) {
-    const label = expectedGroup?.label || expectedGroup?.businessChange || '<business group>'
+    const label = expectedGroup?.label || expectedGroup?.businessChange || expectedGroup?.labelPattern || '<business group>'
     const contract = expectedGroup?.contract || null
     const entityType = expectedGroup?.entityType || expectedGroup?.entity_type || null
     const hasFieldChangeEvidence = (
@@ -492,7 +494,7 @@ export function finalResponseQualityViolations(quality = {}, expected = {}) {
   }
   for (const expectedGroup of asArray(rules.businessGroups)) {
     if (!asArray(quality.businessGroups).some((group) => expectedGroupMatches(group, expectedGroup))) {
-      violations.push(`business change group missing ${expectedGroup.label || expectedGroup.businessChange || JSON.stringify(expectedGroup)}`)
+      violations.push(`business change group missing ${expectedGroup.label || expectedGroup.businessChange || expectedGroup.labelPattern || JSON.stringify(expectedGroup)}`)
     }
   }
   if (Object.hasOwn(rules, 'affectedRecordPreviewMax') && quality.affectedRecordPreviewCount > rules.affectedRecordPreviewMax) {
@@ -509,7 +511,7 @@ export function finalResponseQualityViolations(quality = {}, expected = {}) {
   }
   for (const expectedGroup of asArray(rules.expandedAuditGroups)) {
     if (!asArray(quality.expandedAuditGroups).some((group) => expectedGroupMatches(group, expectedGroup))) {
-      violations.push(`expanded audit group missing ${expectedGroup.label || expectedGroup.businessChange || JSON.stringify(expectedGroup)}`)
+      violations.push(`expanded audit group missing ${expectedGroup.label || expectedGroup.businessChange || expectedGroup.labelPattern || JSON.stringify(expectedGroup)}`)
     }
   }
   if (rules.forbidFinalResponseText !== false && asArray(quality.forbiddenTextHits).length) {

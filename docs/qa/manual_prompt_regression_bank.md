@@ -319,6 +319,16 @@ Phase 26 is the real/seeded release proof after Phases 21-25 are green.
 |---|---|---|---|
 | `response-document-phase26-real-flow-release-proof` | RD-001 cascade, machine status, LOTO document-content RAG, no-op mutation, non-job generic proof if available, and final response visual-quality oracle. | Backend snapshot state, response document state, and visible UI agree; no raw/internal final-response noise; semantic probes explain failures compactly. | Focused response-document browser gate, seeded oracle lane, real LangGraph critical lane where planner/tool selection can diverge. |
 
+Phase 26 closure evidence:
+
+- Passed: `python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_route_to_execution_contract.py tests/test_intent_splitter.py -q` -> 95 passed.
+- Passed: `npm test` -> 116 passed.
+- Passed: `npm run test:e2e:response-document -- --grep "RD-001|machine status|LOTO|no-op|entity status|business change|visual quality"` -> 11 passed.
+- Passed: `npm run test:e2e:seeded-oracles -- --grep "RD-001|machine status|LOTO|no-op|entity status|business change"` -> 13 passed.
+- Passed: `npm run test:e2e:real-langgraph -- --grep "RD-001|SO-041|machine status|LOTO|no-op|@critical"` -> 3 passed.
+- The release proof found no product behavior bug. It did migrate browser oracles from legacy phrase/label assertions to typed response-document evidence so future browser failures attach compact semantic probes.
+- Accepted limitation: no safe real/seeded non-job generic browser path is available without broadening product behavior. Non-job generic proof remains Phase 24 backend contract coverage for product status and material partial no-op plus valid group.
+
 ## Phase 15 Release Enforcement Note
 
 Phase 15 assigns every fixed or newly found prompt/workflow miss to a blocking lane:

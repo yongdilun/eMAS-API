@@ -287,8 +287,8 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
       .toBe('COMPLETED')
     await expectSnapshotApprovalState(page, { status: 'COMPLETED', pendingApprovalId: null })
     expect(await currentPriorityMap()).toEqual(expectedPriorityMapForCascade(so041Changes))
-    await expect(page.getByText(`Medium -> High: ${originalMediumJobIds.length} jobs`).first()).toBeVisible()
-    await expect(page.getByText(`Original High -> Low: ${originalHighJobIds.length} jobs`).first()).toBeVisible()
+    const mediumBusinessGroupText = new RegExp(`(?:Original )?Medium -> High: ${originalMediumJobIds.length} jobs`, 'i')
+    const highBusinessGroupText = new RegExp(`(?:Original )?High -> Low: ${originalHighJobIds.length} jobs`, 'i')
     await expectTransitionCheckpoint(page, {
       checkpoint: 'RD-001 real LangGraph after final approval shows aggregate completion',
       snapshotForPage,
@@ -302,19 +302,32 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
         hiddenBlockTypes: ['approval_required'],
         hiddenBlockIds: [`approval:${first.approval_id}`, `approval:${second.approval_id}`],
         hiddenBackendBlockTypes: ['approval_required'],
+        responseContracts: ['business_change_v1'],
         approvalActionCount: 0,
         textIncludes: [
           /Run complete/i,
-          `Medium -> High: ${originalMediumJobIds.length} jobs`,
-          `Original High -> Low: ${originalHighJobIds.length} jobs`,
+          mediumBusinessGroupText,
+          highBusinessGroupText,
         ],
         textExcludes: [/Waiting for approval/i, /Approval required/i],
         finalResponseQuality: {
           finalResultCardCount: 1,
           finalSummaryText: /21 jobs across 2 approved business changes/i,
           businessGroups: [
-            { label: 'Medium -> High', count: originalMediumJobIds.length },
-            { label: 'Original High -> Low', count: originalHighJobIds.length },
+            {
+              labelPattern: /^(?:Original )?Medium -> High$/,
+              count: originalMediumJobIds.length,
+              contract: 'business_change_v1',
+              entityType: 'job',
+              fieldChangeCountMin: 1,
+            },
+            {
+              labelPattern: /^(?:Original )?High -> Low$/,
+              count: originalHighJobIds.length,
+              contract: 'business_change_v1',
+              entityType: 'job',
+              fieldChangeCountMin: 1,
+            },
           ],
           affectedRecordPreviewMin: 1,
           affectedRecordPreviewMax: 5,

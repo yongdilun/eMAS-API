@@ -6,6 +6,7 @@ import {
   phase18SynonymPrompts,
 } from '../support/intentEntityScenarios.js'
 import { openChat, sendPrompt, snapshotForPage } from '../support/fullStackScenarios.js'
+import { expectTransitionCheckpoint } from '../support/factoryAgentTransitionOracle.js'
 
 function textFromSnapshot(snapshot) {
   return JSON.stringify(snapshot).toLowerCase()
@@ -61,12 +62,28 @@ test.describe('Phase 18 seeded intent/entity and RAG routing @intent-entity @rag
     })
   }
 
-  test('scenario 108: machine status synonyms route to the machine lookup tool', async ({ page }) => {
+  test('scenario 108: machine status synonyms route to the machine lookup tool', async ({ page }, testInfo) => {
     await openChat(page)
     await sendPrompt(page, phase18SynonymPrompts.machineStatus)
 
-    await expect(page.getByText(/Machine M-CNC-01/i).first()).toBeVisible()
-    await expect(page.getByText(/seeded Go API data/i).first()).toBeVisible()
+    await expectTransitionCheckpoint(page, {
+      checkpoint: 'scenario 108 seeded machine status response-document contract',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['status_result'],
+        backendBlockTypes: ['status_result'],
+        hiddenBlockTypes: ['approval_required', 'mutation_result', 'result_table'],
+        hiddenBackendBlockTypes: ['approval_required', 'mutation_result', 'result_table', 'record_preview'],
+        responseContracts: ['entity_status_v1'],
+        approvalActionCount: 0,
+        textIncludes: ['Machine M-CNC-01', 'Machine ID', 'Machine name', 'CNC Mill 01', 'Status'],
+        textExcludes: [/Approval required/i, /Which machine ID/i],
+      },
+    })
     const snapshot = await snapshotForPage(page)
     expect(snapshot.steps[0].tool_name).toBe('get__machines_{id}')
     expect(snapshot.steps[0].args.id).toBe('M-CNC-01')

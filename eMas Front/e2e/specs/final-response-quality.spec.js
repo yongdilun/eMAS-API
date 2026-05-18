@@ -620,7 +620,14 @@ test.describe('Final response quality response_document gate', () => {
         finalResponseQuality: {
           finalResultCardCount: 1,
           finalSummaryText: /No changes were made/i,
-          businessGroups: [{ label: 'Not changed', count: 0 }],
+          businessGroups: [
+            {
+              label: 'Not changed',
+              count: 0,
+              contract: 'entity_agnostic_no_matching_records_v1',
+              entityType: 'job',
+            },
+          ],
           affectedRecordPreviewMax: 0,
           expandableAuditPresent: true,
           forbidDuplicateAffectedRecords: true,

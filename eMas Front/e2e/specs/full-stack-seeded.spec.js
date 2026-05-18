@@ -9,6 +9,7 @@ import {
   sessionMessages,
   timelineText,
 } from '../support/dataIntegrityScenarios.js'
+import { expectTransitionCheckpoint } from '../support/factoryAgentTransitionOracle.js'
 
 const seededEnv = seededRuntimeEnv()
 
@@ -36,6 +37,16 @@ async function activeSessionId(page) {
   return page.evaluate(() => window.localStorage.getItem('factory_agent_active_session_id'))
 }
 
+async function snapshotForPage(page) {
+  let sessionId = await activeSessionId(page)
+  if (!sessionId) {
+    await page.waitForFunction(() => window.localStorage.getItem('factory_agent_active_session_id'), null, { timeout: 5000 })
+    sessionId = await activeSessionId(page)
+  }
+  if (!sessionId) throw new Error('No active Factory Agent session id in localStorage')
+  return factoryAgentJson(`/sessions/${sessionId}/snapshot`)
+}
+
 test.describe('L3 seeded full-stack foundation @l3-foundation', () => {
   test('scenario 31: opens chat through Vite and creates a real Factory Agent session', async ({ page }) => {
     await openChat(page)
@@ -50,14 +61,28 @@ test.describe('L3 seeded full-stack foundation @l3-foundation', () => {
       .toBeGreaterThan(0)
   })
 
-  test('scenario 32: machine status prompt completes against seeded Go API data', async ({ page }) => {
+  test('scenario 32: machine status prompt completes against seeded Go API data', async ({ page }, testInfo) => {
     await openChat(page)
     await sendPrompt(page, 'Show status for machine M-CNC-01 from the seeded Go API')
 
-    await expect(page.getByText(/Machine M-CNC-01/i).first()).toBeVisible()
-    await expect(page.getByText(/CNC Mill 01/i).first()).toBeVisible()
-    await expect(page.getByText(/seeded Go API data/i).first()).toBeVisible()
-    await expect(page.getByText('Run complete')).toBeVisible()
+    await expectTransitionCheckpoint(page, {
+      checkpoint: 'scenario 32 seeded machine status response-document contract',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['status_result'],
+        backendBlockTypes: ['status_result'],
+        hiddenBlockTypes: ['approval_required', 'mutation_result', 'result_table'],
+        hiddenBackendBlockTypes: ['approval_required', 'mutation_result', 'result_table', 'record_preview'],
+        responseContracts: ['entity_status_v1'],
+        approvalActionCount: 0,
+        textIncludes: ['Run complete', 'Machine M-CNC-01', 'Machine ID', 'Machine name', 'CNC Mill 01', 'Status'],
+        textExcludes: [/Approval required/i, /Which machine ID/i],
+      },
+    })
     await expect(page.locator('[role="status"][aria-busy="true"]')).toHaveCount(0)
   })
 
@@ -71,14 +96,33 @@ test.describe('L3 seeded full-stack foundation @l3-foundation', () => {
     await expect(page.getByText('Run complete')).toBeVisible()
   })
 
-  test('scenario 34: RAG/LOTO prompt renders controlled answer and sources', async ({ page }) => {
+  test('scenario 34: RAG/LOTO prompt renders controlled answer and sources', async ({ page }, testInfo) => {
     await openChat(page)
     await sendPrompt(page, 'Use seeded LOTO guidance to explain hazardous energy lockout')
 
-    await expect(page.getByText(/Controlled seeded RAG answer/i).first()).toBeVisible()
-    await expect(page.getByText('Knowledge sources')).toBeVisible()
-    await expect(page.getByText('Seeded LOTO Procedure').first()).toBeVisible()
-    await expect(page.getByText(/Controlled fake RAG output/i)).toBeVisible()
+    await expectTransitionCheckpoint(page, {
+      checkpoint: 'scenario 34 seeded LOTO source-list response-document contract',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['source_list'],
+        backendBlockTypes: ['knowledge_answer', 'source_list'],
+        hiddenBlockTypes: ['approval_required', 'diagnostic', 'status_result', 'mutation_result'],
+        hiddenBackendBlockTypes: ['approval_required', 'diagnostic', 'status_result', 'mutation_result'],
+        approvalActionCount: 0,
+        textIncludes: [
+          'Controlled seeded RAG answer',
+          'Knowledge sources',
+          'Seeded General LOTO Guidance',
+          'Control of Hazardous Energy Lockout/Tagout',
+          '29 CFR 1910.147',
+        ],
+        textExcludes: [/Which machine ID/i, /Approval required/i],
+      },
+    })
   })
 
   test('scenario 35: approval-required flow renders pending approval from real Factory Agent snapshot', async ({ page }) => {

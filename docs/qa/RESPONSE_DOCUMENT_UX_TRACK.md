@@ -33,7 +33,7 @@ Created: 2026-05-18
 | 23 | Migrate existing machine/job outputs onto generic contracts | Done | Codex | Existing machine status now renders through `entity_status_v1`; RD-001/RD-002 job priority cascade final groups now emit `business_change_v1`; RD-006/RD-007 no-op output remains on the generic no-match/no-op contract with frontend contract evidence. |
 | 24 | Entity diversity coverage | Done | Codex | Added product status and material partial no-op plus valid-group backend contract fixtures proving `entity_status_v1`, `business_change_v1`, and `entity_agnostic_no_matching_records_v1` beyond jobs and machines. |
 | 25 | Hardcode regression guardrails | Done | Codex | Added product branch-condition static guards, typed composer summary-prose guardrail, and frontend probe contract-evidence guardrails. |
-| 26 | Real flow release proof | Not Started | Codex | Ready after Phase 25; run the post-refactor real/seeded release proof for RD-001, machine status, LOTO RAG, no-op mutation, non-job generic proof if available, and final visual quality. |
+| 26 | Real flow release proof | Done | Codex | Real/seeded release proof passed for RD-001, machine status, LOTO RAG, no-op mutation, final visual quality, and real LangGraph critical; no safe non-job real/seeded browser path exists yet beyond Phase 24 backend contract coverage. |
 
 ## Current Blockers
 
@@ -45,7 +45,7 @@ Created: 2026-05-18
 - LOTO document-content question misclassification is fixed in Phase 19. `According to the LOTO procedure, what notification is required before starting lockout` now routes as document-content RAG/procedure content without requiring `machine_id`.
 - Several recent fixes are still at risk of becoming entity-specific special cases. Phase 20 audited this; Phase 21 prepared backend/OpenAPI/tool/vocabulary metadata before the generic response-document contract starts.
 - Phase 23 is complete for existing flows: machine status uses `entity_status_v1`, job priority cascade groups use `business_change_v1`, and job no-op groups continue through `entity_agnostic_no_matching_records_v1` with frontend contract/probe evidence.
-- Phase 24 is complete for backend contract diversity beyond jobs/machines. Phases 25-26 remain: add hardcode guardrails, then run the real/seeded release proof.
+- Phase 26 is complete. Backend contract diversity beyond jobs/machines remains covered by Phase 24 product/material fixtures; no safe non-job real/seeded browser path has been exposed without broadening write/read product scope.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -1979,22 +1979,62 @@ Phase 25 prevents future one-off prompt/entity fixes from undoing the generic co
 
 ## Phase 26 Checklist
 
-- [ ] Start only after Phase 25 is complete.
-- [ ] Run RD-001 cascade real/seeded proof.
-- [ ] Run machine status real/seeded proof.
-- [ ] Run LOTO document-content RAG proof.
-- [ ] Run no-op mutation proof.
-- [ ] Run at least one non-job generic proof if the backend surface supports it.
-- [ ] Run final response visual-quality oracle.
-- [ ] Attach compact semantic probes for browser failures; screenshots/traces remain supporting evidence.
-- [ ] Update tracker with real/seeded command results and any accepted gaps.
-- [ ] Commit Phase 26.
+- [x] Start only after Phase 25 is complete.
+- [x] Run RD-001 cascade real/seeded proof.
+- [x] Run machine status real/seeded proof.
+- [x] Run LOTO document-content RAG proof.
+- [x] Run no-op mutation proof.
+- [x] Run at least one non-job generic proof if the backend surface supports it.
+- [x] Run final response visual-quality oracle.
+- [x] Attach compact semantic probes for browser failures; screenshots/traces remain supporting evidence.
+- [x] Update tracker with real/seeded command results and any accepted gaps.
+- [x] Commit Phase 26.
 
 ## Phase 26 Implementation Notes
 
-Status: Ready To Start
+Date: 2026-05-19
+
+Status: Done
 
 Phase 26 is the release-confidence pass after backend metadata readiness, contract creation, existing-flow migration, entity diversity coverage, and hardcode guardrails are complete. It should prove backend state, response document, and visible UI agree in real or seeded flows.
+
+### Evidence Summary
+
+- RD-001 cascade proof passed in the focused response-document browser lane and real LangGraph critical lane. The final real flow completed with 21 jobs across 2 approved business changes, no pending approval, no raw assistant markdown, and no internal operation/step/row ids in the visible result.
+- Machine status proof passed in mocked and seeded browser lanes using the typed `entity_status_v1` status block. The visible answer is one status response, not an approval/mutation/table dump.
+- LOTO document-content RAG proof passed without machine-ID clarification. The response used source-list/knowledge evidence and excluded missing-machine prompts.
+- No-op mutation proof passed in the focused response-document browser lane. The result completed with `Not changed` evidence, no approval request for the no-op group, and no fake success.
+- Final response visual-quality oracle passed for RD-001 with compact grouped business output, bounded affected-record preview, collapsed clean audit, and forbidden raw/internal text checks.
+- Non-job generic real/seeded browser proof remains an accepted limitation: no safe real/seeded non-job response-document path is exposed without broadening product behavior. Phase 24 backend contract coverage remains the release proof for product status and material partial no-op plus valid-group generic contracts.
+
+### Release-Proof Fixes
+
+- Updated the RD-007 all-no-op visual-quality oracle so `Not changed` expectations require `entity_agnostic_no_matching_records_v1` and entity-type evidence instead of text-only matching.
+- Migrated seeded machine-status and seeded LOTO assertions from legacy phrase checks to transition-oracle checks over backend session state, response-document state, visible block types, typed contracts, and visible UI.
+- Migrated the real LangGraph RD-001 final assertion from brittle pre-oracle label checks to typed `business_change_v1` final-response quality expectations. Future failures now attach compact semantic probes before screenshots/traces are considered.
+
+No product behavior bug was found in Phase 26. The failures found were release-oracle drift after Phases 21-25 tightened the typed contract guardrails.
+
+### Commands Run
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_route_to_execution_contract.py tests/test_intent_splitter.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "RD-001|machine status|LOTO|no-op|entity status|business change|visual quality"
+npm run test:e2e:seeded-oracles -- --grep "RD-001|machine status|LOTO|no-op|entity status|business change"
+npm run test:e2e:real-langgraph -- --grep "RD-001|SO-041|machine status|LOTO|no-op|@critical"
+```
+
+### Test Results
+
+- Backend response-document/route/splitter lane: 95 passed.
+- Frontend unit/component/probe lane: 116 passed.
+- Focused response-document browser lane: 11 passed.
+- Seeded oracle browser lane: 13 passed.
+- Real LangGraph critical browser lane: 3 passed.
 
 ## Phase 10 Implementation Notes
 
@@ -2150,7 +2190,7 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 
 ## Next Action
 
-Start Phase 25 hardcode regression guardrails. Phase 24 now proves non-job/non-machine generic response-document coverage with product status and material partial no-op plus valid-group fixtures. After Phase 25, run Phase 26 real/seeded release proof.
+Phase 26 is complete. Use the recorded Phase 26 command set as the release-proof lane for response-document refactor signoff; broaden real/seeded non-job generic browser coverage only when a safe product path is intentionally exposed.
 
 ## Post-Gate Regression: Approved Data But UI Still Shows Approval
 
