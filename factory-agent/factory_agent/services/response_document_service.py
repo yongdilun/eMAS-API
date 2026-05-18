@@ -60,6 +60,10 @@ _ACTION_LABELS = {
     "export_audit_details": "Export audit details",
 }
 
+ENTITY_STATUS_CONTRACT = "entity_status_v1"
+BUSINESS_CHANGE_CONTRACT = "business_change_v1"
+NO_OP_MUTATION_CONTRACT = "entity_agnostic_no_matching_records_v1"
+
 
 @dataclass(frozen=True)
 class FailureTemplate:
@@ -1607,10 +1611,185 @@ def _target_priority(row: dict[str, Any]) -> str:
     ).lower()
 
 
+def _first_text(row: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = _trimmed(row.get(key))
+        if value:
+            return value
+    return ""
+
+
+def _business_contract_value(row: dict[str, Any]) -> str:
+    value = _first_text(
+        row,
+        (
+            "contract",
+            "business_contract",
+            "business_change_contract",
+            "response_contract",
+            "result_contract",
+        ),
+    )
+    if value:
+        return value
+    metadata = row.get("metadata")
+    if isinstance(metadata, dict):
+        return _first_text(
+            metadata,
+            (
+                "contract",
+                "business_contract",
+                "business_change_contract",
+                "response_contract",
+                "result_contract",
+            ),
+        )
+    return ""
+
+
+def _row_has_business_change_contract(row: dict[str, Any]) -> bool:
+    return _business_contract_value(row) == BUSINESS_CHANGE_CONTRACT
+
+
+def _row_entity_type(row: dict[str, Any]) -> str:
+    explicit = _first_text(row, ("entity_type", "entity", "record_type", "resource_type"))
+    if explicit:
+        return explicit
+    if _trimmed(row.get("job_id")):
+        return "job"
+    if _trimmed(row.get("machine_id")):
+        return "machine"
+    if _trimmed(row.get("product_id")):
+        return "product"
+    if _trimmed(row.get("material_id")):
+        return "material"
+    record_id = _business_record_identifier(row) or ""
+    if record_id.upper().startswith("JOB-"):
+        return "job"
+    if record_id.upper().startswith("M-"):
+        return "machine"
+    return "record"
+
+
+def _normalized_field_change(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    field = _first_text(value, ("field", "key", "name", "path"))
+    before = (
+        value.get("from")
+        if "from" in value
+        else value.get("from_value")
+        if "from_value" in value
+        else value.get("before")
+        if "before" in value
+        else value.get("old_value")
+    )
+    after = (
+        value.get("to")
+        if "to" in value
+        else value.get("to_value")
+        if "to_value" in value
+        else value.get("after")
+        if "after" in value
+        else value.get("new_value")
+    )
+    if not field and before in (None, "") and after in (None, ""):
+        return None
+    label = _first_text(value, ("label", "display_label", "field_label")) or _human_status_label(field)
+    out: dict[str, Any] = {
+        "field": field or "value",
+        "label": label,
+    }
+    if before not in (None, ""):
+        out["from"] = before
+    if after not in (None, ""):
+        out["to"] = after
+    return out
+
+
+def _row_field_changes(row: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = row.get("field_changes")
+    if raw is None:
+        raw = row.get("changes")
+    if not isinstance(raw, list):
+        return []
+    changes: list[dict[str, Any]] = []
+    for value in raw:
+        change = _normalized_field_change(value)
+        if change is not None:
+            changes.append(change)
+    return changes
+
+
+def _group_common_text(group: MutationGroup, keys: tuple[str, ...]) -> str:
+    for row in group.rows:
+        value = _first_text(row, keys)
+        if value:
+            return value
+    return ""
+
+
+def _group_entity_type(group: MutationGroup) -> str:
+    if _is_no_op_group(group):
+        return _trimmed(group.entity_type) or "record"
+    explicit = _group_common_text(group, ("entity_type", "entity", "record_type", "resource_type"))
+    if explicit:
+        return explicit
+    for row in group.rows:
+        entity_type = _row_entity_type(row)
+        if entity_type and entity_type != "record":
+            return entity_type
+    return "record"
+
+
+def _group_has_business_change_contract(group: MutationGroup) -> bool:
+    return any(_row_has_business_change_contract(row) for row in group.rows)
+
+
+def _group_field_changes(group: MutationGroup) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    changes: list[dict[str, Any]] = []
+    for row in group.rows:
+        for change in _row_field_changes(row):
+            key = json.dumps(change, sort_keys=True, default=str)
+            if key in seen:
+                continue
+            seen.add(key)
+            changes.append(change)
+    return changes
+
+
+def _field_changes_summary(changes: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for change in changes:
+        label = _trimmed(change.get("label") or change.get("field")) or "Value"
+        before = _trimmed(change.get("from"))
+        after = _trimmed(change.get("to"))
+        if before and after:
+            parts.append(f"{label}: {before} -> {after}")
+        elif after:
+            parts.append(f"{label}: {after}")
+        elif before:
+            parts.append(f"{label}: {before}")
+    return "; ".join(parts)
+
+
 def _business_row_dedupe_key(row: dict[str, Any]) -> str | None:
     record_id = _business_record_identifier(row)
     if not record_id:
         return None
+    if _row_has_business_change_contract(row):
+        return json.dumps(
+            [
+                BUSINESS_CHANGE_CONTRACT,
+                record_id,
+                _first_text(row, ("business_change_id", "change_id", "business_id")),
+                _row_field_changes(row),
+                _normalize_row_status(row.get("status"), default=""),
+            ],
+            sort_keys=True,
+            default=str,
+        )
     source = _source_priority(row)
     target = _target_priority(row)
     status = _normalize_row_status(row.get("status"), default="")
@@ -1641,6 +1820,9 @@ def _priority_label(value: str) -> str:
 def _business_change_label(group: MutationGroup, *, index: int) -> str:
     if _is_no_op_group(group):
         return "Not changed"
+    explicit = _group_common_text(group, ("business_change", "business_change_label", "change_label"))
+    if explicit:
+        return explicit
     sources = {_source_priority(row) for row in group.rows if _source_priority(row)}
     targets = {_target_priority(row) for row in group.rows if _target_priority(row)}
     if len(sources) == 1 and len(targets) == 1:
@@ -1656,11 +1838,43 @@ def _business_change_summary(group: MutationGroup, *, index: int) -> str:
         return _noop_change_summary(group)
     label = _business_change_label(group, index=index)
     count = len(group.rows)
-    noun = "jobs" if _mutation_total_noun([group]) == "jobs" else _plural(count, "record")
+    if _group_has_business_change_contract(group):
+        noun = _entity_noun(_group_entity_type(group), count)
+    else:
+        noun = "jobs" if _mutation_total_noun([group]) == "jobs" else _plural(count, "record")
     return f"{label}: {count} {noun}"
 
 
 def _clean_business_mutation_row(row: dict[str, Any], *, business_change: str) -> dict[str, Any]:
+    if _row_has_business_change_contract(row):
+        clean: dict[str, Any] = {"business_change": business_change}
+        record_id = _business_record_identifier(row)
+        if record_id:
+            clean["record_id"] = record_id
+        display_id = _first_text(row, ("display_id", "display_name", "name", "label")) or record_id
+        if display_id:
+            clean["display_id"] = display_id
+        entity_type = _row_entity_type(row)
+        if entity_type:
+            clean["entity_type"] = entity_type
+        business_change_id = _first_text(row, ("business_change_id", "change_id", "business_id"))
+        if business_change_id:
+            clean["business_change_id"] = business_change_id
+        changes = _row_field_changes(row)
+        if changes:
+            clean["field_changes"] = changes
+            summary = _field_changes_summary(changes)
+            if summary:
+                clean["change"] = summary
+        status = _normalize_row_status(row.get("status"), default="")
+        if status:
+            clean["status"] = status
+            clean["outcome"] = status
+        error = _trimmed(row.get("error"))
+        if error and status == "failed":
+            clean["error"] = _redact_sensitive_text(error)
+        return clean
+
     clean: dict[str, Any] = {}
     record_id = _business_record_identifier(row)
     if record_id:
@@ -1686,6 +1900,22 @@ def _clean_business_mutation_row(row: dict[str, Any], *, business_change: str) -
     return clean
 
 
+def _business_change_contract_payload(group: MutationGroup, *, index: int) -> dict[str, Any]:
+    if not _group_has_business_change_contract(group):
+        return {}
+    field_changes = _group_field_changes(group)
+    return {
+        "contract": BUSINESS_CHANGE_CONTRACT,
+        "business_change_id": _group_common_text(group, ("business_change_id", "change_id", "business_id"))
+        or f"business-change-{index}",
+        "entity_type": _group_entity_type(group),
+        "change_type": _group_common_text(group, ("change_type", "mutation_type", "operation_type")) or "update",
+        "selector_summary": _group_common_text(group, ("selector_summary", "selector", "filter_summary")),
+        "source_state_basis": _group_common_text(group, ("source_state_basis", "basis", "state_basis")) or "current",
+        "field_changes": field_changes,
+    }
+
+
 def _mutation_business_payloads(groups: list[MutationGroup]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     group_payloads: list[dict[str, Any]] = []
     all_rows: list[dict[str, Any]] = []
@@ -1701,9 +1931,11 @@ def _mutation_business_payloads(groups: list[MutationGroup]) -> tuple[list[dict[
             "record_count": _mutation_group_record_count(group),
             "rows": rows,
         }
+        group_payload.update(_business_change_contract_payload(group, index=index))
         if _is_no_op_group(group):
             group_payload.update(
                 {
+                    "contract": NO_OP_MUTATION_CONTRACT,
                     "entity_type": group.entity_type,
                     "selector_summary": group.selector_summary,
                     "change_summary": group.change_summary,
@@ -1760,6 +1992,13 @@ def _mutation_total_noun(groups: list[MutationGroup]) -> str:
         if len(entity_types) == 1:
             return _entity_noun(next(iter(entity_types)), 2)
         return "records"
+    contract_entity_types = {
+        _group_entity_type(group)
+        for group in groups
+        if _group_has_business_change_contract(group) and _group_entity_type(group)
+    }
+    if len(contract_entity_types) == 1:
+        return _entity_noun(next(iter(contract_entity_types)), len(all_rows))
     if all(_row_identifier(row).upper().startswith("JOB-") for row in all_rows if _row_identifier(row)):
         return "jobs"
     return "records"
@@ -1996,6 +2235,7 @@ def _status_result_from_read_rows(
         include=_status_request_wants_full_details(session),
     )
     return {
+        "contract": ENTITY_STATUS_CONTRACT,
         "operation_id": operation_id,
         "title": f"{entity_label} status",
         "summary": summary,
@@ -2386,6 +2626,15 @@ def _aggregate_step_payloads(groups: list[MutationGroup]) -> list[dict[str, Any]
     return payloads
 
 
+def _mutation_business_contract(groups: list[MutationGroup], *, state: str, latest_pending: ApprovalResponse | None) -> str | None:
+    if not groups or state != "completed" or latest_pending is not None:
+        return None
+    changed_groups = [group for group in groups if not _is_no_op_group(group)]
+    if changed_groups and all(_group_has_business_change_contract(group) for group in changed_groups):
+        return BUSINESS_CHANGE_CONTRACT
+    return "business_level_v1"
+
+
 def _short_message(
     *,
     state: str,
@@ -2579,6 +2828,10 @@ def _compose_blocks(
         status = "partial_failure" if any(group.status == "partial_failure" for group in mutation_groups) else "completed"
         if any(group.status == "failed" for group in mutation_groups) and not any(group.status == "completed" for group in mutation_groups):
             status = "failed"
+        changed_groups = [group for group in mutation_groups if not _is_no_op_group(group)]
+        all_changed_groups_are_typed = bool(changed_groups) and all(
+            _group_has_business_change_contract(group) for group in changed_groups
+        )
         business_groups, business_rows = _mutation_business_payloads(mutation_groups)
         result_rows = business_rows if status == "completed" else all_rows
         blocks.append(
@@ -2595,6 +2848,7 @@ def _compose_blocks(
         blocks.append(
             MutationResultBlock(
                 id=f"mutation:{operation_id or anchor}",
+                contract=BUSINESS_CHANGE_CONTRACT if all_changed_groups_are_typed else None,
                 operation_id=operation_id,
                 approval_id=presentation.approval_id,
                 title="Not changed" if all_no_op else "Affected records" if status == "completed" else "Mutation result",
@@ -2624,6 +2878,7 @@ def _compose_blocks(
         blocks.append(
             StatusResultBlock(
                 id=f"status:{operation_id or document_id}",
+                contract=ENTITY_STATUS_CONTRACT,
                 operation_id=status_result.get("operation_id") or operation_id,
                 title=_trimmed(status_result.get("title")) or "Status",
                 summary=_trimmed(status_result.get("summary")) or message,
@@ -2805,13 +3060,17 @@ def compose_response_document(
         "mutation_group_count": len(mutation_groups),
         "not_changed_group_count": len(no_op_mutation_groups) if no_op_mutation_groups else None,
         "no_op_mutation_count": len(no_op_mutation_groups) if no_op_mutation_groups else None,
-        "no_op_mutation_contract": "entity_agnostic_no_matching_records_v1" if no_op_mutation_groups else None,
-        "mutation_business_contract": "business_level_v1" if mutation_groups and state == "completed" and not latest_pending else None,
+        "no_op_mutation_contract": NO_OP_MUTATION_CONTRACT if no_op_mutation_groups else None,
+        "mutation_business_contract": _mutation_business_contract(
+            mutation_groups,
+            state=state,
+            latest_pending=latest_pending,
+        ),
         "affected_record_count": sum(len(group.rows) for group in changed_mutation_groups) if mutation_groups else None,
         "approved_business_change_count": len(changed_mutation_groups) if mutation_groups and not latest_pending else None,
         "affected_record_preview_limit": 5 if mutation_groups else None,
         "read_result_shape": read_shape,
-        "read_status_contract": "entity_status_v1" if status_result else None,
+        "read_status_contract": ENTITY_STATUS_CONTRACT if status_result else None,
         "read_status_entity_type": status_result.get("entity_type") if status_result else None,
         "failure_reason": failure_profile.reason if failure_profile else None,
         "orphan_turn_state": (

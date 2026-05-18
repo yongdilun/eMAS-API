@@ -266,13 +266,13 @@ Phase 21 is a backend-readiness phase, not a prompt-volume phase. It prepares Op
 
 ## Response Document Phase 22 Generic Contract Prompt Classes
 
-Phase 22 creates the backend-first generic contracts before existing flows are migrated. Add executable entries only when the contract phase starts.
+Phase 22 creates the backend-first generic contracts before existing flows are migrated. These entries are executable backend contract proofs only; they do not claim Phase 24 entity diversity.
 
 | Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
 |---|---|---|---|
-| `response-document-phase22-entity-status-contract` | Contract fixture for a read-only single-entity status answer. | Emits `entity_status_v1` with `entity_type`, `entity_id`, `primary_status`, human fields, no approval UI, and no raw assistant/API dump labels. Machine status is accepted as one example, not the schema itself. | Backend response-document contract first; focused frontend renderer only if needed. |
-| `response-document-phase22-business-change-contract` | Contract fixture for a completed mutation business-change group. | Emits `business_change_v1` with entity type, change type, ordered field changes, selector/source-state basis, display id, row outcome, and no summary-prose inference. | Backend response-document contract first; focused frontend renderer only if needed. |
-| `response-document-phase22-safe-non-job-noop-contract` | Safe synthetic or fixture-level no-op for a non-job entity. | Emits generic no-match/no-op evidence with `Not changed`, no approval for zero-match groups, no fake success, and no mutation/audit rows for the no-op group. | Backend response-document contract; no broad write behavior required. |
+| `response-document-phase22-entity-status-contract` | Contract fixture for a read-only single-entity status answer. | Emits `entity_status_v1` with `entity_type`, `entity_id`, `primary_status`, human fields, no approval UI, and no raw assistant/API dump labels. Machine status is accepted as one example, not the schema itself. | Covered: `factory-agent/tests/test_response_document_contract.py::test_response_document_schema_validates_phase22_generic_contracts`; `test_entity_status_v1_contract_is_not_machine_specific`; existing machine-status guard asserts the block contract without migrating the frontend proof. |
+| `response-document-phase22-business-change-contract` | Contract fixture for a completed mutation business-change group. | Emits `business_change_v1` with entity type, change type, ordered field changes, selector/source-state basis, display id, row outcome, and no summary-prose inference. | Covered: `factory-agent/tests/test_response_document_contract.py::test_business_change_v1_uses_typed_mutation_fields_without_summary_prose`; full backend contract lane passed. |
+| `response-document-phase22-safe-non-job-noop-contract` | Safe synthetic or fixture-level no-op for a non-job entity. | Emits generic no-match/no-op evidence with `Not changed`, no approval for zero-match groups, no fake success, and no mutation/audit rows for the no-op group. | Covered: `factory-agent/tests/test_response_document_contract.py::test_safe_non_job_noop_contract_proof_completes_without_approval`; no broad write behavior added. |
 
 ## Response Document Phase 23 Migration Prompt Classes
 

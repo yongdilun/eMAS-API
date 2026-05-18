@@ -15,11 +15,15 @@ from factory_agent.persistence.models import Approval, Message, Plan, PlanStep, 
 from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import ResponseDocument
 from factory_agent.services.response_document_service import (
+    BUSINESS_CHANGE_CONTRACT,
+    ENTITY_STATUS_CONTRACT,
     MutationGroup,
+    NO_OP_MUTATION_CONTRACT,
     _business_change_order_from_text,
     _business_change_summary,
     _business_group_sort_key,
     _merge_mutation_groups_by_business_change,
+    _status_result_from_read_rows,
 )
 from factory_agent.services.session_snapshot_service import SessionSnapshotService
 
@@ -476,6 +480,122 @@ def test_response_document_schema_validates_phase_1_block_types():
         "source_list",
         "diagnostic",
     }
+
+
+def test_response_document_schema_validates_phase22_generic_contracts():
+    document = ResponseDocument.model_validate(
+        {
+            "id": "rd:phase22:turn-1",
+            "document_id": "rd:phase22:turn-1",
+            "turn_id": "turn-1",
+            "operation_id": "op-phase22",
+            "revision": 1,
+            "revision_source": "event_seq",
+            "state": "completed",
+            "status": "completed",
+            "summary": "Product P-RD-001 is active.",
+            "message": "Product P-RD-001 is active.",
+            "blocks": [
+                {
+                    "id": "status:product",
+                    "type": "status_result",
+                    "contract": ENTITY_STATUS_CONTRACT,
+                    "summary": "Product P-RD-001 is active.",
+                    "entity_type": "product",
+                    "entity_id": "P-RD-001",
+                    "primary_status": "active",
+                    "fields": [
+                        {"key": "product_id", "label": "Product ID", "value": "P-RD-001"},
+                        {"key": "status", "label": "Status", "value": "active", "primary": True},
+                    ],
+                },
+                {
+                    "id": "mutation:material",
+                    "type": "mutation_result",
+                    "contract": BUSINESS_CHANGE_CONTRACT,
+                    "summary": "Material hold status: 1 material",
+                    "rows": [
+                        {
+                            "record_id": "MAT-RD-001",
+                            "display_id": "Material MAT-RD-001",
+                            "business_change": "Material hold status",
+                            "business_change_id": "bc-material-hold",
+                            "entity_type": "material",
+                            "field_changes": [
+                                {
+                                    "field": "hold_status",
+                                    "label": "Hold status",
+                                    "from": "available",
+                                    "to": "quality_hold",
+                                }
+                            ],
+                            "outcome": "succeeded",
+                            "status": "succeeded",
+                        }
+                    ],
+                    "groups": [
+                        {
+                            "contract": BUSINESS_CHANGE_CONTRACT,
+                            "business_change": "Material hold status",
+                            "business_change_id": "bc-material-hold",
+                            "entity_type": "material",
+                            "change_type": "update",
+                            "selector_summary": "material_id = MAT-RD-001",
+                            "source_state_basis": "current_state",
+                            "field_changes": [
+                                {
+                                    "field": "hold_status",
+                                    "label": "Hold status",
+                                    "from": "available",
+                                    "to": "quality_hold",
+                                }
+                            ],
+                            "summary": "Material hold status: 1 material",
+                            "record_count": 1,
+                            "rows": [],
+                        }
+                    ],
+                },
+            ],
+        }
+    )
+
+    payload = document.model_dump(mode="json")
+    status = next(block for block in payload["blocks"] if block["type"] == "status_result")
+    mutation = next(block for block in payload["blocks"] if block["type"] == "mutation_result")
+
+    assert status["contract"] == ENTITY_STATUS_CONTRACT
+    assert status["entity_type"] == "product"
+    assert mutation["contract"] == BUSINESS_CHANGE_CONTRACT
+    assert mutation["groups"][0]["contract"] == BUSINESS_CHANGE_CONTRACT
+    assert mutation["groups"][0]["field_changes"][0]["field"] == "hold_status"
+
+
+def test_entity_status_v1_contract_is_not_machine_specific():
+    session = type("StatusProbe", (), {"current_intent": "What is the status of product P-RD-001?"})()
+
+    status = _status_result_from_read_rows(
+        [
+            {
+                "productID": "P-RD-001",
+                "name": "Widget",
+                "status": "ACTIVE",
+                "tool_name": "get__products_{id}",
+            }
+        ],
+        operation_id="op-product-status",
+        session=session,
+    )
+
+    assert status is not None
+    assert status["contract"] == ENTITY_STATUS_CONTRACT
+    assert status["entity_type"] == "product"
+    assert status["entity_id"] == "P-RD-001"
+    assert status["primary_status"] == "active"
+    assert [(field["key"], field["label"], field["value"]) for field in status["fields"]] == [
+        ("product_id", "Product ID", "P-RD-001"),
+        ("status", "Status", "active"),
+    ]
 
 
 def test_response_document_schema_rejects_missing_required_fields():
@@ -946,6 +1066,108 @@ async def test_final_completed_mutation_document_aggregates_all_approved_changes
 
 
 @pytest.mark.asyncio
+async def test_business_change_v1_uses_typed_mutation_fields_without_summary_prose(db_session):
+    created_at = datetime(2026, 5, 18, 13, 10, 0)
+    session_id = "rd-business-change-v1"
+    plan_id = "rd-business-change-v1-plan"
+    approval_id = "approval-rd-business-change-v1"
+    typed_change = {
+        "contract": BUSINESS_CHANGE_CONTRACT,
+        "business_change_id": "bc-material-hold",
+        "business_change": "Material hold status",
+        "entity_type": "material",
+        "change_type": "update",
+        "selector_summary": "material_id = MAT-RD-001",
+        "source_state_basis": "current_state",
+        "record_id": "MAT-RD-001",
+        "display_id": "Material MAT-RD-001",
+        "field_changes": [
+            {
+                "field": "hold_status",
+                "label": "Hold status",
+                "from": "available",
+                "to": "quality_hold",
+            }
+        ],
+        "status": "succeeded",
+    }
+    db_session.add_all(
+        [
+            _session(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                event_seq=12,
+                status="COMPLETED",
+                current_intent="Put material MAT-RD-001 on quality hold",
+            ),
+            _user_message(session_id=session_id, created_at=created_at, content="Put material MAT-RD-001 on quality hold"),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _approval(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                approval_id=approval_id,
+                status="APPROVED",
+                args={
+                    "summary": "Put one material on quality hold.",
+                    "bundle_ui": {
+                        "write_set": "material_quality_hold",
+                        "rows": [typed_change],
+                    },
+                },
+                risk_summary="Put one material on quality hold.",
+                decided_at=created_at + timedelta(seconds=2),
+            ),
+            _write_step(
+                session_id=session_id,
+                plan_id=plan_id,
+                step_id="rd-business-change-v1-write",
+                step_index=0,
+                completed_at=created_at + timedelta(seconds=3),
+                approval_id=approval_id,
+                outcomes=[typed_change],
+            ),
+            _assistant_message(
+                session_id=session_id,
+                content="The backend operation completed.",
+                step_id=plan_id,
+                created_at=created_at + timedelta(seconds=4),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    document = (await _snapshot(db_session, session_id))["response_document"]
+    mutation = next(block for block in document["blocks"] if block["type"] == "mutation_result")
+    group = mutation["groups"][0]
+    row = group["rows"][0]
+
+    assert document["state"] == "completed"
+    assert document["message"] == "Done. I updated 1 material across 1 approved business change."
+    assert document["invariants"]["mutation_business_contract"] == BUSINESS_CHANGE_CONTRACT
+    assert mutation["contract"] == BUSINESS_CHANGE_CONTRACT
+    assert group["contract"] == BUSINESS_CHANGE_CONTRACT
+    assert group["business_change"] == "Material hold status"
+    assert group["business_change_id"] == "bc-material-hold"
+    assert group["entity_type"] == "material"
+    assert group["change_type"] == "update"
+    assert group["selector_summary"] == "material_id = MAT-RD-001"
+    assert group["source_state_basis"] == "current_state"
+    assert group["field_changes"] == [
+        {"field": "hold_status", "label": "Hold status", "from": "available", "to": "quality_hold"}
+    ]
+    assert row["record_id"] == "MAT-RD-001"
+    assert row["display_id"] == "Material MAT-RD-001"
+    assert row["outcome"] == "succeeded"
+    assert row["field_changes"] == group["field_changes"]
+    assert "job_id" not in row
+    assert "from_priority" not in row
+    assert "to_priority" not in row
+    assert "The backend operation completed" not in json.dumps(document)
+
+
+@pytest.mark.asyncio
 async def test_partial_noop_plus_valid_mutation_is_visible_before_approval_and_final(db_session):
     created_at = datetime(2026, 5, 18, 13, 30, 0)
     session_id = "rd-partial-noop"
@@ -1154,6 +1376,73 @@ async def test_all_noop_mutation_completes_without_approval_or_fake_success(db_s
 
 
 @pytest.mark.asyncio
+async def test_safe_non_job_noop_contract_proof_completes_without_approval(db_session):
+    created_at = datetime(2026, 5, 18, 13, 50, 0)
+    session_id = "rd-material-noop"
+    plan_id = "rd-material-noop-plan"
+    no_op = _noop_contract(
+        entity_type="material",
+        selector_summary="material_id = MAT-404",
+        change_summary="hold_status -> quality_hold",
+    )
+    db_session.add_all(
+        [
+            _session(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                event_seq=9,
+                status="COMPLETED",
+                current_intent="Put material MAT-404 on quality hold",
+                replan_context={"intent_contract": {"no_op_mutations": [no_op]}},
+            ),
+            _user_message(session_id=session_id, created_at=created_at, content="Put material MAT-404 on quality hold"),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _read_step(
+                session_id=session_id,
+                plan_id=plan_id,
+                step_id="rd-material-noop-read",
+                completed_at=created_at + timedelta(seconds=2),
+                rows=[],
+                summary="No matching material was found.",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    document = (await _snapshot(db_session, session_id))["response_document"]
+    mutation = next(block for block in document["blocks"] if block["type"] == "mutation_result")
+    group = mutation["groups"][0]
+
+    assert document["state"] == "completed"
+    assert document["message"] == "No changes were made."
+    assert document["invariants"]["no_op_mutation_contract"] == NO_OP_MUTATION_CONTRACT
+    assert document["invariants"]["not_changed_group_count"] == 1
+    assert not any(block["type"] == "approval_required" for block in document["blocks"])
+    assert not any(step["kind"] == "approval" for step in document["run_steps"])
+    assert mutation["title"] == "Not changed"
+    assert mutation["rows"] == []
+    assert group["contract"] == NO_OP_MUTATION_CONTRACT
+    assert group["business_change"] == "Not changed"
+    assert group["entity_type"] == "material"
+    assert group["selector_summary"] == "material_id = MAT-404"
+    assert group["change_summary"] == "hold_status -> quality_hold"
+    assert group["matched_count"] == 0
+    assert group["changed_count"] == 0
+    assert group["status"] == "not_changed"
+    assert group["reason"] == "no_matching_records"
+
+    approvals = (await db_session.execute(select(Approval).where(Approval.session_id == session_id))).scalars().all()
+    write_steps = (
+        await db_session.execute(
+            select(PlanStep).where(PlanStep.session_id == session_id).where(PlanStep.requires_approval.is_(True))
+        )
+    ).scalars().all()
+    assert approvals == []
+    assert write_steps == []
+
+
+@pytest.mark.asyncio
 async def test_read_only_result_shape_is_deterministic_for_table_and_list(db_session):
     created_at = datetime(2026, 5, 18, 14, 0, 0)
     table_session = "rd-read-table"
@@ -1286,6 +1575,7 @@ async def test_machine_status_read_only_response_uses_typed_status_contract(db_s
     assert not any(block["type"] in {"approval_required", "mutation_result", "result_table", "record_preview"} for block in document["blocks"])
 
     status_block = next(block for block in document["blocks"] if block["type"] == "status_result")
+    assert status_block["contract"] == ENTITY_STATUS_CONTRACT
     assert status_block["title"] == "Machine status"
     assert status_block["summary"] == "Machine M-CNC-01 is running."
     assert status_block["entity_type"] == "machine"

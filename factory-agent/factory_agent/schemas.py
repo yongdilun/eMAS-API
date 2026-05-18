@@ -428,6 +428,7 @@ class ApprovalRequiredBlock(ResponseBlockBase):
 
 class MutationResultBlock(ResponseBlockBase):
     type: Literal["mutation_result"] = "mutation_result"
+    contract: Literal["business_change_v1"] | None = None
     operation_id: str | None = None
     approval_id: str | None = None
     title: str = "Mutation result"
@@ -470,6 +471,7 @@ class ResultTableBlock(ResponseBlockBase):
 
 class StatusResultBlock(ResponseBlockBase):
     type: Literal["status_result"] = "status_result"
+    contract: Literal["entity_status_v1"] = "entity_status_v1"
     operation_id: str | None = None
     title: str = Field(default="Status", min_length=1)
     summary: str = Field(min_length=1)
