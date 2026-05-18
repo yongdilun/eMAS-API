@@ -2,7 +2,12 @@ import { expect, test } from '@playwright/test'
 import { chatSelectors } from '../fixtures/selectors.js'
 import { responseDocumentTrafficPrompt } from '../fixtures/factoryAgentFixtures.js'
 import { expectTransitionCheckpoint } from '../support/factoryAgentTransitionOracle.js'
-import { pendingApprovalGuidanceProbeText, readOnlyStatusForbiddenProbeText, serializeSemanticProbe } from '../support/responseDocumentProbe.js'
+import {
+  documentContentRagForbiddenProbeText,
+  pendingApprovalGuidanceProbeText,
+  readOnlyStatusForbiddenProbeText,
+  serializeSemanticProbe,
+} from '../support/responseDocumentProbe.js'
 import {
   cascadeDefinition,
   forbiddenResponseDocumentText,
@@ -11,6 +16,7 @@ import {
   responseDocumentCascadePrompt,
   responseDocumentExpiredApprovalPrompt,
   responseDocumentLotoPrompt,
+  responseDocumentLotoNotificationPrompt,
   responseDocumentNoResultsPrompt,
   responseDocumentPartialNoOpPrompt,
   responseDocumentPartialFailurePrompt,
@@ -739,6 +745,50 @@ test.describe('Final response quality response_document gate', () => {
     await expect(page.getByText('M-CNC-01 Lockout/Tagout Procedure').first()).toBeVisible()
     await expect(page.getByText('LOTO-M-CNC-01').first()).toBeVisible()
     await expectForbiddenTextAbsent(page)
+  })
+
+  test('RD-009 response_document LOTO document content notification answer does not ask for machine ID', async ({ page }, testInfo) => {
+    await openChat(page)
+    await sendChatPrompt(page, responseDocumentLotoNotificationPrompt)
+    await expect(page.getByText(/affected employees to be notified before lockout\/tagout starts/i).first()).toBeVisible()
+    await expandActivity(page, 'Run complete')
+    await expect(page.getByText('Prepared sourced answer').first()).toBeVisible()
+    await expect(page.getByText('Knowledge sources').first()).toBeVisible()
+    await expect(page.getByText('LOTO Notification Requirements').first()).toBeVisible()
+    await expect(page.getByText('Which machine ID')).toHaveCount(0)
+    await expect(page.getByText('No results')).toHaveCount(0)
+
+    const summary = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-009 LOTO document content notification response contract',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['source_list'],
+        backendBlockTypes: ['knowledge_answer', 'source_list'],
+        hiddenBlockTypes: ['approval_required', 'diagnostic', 'status_result', 'mutation_result'],
+        hiddenBackendBlockTypes: ['approval_required', 'diagnostic', 'status_result', 'mutation_result'],
+        approvalActionCount: 0,
+        forbiddenText: documentContentRagForbiddenProbeText,
+        textIncludes: [
+          responseDocumentLotoNotificationPrompt,
+          'The LOTO procedure requires affected employees to be notified before lockout/tagout starts.',
+          'LOTO Notification Requirements',
+        ],
+        textExcludes: [
+          /Which machine ID/i,
+          /No results/i,
+          /completed_answer/i,
+          /Approval required/i,
+        ],
+      },
+    })
+    await testInfo.attach('rd-009-loto-document-content-semantic-probe.json', {
+      body: serializeSemanticProbe(summary),
+      contentType: 'application/json',
+    })
   })
 
   test('diagnostic documents cover no-result, partial failure, timeout, expired, and stale approvals', async ({ page }) => {

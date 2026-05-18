@@ -71,6 +71,7 @@ import {
   cascadeWaitingDocument,
   closedApprovalDocument,
   lotoDocument,
+  lotoNotificationDocument,
   noResultsDocument,
   partialFailureDocument,
   partialNoOpApprovalPayload,
@@ -85,6 +86,7 @@ import {
   responseDocumentCompatibilityPrompt,
   responseDocumentExpiredApprovalPrompt,
   responseDocumentLotoPrompt,
+  responseDocumentLotoNotificationPrompt,
   responseDocumentNoResultsPrompt,
   responseDocumentPartialNoOpPrompt,
   responseDocumentPartialFailurePrompt,
@@ -950,6 +952,14 @@ export const scenarioCatalog = {
     operationId: 'pw-plan-rd-loto',
     objective: 'Render response_document sourced LOTO answer.',
     buildDocument: lotoDocument,
+  }),
+
+  responseDocumentLotoNotification: responseDocumentCompletionScenario({
+    name: 'responseDocumentLotoNotification',
+    prompt: responseDocumentLotoNotificationPrompt,
+    operationId: 'pw-plan-rd-loto-notification',
+    objective: 'Render response_document document-content LOTO notification answer.',
+    buildDocument: lotoNotificationDocument,
   }),
 
   responseDocumentNoResults: responseDocumentCompletionScenario({

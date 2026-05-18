@@ -26,7 +26,7 @@ Created: 2026-05-18
 | 16 | Approval copy and pending guidance cleanup | Done | Codex | Removed always-visible pending-approval helper copy from normal approval cards and added component plus RD-001 semantic-probe assertions forbidding it. |
 | 17 | Entity-agnostic no-op mutation result contract | Done | Codex | Added typed no-op mutation groups with entity/selector/change/count fields, approval-safe partial and all-no-op backend contracts, and mocked browser semantic proof. |
 | 18 | Read-only status response contract | Done | Codex | Added generic typed `status_result` response-document blocks for read-only status answers, clean machine labels, frontend rendering/probes, and RD-008 browser proof. |
-| 19 | RAG question-type routing contract | Not Started | Codex | Separate document-content RAG questions from entity-specific procedure selection so LOTO/procedure questions do not wrongly require machine IDs. |
+| 19 | RAG question-type routing contract | Done | Codex | Added reusable semantic `question_type` routing before missing-entity checks, covered LOTO notification document-content prompts, preserved machine-specific LOTO/status controls, and added RD-009 browser semantic proof. |
 | 20 | Entity-specific overfitting audit | Not Started | Codex | Audit code, tests, fixtures, and docs for job/machine/product/material-specific fixes that should become generic contracts before Phase 21. |
 
 ## Current Blockers
@@ -36,7 +36,7 @@ Created: 2026-05-18
 - Phase 16 removed the always-visible helper sentence `Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.` from normal approval display.
 - No-data mutation steps now have an explicit Phase 17 no-op contract with visible `Not changed` groups, approval exclusion, and no mutation attempt for zero-match groups.
 - Read-only status response cleanup is complete for Phase 18. `Show status for machine with machine id M-CNC-01` now renders one typed `status_result` answer and forbids raw assistant markers, dump-style API labels, duplicate answer text, approval UI, and mutation UI.
-- LOTO document-content questions can still be misclassified as machine-specific procedure selection. Example: `According to the LOTO procedure, what notification is required before starting lockout` can ask for a machine ID instead of answering from RAG. Phase 19 fixes this class.
+- LOTO document-content question misclassification is fixed in Phase 19. `According to the LOTO procedure, what notification is required before starting lockout` now routes as document-content RAG/procedure content without requiring `machine_id`.
 - Several recent fixes are still at risk of becoming entity-specific special cases. Phase 20 audits job/machine/product/material-specific implementation, tests, and docs before Phase 21 is planned.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
@@ -1329,21 +1329,21 @@ npm run test:e2e:response-document -- --grep "machine status|read-only status|M-
 
 ## Phase 19 Checklist
 
-- [ ] Add semantic question-type classification before missing-entity clarification.
-- [ ] Distinguish `document_content_question`, `machine_specific_procedure_selection`, `safety_policy_question`, and `live_operational_status`.
-- [ ] Ensure machine ID is required only when the question type needs a specific machine.
-- [ ] Add route tests for LOTO/procedure notification document-content prompts.
-- [ ] Preserve existing machine-specific LOTO clarification behavior.
-- [ ] Preserve existing machine-status and job-routing behavior.
-- [ ] Add backend response-document/prompt workflow proof that document-content LOTO answers are not `No results` or machine-ID clarification.
-- [ ] Add focused browser or semantic-probe evidence for RD-009.
-- [ ] Update manual regression bank and tracker.
-- [ ] Run backend and frontend verification.
-- [ ] Commit Phase 19.
+- [x] Add semantic question-type classification before missing-entity clarification.
+- [x] Distinguish `document_content_question`, `machine_specific_procedure_selection`, `safety_policy_question`, and `live_operational_status`.
+- [x] Ensure machine ID is required only when the question type needs a specific machine.
+- [x] Add route tests for LOTO/procedure notification document-content prompts.
+- [x] Preserve existing machine-specific LOTO clarification behavior.
+- [x] Preserve existing machine-status and job-routing behavior.
+- [x] Add backend response-document/prompt workflow proof that document-content LOTO answers are not `No results` or machine-ID clarification.
+- [x] Add focused browser or semantic-probe evidence for RD-009.
+- [x] Update manual regression bank and tracker.
+- [x] Run backend and frontend verification.
+- [x] Commit Phase 19.
 
 ## Phase 19 Implementation Notes
 
-Status: Not Started
+Status: Done
 
 ### Known Bad Output
 
@@ -1376,6 +1376,57 @@ Adjacent prompts must still behave correctly:
 - `What LOTO procedure applies before working on M-CNC-01?` remains machine-specific LOTO/RAG.
 - `What LOTO procedure applies before working on the CNC machine?` can still ask for the exact machine ID.
 - `What is the status of M-CNC-01?` remains live machine-status tooling.
+
+### Product Bugs Found And Fixed
+
+- Document-content LOTO prompts such as `According to the LOTO procedure, what notification is required before starting lockout` were classified as machine-specific procedure selection and could ask for a machine ID. The semantic frame now sets `question_type=document_content_question` and routes to `rag.procedure` with empty `missing_required_entities`.
+- LOTO wording that explicitly negates status, such as `For M-CNC-01, tell me the lockout tagout steps, not the current machine status.`, briefly regressed during implementation because live-status wording outranked procedure-selection wording. Procedure-selection classification now outranks live-status classification when the prompt has explicit LOTO/procedure-selection evidence.
+- The mocked browser response-document LOTO fixture reused the manual-bank prompt `What LOTO procedure applies before working on M-CNC-01?`, which made prompt-regression browser tests hit the wrong fixture. The response-document fixture prompt is now distinct while the manual-bank prompt still exercises the seeded RAG route.
+
+### Product Fix
+
+- `factory_agent.planning.intent.SemanticFrame` now carries `question_type` with the reusable values `document_content_question`, `machine_specific_procedure_selection`, `safety_policy_question`, and `live_operational_status`.
+- Missing entity checks run after the question type is known. Document-content and safety-policy questions do not require `machine_id`; machine-specific procedure selection and live machine status still can.
+- LOTO notification prompts route to `rag.procedure` or `rag.safety_policy`, while machine-specific LOTO selection keeps `rag.loto_procedure` or `clarification.machine_id_missing`.
+- The same document-content contract is tested with maintenance instruction, quality procedure, SOP, and job instruction wording so the fix is not tied to one exact LOTO prompt.
+- Knowledge policy now has a LOTO notification fallback scoped by route family, topic, and notification evidence, avoiding empty/no-result output for this document-content class.
+- RD-009 browser coverage attaches a semantic probe proving a clean response-document RAG answer with knowledge/source evidence and no machine-ID clarification, no `No results`, and no `completed_answer` diagnostic.
+
+### Files Changed
+
+- `factory-agent/factory_agent/planning/intent.py`
+- `factory-agent/factory_agent/rag/knowledge_policy.py`
+- `factory-agent/tests/test_intent_splitter.py`
+- `factory-agent/tests/test_phase19_prompt_workflow_regression.py`
+- `factory-agent/tests/test_route_to_execution_contract.py`
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+- `eMas Front/e2e/support/responseDocumentProbe.js`
+- `eMas Front/e2e/support/responseDocumentScenarios.js`
+- `eMas Front/e2e/mock-server/fixtureStore.js`
+- `tests/e2e/scenarios/manual_prompt_regressions.json`
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+
+### Commands Run
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py tests/test_route_to_execution_contract.py -q
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+python -m pytest tests/test_rag_knowledge_policy.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "LOTO|document content|machine ID|notification"
+```
+
+### Test Results
+
+- Focused backend route/workflow lane: 113 passed.
+- Backend response-document lane: 28 passed.
+- Knowledge policy lane: 4 passed.
+- Frontend unit/component lane: 114 passed.
+- Focused response-document browser lane for `LOTO|document content|machine ID|notification`: 6 passed.
 
 ### Phase 19 Verification Target
 

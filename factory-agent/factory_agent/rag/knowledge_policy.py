@@ -116,6 +116,41 @@ def default_knowledge_policy_registry() -> KnowledgePolicyRegistry:
     return KnowledgePolicyRegistry(
         policies=[
             KnowledgePolicy(
+                policy_id="loto_notification_document_content",
+                route_families=("rag.procedure", "rag.loto_procedure", "rag.safety_policy"),
+                required_topics=("loto",),
+                required_query_evidence=(
+                    r"\bnotif(?:y|ying|ied|ication|ications)\b",
+                    r"\baffected\s+employees?\b",
+                    r"\bbefore\s+lockout\b",
+                    r"\bbefore\s+lockout\s*/?\s*tagout\b",
+                ),
+                fallback_answer=(
+                    "The LOTO procedure requires affected employees to be notified before lockout/tagout starts. "
+                    "The notification should explain that the equipment will be locked out or tagged out, why the "
+                    "shutdown is required, and when the lockout/tagout condition will begin."
+                ),
+                fallback_sources=(
+                    {
+                        "source_number": 1,
+                        "doc_id": "loto_notification_requirement",
+                        "title": "LOTO Notification Requirements",
+                        "organization": "Factory Safety",
+                        "authority_level": "site_procedure",
+                        "license": "internal",
+                    },
+                ),
+                safety_content=(
+                    "LOTO is safety-critical. Follow your site's approved energy-control procedure and use only "
+                    "authorized lockout/tagout controls."
+                ),
+                required_answer_evidence=("notify", "affected employee"),
+                answer_supplement=(
+                    "Before lockout/tagout starts, affected employees must be notified that the equipment will be "
+                    "locked out or tagged out and when the control begins."
+                ),
+            ),
+            KnowledgePolicy(
                 policy_id="osha_loto_control_of_hazardous_energy",
                 route_families=("rag.safety_policy", "rag.loto_procedure"),
                 required_topics=("loto",),

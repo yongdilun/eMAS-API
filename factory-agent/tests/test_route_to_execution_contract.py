@@ -242,6 +242,55 @@ async def test_loto_route_bypasses_live_machine_status_tools():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prompt", "expected_route", "expected_question_type"),
+    [
+        (
+            "According to the LOTO procedure, what notification is required before starting lockout",
+            "rag.procedure",
+            "document_content_question",
+        ),
+        (
+            "What does the LOTO procedure say about notifying affected employees?",
+            "rag.procedure",
+            "document_content_question",
+        ),
+        (
+            "Before lockout, who needs to be notified according to LOTO?",
+            "rag.procedure",
+            "document_content_question",
+        ),
+        (
+            "What are the notification requirements before lockout/tagout?",
+            "rag.procedure",
+            "document_content_question",
+        ),
+        (
+            "According to OSHA LOTO guidance, what notification is required before lockout?",
+            "rag.safety_policy",
+            "safety_policy_question",
+        ),
+    ],
+)
+async def test_loto_document_content_routes_to_rag_without_machine_id_clarification(
+    prompt,
+    expected_route,
+    expected_question_type,
+):
+    tools = {_machine_tool().name: _machine_tool(), _job_lookup_tool().name: _job_lookup_tool()}
+    selector = ToolSelector(_settings())
+    selection = await selector.select_tools(intent=prompt, tools_by_name=tools, max_tools=8)
+    frame = semantic_frame_for_text(prompt)
+
+    assert frame.route == expected_route
+    assert frame.question_type == expected_question_type
+    assert frame.missing_required_entities == []
+    assert "machine_id" not in frame.normalized_entities
+    assert "tool.read.machine_status" in (frame.negative_route_assertions or [])
+    assert selection.tool_names == []
+
+
+@pytest.mark.asyncio
 async def test_repeated_decision_guard_failures_emit_typed_diagnostic(monkeypatch):
     job_tool = _job_lookup_tool()
 

@@ -67,6 +67,14 @@ export const readOnlyStatusForbiddenProbeText = Object.freeze([
   { label: 'dump-style Utilizationrate label', pattern: /\bUtilizationrate\b/i },
 ])
 
+export const documentContentRagForbiddenProbeText = Object.freeze([
+  { label: 'machine ID clarification', pattern: /Which machine ID/i },
+  { label: 'exact machine ID clarification', pattern: /exact machine ID/i },
+  { label: 'no-results diagnostic', pattern: /\bNo results\b/i },
+  { label: 'completed_answer technical detail', pattern: /completed_answer/i },
+  { label: 'approval UI on RAG answer', pattern: /Approval required/i },
+])
+
 const DISPLAYABLE_BLOCK_TYPES = new Set([
   'approval_required',
   'approval_card',

@@ -3,7 +3,9 @@ export const responseDocumentCascadePrompt =
 export const responseDocumentReverseCascadePrompt =
   'change all high priority job to low then change all low priority job to medium'
 export const responseDocumentReadStatusPrompt = 'Show status for machine with machine id M-CNC-01'
-export const responseDocumentLotoPrompt = 'What LOTO procedure applies before working on M-CNC-01?'
+export const responseDocumentLotoPrompt = 'Render response_document LOTO procedure answer for M-CNC-01'
+export const responseDocumentLotoNotificationPrompt =
+  'According to the LOTO procedure, what notification is required before starting lockout'
 export const responseDocumentNoResultsPrompt = 'Find response_document jobs that do not exist'
 export const responseDocumentPartialFailurePrompt = 'Run response_document partial failure fixture'
 export const responseDocumentTimeoutPrompt = 'Run response_document planner timeout fixture'
@@ -644,6 +646,36 @@ export function lotoDocument(session) {
         ],
       },
     ],
+  })
+}
+
+export function lotoNotificationDocument(session) {
+  const answer = 'The LOTO procedure requires affected employees to be notified before lockout/tagout starts. Tell them the equipment will be locked out, why the shutdown is needed, and when the lockout condition begins.'
+  return baseDocument(session, {
+    operationId: 'pw-plan-rd-loto-notification',
+    revision: 3,
+    state: 'completed',
+    message: answer,
+    currentStepId: 'completed-loto-notification',
+    runSteps: [
+      { step_id: 'knowledge-loto-notification', kind: 'knowledge', state: 'completed', title: 'Prepared sourced answer', summary: '1 source attached.' },
+      { step_id: 'completed-loto-notification', kind: 'completed', state: 'completed', title: 'Run complete', summary: 'LOTO notification answer is ready.' },
+    ],
+    blocks: [
+      { id: 'knowledge:loto-notification', type: 'knowledge_answer', operation_id: 'pw-plan-rd-loto-notification', answer },
+      {
+        id: 'sources:loto-notification',
+        type: 'source_list',
+        operation_id: 'pw-plan-rd-loto-notification',
+        sources: [
+          { source_number: 1, title: 'LOTO Notification Requirements', doc_id: 'LOTO-NOTIFICATION-REQ', organization: 'Factory Safety' },
+        ],
+      },
+    ],
+    invariants: {
+      rag_question_type: 'document_content_question',
+      missing_required_entities: [],
+    },
   })
 }
 

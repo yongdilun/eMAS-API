@@ -24,6 +24,12 @@ SemanticRoute = Literal[
     "clarification.job_mutation_incomplete",
     "unknown",
 ]
+QuestionType = Literal[
+    "document_content_question",
+    "machine_specific_procedure_selection",
+    "safety_policy_question",
+    "live_operational_status",
+]
 
 _GREETING_RE = re.compile(
     r"^\s*(?:hi|hello|hey|yo|good morning|good afternoon|good evening|thanks|thank you)\b",
@@ -133,6 +139,26 @@ _LOTO_GENERAL_POLICY_RE = re.compile(
     r"\b(?:purpose|meaning|definition|define[sd]?|according\s+to|osha|regulation|standard|overview|general\s+guidance)\b",
     re.IGNORECASE,
 )
+_DOCUMENT_CONTENT_QUESTION_RE = re.compile(
+    r"\b(?:according\s+to|what\s+(?:does|do|is|are)|who\s+(?:needs?|must|should)\s+(?:be\s+)?(?:to\s+)?|"
+    r"when\s+(?:do|does|should|must|is|are)|how\s+(?:do|does|should|must)|why\s+|"
+    r"say(?:s)?\s+about|requires?|required|requirements?|notification|notify|notifying|notified|"
+    r"affected\s+employees?|purpose|meaning|definition|overview|summari[sz]e|describe|explain)\b",
+    re.IGNORECASE,
+)
+_PROCEDURE_SELECTION_HINT_RE = re.compile(
+    r"\b(?:which|what)\s+(?:[\w/()-]+\s+){0,8}?(?:procedure|procedures|sop|steps?|instructions?)\s+"
+    r"(?:appl(?:y|ies)|should\s+i\s+follow|do\s+i\s+need|is\s+required|to\s+use)\b|"
+    r"\b(?:procedure|procedures|sop|steps?|instructions?)\s+"
+    r"(?:for|to\s+use|before\s+(?:working|servicing|service|maintenance|touching))\b",
+    re.IGNORECASE,
+)
+_MACHINE_SPECIFIC_PROCEDURE_CONTEXT_RE = re.compile(
+    r"\b(?:machine|equipment|asset|cnc|spindle|enclosure)\b|"
+    r"\bworking\s+on\b|"
+    r"\bbefore\s+(?:working|servicing|service|maintenance|touching)\b",
+    re.IGNORECASE,
+)
 _LINE_REF_RE = re.compile(r"\bline\s+([A-Z0-9-]+|\d+)\b", re.IGNORECASE)
 _PRIORITY_WORD_RE = re.compile(r"\b(low|medium|high|urgent)[\s-]+(?:priority\b|jobs?\b)|\bpriority\s+(?:is\s+|=|to\s+|as\s+)?(low|medium|high|urgent)\b", re.IGNORECASE)
 _PRIORITY_TO_RE = re.compile(r"\bpriority\s+(?:to|as|=|is)\s+(low|medium|high|urgent)\b", re.IGNORECASE)
@@ -183,6 +209,7 @@ class SemanticFrame:
     missing_required_entities: list[str]
     route: SemanticRoute
     confidence: float
+    question_type: QuestionType | None = None
     clarification_reason: str | None = None
     negative_route_assertions: list[str] | None = None
     requires_approval: bool = False
@@ -628,20 +655,67 @@ def _first_machine_id_from_previous(previous_texts: Sequence[str] | None) -> str
     return None
 
 
-def _is_loto_procedure_request(raw: str, machine_ids: Sequence[str]) -> bool:
-    if not is_loto_query(raw):
+def _is_live_operational_status_question(
+    raw: str,
+    *,
+    entity: str | None,
+    normalized: dict[str, list[str]],
+) -> bool:
+    return bool(
+        _LIVE_STATE_REQUEST_RE.search(raw)
+        and (
+            entity == "machine"
+            or normalized.get("machine_id")
+            or normalized.get("machine_ref")
+            or _MACHINE_HINT.search(raw)
+        )
+    )
+
+
+def _is_document_content_question(raw: str) -> bool:
+    if _LIVE_STATE_REQUEST_RE.search(raw) and not _DOCUMENT_PROCEDURE_HINT_RE.search(raw):
         return False
+    if is_loto_query(raw) and _DOCUMENT_CONTENT_QUESTION_RE.search(raw):
+        return True
+    return bool(
+        _DOCUMENT_PROCEDURE_HINT_RE.search(raw)
+        and _QUESTION_RE.search(raw)
+        and _DOCUMENT_CONTENT_QUESTION_RE.search(raw)
+    )
+
+
+def _is_machine_specific_procedure_selection(
+    raw: str,
+    *,
+    normalized: dict[str, list[str]],
+) -> bool:
     if _STATUS_MACHINE_REQUEST_RE.search(raw) and not _LOTO_PROCEDURE_CONTEXT_RE.search(raw):
         return False
-    if machine_ids:
-        return True
-    if _LOTO_GENERAL_POLICY_RE.search(raw) and not re.search(
-        r"\b(?:appl(?:y|ies)|before|working\s+on|service|servicing|maintenance|machine|equipment|asset|cnc|line|steps?|instructions?)\b",
-        raw,
-        re.IGNORECASE,
-    ):
+    if not (_PROCEDURE_SELECTION_HINT_RE.search(raw) or (is_loto_query(raw) and normalized.get("machine_id"))):
         return False
-    return bool(_LOTO_PROCEDURE_CONTEXT_RE.search(raw))
+    return bool(
+        normalized.get("machine_id")
+        or normalized.get("machine_ref")
+        or _CONTEXTUAL_MACHINE_REF_RE.search(raw)
+        or _MACHINE_SPECIFIC_PROCEDURE_CONTEXT_RE.search(raw)
+    )
+
+
+def _question_type_for_text(
+    raw: str,
+    *,
+    entity: str | None,
+    normalized: dict[str, list[str]],
+) -> QuestionType | None:
+    if _is_machine_specific_procedure_selection(raw, normalized=normalized):
+        return "machine_specific_procedure_selection"
+    if _is_live_operational_status_question(raw, entity=entity, normalized=normalized):
+        return "live_operational_status"
+    if _is_safety_policy_request(raw):
+        return "safety_policy_question"
+    if _is_document_content_question(raw) or _is_document_procedure_request(raw):
+        return "document_content_question"
+    return None
 
 
 def _is_document_procedure_request(raw: str) -> bool:
@@ -700,6 +774,7 @@ def semantic_frame_for_text(text: str, *, previous_texts: Sequence[str] | None =
     _add_regex_entities(raw, normalized)
     action, entity = _semantic_action_entity(raw, intents, normalized)
     entities = _entities_payload(normalized)
+    question_type = _question_type_for_text(raw, entity=entity, normalized=normalized)
 
     if _DANGEROUS_UNSUPPORTED_RE.search(raw) and (
         re.search(r"\b(?:delete|remove|purge|drop|wipe|destroy)\b", raw, re.I)
@@ -748,7 +823,7 @@ def semantic_frame_for_text(text: str, *, previous_texts: Sequence[str] | None =
         )
 
     machine_ids = normalized.get("machine_id") or []
-    if _is_loto_procedure_request(raw, machine_ids):
+    if question_type == "machine_specific_procedure_selection":
         contextual_machine = None
         if not machine_ids and _CONTEXTUAL_MACHINE_REF_RE.search(raw):
             contextual_machine = _first_machine_id_from_previous(previous_texts)
@@ -757,8 +832,9 @@ def semantic_frame_for_text(text: str, *, previous_texts: Sequence[str] | None =
                 entities = _entities_payload(normalized)
                 machine_ids = [contextual_machine]
         if not machine_ids:
+            domain_intent = "loto_procedure" if is_loto_query(raw) else "document_procedure"
             return SemanticFrame(
-                domain_intent="loto_procedure",
+                domain_intent=domain_intent,
                 action="read",
                 entity="machine",
                 entities=entities,
@@ -766,23 +842,26 @@ def semantic_frame_for_text(text: str, *, previous_texts: Sequence[str] | None =
                 missing_required_entities=["machine_id"],
                 route="clarification.machine_id_missing",
                 confidence=0.88,
-                clarification_reason="machine_id is required for a machine-specific LOTO procedure",
-                negative_route_assertions=["rag.loto_procedure", "tool.read.machine_status"],
+                question_type=question_type,
+                clarification_reason="machine_id is required for a machine-specific procedure selection",
+                negative_route_assertions=["rag.loto_procedure", "rag.procedure", "tool.read.machine_status"],
             )
+        route: SemanticRoute = "rag.loto_procedure" if is_loto_query(raw) else "rag.procedure"
         return SemanticFrame(
-            domain_intent="loto_procedure",
+            domain_intent="loto_procedure" if is_loto_query(raw) else "document_procedure",
             action="read",
             entity="machine",
             entities=entities,
             normalized_entities=normalized,
             missing_required_entities=[],
-            route="rag.loto_procedure",
+            route=route,
             confidence=0.93 if contextual_machine is None else 0.9,
+            question_type=question_type,
             clarification_reason=None,
             negative_route_assertions=["tool.read.machine_status"],
         )
 
-    if _LIVE_STATE_REQUEST_RE.search(raw) and (entity == "machine" or normalized.get("machine_id") or _MACHINE_HINT.search(raw)):
+    if question_type == "live_operational_status":
         if not machine_ids and not normalized.get("machine_ref"):
             return SemanticFrame(
                 domain_intent="machine_status",
@@ -793,6 +872,7 @@ def semantic_frame_for_text(text: str, *, previous_texts: Sequence[str] | None =
                 missing_required_entities=["machine_id"],
                 route="clarification.machine_id_missing",
                 confidence=0.82,
+                question_type=question_type,
                 clarification_reason="machine_id is required for live machine status",
                 negative_route_assertions=["tool.read.machine_status", "rag.loto_procedure"],
             )
@@ -805,8 +885,39 @@ def semantic_frame_for_text(text: str, *, previous_texts: Sequence[str] | None =
             missing_required_entities=[],
             route="tool.read.machine_status",
             confidence=0.91,
+            question_type=question_type,
             clarification_reason=None,
             negative_route_assertions=["rag.loto_procedure", "rag.procedure", "rag.safety_policy"],
+        )
+
+    if question_type == "safety_policy_question":
+        return SemanticFrame(
+            domain_intent="safety_policy",
+            action="read",
+            entity=None if is_loto_query(raw) else entity,
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="rag.safety_policy",
+            confidence=0.84,
+            question_type=question_type,
+            clarification_reason=None,
+            negative_route_assertions=["tool.read.machine_status"] if is_loto_query(raw) else ["tool.write.jobs"],
+        )
+
+    if question_type == "document_content_question":
+        return SemanticFrame(
+            domain_intent="document_procedure",
+            action="read",
+            entity=entity,
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="rag.procedure",
+            confidence=0.82,
+            question_type=question_type,
+            clarification_reason=None,
+            negative_route_assertions=["tool.read.machine_status"],
         )
 
     if _is_job_mutation_request(raw, action):
@@ -839,48 +950,6 @@ def semantic_frame_for_text(text: str, *, previous_texts: Sequence[str] | None =
             negative_route_assertions=["tool.write.jobs"],
         )
 
-    if is_loto_query(raw) and _is_safety_policy_request(raw):
-        return SemanticFrame(
-            domain_intent="safety_policy",
-            action="read",
-            entity=None,
-            entities=entities,
-            normalized_entities=normalized,
-            missing_required_entities=[],
-            route="rag.safety_policy",
-            confidence=0.84,
-            clarification_reason=None,
-            negative_route_assertions=["tool.read.machine_status"],
-        )
-
-    if _is_safety_policy_request(raw):
-        return SemanticFrame(
-            domain_intent="safety_policy",
-            action="read",
-            entity=entity,
-            entities=entities,
-            normalized_entities=normalized,
-            missing_required_entities=[],
-            route="rag.safety_policy",
-            confidence=0.84,
-            clarification_reason=None,
-            negative_route_assertions=["tool.write.jobs"],
-        )
-
-    if _is_document_procedure_request(raw):
-        return SemanticFrame(
-            domain_intent="document_procedure",
-            action="read",
-            entity=entity,
-            entities=entities,
-            normalized_entities=normalized,
-            missing_required_entities=[],
-            route="rag.procedure",
-            confidence=0.82,
-            clarification_reason=None,
-            negative_route_assertions=["tool.read.machine_status"],
-        )
-
     return SemanticFrame(
         domain_intent=None,
         action=action,
@@ -905,7 +974,8 @@ def should_clarify_loto_machine(text: str) -> bool:
 
 
 def should_route_loto_to_rag(text: str) -> bool:
-    return semantic_frame_for_text(text).route == "rag.loto_procedure"
+    frame = semantic_frame_for_text(text)
+    return is_loto_query(text) and frame.route in {"rag.loto_procedure", "rag.procedure", "rag.safety_policy"}
 
 
 def resolve_contextual_loto_machine_id(text: str, previous_texts: Sequence[str]) -> str | None:

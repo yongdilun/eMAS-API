@@ -1,8 +1,12 @@
 import json
 from pathlib import Path
 
+import httpx
 import pytest
+from fastapi import FastAPI
 
+import database
+from factory_agent.api import build_router
 from factory_agent.api.routers.messages import _CANCEL_COMMAND_RE
 from factory_agent.config import Settings
 from factory_agent.planning.intent import (
@@ -15,6 +19,7 @@ from factory_agent.planning.intent import (
     should_route_loto_to_rag,
 )
 from factory_agent.planning.tool_selector import ToolSelector
+from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import ToolInfo
 from factory_agent.testing_seeded_adapters import SeededPlaywrightPlanner, SeededPlaywrightRAGPipeline
 from tests.support.stateful_oracle_harness import load_oracle
@@ -22,6 +27,24 @@ from tests.support.stateful_oracle_harness import load_oracle
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BANK_PATH = REPO_ROOT / "tests" / "e2e" / "scenarios" / "manual_prompt_regressions.json"
+PHASE19_NOTIFICATION_PROMPTS = [
+    "According to the LOTO procedure, what notification is required before starting lockout",
+    "What does the LOTO procedure say about notifying affected employees?",
+    "Before lockout, who needs to be notified according to LOTO?",
+    "What are the notification requirements before lockout/tagout?",
+    "According to OSHA LOTO guidance, what notification is required before lockout?",
+]
+
+
+class FakeEventBus:
+    def __init__(self):
+        self.published = []
+
+    async def publish(self, event):
+        self.published.append(event)
+
+    async def listen(self, handler):
+        return
 
 
 def _load_bank():
@@ -48,6 +71,33 @@ def _settings(**overrides):
     values = base.__dict__.copy()
     values.update(overrides)
     return Settings(**values)
+
+
+async def _make_phase19_app(sessionmaker_override, *, rag_pipeline_adapter):
+    settings = _settings(
+        worker_count=0,
+        enforce_tool_registry_health=False,
+        auto_repair_tool_registry=False,
+        min_healthy_tool_count=0,
+    )
+    app = FastAPI()
+    event_bus = FakeEventBus()
+
+    async def override_get_db():
+        async with sessionmaker_override() as s:
+            yield s
+
+    app.dependency_overrides[database.get_db] = override_get_db
+    app.include_router(
+        build_router(
+            settings=settings,
+            tool_registry=ToolRegistry(),
+            event_bus=event_bus,
+            enqueue_session=None,
+            rag_pipeline_adapter=rag_pipeline_adapter,
+        )
+    )
+    return app
 
 
 def _tool(name, description, endpoint, method, tags, *, read_only=True, approval=False):
@@ -106,15 +156,176 @@ def _route_matrix_tools():
     }
 
 
-def _assert_semantic_frame(prompt, *, domain_intent, route, entity=None, missing=(), negative=()):
+def _assert_semantic_frame(prompt, *, domain_intent, route, entity=None, missing=(), negative=(), question_type=None):
     frame = semantic_frame_for_text(prompt)
     assert frame.domain_intent == domain_intent
     assert frame.route == route
     assert frame.entity == entity
     assert frame.missing_required_entities == list(missing)
+    if question_type is not None:
+        assert frame.question_type == question_type
     for forbidden in negative:
         assert forbidden in (frame.negative_route_assertions or [])
     return frame
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_domain", "expected_route", "expected_question_type"),
+    [
+        *[
+            (prompt, "document_procedure", "rag.procedure", "document_content_question")
+            for prompt in PHASE19_NOTIFICATION_PROMPTS[:4]
+        ],
+        (PHASE19_NOTIFICATION_PROMPTS[4], "safety_policy", "rag.safety_policy", "safety_policy_question"),
+    ],
+)
+def test_phase19_document_content_loto_notification_route_matrix(
+    prompt,
+    expected_domain,
+    expected_route,
+    expected_question_type,
+):
+    frame = _assert_semantic_frame(
+        prompt,
+        domain_intent=expected_domain,
+        route=expected_route,
+        entity=None,
+        missing=[],
+        negative=["tool.read.machine_status"],
+        question_type=expected_question_type,
+    )
+
+    assert frame.normalized_entities == {"topic": ["loto"]}
+    assert should_clarify_loto_machine(prompt) is False
+    assert should_route_loto_to_rag(prompt) is True
+    assert "machine_id" not in frame.entities
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_entity"),
+    [
+        ("What does the maintenance instruction say about notifying operators before service?", None),
+        ("According to the quality procedure, what notification is required before inspection?", None),
+        ("What does the job instruction say about notifying the supervisor before setup?", "job"),
+    ],
+)
+def test_phase19_document_content_contract_is_not_loto_prompt_specific(prompt, expected_entity):
+    frame = _assert_semantic_frame(
+        prompt,
+        domain_intent="document_procedure",
+        route="rag.procedure",
+        entity=expected_entity,
+        missing=[],
+        negative=["tool.read.machine_status"],
+        question_type="document_content_question",
+    )
+
+    assert frame.missing_required_entities == []
+    assert "machine_id" not in frame.normalized_entities
+
+
+def test_phase19_adjacent_loto_and_status_controls_keep_entity_requirements():
+    specific = _assert_semantic_frame(
+        "What LOTO procedure applies before working on M-CNC-01?",
+        domain_intent="loto_procedure",
+        route="rag.loto_procedure",
+        entity="machine",
+        missing=[],
+        negative=["tool.read.machine_status"],
+        question_type="machine_specific_procedure_selection",
+    )
+    generic_machine = _assert_semantic_frame(
+        "What LOTO procedure applies before working on the CNC machine?",
+        domain_intent="loto_procedure",
+        route="clarification.machine_id_missing",
+        entity="machine",
+        missing=["machine_id"],
+        negative=["rag.loto_procedure", "tool.read.machine_status"],
+        question_type="machine_specific_procedure_selection",
+    )
+    status = _assert_semantic_frame(
+        "What is the status of M-CNC-01?",
+        domain_intent="machine_status",
+        route="tool.read.machine_status",
+        entity="machine",
+        missing=[],
+        negative=["rag.loto_procedure", "rag.procedure"],
+        question_type="live_operational_status",
+    )
+
+    assert specific.normalized_entities["machine_id"] == ["M-CNC-01"]
+    assert "machine_id" not in generic_machine.normalized_entities
+    assert status.normalized_entities["machine_id"] == ["M-CNC-01"]
+
+
+@pytest.mark.asyncio
+async def test_phase19_document_content_loto_prompt_workflow_returns_clean_response_document(sessionmaker_override):
+    class FakeRAGPipeline:
+        def __init__(self):
+            self.calls = []
+
+        async def run(self, *, query, session_id=None, route="RAG_ONLY", api_data=None):
+            self.calls.append({"query": query, "session_id": session_id, "route": route, "api_data": api_data})
+            return type(
+                "Result",
+                (),
+                {
+                    "answer": (
+                        "The LOTO procedure requires notifying affected employees before lockout/tagout starts. "
+                        "Tell them the equipment will be locked out, why the shutdown is needed, and when the "
+                        "lockout/tagout condition begins."
+                    ),
+                    "sources": [
+                        {
+                            "source_number": 1,
+                            "doc_id": "loto_notification_requirement",
+                            "title": "LOTO Notification Requirements",
+                            "organization": "Factory Safety",
+                            "authority_level": "site_procedure",
+                        }
+                    ],
+                    "safety_content": "Follow the site-approved LOTO procedure and authorized-employee controls.",
+                },
+            )()
+
+    rag = FakeRAGPipeline()
+    app = await _make_phase19_app(sessionmaker_override, rag_pipeline_adapter=rag)
+    prompt = PHASE19_NOTIFICATION_PROMPTS[0]
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        session_id = (await client.post("/sessions", json={"user_id": "u1"})).json()["session_id"]
+        await client.post(
+            f"/sessions/{session_id}/messages",
+            json={"role": "user", "content": prompt, "mode": "normal"},
+        )
+
+        created = await client.post(f"/sessions/{session_id}/plans", json={})
+        assert created.status_code == 200
+        body = created.json()
+        snapshot = (await client.get(f"/sessions/{session_id}/snapshot")).json()
+        steps = (await client.get(f"/sessions/{session_id}/steps")).json()
+
+    assert rag.calls == [{"query": prompt, "session_id": session_id, "route": "RAG_ONLY", "api_data": None}]
+    assert body["status"] == "COMPLETED"
+    assert body["created_by"] == "system"
+    assert "notifying affected employees" in body["plan_explanation"].lower()
+    assert body["sources"][0]["doc_id"] == "loto_notification_requirement"
+    assert steps == []
+
+    document = snapshot["response_document"]
+    block_types = [block["type"] for block in document["blocks"]]
+    serialized = json.dumps(snapshot)
+
+    assert snapshot["session"]["status"] == "COMPLETED"
+    assert snapshot["pending_approval"] is None
+    assert document["state"] == "completed"
+    assert "knowledge_answer" in block_types
+    assert "source_list" in block_types
+    assert "diagnostic" not in block_types
+    assert "approval_required" not in block_types
+    assert "Which machine ID" not in serialized
+    assert "No results" not in serialized
+    assert "completed_answer" not in serialized
 
 
 def test_phase19_scenario_116_loto_wording_matrix_uses_same_rag_route():
@@ -513,7 +724,14 @@ def test_phase19_scenarios_122_123_regression_bank_schema_and_triage_rule():
         assert entry["expected_behavior"]
         assert entry["owner"]
         assert entry["severity"] in severities
-        assert entry["lowest_test_layer"] in {"parser", "route", "seeded-workflow", "mocked-browser", "seeded-browser"}
+        assert entry["lowest_test_layer"] in {
+            "parser",
+            "route",
+            "pytest_snapshot",
+            "seeded-workflow",
+            "mocked-browser",
+            "seeded-browser",
+        }
         assert isinstance(entry["browser_coverage"], bool)
         assert set(entry["coverage"]) <= allowed_coverage
         if entry["browser_coverage"]:

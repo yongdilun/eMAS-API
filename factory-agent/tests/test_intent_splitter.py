@@ -16,6 +16,7 @@ from factory_agent.planning.intent import semantic_frame_for_text, split_user_in
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FACTORY_AGENT_ROOT = Path(__file__).resolve().parents[1]
+_UNSET = object()
 
 
 def _assert_semantic_contract(
@@ -29,6 +30,7 @@ def _assert_semantic_contract(
     missing_required_entities: list[str],
     negative_route_assertions: list[str],
     requires_approval: bool = False,
+    question_type: str | None | object = _UNSET,
 ):
     frame = semantic_frame_for_text(prompt)
 
@@ -38,6 +40,8 @@ def _assert_semantic_contract(
     assert frame.entity == entity
     assert frame.normalized_entities == normalized_entities
     assert frame.missing_required_entities == missing_required_entities
+    if question_type is not _UNSET:
+        assert frame.question_type == question_type
     assert set(frame.negative_route_assertions or []) == set(negative_route_assertions)
     assert frame.requires_approval is requires_approval
     return frame
@@ -201,11 +205,97 @@ def test_semantic_frame_separates_document_guidance_from_live_machine_state():
     status = semantic_frame_for_text("show status for machine M-CNC-01")
 
     assert procedure.route == "rag.procedure"
+    assert procedure.question_type == "document_content_question"
     assert procedure.normalized_entities["line_id"] == ["LINE-2"]
     assert "tool.read.machine_status" in (procedure.negative_route_assertions or [])
     assert status.route == "tool.read.machine_status"
+    assert status.question_type == "live_operational_status"
     assert status.normalized_entities["machine_id"] == ["M-CNC-01"]
     assert "rag.procedure" in (status.negative_route_assertions or [])
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected_route", "expected_question_type", "expected_domain"),
+    [
+        (
+            "According to the LOTO procedure, what notification is required before starting lockout",
+            "rag.procedure",
+            "document_content_question",
+            "document_procedure",
+        ),
+        (
+            "What does the LOTO procedure say about notifying affected employees?",
+            "rag.procedure",
+            "document_content_question",
+            "document_procedure",
+        ),
+        (
+            "Before lockout, who needs to be notified according to LOTO?",
+            "rag.procedure",
+            "document_content_question",
+            "document_procedure",
+        ),
+        (
+            "What are the notification requirements before lockout/tagout?",
+            "rag.procedure",
+            "document_content_question",
+            "document_procedure",
+        ),
+        (
+            "According to OSHA LOTO guidance, what notification is required before lockout?",
+            "rag.safety_policy",
+            "safety_policy_question",
+            "safety_policy",
+        ),
+    ],
+)
+def test_phase19_loto_notification_questions_are_document_content_not_machine_selection(
+    prompt,
+    expected_route,
+    expected_question_type,
+    expected_domain,
+):
+    frame = semantic_frame_for_text(prompt)
+
+    assert frame.domain_intent == expected_domain
+    assert frame.route == expected_route
+    assert frame.question_type == expected_question_type
+    assert frame.normalized_entities == {"topic": ["loto"]}
+    assert frame.missing_required_entities == []
+    assert "machine_id" not in frame.entities
+    assert "tool.read.machine_status" in (frame.negative_route_assertions or [])
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "What does the maintenance instruction say about notifying operators before service?",
+        "What does the quality procedure say about inspection notification?",
+        "According to the SOP, what notification is required before maintenance?",
+    ],
+)
+def test_phase19_document_content_question_type_is_generic_beyond_loto(prompt):
+    frame = semantic_frame_for_text(prompt)
+
+    assert frame.route == "rag.procedure"
+    assert frame.question_type == "document_content_question"
+    assert frame.missing_required_entities == []
+    assert "machine_id" not in frame.normalized_entities
+
+
+def test_phase19_adjacent_question_types_stay_distinct():
+    specific = semantic_frame_for_text("What LOTO procedure applies before working on M-CNC-01?")
+    missing_specific = semantic_frame_for_text("What LOTO procedure applies before working on the CNC machine?")
+    status = semantic_frame_for_text("What is the status of M-CNC-01?")
+
+    assert specific.question_type == "machine_specific_procedure_selection"
+    assert specific.route == "rag.loto_procedure"
+    assert specific.missing_required_entities == []
+    assert missing_specific.question_type == "machine_specific_procedure_selection"
+    assert missing_specific.route == "clarification.machine_id_missing"
+    assert missing_specific.missing_required_entities == ["machine_id"]
+    assert status.question_type == "live_operational_status"
+    assert status.route == "tool.read.machine_status"
 
 
 @pytest.mark.parametrize(
