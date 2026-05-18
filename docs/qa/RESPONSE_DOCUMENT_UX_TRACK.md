@@ -754,3 +754,48 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 ## Next Action
 
 Start Phase 1 by adding additive backend response-document schemas and a minimal snapshot response-document mapper beside existing `presentation`; keep frontend behavior unchanged.
+
+## Post-Gate Regression: Approved Data But UI Still Shows Approval
+
+Date: 2026-05-18
+
+Status: In Progress
+
+### Symptom
+
+- Manual browser verification showed the compact `response_document` approval card still visible after the operator approved the request and backend data had already changed.
+- The visible UI remained on `Waiting for approval 1` / `Approval required` for `change all medium priority job to high then change all high priority job to low`.
+
+### Root Cause
+
+- The frontend reducer correctly rejects conflicting same-revision response documents to prevent stale event storms from overwriting the current UI.
+- The backend response-document revision uses `Session.event_seq`.
+- `/approvals/{id}/approve` bumped `event_seq` when the approval was accepted, but the later graph resume / `_persist_plan(... status="COMPLETED")` write did not bump `event_seq`.
+- Result: the browser could receive a completed response document with the same revision as the intermediate "approval received/applying" document. The reducer treated that as an equal-revision conflict and kept the older pending approval UI.
+
+### Testing Gap
+
+- Phase 5 tested frontend reducer ordering with synthetic newer/stale revisions.
+- Phase 6-9 browser fixtures used mocked response-document revisions that already advanced correctly.
+- No backend integration test asserted that the real approval-resume commit produces a strictly newer `response_document.revision` than the post-approval applying snapshot.
+
+### Regression Coverage Added
+
+- `factory-agent/tests/test_api_endpoints.py::test_graph_approval_returns_before_resume_and_keeps_one_activity_operation`
+  now asserts:
+  - the post-approval applying snapshot has no actionable `approval_required` block;
+  - the final completed response document revision is strictly greater than the applying response document revision;
+  - the final document is `completed`;
+  - the final document has no waiting/current approval run step and no approval-required block.
+
+### Product Fix
+
+- `PlanCreationService._persist_plan` now advances both `version` and `event_seq` for state-changing plan/session persistence.
+- Response-summary replacement commits in `_persist_plan` also advance `event_seq`.
+- Graph approval resume failure paths now advance `event_seq` when they move the session to `BLOCKED` or `FAILED`.
+
+### Verification
+
+- `python -m pytest tests/test_api_endpoints.py::test_graph_approval_returns_before_resume_and_keeps_one_activity_operation tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_typed_snapshot_presentation_contract.py tests/test_snapshot_timeline_final_response_contract.py tests/test_phase7_api_ui_alignment.py -q` -> 91 passed.
+- `node --test --test-concurrency=1 "src/components/features/chat/factory-agent/responseDocumentReducer.test.mjs"` -> 11 passed.
+- `git diff --check` -> passed with line-ending warnings only.

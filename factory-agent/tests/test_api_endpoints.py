@@ -2467,6 +2467,11 @@ async def test_graph_approval_returns_before_resume_and_keeps_one_activity_opera
         during = (await client.get(f"/sessions/{session_id}/snapshot")).json()
         assert during["session"]["status"] == "EXECUTING"
         assert during["pending_approval"] is None
+        during_doc = during["response_document"]
+        assert during_doc["revision_source"] == "event_seq"
+        assert during_doc["revision"] >= 1
+        assert during_doc["state"] == "running"
+        assert "approval_required" not in {block["type"] for block in during_doc["blocks"]}
         during_events = [event["event_type"] for event in during["timeline"]]
         assert "approval_required" in during_events
         assert "approval_decided" in during_events
@@ -2482,6 +2487,14 @@ async def test_graph_approval_returns_before_resume_and_keeps_one_activity_opera
 
     assert final_body is not None
     assert final_body["session"]["status"] == "COMPLETED"
+    final_doc = final_body["response_document"]
+    assert final_doc["revision"] > during_doc["revision"]
+    assert final_doc["state"] == "completed"
+    assert "approval_required" not in {block["type"] for block in final_doc["blocks"]}
+    assert not any(
+        step["kind"] == "approval" and step["state"] in {"waiting", "current"}
+        for step in final_doc["run_steps"]
+    )
     event_types = [event["event_type"] for event in final_body["timeline"]]
     assert event_types.index("plan_created") < event_types.index("approval_required")
     assert event_types.index("approval_required") < event_types.index("approval_decided")

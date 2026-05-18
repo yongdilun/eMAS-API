@@ -18,6 +18,11 @@ from factory_agent.planner import PlannerApprovalRequired, PlannerBackendError, 
 from factory_agent.services.plan_creation_service import PlanCreationService
 
 
+def _bump_session_revision(sess: Any) -> None:
+    sess.version = (getattr(sess, "version", None) or 0) + 1
+    sess.event_seq = (getattr(sess, "event_seq", None) or 0) + 1
+
+
 class ApprovalResumeService:
     def __init__(
         self,
@@ -143,7 +148,7 @@ class ApprovalResumeService:
             sess.replan_context = context
             sess.status = "BLOCKED"
             sess.error = str(e)
-            sess.version += 1
+            _bump_session_revision(sess)
             await db.commit()
             await self.publish_agent_event(
                 "session_resume",
@@ -158,7 +163,7 @@ class ApprovalResumeService:
             sess.replan_context = context
             sess.status = "BLOCKED"
             sess.error = str(e)
-            sess.version += 1
+            _bump_session_revision(sess)
             await db.commit()
             await self.publish_agent_event(
                 "session_resume",
@@ -173,7 +178,7 @@ class ApprovalResumeService:
             sess.replan_context = context
             sess.status = "FAILED"
             sess.error = str(e)
-            sess.version += 1
+            _bump_session_revision(sess)
             await db.commit()
             await self.publish_agent_event(
                 "session_resume",
@@ -195,7 +200,7 @@ class ApprovalResumeService:
             sess.replan_context = context
             sess.status = "FAILED"
             sess.error = str(e)
-            sess.version += 1
+            _bump_session_revision(sess)
             await db.commit()
             await self.publish_agent_event(
                 "session_resume",

@@ -155,7 +155,7 @@ def _approval(
         risk_summary=risk_summary or str(payload.get("risk_summary") or payload.get("summary") or "One job will be changed from medium to high priority."),
         side_effect_level="HIGH",
         status=status,
-        expires_at=created_at + timedelta(hours=1),
+        expires_at=datetime(2099, 1, 1),
         decided_at=decided_at,
         decided_by="operator" if decided_at else None,
         created_at=created_at + timedelta(seconds=created_offset_s),

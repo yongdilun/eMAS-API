@@ -49,6 +49,12 @@ from factory_agent.session_state import is_user_cancelled_session
 from factory_agent.tools.arguments import compute_idempotency_key
 
 
+def _bump_session_revision(sess: SessionRow) -> None:
+    """Advance both DB and response-document revisions for state-changing writes."""
+    sess.version = (getattr(sess, "version", None) or 0) + 1
+    sess.event_seq = (getattr(sess, "event_seq", None) or 0) + 1
+
+
 class PlanCreationService:
     def __init__(
         self,
@@ -424,7 +430,7 @@ class PlanCreationService:
         sess.status = "WAITING_CONFIRMATION"
         sess.replan_context = context
         sess.error = reply
-        sess.version += 1
+        _bump_session_revision(sess)
         await db.commit()
         log_event(
             "predicate_confirmation_requested",
@@ -588,7 +594,7 @@ class PlanCreationService:
         sess.pending_user_message = None
         sess.replan_context = context_to_keep if context_to_keep else None
         sess.error = None
-        sess.version += 1
+        _bump_session_revision(sess)
         if status == "COMPLETED":
             if first_failed_summary:
                 sess.status = "FAILED"
@@ -650,7 +656,7 @@ class PlanCreationService:
                     if bundle_markdown != (plan_message.content or "").strip():
                         plan_message.content = bundle_markdown
                     sess.llm_call_count = (sess.llm_call_count or 0) + bundle.llm_calls
-                    sess.version += 1
+                    _bump_session_revision(sess)
                     await db.commit()
             except SummaryBackendError:
                 bundle_markdown = ""
@@ -665,7 +671,7 @@ class PlanCreationService:
                 if summary_text and summary_text != (plan_message.content or "").strip():
                     plan_message.content = summary_text
                 sess.llm_call_count += summary.llm_calls
-                sess.version += 1
+                _bump_session_revision(sess)
                 await db.commit()
             except SummaryBackendError:
                 pass
@@ -763,7 +769,7 @@ class PlanCreationService:
         plan_row.status = "PENDING_APPROVAL"
         sess.status = "WAITING_APPROVAL"
         sess.error = None
-        sess.version += 1
+        _bump_session_revision(sess)
         await db.commit()
         return approval
 
@@ -1030,7 +1036,7 @@ class PlanCreationService:
                     error=str(e),
                 )
                 raise HTTPException(status_code=503, detail={"errors": ["Planner failed unexpectedly. Please retry."]}) from e
-            sess.version += 1
+            _bump_session_revision(sess)
             await db.commit()
             metrics.inc("plan_backend_used_total", labels={"backend_used": backend_used})
 
@@ -1066,7 +1072,7 @@ class PlanCreationService:
                 sess.replan_context = context
                 sess.error = "Plan validation failed"
                 sess.status = "BLOCKED"
-                sess.version += 1
+                _bump_session_revision(sess)
                 if failures >= 3:
                     db.add(
                         DeadLetterRow(
@@ -1163,7 +1169,7 @@ class PlanCreationService:
         sess.status = "WAITING_APPROVAL"
         sess.error = narrative_markdown
         sess.completed_at = None
-        sess.version += 1
+        _bump_session_revision(sess)
         await db.commit()
         await self._persist_conversation_reply_as_empty_plan(
             db=db,
@@ -1179,6 +1185,6 @@ class PlanCreationService:
         sess.status = "WAITING_APPROVAL"
         sess.error = narrative_markdown
         sess.completed_at = None
-        sess.version += 1
+        _bump_session_revision(sess)
         await db.commit()
         return await self._session_mgr.get_session(db, session_id=sess.session_id) or sess
