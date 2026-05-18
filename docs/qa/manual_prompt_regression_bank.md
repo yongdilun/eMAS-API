@@ -235,6 +235,23 @@ This response-document phase is separate from the broader normal-use Phase 16 ba
 |---|---|---|---|
 | `response-document-phase18-machine-status-clean-answer` | `Show status for machine with machine id M-CNC-01` | The read-only status answer is composed from typed facts, not raw assistant markdown. It renders one concise machine-status answer with human labels, shows `M-CNC-01` and `running`, avoids duplicate answer blocks, avoids dump-style labels such as `Machineid`, `Machinename`, `Capacityperhour`, and forbids `done_all`, raw `**Success**`, approval UI, and mutation UI. | Planned: backend response-document contract, frontend renderer/component test, response-document semantic probe, focused browser proof |
 
+## Response Document Phase 19 RAG Question-Type Routing Regression
+
+| ID | Prompt / flow | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `response-document-phase19-loto-document-content-notification` | `According to the LOTO procedure, what notification is required before starting lockout` | Route as a document-content RAG/procedure question, not machine-specific procedure selection. Do not ask for machine ID. Do not render `No results` or `completed_answer` technical diagnostic. Final response should answer the notification requirement with source evidence when available. | Planned: intent splitter route matrix, prompt workflow regression, response-document contract, focused browser semantic proof |
+| `response-document-phase19-loto-document-content-affected-employees` | `What does the LOTO procedure say about notifying affected employees?` | Same document-content behavior as above. This prevents overfitting only the exact notification prompt. | Planned: intent splitter route matrix plus prompt workflow regression |
+| `response-document-phase19-machine-specific-loto-control` | `What LOTO procedure applies before working on the CNC machine?` | Preserve correct machine-specific behavior: ask for exact machine ID when the user asks which procedure applies to an unspecified machine. | Planned: adjacent route-control test |
+| `response-document-phase19-machine-status-control` | `What is the status of M-CNC-01?` | Preserve live machine-status routing. A machine mention in a status question must not be sent to document RAG. | Planned: adjacent route-control test |
+
+## Response Document Phase 20 Entity-Specific Overfitting Audit
+
+Phase 20 is an audit gate before Phase 21. It does not add a single prompt as the main product fix. It finds places where prior fixes are too job-specific, machine-specific, LOTO-specific, or fixture-specific.
+
+| ID | Prompt / flow | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `response-document-phase20-overfitting-audit` | Audit backend routing/planning, response-document composition, frontend rendering/probes, seeded fixtures, Playwright assertions, scenario oracles, and QA docs for entity-specific overfitting. | Findings are classified as `acceptable_fixture`, `test_fixture`, `product-risk`, `planning-risk`, `missing-general-contract`, or `defer`. Product-risk and missing-general-contract findings must include a recommended abstraction and Phase 21 proposal. | Planned: docs/tracker audit inventory; no product behavior change unless explicitly approved |
+
 ## Phase 15 Release Enforcement Note
 
 Phase 15 assigns every fixed or newly found prompt/workflow miss to a blocking lane:

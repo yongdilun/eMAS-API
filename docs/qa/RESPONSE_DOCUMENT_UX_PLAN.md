@@ -1175,7 +1175,7 @@ npm test
 npm run test:e2e:response-document -- --grep "approval copy|RD-001|Waiting for approval|pending guidance"
 ```
 
-### Phase 17: No-Op Mutation Result Contract
+### Phase 17: Entity-Agnostic No-Op Mutation Result Contract
 
 Goal: Make no-data edit steps explicit, safe, and visible instead of silently skipping them.
 
@@ -1184,6 +1184,7 @@ Problem this phase targets:
 - A mutation step that finds no matching records can be silently skipped.
 - Users need to know that no edit was attempted for a requested step when no data matches.
 - Approval should never be requested for a no-op group, but independent valid mutation groups may still proceed.
+- This must not become another job-priority-only fix. The contract should work for any entity-specific mutation group where the selector matches zero records.
 
 Files likely touched:
 
@@ -1200,6 +1201,7 @@ Files likely touched:
 
 Implementation steps:
 
+- Represent no-op mutation groups with typed business fields such as `entity_type`, `selector_summary`, `change_summary`, `matched_count`, `changed_count`, `status=not_changed`, and `reason=no_matching_records`.
 - Add backend contract tests for partial no-op plus valid edit:
   - no-op step appears before approval in run activity/message;
   - approval card includes only actual proposed mutations;
@@ -1214,6 +1216,7 @@ Implementation steps:
 - Treat `no matching records` as a valid business outcome, not a system failure, unless the specific requested record should exist and a domain rule says otherwise.
 - Continue independent valid mutation groups when safe; stop only dependent steps that require the no-op output.
 - Add browser/semantic-probe assertions for at least one no-op mutation flow.
+- Include at least one non-job-priority no-op contract if existing fixtures support it. If the current fixture set does not support a safe non-job mutation, document that as a Phase 20 audit finding instead of hardcoding the contract to jobs.
 
 Acceptance criteria:
 
@@ -1222,6 +1225,7 @@ Acceptance criteria:
 - Partial no-op plus valid edit shows the no-op before approval and in the final response.
 - All-no-op edit completes with `No changes were made`.
 - Tests prove no data mutation was attempted for no-op groups.
+- The backend response-document contract is entity-agnostic and does not depend on job priority wording.
 
 Verification command:
 
@@ -1311,6 +1315,127 @@ npm test
 npm run test:e2e:response-document -- --grep "machine status|read-only status|M-CNC-01|status response"
 ```
 
+### Phase 19: RAG Question-Type Routing Contract
+
+Goal: Separate document-content RAG questions from entity-specific procedure-selection questions so procedure/policy questions do not wrongly require a machine ID.
+
+Problem this phase targets:
+
+- The prompt `According to the LOTO procedure, what notification is required before starting lockout` is a document-content question, but current routing can treat it as a machine-specific LOTO procedure selection and ask for `machine_id`.
+- Existing tests cover specific machine LOTO prompts and OSHA policy prompts, but miss the middle category: asking about what a procedure says without asking which machine procedure applies.
+- The fix should not be a LOTO-only phrase patch. It should introduce a reusable question-type distinction that also applies to SOP, safety policy, quality procedure, job instruction, maintenance instruction, and other document-backed topics.
+
+Files likely touched:
+
+- `factory-agent/factory_agent/planning/intent.py`
+- `factory-agent/factory_agent/planning/tool_selector.py`
+- `factory-agent/factory_agent/services/plan_creation_service.py`
+- `factory-agent/factory_agent/rag/knowledge_policy.py`
+- `factory-agent/tests/test_intent_splitter.py`
+- `factory-agent/tests/test_phase19_prompt_workflow_regression.py`
+- `factory-agent/tests/test_route_to_execution_contract.py`
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+
+Implementation steps:
+
+- Add a semantic question-type signal, for example `rag_question_type`, before missing-entity clarification is applied.
+- Distinguish at least these categories:
+  - `document_content_question`: asks what a procedure/policy/document says.
+  - `machine_specific_procedure_selection`: asks which procedure applies to a specific or implied machine.
+  - `safety_policy_question`: asks policy/regulatory guidance.
+  - `live_operational_status`: asks live status/condition/health of an entity.
+- Require `machine_id` only for question types that need a specific machine procedure or live machine status.
+- Do not require `machine_id` for document-content questions that can be answered from RAG without knowing the exact asset.
+- Add a routing matrix for these prompts:
+  - `According to the LOTO procedure, what notification is required before starting lockout`
+  - `What does the LOTO procedure say about notifying affected employees?`
+  - `Before lockout, who needs to be notified according to LOTO?`
+  - `What are the notification requirements before lockout/tagout?`
+  - `According to OSHA LOTO guidance, what notification is required before lockout?`
+- Expected behavior for that matrix:
+  - route to RAG/procedure or safety-policy answer;
+  - `missing_required_entities` is empty;
+  - no machine-ID clarification is generated;
+  - response document does not render `No results` or `completed_answer` technical diagnostic.
+- Preserve adjacent behavior:
+  - `What LOTO procedure applies before working on M-CNC-01?` still routes to machine-specific LOTO/RAG.
+  - `What LOTO procedure applies before working on the CNC machine?` still asks for the exact machine ID when it truly needs procedure selection.
+  - `What is the status of M-CNC-01?` still routes to live machine-status tooling, not RAG.
+
+Acceptance criteria:
+
+- The notification LOTO prompt routes to RAG/procedure content and does not ask for machine ID.
+- Document-content questions and entity-specific procedure-selection questions have separate route contracts.
+- The route contract is reusable beyond LOTO and is not implemented as a single prompt string special case.
+- Existing machine-specific LOTO, machine-status, job read, job mutation, approval, and cancel routing tests still pass.
+- Browser or semantic-probe evidence confirms the user-facing answer is a clean response document, not a generic clarification/no-result diagnostic.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py tests/test_route_to_execution_contract.py -q
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "LOTO|document content|machine ID|notification"
+```
+
+### Phase 20: Entity-Specific Overfitting Audit
+
+Goal: Find job-specific, machine-specific, or other entity-specific implementation and test patterns that should be generalized before Phase 21.
+
+Problem this phase targets:
+
+- Several recent fixes started from specific examples: LOTO/machine routing, job-priority no-op mutations, machine-status formatting, and exact cascade wording.
+- Those fixes are valuable only if they become general contracts instead of a growing list of defensive special cases.
+- Before Phase 21, the team needs an audit of where product code, tests, and planning docs still overfit to one entity type or exact prompt family.
+
+Files likely inspected:
+
+- `factory-agent/factory_agent`
+- `factory-agent/tests`
+- `eMas Front/src`
+- `eMas Front/e2e`
+- `tests/e2e/scenarios`
+- `docs/qa`
+
+Implementation steps:
+
+- Search for entity-specific logic and wording around jobs, machines, products, materials, inventory, work orders, approvals, LOTO, priority, status, and seeded IDs.
+- Classify every finding as one of:
+  - `acceptable_fixture`
+  - `test_fixture`
+  - `product-risk`
+  - `planning-risk`
+  - `missing-general-contract`
+  - `defer`
+- For each `product-risk` or `missing-general-contract`, document:
+  - file/path;
+  - specific overfitted pattern;
+  - why it can break future prompts;
+  - recommended abstraction or contract;
+  - suggested Phase 21 scope.
+- Do not change broad product behavior in Phase 20. It is an audit and planning phase unless a tiny safety issue is exposed and explicitly accepted as part of the audit.
+- Update the tracker with a prioritized Phase 21 recommendation after the audit.
+
+Acceptance criteria:
+
+- Tracker includes an overfitting inventory table with file/path, entity-specific pattern, risk level, recommended abstraction, and disposition.
+- The audit covers backend routing/planning, backend response-document composition, frontend rendering, Playwright probes, seeded fixtures, scenario oracles, and QA docs.
+- Phase 21 is not started until the audit returns a prioritized recommendation.
+- No product behavior changes are made in Phase 20 unless called out as an explicit exception.
+
+Verification command:
+
+```powershell
+git status --short --branch
+git diff --check
+```
+
 ## Stop Conditions
 
 Stop and fix before continuing when:
@@ -1346,6 +1471,11 @@ Stop and fix before continuing when:
 - Read-only status response exposes dump-style API labels such as `Machineid`, `Machinename`, or `Capacityperhour`.
 - Read-only status response duplicates the same answer in multiple visible blocks.
 - Read-only status response renders as approval or mutation UI.
+- A document-content RAG question asks for a machine ID before trying retrieval.
+- Routing requires an entity ID before classifying whether the question actually needs that entity.
+- New no-op mutation logic is hardcoded only to jobs or priority changes.
+- New status response formatting is hardcoded only to `M-CNC-01` or one machine route.
+- Phase 20 finds product-risk overfitting without a tracker entry and Phase 21 recommendation.
 
 ## Out Of Scope For This Plan
 

@@ -24,8 +24,10 @@ Created: 2026-05-18
 | 14 | Final response business contract | Done | Codex | Backend `response_document` now emits clean business-level completed mutation results: grouped changes, deduped affected records, compact preview contract, and no raw assistant/internal-id noise in final mutation blocks. |
 | 15 | Final response visual quality oracle | Done | Codex | Added browser semantic oracle coverage for RD-001 final visual quality, compact grouped rendering, expandable clean audit, forbidden-text detection, and duplicate affected-record evidence. |
 | 16 | Approval copy and pending guidance cleanup | Done | Codex | Removed always-visible pending-approval helper copy from normal approval cards and added component plus RD-001 semantic-probe assertions forbidding it. |
-| 17 | No-op mutation result contract | Not Started | Codex | Make no-data mutation steps explicit as `Not changed`, avoid approvals for no-op groups, and prove no mutation is attempted. |
+| 17 | Entity-agnostic no-op mutation result contract | Not Started | Codex | Make no-data mutation steps explicit as `Not changed`, avoid approvals for no-op groups, prove no mutation is attempted, and avoid job-priority-only handling. |
 | 18 | Read-only status response contract | Not Started | Codex | Make machine/status read-only answers typed and clean: no raw assistant markers, no dump-style API labels, no duplicate answer blocks, and no approval/mutation UI. |
+| 19 | RAG question-type routing contract | Not Started | Codex | Separate document-content RAG questions from entity-specific procedure selection so LOTO/procedure questions do not wrongly require machine IDs. |
+| 20 | Entity-specific overfitting audit | Not Started | Codex | Audit code, tests, fixtures, and docs for job/machine/product/material-specific fixes that should become generic contracts before Phase 21. |
 
 ## Current Blockers
 
@@ -34,6 +36,8 @@ Created: 2026-05-18
 - Phase 16 removed the always-visible helper sentence `Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.` from normal approval display.
 - No-data mutation steps still need an explicit no-op contract. Phase 17 will require visible `Not changed` groups and prove no edit attempt occurs for no-op groups.
 - Read-only status responses can still leak raw assistant markdown and API-dump labels. Example: `Show status for machine with machine id M-CNC-01` renders `done_all`, raw `**Success**`, duplicated answer text, `Machineid`, `Machinename`, `Capacityperhour`, and a weak generic `Results` block. Phase 18 fixes this class.
+- LOTO document-content questions can still be misclassified as machine-specific procedure selection. Example: `According to the LOTO procedure, what notification is required before starting lockout` can ask for a machine ID instead of answering from RAG. Phase 19 fixes this class.
+- Several recent fixes are still at risk of becoming entity-specific special cases. Phase 20 audits job/machine/product/material-specific implementation, tests, and docs before Phase 21 is planned.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -97,6 +101,10 @@ Created: 2026-05-18
 - Read-only status answers use typed facts and human labels, not raw assistant markdown or dump-style API field names.
 - Machine-status answers should show one concise summary plus meaningful key facts; secondary metadata belongs in compact details only when useful.
 - Read-only/status responses must not render as approval or mutation UI.
+- Entity IDs are required only after the semantic question type proves the route actually needs that entity.
+- Document-content RAG questions should not be forced into machine-specific clarification just because they mention LOTO, procedure, lockout, or "before".
+- No-op mutation semantics are entity-agnostic business outcomes, not job-priority-only rendering.
+- Phase 20 is audit-only by default. Phase 21 scope will be chosen from the audit findings rather than guessed up front.
 
 ## Flagship Inputs
 
@@ -110,6 +118,8 @@ Created: 2026-05-18
 | RD-006 | `change all medium priority job to high then change all high priority job to low` with no medium-priority jobs present | Partial no-op regression. Proves no medium-priority matches are shown as `Not changed`, no approval is requested for that group, and valid high-priority edits can still proceed. |
 | RD-007 | Mutation prompt where every requested edit has zero matching records | All-no-op regression. Proves `No changes were made`, no approval card appears, and no mutation audit rows are created. |
 | RD-008 | `Show status for machine with machine id M-CNC-01` | Read-only status regression. Proves one clean typed machine-status answer without `done_all`, raw `**Success**`, dump-style field labels, duplicate answer text, approval UI, or mutation UI. |
+| RD-009 | `According to the LOTO procedure, what notification is required before starting lockout` | RAG question-type routing regression. Proves document-content LOTO questions route to RAG/procedure content without machine-ID clarification. |
+| RD-010 | Phase 20 audit only | Finds overfitted entity-specific implementation patterns before Phase 21 is created. |
 
 ## Additional Required Scenario Groups
 
@@ -131,6 +141,8 @@ Created: 2026-05-18
 | Partial no-op mutation | No records for one requested edit group, valid records for another group | No-op group appears as `Not changed`; approval contains only valid proposed mutation; final response includes both changed and not changed. |
 | All no-op mutation | No records for every requested edit group | Completes as `No changes were made`; no approval card; no mutation audit rows. |
 | Read-only status cleanup | `Show status for machine with machine id M-CNC-01` | One typed status answer with human labels, no raw assistant markdown, no duplicate blocks, no generic dump table, no approval/mutation UI. |
+| RAG document-content routing | `According to the LOTO procedure, what notification is required before starting lockout` | RAG/procedure answer is attempted without machine-ID clarification; adjacent machine-specific LOTO and machine-status prompts still route correctly. |
+| Entity-specific overfitting audit | Search routing, composition, renderer, fixture, oracle, and docs for job/machine/product/material overfitting | Inventory product-risk and missing-general-contract patterns, then propose Phase 21 based on findings. |
 
 ## Phase 0 Checklist
 
@@ -1085,12 +1097,14 @@ npm run test:e2e:response-document -- --grep "approval copy|RD-001|Waiting for a
 
 ## Phase 17 Checklist
 
+- [ ] Define the no-op mutation response-document shape with entity-agnostic fields such as `entity_type`, `selector_summary`, `change_summary`, `matched_count`, `changed_count`, and `reason=no_matching_records`.
 - [ ] Add backend contract for partial no-op plus valid mutation.
 - [ ] Add backend contract for all-no-op mutation.
 - [ ] Ensure no-op mutation groups are rendered as `Not changed`.
 - [ ] Ensure no approval is requested for no-op groups.
 - [ ] Ensure all-no-op mutation completes as `No changes were made`.
 - [ ] Ensure no mutation audit rows are created for no-op groups.
+- [ ] Include a non-job-priority no-op contract if existing fixtures support one, or document the missing fixture as a Phase 20 finding.
 - [ ] Add browser/semantic-probe proof for at least one no-op mutation flow.
 - [ ] Update manual regression bank and tracker.
 - [ ] Run backend and frontend verification.
@@ -1124,6 +1138,20 @@ Not changed
 ```
 
 No approval card should appear, and no mutation audit rows should be created.
+
+### Required Entity-Agnostic Behavior
+
+The no-op contract must describe the business outcome without depending on job-priority wording:
+
+- `entity_type`: the affected domain entity, such as job, machine, product, material, or work order.
+- `selector_summary`: the business selector that matched zero records.
+- `change_summary`: the requested change that was not attempted.
+- `matched_count`: `0`.
+- `changed_count`: `0`.
+- `status`: `not_changed`.
+- `reason`: `no_matching_records`.
+
+Job-priority examples are allowed as the first fixture, but the implementation should not require strings such as `medium`, `high`, `priority`, or `job` to render a safe no-op result.
 
 ### Phase 17 Verification Target
 
@@ -1197,6 +1225,102 @@ python -m pytest tests/test_response_document_contract.py tests/test_response_do
 Set-Location "..\eMas Front"
 npm test
 npm run test:e2e:response-document -- --grep "machine status|read-only status|M-CNC-01|status response"
+```
+
+## Phase 19 Checklist
+
+- [ ] Add semantic question-type classification before missing-entity clarification.
+- [ ] Distinguish `document_content_question`, `machine_specific_procedure_selection`, `safety_policy_question`, and `live_operational_status`.
+- [ ] Ensure machine ID is required only when the question type needs a specific machine.
+- [ ] Add route tests for LOTO/procedure notification document-content prompts.
+- [ ] Preserve existing machine-specific LOTO clarification behavior.
+- [ ] Preserve existing machine-status and job-routing behavior.
+- [ ] Add backend response-document/prompt workflow proof that document-content LOTO answers are not `No results` or machine-ID clarification.
+- [ ] Add focused browser or semantic-probe evidence for RD-009.
+- [ ] Update manual regression bank and tracker.
+- [ ] Run backend and frontend verification.
+- [ ] Commit Phase 19.
+
+## Phase 19 Implementation Notes
+
+Status: Not Started
+
+### Known Bad Output
+
+Manual verification for:
+
+```text
+According to the LOTO procedure, what notification is required before starting lockout
+```
+
+showed that the system could route to `clarification.machine_id_missing` and render:
+
+```text
+Which machine ID should I use for the LOTO procedure? Please provide the exact machine ID from the equipment label or work order.
+```
+
+That is wrong because the user asked what the document says about notification. They did not ask which machine-specific LOTO procedure applies.
+
+### Required Good Output
+
+The prompt should route as a document-content RAG/procedure question:
+
+- no missing `machine_id`;
+- no machine-ID clarification;
+- no `No results` diagnostic;
+- no `completed_answer` technical-detail card;
+- answer includes notification requirement content and source evidence when available.
+
+Adjacent prompts must still behave correctly:
+
+- `What LOTO procedure applies before working on M-CNC-01?` remains machine-specific LOTO/RAG.
+- `What LOTO procedure applies before working on the CNC machine?` can still ask for the exact machine ID.
+- `What is the status of M-CNC-01?` remains live machine-status tooling.
+
+### Phase 19 Verification Target
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_intent_splitter.py tests/test_phase19_prompt_workflow_regression.py tests/test_route_to_execution_contract.py -q
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "LOTO|document content|machine ID|notification"
+```
+
+## Phase 20 Checklist
+
+- [ ] Inventory entity-specific logic in backend routing, tool selection, planning, response-document composition, and seeded adapters.
+- [ ] Inventory entity-specific frontend rendering, probes, and Playwright assertions.
+- [ ] Inventory entity-specific scenario oracles, fixtures, manual-bank entries, and QA docs.
+- [ ] Classify findings as `acceptable_fixture`, `test_fixture`, `product-risk`, `planning-risk`, `missing-general-contract`, or `defer`.
+- [ ] For every product-risk or missing-general-contract finding, document recommended abstraction and proposed Phase 21 scope.
+- [ ] Confirm Phase 17-19 did not introduce new job-only, machine-only, or LOTO-only product behavior.
+- [ ] Update tracker with prioritized Phase 21 recommendation.
+- [ ] Run docs-only verification.
+- [ ] Commit Phase 20.
+
+## Phase 20 Implementation Notes
+
+Status: Not Started
+
+Phase 20 is an audit phase. It should not make broad product changes. The purpose is to prevent the plan from becoming a pile of one-off fixes.
+
+### Audit Search Areas
+
+- Exact entity IDs: `M-CNC-01`, `JOB-SEED`, `JOB-`, product/material/work-order fixture ids.
+- Entity-type wording: `job`, `machine`, `product`, `material`, `inventory`, `work order`, `LOTO`, `priority`, `status`.
+- Route and semantic shortcuts that infer behavior from a narrow phrase instead of typed intent/entity/action fields.
+- Response-document composition paths that know about one entity type when they should render generic read/no-op/mutation blocks.
+- Frontend renderer/probe assertions that pass because they look for one exact fixture rather than a reusable contract.
+- QA phases that say "fix this prompt" without also defining the general class it represents.
+
+### Phase 20 Verification Target
+
+```powershell
+git status --short --branch
+git diff --check
 ```
 
 ## Phase 10 Implementation Notes
@@ -1353,7 +1477,7 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 
 ## Next Action
 
-Start Phase 16 by removing the always-visible pending follow-up helper sentence from normal approval cards while keeping approval actions, affected-record context, and conditional follow-up guidance behavior intact.
+Continue the queued implementation sequence with Phase 17, then Phase 18 and Phase 19. Phase 20 must run before Phase 21 is defined so the next phase is based on the entity-specific overfitting audit rather than another guessed special case.
 
 ## Post-Gate Regression: Approved Data But UI Still Shows Approval
 
