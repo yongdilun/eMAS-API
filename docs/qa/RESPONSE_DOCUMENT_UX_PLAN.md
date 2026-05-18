@@ -1235,6 +1235,82 @@ npm test
 npm run test:e2e:response-document -- --grep "no-op|Not changed|No changes were made|no matching"
 ```
 
+### Phase 18: Read-Only Status Response Contract
+
+Goal: Make read-only status answers clean, typed, and operator-friendly instead of rendering raw assistant markdown or dump-style API fields.
+
+Problem this phase targets:
+
+- A machine-status prompt such as `Show status for machine with machine id M-CNC-01` can render raw assistant output:
+  - `done_all`;
+  - raw `**Success**` markdown;
+  - duplicated answer text;
+  - dump-style field names such as `Machineid`, `Machinename`, `Capacityperhour`, `Defaultsetuptime`;
+  - irrelevant zero/default metrics;
+  - a weak generic `Results` block that only says `running`.
+- Phase 14/15 fixed final mutation output, but read-only/status answers need the same deterministic response-document standard.
+
+Files likely touched:
+
+- `factory-agent/factory_agent/services/response_document_service.py`
+- `factory-agent/factory_agent/services/session_snapshot_service.py`
+- `factory-agent/factory_agent/schemas.py`
+- `factory-agent/tests/test_response_document_contract.py`
+- `eMas Front/src/components/features/chat/factory-agent/ResponseDocumentRenderer.jsx`
+- `eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs`
+- `eMas Front/e2e/support/responseDocumentProbe.js`
+- `eMas Front/e2e/specs/final-response-quality.spec.js`
+- `docs/qa/RESPONSE_DOCUMENT_UX_TRACK.md`
+- `docs/qa/manual_prompt_regression_bank.md`
+
+Implementation steps:
+
+- Add backend contract tests for machine-status read-only response documents.
+- Compose read-only status answers from typed tool facts, not raw assistant markdown.
+- Add or reuse a typed status/result block shape for machine status:
+  - one short status summary;
+  - key facts with human labels;
+  - optional compact detail section for secondary machine metadata;
+  - no mutation/approval language;
+  - no raw assistant markers.
+- Define operator-friendly field labels:
+  - `Machine ID`;
+  - `Machine name`;
+  - `Machine type`;
+  - `Location`;
+  - `Status`;
+  - `Capacity per hour`;
+  - `Last maintenance`;
+  - `Maintenance interval`.
+- Suppress or move low-value default/zero fields out of the default visible answer unless the user asks for full technical details.
+- Remove duplicate answer rendering between the short answer, result table, and activity.
+- Add frontend/browser semantic assertions for:
+  - no `done_all`;
+  - no raw `**Success**`;
+  - no dump-style labels such as `Machineid` or `Capacityperhour`;
+  - exactly one readable machine-status answer;
+  - no approval card or mutation result block;
+  - status value `running` is visible in a meaningful sentence or status field.
+
+Acceptance criteria:
+
+- `Show status for machine with machine id M-CNC-01` renders one clean read-only answer.
+- The user sees a readable summary before expanding details.
+- Raw assistant markdown and backend field dump labels do not appear.
+- Read-only status response does not render as mutation, approval, or generic result noise.
+- Existing RAG/source, no-result, mutation, diagnostic, and no-op response documents still pass.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "machine status|read-only status|M-CNC-01|status response"
+```
+
 ## Stop Conditions
 
 Stop and fix before continuing when:
@@ -1266,6 +1342,10 @@ Stop and fix before continuing when:
 - A mutation step with no matching records is silently skipped.
 - Approval is requested for a no-op mutation group.
 - Final response omits a `Not changed` group for a requested no-op mutation.
+- Read-only status response shows raw assistant markers such as `done_all` or raw `**Success**`.
+- Read-only status response exposes dump-style API labels such as `Machineid`, `Machinename`, or `Capacityperhour`.
+- Read-only status response duplicates the same answer in multiple visible blocks.
+- Read-only status response renders as approval or mutation UI.
 
 ## Out Of Scope For This Plan
 

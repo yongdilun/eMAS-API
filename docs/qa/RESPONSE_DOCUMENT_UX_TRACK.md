@@ -23,15 +23,17 @@ Created: 2026-05-18
 | 13 | Manual screenshot regression intake | Done | Codex | Added strict screenshot intake template, structured Chat 514 regression entry, and a bank gate that rejects vague/manual-only screenshot issues. |
 | 14 | Final response business contract | Done | Codex | Backend `response_document` now emits clean business-level completed mutation results: grouped changes, deduped affected records, compact preview contract, and no raw assistant/internal-id noise in final mutation blocks. |
 | 15 | Final response visual quality oracle | Done | Codex | Added browser semantic oracle coverage for RD-001 final visual quality, compact grouped rendering, expandable clean audit, forbidden-text detection, and duplicate affected-record evidence. |
-| 16 | Approval copy and pending guidance cleanup | Not Started | Codex | Remove always-visible pending-approval helper copy from normal approval cards; keep guidance conditional to actual follow-up conflict paths. |
+| 16 | Approval copy and pending guidance cleanup | Done | Codex | Removed always-visible pending-approval helper copy from normal approval cards and added component plus RD-001 semantic-probe assertions forbidding it. |
 | 17 | No-op mutation result contract | Not Started | Codex | Make no-data mutation steps explicit as `Not changed`, avoid approvals for no-op groups, and prove no mutation is attempted. |
+| 18 | Read-only status response contract | Not Started | Codex | Make machine/status read-only answers typed and clean: no raw assistant markers, no dump-style API labels, no duplicate answer blocks, and no approval/mutation UI. |
 
 ## Current Blockers
 
 - Chat 514 style orphan state is fixed and covered by Phase 10 backend plus mocked browser regressions. Normal prompts must not settle as `IDLE/non_terminal_snapshot` with generic `Needs attention`.
 - RD-001 noisy final mutation output is fixed in Phase 14/15 at the backend response-document contract and browser visual oracle: final completed mutation blocks summarize 21 jobs across 2 approved business changes and omit raw assistant/internal-id noise.
-- Normal approval cards still show the always-visible helper sentence `Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.` Phase 16 removes it from normal approval display.
+- Phase 16 removed the always-visible helper sentence `Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.` from normal approval display.
 - No-data mutation steps still need an explicit no-op contract. Phase 17 will require visible `Not changed` groups and prove no edit attempt occurs for no-op groups.
+- Read-only status responses can still leak raw assistant markdown and API-dump labels. Example: `Show status for machine with machine id M-CNC-01` renders `done_all`, raw `**Success**`, duplicated answer text, `Machineid`, `Machinename`, `Capacityperhour`, and a weak generic `Results` block. Phase 18 fixes this class.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -92,6 +94,9 @@ Created: 2026-05-18
 - No-op mutation groups use `Not changed` wording.
 - Approval cards include only actual proposed mutations, not no-op groups.
 - All-no-op mutation requests complete as `No changes were made`, with no approval card and no mutation audit rows.
+- Read-only status answers use typed facts and human labels, not raw assistant markdown or dump-style API field names.
+- Machine-status answers should show one concise summary plus meaningful key facts; secondary metadata belongs in compact details only when useful.
+- Read-only/status responses must not render as approval or mutation UI.
 
 ## Flagship Inputs
 
@@ -104,6 +109,7 @@ Created: 2026-05-18
 | RD-005 | `change all medium priority job to high then change all high priority job to low` | Approval-copy regression. Proves normal approval cards do not show the always-visible pending follow-up helper sentence. |
 | RD-006 | `change all medium priority job to high then change all high priority job to low` with no medium-priority jobs present | Partial no-op regression. Proves no medium-priority matches are shown as `Not changed`, no approval is requested for that group, and valid high-priority edits can still proceed. |
 | RD-007 | Mutation prompt where every requested edit has zero matching records | All-no-op regression. Proves `No changes were made`, no approval card appears, and no mutation audit rows are created. |
+| RD-008 | `Show status for machine with machine id M-CNC-01` | Read-only status regression. Proves one clean typed machine-status answer without `done_all`, raw `**Success**`, dump-style field labels, duplicate answer text, approval UI, or mutation UI. |
 
 ## Additional Required Scenario Groups
 
@@ -124,6 +130,7 @@ Created: 2026-05-18
 | Pending approval guidance | RD-001 approval 1 or approval 2 | Normal approval card omits generic follow-up guidance; conditional guidance appears only after follow-up conflict if implemented. |
 | Partial no-op mutation | No records for one requested edit group, valid records for another group | No-op group appears as `Not changed`; approval contains only valid proposed mutation; final response includes both changed and not changed. |
 | All no-op mutation | No records for every requested edit group | Completes as `No changes were made`; no approval card; no mutation audit rows. |
+| Read-only status cleanup | `Show status for machine with machine id M-CNC-01` | One typed status answer with human labels, no raw assistant markdown, no duplicate blocks, no generic dump table, no approval/mutation UI. |
 
 ## Phase 0 Checklist
 
@@ -1023,17 +1030,17 @@ python -m pytest tests/test_response_document_contract.py tests/test_response_do
 
 ## Phase 16 Checklist
 
-- [ ] Remove the always-visible pending follow-up helper sentence from normal approval rendering.
-- [ ] Update component tests that currently expect the helper sentence in normal approval cards.
-- [ ] Add component/browser assertions that normal approval cards do not show the helper sentence.
-- [ ] Preserve or document conditional guidance for actual follow-up conflict paths.
-- [ ] Update manual regression bank and tracker with the approval-copy regression.
-- [ ] Run frontend unit/component and focused response-document browser checks.
-- [ ] Commit Phase 16.
+- [x] Remove the always-visible pending follow-up helper sentence from normal approval rendering.
+- [x] Update component tests that currently expect the helper sentence in normal approval cards.
+- [x] Add component/browser assertions that normal approval cards do not show the helper sentence.
+- [x] Preserve or document conditional guidance for actual follow-up conflict paths.
+- [x] Update manual regression bank and tracker with the approval-copy regression.
+- [x] Run frontend unit/component and focused response-document browser checks.
+- [x] Commit Phase 16.
 
 ## Phase 16 Implementation Notes
 
-Status: Not Started
+Status: Done
 
 ### Known Bad Copy
 
@@ -1044,6 +1051,18 @@ Follow-up messages can revise the plan, but the current approval remains pending
 ```
 
 This copy distracts from the decision. It should not appear in normal approval cards for RD-001 approval 1 or approval 2.
+
+### Product Fix
+
+- Removed the normal pending-approval helper block from `FactoryAgentChatPanel.jsx`.
+- Approval cards still render the proposed change, affected-record preview/details, and Approve/Reject actions.
+- No existing conditional follow-up conflict guidance path was found in this phase. That more targeted UX remains future work; Phase 16 did not add a broad follow-up workflow.
+
+### Regression Coverage Added
+
+- `FactoryAgentChatPanel.component.test.mjs` now asserts the helper sentence is absent for normal pending approval cards, lagging approval timeline cards, and compact response-document approval cards.
+- `responseDocumentProbe.js` exports the exact helper sentence as pending-approval forbidden probe text.
+- `final-response-quality.spec.js` adds RD-001 approval-copy coverage and applies the forbidden probe assertion to approval 1 and approval 2 checkpoints.
 
 ### Required Good Behavior
 
@@ -1058,6 +1077,11 @@ Set-Location "eMas Front"
 npm test
 npm run test:e2e:response-document -- --grep "approval copy|RD-001|Waiting for approval|pending guidance"
 ```
+
+### Phase 16 Verification Results
+
+- `npm test` -> 113 passed.
+- `npm run test:e2e:response-document -- --grep "approval copy|RD-001|Waiting for approval|pending guidance"` -> 5 passed.
 
 ## Phase 17 Checklist
 
@@ -1111,6 +1135,68 @@ python -m pytest tests/test_api_endpoints.py -q
 Set-Location "..\eMas Front"
 npm test
 npm run test:e2e:response-document -- --grep "no-op|Not changed|No changes were made|no matching"
+```
+
+## Phase 18 Checklist
+
+- [ ] Add backend response-document contract coverage for machine-status read-only answers.
+- [ ] Compose machine-status answers from typed tool facts, not raw assistant markdown.
+- [ ] Render one concise status summary plus meaningful key facts.
+- [ ] Use human labels such as `Machine ID`, `Machine name`, `Machine type`, `Location`, `Status`, `Capacity per hour`, `Last maintenance`, and `Maintenance interval`.
+- [ ] Suppress low-value zero/default fields from the default visible answer.
+- [ ] Forbid raw `done_all`, raw `**Success**`, dump-style labels, duplicate answer blocks, approval UI, and mutation UI.
+- [ ] Add frontend component/probe/browser assertions for RD-008.
+- [ ] Update manual regression bank and tracker.
+- [ ] Run backend and frontend verification.
+- [ ] Commit Phase 18.
+
+## Phase 18 Implementation Notes
+
+Status: Not Started
+
+### Known Bad Output
+
+Manual verification for:
+
+```text
+Show status for machine with machine id M-CNC-01
+```
+
+showed:
+
+- raw `done_all`;
+- raw `**Success**`;
+- duplicated answer text;
+- dump-style labels such as `Machineid`, `Machinename`, `Capacityperhour`, `Defaultsetuptime`, `Defaultcleaningtime`, `Defaultchangeovertime`, `Utilizationrate`, `Lastmaintenancedate`, and `Maintenanceintervaldays`;
+- generic `Results` block that only says `running`.
+
+### Required Good Output
+
+The default answer should be concise and typed, for example:
+
+```text
+Machine M-CNC-01 is running.
+
+Machine details
+- Machine name: CNC Mill 01
+- Machine type: CNC Mill
+- Location: Floor A - Bay 1
+- Capacity per hour: 200
+- Last maintenance: 2026-01-15 08:00
+- Maintenance interval: 30 days
+```
+
+No approval card, mutation result, raw assistant marker, or dump-style API label should appear.
+
+### Phase 18 Verification Target
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "machine status|read-only status|M-CNC-01|status response"
 ```
 
 ## Phase 10 Implementation Notes

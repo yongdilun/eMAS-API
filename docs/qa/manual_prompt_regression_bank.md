@@ -220,7 +220,7 @@ This response-document phase is separate from the broader normal-use Phase 16 ba
 
 | ID | Prompt / flow | Expected deterministic behavior | Coverage |
 |---|---|---|---|
-| `response-document-phase16-approval-copy-cleanup` | RD-001 while approval 1 or approval 2 is pending. | Normal approval cards must not show `Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.` The card should focus on proposed changes, affected-record preview/details, and Approve/Reject actions. Follow-up guidance appears only after an actual follow-up/conflict path, if that path is implemented. | Planned: `FactoryAgentChatPanel.component.test.mjs`; `final-response-quality.spec.js`; `responseDocumentProbe.js` forbidden text assertion |
+| `response-document-phase16-approval-copy-cleanup` | RD-001 while approval 1 or approval 2 is pending. | Normal approval cards must not show `Follow-up messages can revise the plan, but the current approval remains pending until you approve, reject, or cancel it.` The card should focus on proposed changes, affected-record preview/details, and Approve/Reject actions. Follow-up guidance appears only after an actual follow-up/conflict path, if that path is implemented. | `FactoryAgentChatPanel.component.test.mjs`; `final-response-quality.spec.js::RD-001 approval copy pending guidance stays absent from normal approval display`; `responseDocumentProbe.js::pendingApprovalGuidanceProbeText` |
 
 ## Response Document Phase 17 No-Op Mutation Regression
 
@@ -228,6 +228,12 @@ This response-document phase is separate from the broader normal-use Phase 16 ba
 |---|---|---|---|
 | `response-document-phase17-partial-noop-mutation` | Mutation prompt where one requested edit group has no matching records and another requested edit group has valid records. | The no-match group appears as `Not changed` before approval and in the final response. The approval card includes only records that will actually change. No mutation or audit row is attempted for the no-op group. | Planned: backend response-document/API contract plus focused mocked browser semantic probe |
 | `response-document-phase17-all-noop-mutation` | Mutation prompt where every requested edit group has zero matching records. | The run completes as `No changes were made`, no approval card appears, no fake success is shown, and no mutation audit rows are created. | Planned: backend response-document/API contract plus focused mocked browser semantic probe |
+
+## Response Document Phase 18 Read-Only Status Regression
+
+| ID | Prompt / flow | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `response-document-phase18-machine-status-clean-answer` | `Show status for machine with machine id M-CNC-01` | The read-only status answer is composed from typed facts, not raw assistant markdown. It renders one concise machine-status answer with human labels, shows `M-CNC-01` and `running`, avoids duplicate answer blocks, avoids dump-style labels such as `Machineid`, `Machinename`, `Capacityperhour`, and forbids `done_all`, raw `**Success**`, approval UI, and mutation UI. | Planned: backend response-document contract, frontend renderer/component test, response-document semantic probe, focused browser proof |
 
 ## Phase 15 Release Enforcement Note
 
