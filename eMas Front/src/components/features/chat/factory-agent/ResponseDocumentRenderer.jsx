@@ -661,7 +661,7 @@ function SourceHoverCard({ source, anchorRef }) {
     <div
       ref={tooltipRef}
       role="tooltip"
-      className="fixed z-50 block rounded-md border border-hairline bg-surface-1 px-3 py-2 text-left text-[11px] font-normal text-ink shadow-lg"
+      className="pointer-events-none fixed z-50 block rounded-md border border-hairline bg-surface-1 px-3 py-2 text-left text-[11px] font-normal text-ink shadow-lg"
       style={{
         display: 'block',
         left: position.left,

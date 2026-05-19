@@ -1053,6 +1053,7 @@ test.describe('Final response quality response_document gate', () => {
     await sourceChip.hover()
     const tooltip = page.locator('[data-source-chip-hover]').filter({ hasText: 'Control of Hazardous Energy Lockout/Tagout' }).first()
     await expect(tooltip).toBeVisible()
+    await expect(tooltip).toHaveCSS('pointer-events', 'none')
     await expect(tooltip).toHaveAttribute('data-source-chip-hover-placement', /bottom-left|top-left|clamped/)
     const metrics = await sourceTooltipMetrics(tooltip)
     if (!metrics) throw new Error('Source tooltip metrics were not available')
