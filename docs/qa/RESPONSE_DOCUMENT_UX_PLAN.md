@@ -1749,6 +1749,154 @@ npm run test:e2e:seeded-oracles -- --grep "RD-001|machine status|LOTO|no-op|enti
 npm run test:e2e:real-langgraph -- --grep "RD-001|SO-041|machine status|LOTO|no-op|@critical"
 ```
 
+### Phase 27: RAG Metadata Readiness And Legacy Renderer Cleanup
+
+Goal: Prepare RAG answers for typed source UX by fixing the data contract and removing legacy markdown/display paths that currently leak raw safety directives or duplicate the answer.
+
+Problem this phase targets:
+
+- Current RAG source metadata is document-level only. It can support basic source labels, but not claim-level source chips, source drawers, PDF page jumps, or highlights.
+- PDF ingestion currently concatenates page text, so page boundaries and highlight coordinates are not reliable.
+- RAG generation can inject raw `:::safety` admonition markdown into the answer text.
+- Response-document rendering can show the same RAG body as both the document message and a `knowledge_answer` block.
+- Legacy chat rendering still parses `[^1]` citations and renders separate source/safety chrome outside the response-document renderer.
+
+Prerequisite:
+
+- Phase 26 must be marked Done.
+
+Implementation steps:
+
+- Extend backend RAG source metadata to a minimum reliable locator shape:
+  - required: `source_id`, `source_number`, `doc_id`, `chunk_id`, `title`, `organization`, `snippet`;
+  - optional/pass-through: `page`, `pdf_url`, `bbox`, `char_range`.
+- Do not expose raw local filesystem `file_path` in normal UI payloads. Map documents to safe `pdf_url` or keep them as source drawer metadata until a document-serving route exists.
+- Stop injecting `SAFETY_WARNING_BLOCK` / `:::safety` into generated answer text. Preserve safety information as structured `safety_content` or future `safety_notice_v1` data.
+- Add sanitizer/normalizer coverage that strips or rejects raw `:::safety` if it comes from legacy RAG output.
+- Update response-document composition so a source-backed answer body is visible exactly once. Use a short message only as chrome/summary; the substantive answer belongs to the knowledge block.
+- Isolate legacy `[^1]` parsing/source-list/safety rendering to compatibility paths where `response_document` is absent.
+- Keep the existing `source_list` bibliography behavior working while adding richer locator fields.
+- Document the accepted limitation that exact PDF highlight is not complete until Phase 29.
+
+Acceptance criteria:
+
+- LOTO notification RAG output has no visible `:::safety`.
+- The RAG answer body is not duplicated between `message`, `knowledge_answer`, and legacy chat chrome.
+- Every cited RAG source has at least `source_id`, `doc_id`, `chunk_id`, `title`, `organization`, and `snippet`.
+- Existing fallback/policy sources either supply the minimum locator fields or are marked as policy-only sources with deterministic snippets.
+- Legacy `ChatMessage` citation/source/safety chrome does not render on top of a valid `response_document`.
+- Existing Phase 21-26 tests still pass.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_rag_generation.py tests/test_rag_knowledge_policy.py tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+
+Set-Location "..\eMas Front"
+npm test
+node --test --test-concurrency=1 src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs
+npm run test:e2e:response-document -- --grep "LOTO|RAG|source|safety|duplicate"
+```
+
+### Phase 28: Typed RAG Answer And Source Citation UX
+
+Goal: Render RAG/procedure answers as typed response-document UI with clean safety notices, inline source chips, compact source hover, source drawer click behavior, and separate sections when operation data and RAG guidance appear together.
+
+Problem this phase targets:
+
+- A source list at the bottom is not enough evidence for sentence-level RAG answers.
+- Users need to see which source supports which claim without reading raw markdown citations.
+- RAG guidance and live operation facts must be visually distinct when a response contains both.
+
+Prerequisite:
+
+- Phase 27 must be marked Done.
+
+Implementation steps:
+
+- Add or finalize typed RAG response-document blocks/contracts:
+  - `safety_notice_v1`;
+  - `knowledge_answer_v1`;
+  - inline `source_citation_v1` or equivalent citation refs inside `knowledge_answer_v1`;
+  - `source_locator_v1` / enriched `source_list_v1`.
+- Render safety content as a dedicated non-dismissible safety notice block, not markdown.
+- Render the knowledge answer once, with inline source chips after supported claims/sentences.
+- Render compact hover content for source chips: title, organization, page/chunk when available, and snippet.
+- On source chip click, open an in-app source drawer with the exact cited snippet and metadata.
+- If `pdf_url` and `page` exist, provide/open the PDF at that page; otherwise keep the drawer as the source-of-truth view.
+- Keep `Knowledge sources` as bibliography/details, but do not make it the only citation mechanism.
+- For mixed operation + RAG answers, render operation result and procedure/knowledge guidance as separate sections.
+- Add frontend semantic probe coverage that asserts typed RAG blocks and source evidence, not exact answer prose only.
+
+Acceptance criteria:
+
+- LOTO document-content answer renders with a safety panel, one answer body, inline source chips, hover metadata, a source drawer, and bibliography/details.
+- Raw `:::safety`, raw footnote definitions, and unconverted `[^1]` markers do not appear in visible response-document UI.
+- Source chip click works even without PDF page/highlight metadata by opening the source drawer.
+- Mixed operation + RAG response uses separate sections and does not blend live status facts with policy/procedure claims.
+- Browser tests prove visible source chips and semantic source metadata.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_rag_generation.py tests/test_rag_knowledge_policy.py -q
+
+Set-Location "..\eMas Front"
+npm test
+node --test --test-concurrency=1 e2e/support/responseDocumentProbe.test.mjs
+npm run test:e2e:response-document -- --grep "LOTO|typed RAG|source chip|safety notice|source drawer|mixed operation"
+```
+
+### Phase 29: PDF Source Locator And Highlight Upgrade
+
+Goal: Upgrade document ingestion and source opening so cited chunks can open the original PDF at the right page and highlight or locate the cited chunk when metadata is available.
+
+Problem this phase targets:
+
+- Phase 28 can show source drawers and page links only when metadata exists.
+- Current PDF ingestion does not preserve page boundaries or highlight coordinates.
+- Exact PDF highlighting should be implemented after the typed source contract is stable, not as a blocker for RAG display cleanup.
+
+Prerequisite:
+
+- Phase 28 must be marked Done.
+
+Implementation steps:
+
+- Make PDF ingestion page-aware so chunks preserve `page` and safe document locator metadata.
+- Add or map a safe `pdf_url` / document open route for source documents instead of exposing raw local paths.
+- Preserve enough chunk text to support search/snippet highlight fallback.
+- Add optional exact highlight metadata when feasible:
+  - `bbox` for rendered PDF coordinates;
+  - or `char_range` / text range for text-layer highlighting.
+- Add migration/reingestion notes for existing vector/BM25 indexes.
+- Update source chip click behavior:
+  - exact highlight when `bbox` or `char_range` exists;
+  - page jump plus text/snippet search when exact geometry is missing;
+  - source drawer fallback when PDF locator is unavailable.
+- Add tests that prove page metadata survives ingestion and source-opening fallback order is deterministic.
+
+Acceptance criteria:
+
+- At least one PDF-backed source can open at the cited page.
+- Source drawer still works when PDF locator metadata is missing.
+- Highlight fallback order is deterministic: exact geometry, text range/search, page-only, drawer-only.
+- No normal UI payload leaks raw local file paths.
+- Existing Phase 27-28 RAG display tests still pass.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_rag_ingestion.py tests/test_rag_generation.py tests/test_response_document_contract.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "source PDF|source drawer|highlight|LOTO"
+```
+
 ## Stop Conditions
 
 Stop and fix before continuing when:
@@ -1798,6 +1946,11 @@ Stop and fix before continuing when:
 - Phase 26 starts before hardcode guardrails pass.
 - Completed mutation composition derives business facts from assistant summary prose when typed `business_change_v1` fields are available.
 - Frontend generic response-document tests pass by checking only machine/job text instead of contract type, block type, entity type, and typed field evidence.
+- RAG answers show raw markdown directives such as `:::safety`.
+- RAG answers duplicate the same substantive answer body in multiple visible blocks.
+- A valid `response_document` renders legacy `ChatMessage` source/safety chrome on top of typed response-document blocks.
+- Source chips are claimed complete without minimum locator metadata: `source_id`, `doc_id`, `chunk_id`, `title`, `organization`, and `snippet`.
+- PDF highlight is treated as complete while ingestion still loses page boundaries or exposes only raw local `file_path`.
 
 ## Out Of Scope For This Plan
 
@@ -1805,3 +1958,4 @@ Stop and fix before continuing when:
 - LLM-written final responses.
 - Replacing the entire chat UI shell.
 - Removing backend `presentation` from the API payload before frontend migration is complete.
+- Exact PDF highlight before Phase 29 source-locator ingestion support is in place.
