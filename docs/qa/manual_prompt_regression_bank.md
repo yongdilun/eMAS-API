@@ -329,6 +329,22 @@ Phase 26 closure evidence:
 - The release proof found no product behavior bug. It did migrate browser oracles from legacy phrase/label assertions to typed response-document evidence so future browser failures attach compact semantic probes.
 - Accepted limitation: no safe real/seeded non-job generic browser path is available without broadening product behavior. Non-job generic proof remains Phase 24 backend contract coverage for product status and material partial no-op plus valid group.
 
+## Response Document Phase 27 RAG Metadata Readiness And Legacy Renderer Cleanup
+
+Phase 27 promotes the post-Phase-26 LOTO/RAG display regression into executable coverage before source-chip/PDF UX work begins.
+
+| Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
+|---|---|---|---|
+| `response-document-phase27-loto-rag-clean-source-contract` | `According to the LOTO procedure, what notification is required before starting lockout` | Renders one source-backed answer body, no visible `:::safety`, no duplicate `response_document.message`/`knowledge_answer.answer`, no legacy ChatMessage source/safety chrome on valid response-document turns, and every cited source has `source_id`, `source_number`, `doc_id`, `chunk_id`, `title`, `organization`, and `snippet` without raw `file_path`. | Covered: `factory-agent/tests/test_rag_generation.py`; `factory-agent/tests/test_rag_knowledge_policy.py`; `factory-agent/tests/test_response_document_contract.py::test_rag_response_document_includes_knowledge_answer_and_source_blocks`; `FactoryAgentChatPanel.component.test.mjs`; `final-response-quality.spec.js::RD-009 response_document LOTO document content notification answer does not ask for machine ID`. |
+
+Phase 27 closure evidence:
+
+- Passed: `python -m pytest tests/test_rag_generation.py tests/test_rag_knowledge_policy.py tests/test_response_document_contract.py tests/test_response_document_failures.py -q` -> 47 passed.
+- Passed: `npm test` -> 117 passed.
+- Passed: `node --test --test-concurrency=1 src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs` -> 23 passed.
+- Passed: `npm run test:e2e:response-document -- --grep "LOTO|RAG|source|safety|duplicate"` -> 7 passed.
+- Accepted limitation: PDF page jumps and exact highlights remain Phase 29 because ingestion is not page-aware yet.
+
 ## Phase 15 Release Enforcement Note
 
 Phase 15 assigns every fixed or newly found prompt/workflow miss to a blocking lane:

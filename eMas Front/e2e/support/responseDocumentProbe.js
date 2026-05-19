@@ -68,6 +68,9 @@ export const readOnlyStatusForbiddenProbeText = Object.freeze([
 ])
 
 export const documentContentRagForbiddenProbeText = Object.freeze([
+  { label: 'raw safety admonition directive', pattern: /:::safety/i },
+  { label: 'raw safety warning markdown', pattern: /SAFETY WARNING/i },
+  { label: 'legacy safety advisory chrome', pattern: /Safety Advisory/i },
   { label: 'machine ID clarification', pattern: /Which machine ID/i },
   { label: 'exact machine ID clarification', pattern: /exact machine ID/i },
   { label: 'no-results diagnostic', pattern: /\bNo results\b/i },

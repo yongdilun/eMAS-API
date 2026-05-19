@@ -51,8 +51,15 @@ const ACTIVITY_STATE_BY_STEP = {
   cancelled: 'complete',
 }
 
+const SAFETY_ADMONITION_RE = /(?:^|\n)[ \t]*:::\s*safety\b[\s\S]*?(?:\n[ \t]*:::[ \t]*(?=\n|$)|$)/gi
+
 function cleanString(value) {
-  return value == null ? '' : String(value).trim()
+  if (value == null) return ''
+  return String(value)
+    .replace(SAFETY_ADMONITION_RE, '\n')
+    .replace(/^[ \t]*:::\s*safety\b[ \t]*$/gim, '')
+    .replace(/^[ \t]*:::[ \t]*$/gim, '')
+    .trim()
 }
 
 function cleanObject(value) {

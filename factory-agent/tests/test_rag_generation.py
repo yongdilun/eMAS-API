@@ -31,7 +31,10 @@ def sample_chunks():
                 "license": "internal",
                 "version": "1.0",
                 "retrieved_date": "2026-01-01",
-                "file_path": "/path/to/doc1.pdf"
+                "file_path": "/path/to/doc1.pdf",
+                "page": 3,
+                "pdf_url": "/documents/doc1.pdf",
+                "char_range": [120, 220],
             }
         ),
         Chunk(
@@ -109,13 +112,41 @@ def test_generate_answer_safety_warning(mock_build_llm, mock_settings, sample_ch
     
     # A1: Non-empty answer
     assert result.answer
-    # A3: Safety warning present because chunk 1 has risk_level: high
+    # A3: Safety warning data is structured because chunk 1 has risk_level: high.
     assert result.safety_warning is True
-    assert SAFETY_WARNING_BLOCK.strip() in result.answer
+    assert result.safety_content
+    assert SAFETY_WARNING_BLOCK.strip() not in result.answer
+    assert ":::safety" not in result.answer
     # A6: No file_path leakage
     assert "/path/to/doc1.pdf" not in result.answer
     for source in result.sources:
         assert not hasattr(source, "file_path") or source.file_path is None
+        dumped = source.model_dump()
+        assert "file_path" not in dumped
+        for key in ("source_id", "source_number", "doc_id", "chunk_id", "title", "organization", "snippet"):
+            assert dumped[key]
+    assert result.sources[0].chunk_id == "doc1_c1"
+    assert result.sources[0].snippet == "The LOTO procedure requires locking out all energy sources."
+    assert result.sources[0].page == 3
+    assert result.sources[0].pdf_url == "/documents/doc1.pdf"
+    assert result.sources[0].char_range == [120, 220]
+
+
+@patch("factory_agent.rag.generation.build_rag_answer_chat_model")
+def test_generate_answer_strips_legacy_raw_safety_markdown(mock_build_llm, mock_settings, sample_chunks):
+    mock_llm = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = f"{SAFETY_WARNING_BLOCK.strip()}\n\nNotify affected employees before lockout starts [^1]."
+    mock_llm.invoke.return_value = mock_response
+    mock_build_llm.return_value = mock_llm
+
+    generator = AnswerGenerator(mock_settings)
+    result = generator.generate("What notification is required before LOTO?", sample_chunks)
+
+    assert ":::safety" not in result.answer
+    assert "SAFETY WARNING" not in result.answer
+    assert "Notify affected employees" in result.answer
+    assert result.safety_content
 
 @patch("factory_agent.rag.generation.build_rag_answer_chat_model")
 def test_generate_answer_no_safety_warning(mock_build_llm, mock_settings, sample_chunks):
@@ -176,6 +207,9 @@ def test_generate_answer_citations(mock_build_llm, mock_settings, sample_chunks)
         assert source.organization
         assert source.authority_level
         assert source.license
+        assert source.source_id
+        assert source.chunk_id
+        assert source.snippet
 
 @patch("factory_agent.rag.generation.build_rag_answer_chat_model")
 def test_generate_answer_llm_failure(mock_build_llm, mock_settings, sample_chunks):

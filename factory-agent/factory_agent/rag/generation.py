@@ -6,6 +6,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from factory_agent.config import Settings, get_settings
 from factory_agent.llm import build_rag_answer_chat_model
 from factory_agent.rag.schemas import Chunk, SourceCitation, AnswerResult
+from factory_agent.rag.source_metadata import normalize_source_locator, sanitize_rag_answer_text
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ Always follow your site's approved SOP, obtain required permits, and consult you
 class AnswerGenerator:
     """
     Implements Phase 4 — Answer Generation.
-    Builds context, calls LLM to generate answer, and formats citations/safety warnings.
+    Builds context, calls LLM to generate answer, and formats source metadata/safety data.
     """
 
     def __init__(self, settings: Optional[Settings] = None):
@@ -131,7 +132,7 @@ class AnswerGenerator:
             ]
             
             response = self.llm.invoke(messages)
-            answer_text = response.content
+            answer_text = sanitize_rag_answer_text(response.content)
 
             # 5. Check for high risk
             has_high_risk = any(c.metadata.get("risk_level") == "high" for c in chunks)
@@ -139,8 +140,6 @@ class AnswerGenerator:
             safety_text = None
             if has_high_risk:
                 safety_text = "This topic involves high-risk industrial procedures. Always follow your site's approved SOP, obtain required permits, and consult your safety officer before proceeding."
-                if SAFETY_WARNING_BLOCK.strip() not in answer_text:
-                    answer_text = f"{SAFETY_WARNING_BLOCK.strip()}\n\n{answer_text}".strip()
 
             # 6. Build citations (one per unique document)
             sources = [self.build_source_citation(c, i + 1) for i, c in enumerate(unique_doc_chunks)]
@@ -211,14 +210,29 @@ class AnswerGenerator:
         Creates a formatted SourceCitation from chunk metadata (6.4).
         """
         meta = chunk.metadata
+        locator = normalize_source_locator(
+            {
+                **meta,
+                "chunk_id": chunk.chunk_id,
+                "snippet": chunk.text,
+            },
+            source_number - 1,
+        )
         return SourceCitation(
+            source_id=locator["source_id"],
             source_number=source_number,
-            doc_id=meta.get("doc_id", "Unknown"),
-            title=meta.get("title", "Unknown"),
-            organization=meta.get("organization", "Unknown"),
+            doc_id=locator["doc_id"],
+            chunk_id=locator["chunk_id"],
+            title=locator["title"],
+            organization=locator["organization"],
+            snippet=locator["snippet"],
             authority_level=meta.get("authority_level", "Unknown"),
             domain=meta.get("domain", "Unknown"),
             version=meta.get("version", "N/A"),
             license=meta.get("license", "internal"),
-            retrieved_date=meta.get("retrieved_date", "")
+            retrieved_date=meta.get("retrieved_date", ""),
+            page=locator.get("page"),
+            pdf_url=locator.get("pdf_url"),
+            bbox=locator.get("bbox"),
+            char_range=locator.get("char_range"),
         )

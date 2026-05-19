@@ -34,6 +34,9 @@ Created: 2026-05-18
 | 24 | Entity diversity coverage | Done | Codex | Added product status and material partial no-op plus valid-group backend contract fixtures proving `entity_status_v1`, `business_change_v1`, and `entity_agnostic_no_matching_records_v1` beyond jobs and machines. |
 | 25 | Hardcode regression guardrails | Done | Codex | Added product branch-condition static guards, typed composer summary-prose guardrail, and frontend probe contract-evidence guardrails. |
 | 26 | Real flow release proof | Done | Codex | Real/seeded release proof passed for RD-001, machine status, LOTO RAG, no-op mutation, final visual quality, and real LangGraph critical; no safe non-job real/seeded browser path exists yet beyond Phase 24 backend contract coverage. |
+| 27 | RAG metadata readiness and legacy renderer cleanup | Done | Codex | Added minimum RAG source locator metadata, stopped raw `:::safety` answer injection, sanitized legacy safety markdown, prevented duplicate response-document RAG bodies, and isolated legacy source/safety chrome to no-response-document compatibility paths. |
+| 28 | Typed RAG answer and source citation UX | Planned | Codex | Render safety notices, knowledge answers, inline source chips, compact hover metadata, source drawer click behavior, and separate operation/RAG sections from typed response-document blocks. |
+| 29 | PDF source locator and highlight upgrade | Planned | Codex | Make PDF ingestion page-aware, add safe PDF/document locators, and support exact or fallback highlighting after typed RAG UX is stable. |
 
 ## Current Blockers
 
@@ -46,6 +49,7 @@ Created: 2026-05-18
 - Several recent fixes are still at risk of becoming entity-specific special cases. Phase 20 audited this; Phase 21 prepared backend/OpenAPI/tool/vocabulary metadata before the generic response-document contract starts.
 - Phase 23 is complete for existing flows: machine status uses `entity_status_v1`, job priority cascade groups use `business_change_v1`, and job no-op groups continue through `entity_agnostic_no_matching_records_v1` with frontend contract/probe evidence.
 - Phase 26 is complete. Backend contract diversity beyond jobs/machines remains covered by Phase 24 product/material fixtures; no safe non-job real/seeded browser path has been exposed without broadening write/read product scope.
+- Phase 27 fixed the post-Phase-26 RAG display regression: LOTO document-content answers no longer show raw `:::safety`, source-backed answer bodies render once, valid response-document turns do not get legacy ChatMessage source/safety chrome, and cited RAG sources carry minimum locator metadata.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -119,6 +123,11 @@ Created: 2026-05-18
 - Phase 24 proves the contract beyond jobs and machines before the plan can claim generic coverage.
 - Phase 25 installs hardcode guardrails before real-flow release proof.
 - Phase 26 is the release-confidence proof after contract creation, migration, diversity coverage, and guardrails are green.
+- RAG/source UX must not build PDF highlight promises on doc-level-only metadata. Phase 27 prepares minimum source locators and removes legacy display leaks first.
+- RAG safety content is data, not markdown. Raw `:::safety` directives must not be part of visible answer text.
+- Source chips need minimum reliable metadata: `source_id`, `doc_id`, `chunk_id`, `title`, `organization`, and `snippet`; PDF page/highlight fields are optional until Phase 29.
+- Mixed operation plus RAG answers use separate sections so live operational facts and document/procedure guidance do not blur together.
+- Exact PDF highlight is a Phase 29 ingestion/source-locator upgrade, not a blocker for Phase 27 cleanup or Phase 28 typed RAG UX.
 
 ## Flagship Inputs
 
@@ -140,6 +149,9 @@ Created: 2026-05-18
 | RD-014 | Phase 24 entity diversity coverage | Proves generic contracts beyond jobs and machines with at least two safe deterministic examples. |
 | RD-015 | Phase 25 hardcode guardrails | Proves product code, composer logic, and frontend probes cannot quietly regress to fixture-specific hardcoding or summary-prose inference. |
 | RD-016 | Phase 26 real flow release proof | Proves the post-refactor real/seeded release-critical flows still agree across backend state, response document, and visible UI. |
+| RD-017 | Phase 27 RAG metadata readiness and legacy renderer cleanup | Proves LOTO/RAG answers have minimum source locator metadata, no visible `:::safety`, no duplicate visible answer body, and no legacy source/safety chrome when `response_document` exists. |
+| RD-018 | Phase 28 typed RAG answer and source citation UX | Proves typed safety notice, single knowledge answer body, inline source chips, compact source hover, source drawer click behavior, bibliography/details, and separate operation/RAG sections. |
+| RD-019 | Phase 29 PDF source locator and highlight upgrade | Proves PDF-backed chunks preserve page/document locators and source clicks open the best available locator: exact highlight, text/snippet search, page-only, or drawer-only fallback. |
 
 ## Additional Required Scenario Groups
 
@@ -169,6 +181,9 @@ Created: 2026-05-18
 | Entity diversity coverage | Product/material/work-order/non-job no-op fixtures | At least two non-job/non-machine examples prove the contracts are not only job/machine compatible. |
 | Hardcode guardrails | Product-code scan, composer contract tests, frontend probe tests | Fixture ids, exact prompt text, entity-label branches, summary-prose business inference, and weak machine/job-only probes are blocked or explicitly excepted. |
 | Real flow release proof | RD-001, machine status, LOTO document-content RAG, no-op mutation, non-job generic proof if available | Real/seeded backend state, response document, and visible UI agree after the generic-contract refactor. |
+| RAG metadata readiness | LOTO document-content answer with source metadata | Minimum locator metadata exists, raw safety markdown is absent, duplicated RAG bodies are blocked, and legacy source/safety chrome is isolated to no-response-document compatibility paths. |
+| Typed RAG source UX | LOTO notification answer and mixed operation + procedure guidance | Safety notice, answer, source chips, hover metadata, source drawer, bibliography/details, and separate operation/RAG sections render from typed blocks rather than markdown parsing. |
+| PDF source locator/highlight | PDF-backed LOTO/OSHA source chunk | Source click opens the best available PDF/page/highlight path without leaking raw local file paths, and falls back to source drawer when PDF metadata is missing. |
 
 ## Phase 0 Checklist
 
@@ -2036,6 +2051,78 @@ npm run test:e2e:real-langgraph -- --grep "RD-001|SO-041|machine status|LOTO|no-
 - Seeded oracle browser lane: 13 passed.
 - Real LangGraph critical browser lane: 3 passed.
 
+## Response Document Phase 27 RAG Metadata Readiness And Legacy Renderer Cleanup
+
+Phase 27 is complete. It fixed the post-Phase-26 LOTO/RAG display issue at the data-contract and compatibility-renderer layers before Phase 28 source chips or Phase 29 PDF highlighting begin.
+
+### Findings To Preserve
+
+- `factory-agent/factory_agent/rag/schemas.py::SourceCitation` now exposes minimum locator fields: `source_id`, `source_number`, `doc_id`, `chunk_id`, `title`, `organization`, and `snippet`; optional `page`, `pdf_url`, `bbox`, and `char_range` pass through when present.
+- `factory-agent/factory_agent/rag/ingestion.py` concatenates PDF page text, so PDF page boundaries and exact highlight coordinates are not reliable yet.
+- `factory-agent/factory_agent/rag/generation.py` still keeps `SAFETY_WARNING_BLOCK` as a legacy constant for tests/compatibility, but it no longer injects it into generated answer text.
+- `factory-agent/factory_agent/services/response_document_service.py` now uses a short source-backed response-document message and renders the substantive RAG body only in `knowledge_answer`.
+- `eMas Front/src/components/features/chat/ChatMessage.jsx` still supports source/safety chrome for compatibility turns where `response_document` is absent; valid response-document turns pass no legacy source/safety extras.
+- `eMas Front/src/components/features/chat/factory-agent/ResponseDocumentRenderer.jsx` keeps `source_list` as bibliography/details with richer locator fields. Inline source chips and source drawer remain Phase 28.
+
+| Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
+|---|---|---|---|
+| `response-document-phase27-rag-minimum-locator` | LOTO document-content RAG answer with retrieved and policy-added sources. | Every cited source has minimum locator fields: `source_id`, `doc_id`, `chunk_id`, `title`, `organization`, and `snippet`; optional PDF/highlight fields are preserved if present. | Backend RAG generation/policy tests plus response-document contract tests. |
+| `response-document-phase27-no-raw-safety-markdown` | `According to the LOTO procedure, what notification is required before starting lockout` | No visible or response-document answer body contains `:::safety`; safety guidance is carried as structured data for Phase 28. | Backend response-document contract test and mocked browser forbidden-text probe. |
+| `response-document-phase27-no-duplicate-rag-body` | Any completed `knowledge_answer` response document. | Substantive RAG answer appears exactly once; response-document `message` is chrome/summary only and does not duplicate `knowledge_answer.answer`. | Backend response-document contract test plus frontend/component text-count proof. |
+| `response-document-phase27-legacy-chrome-isolated` | Valid response-document with sources and safety content. | Legacy `ChatMessage` source list/safety block does not render on top of response-document blocks; compatibility path still works when `response_document` is absent. | Frontend component tests and focused response-document E2E/probe. |
+
+### Closure Evidence
+
+- RAG generation strips legacy `:::safety` blocks and carries safety guidance as structured `safety_content`.
+- RAG/policy/response-document source rows normalize through minimum locator metadata and remove raw local `file_path` from UI payloads.
+- LOTO notification response documents render one substantive answer body: `response_document.message` is short chrome and does not duplicate `knowledge_answer.answer`.
+- Frontend response-document turns suppress legacy ChatMessage source/safety chrome while legacy no-response-document compatibility still renders sources.
+- Accepted limitation: exact PDF page/highlight behavior remains Phase 29 because ingestion still loses page boundaries.
+
+### Phase 27 Verification
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_rag_generation.py tests/test_rag_knowledge_policy.py tests/test_response_document_contract.py tests/test_response_document_failures.py -q
+
+Set-Location "..\eMas Front"
+npm test
+node --test --test-concurrency=1 src/components/features/chat/factory-agent/FactoryAgentChatPanel.component.test.mjs
+npm run test:e2e:response-document -- --grep "LOTO|RAG|source|safety|duplicate"
+```
+
+Results:
+
+- Backend RAG/response-document lane: 47 passed.
+- Frontend unit/component lane: 117 passed.
+- Focused component lane: 23 passed.
+- Focused response-document browser grep: 7 passed.
+
+## Response Document Phase 28 Typed RAG Answer And Source Citation UX
+
+Phase 28 starts only after Phase 27 proves the metadata and legacy cleanup. It turns the prepared RAG contract into visible UX.
+
+| Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
+|---|---|---|---|
+| `response-document-phase28-safety-notice-v1` | LOTO/safety RAG answer. | Safety guidance renders as a dedicated typed safety notice block, not markdown, and remains visible. | Backend contract plus frontend component/browser proof. |
+| `response-document-phase28-inline-source-chips` | LOTO notification answer with multiple sources. | Supported claims render inline source chips; hover shows compact source metadata and snippet. | Frontend component and response-document E2E semantic probe. |
+| `response-document-phase28-source-drawer` | Click an inline source chip. | Opens a source drawer with exact chunk/snippet and metadata; PDF link/page is offered only when metadata exists. | Mocked browser source-click proof. |
+| `response-document-phase28-mixed-operation-rag-sections` | Prompt that asks for live status plus procedure guidance. | Operation result and RAG/procedure guidance render as separate sections in the same response document. | Backend contract fixture and frontend component/browser proof. |
+
+Phase 28 closure must still keep `Knowledge sources` as bibliography/details, but inline chips become the primary claim-to-source evidence.
+
+## Response Document Phase 29 PDF Source Locator And Highlight Upgrade
+
+Phase 29 is intentionally separate because current ingestion does not preserve enough PDF locator data for exact highlight.
+
+| Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
+|---|---|---|---|
+| `response-document-phase29-page-aware-ingestion` | Ingest a PDF-backed RAG source. | Chunks preserve page/document locator metadata without exposing raw local file paths in UI payloads. | RAG ingestion tests with a small deterministic PDF fixture. |
+| `response-document-phase29-pdf-open-page` | Click source chip with `pdf_url` and `page`. | Opens the PDF/document route at the cited page. | Frontend source-click/browser proof. |
+| `response-document-phase29-highlight-fallback-order` | Source chip with varying locator richness. | Uses exact `bbox`/`char_range` when present, then text/snippet search, then page-only, then drawer-only fallback. | Unit/component tests plus focused browser proof. |
+
+Phase 29 may require vector/BM25 reingestion or migration notes. It should not be used to block Phase 27 or Phase 28 RAG display cleanup.
+
 ## Phase 10 Implementation Notes
 
 Date: 2026-05-18
@@ -2190,7 +2277,7 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 
 ## Next Action
 
-Phase 26 is complete. Use the recorded Phase 26 command set as the release-proof lane for response-document refactor signoff; broaden real/seeded non-job generic browser coverage only when a safe product path is intentionally exposed.
+Start Phase 28: typed RAG answer and source citation UX. Use Phase 27 locator metadata and renderer cleanup as the prerequisite baseline; do not claim PDF page/highlight completion until Phase 29 ingestion/source-locator work is done.
 
 ## Post-Gate Regression: Approved Data But UI Still Shows Approval
 

@@ -15,7 +15,7 @@ import {
   diagnosticFactsForPresentation,
   tablePresentationFromTypedPresentation,
 } from './presentationContract.js'
-import { normalizeResponseDocument, sourcesFromResponseDocument } from './responseDocumentContract.js'
+import { normalizeResponseDocument } from './responseDocumentContract.js'
 import {
   formatInlineCitationLabel,
   stripSourceFootnoteDefinitions,
@@ -656,9 +656,8 @@ function AssistantTurnBubble({
     turn.approvals.some((a) => a?.event_type === 'approval_decided'),
   )
   const collapseBundleTable = Boolean(presentation && !pendingApproval && hasServerDecidedApproval)
-  const chatSources = hasResponseDocument
-    ? sourcesFromResponseDocument(responseDocument)
-    : turn.sources
+  const chatSources = hasResponseDocument ? [] : turn.sources
+  const chatSafetyContent = hasResponseDocument ? null : turn.safetyContent
 
   return (
     <ChatMessage
@@ -666,7 +665,7 @@ function AssistantTurnBubble({
       isUser={false}
       timestamp={timestamp}
       sources={chatSources}
-      safetyContent={turn.safetyContent}
+      safetyContent={chatSafetyContent}
       showStreamGatedExtras={textStreamDone && answerAllowed}
       renderBlocks={() => (
         <>

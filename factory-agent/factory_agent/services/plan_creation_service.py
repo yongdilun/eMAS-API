@@ -42,6 +42,7 @@ from factory_agent.planning.plan_validator import validate_plan
 from factory_agent.planning.tool_output_alignment import align_tool_outputs_to_steps
 from factory_agent.planning.tool_selector import ToolSelector
 from factory_agent.rag.knowledge_policy import default_knowledge_policy_registry
+from factory_agent.rag.source_metadata import normalize_source_locators, sanitize_rag_answer_text
 from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import PlanCreateRequest, PlanResponse, ToolInfo
 from factory_agent.security.permissions import filter_tools_for_role, role_from_claims
@@ -239,6 +240,7 @@ class PlanCreationService:
     ) -> PlanResponse:
         from ..schemas import PlanDraft
 
+        reply = sanitize_rag_answer_text(reply)
         db.add(
             MessageRow(
                 message_id=self._generate_uuid(),
@@ -251,7 +253,7 @@ class PlanCreationService:
         )
         await db.commit()
         sources = kwargs.get("sources", [])
-        sources_dict = [s.model_dump() if hasattr(s, "model_dump") else s for s in sources]
+        sources_dict = normalize_source_locators(sources, fallback_snippet=reply)
 
         empty_draft = PlanDraft(
             plan_explanation=reply,
@@ -332,8 +334,8 @@ class PlanCreationService:
             safety_content=safety_content,
             semantic_frame=semantic_frame,
         )
-        answer = policy_application.answer or ""
-        sources = policy_application.sources
+        answer = sanitize_rag_answer_text(policy_application.answer or "")
+        sources = normalize_source_locators(policy_application.sources, fallback_snippet=answer)
         safety_content = policy_application.safety_content
 
         if not answer:

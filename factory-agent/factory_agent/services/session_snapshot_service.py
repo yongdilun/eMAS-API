@@ -20,6 +20,7 @@ from factory_agent.persistence.models import Plan as PlanRow
 from factory_agent.persistence.models import PlanStep as PlanStepRow
 from factory_agent.planning.intent import assess_intent
 from factory_agent.planning.tool_output_alignment import summarize_tool_result
+from factory_agent.rag.source_metadata import normalize_source_locator, sanitize_rag_answer_text
 from factory_agent.registry.tool_registry import ToolRegistry
 from factory_agent.schemas import (
     ActivityStepResponse,
@@ -744,18 +745,14 @@ def _presentation_sources(
             break
 
     sources: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str, str]] = set()
     for index, source in enumerate(raw_sources):
-        if isinstance(source, dict):
-            row = dict(source)
-        else:
-            row = {"value": str(source)}
-        key = json.dumps(row, sort_keys=True, default=str)
+        row = normalize_source_locator(source, index, fallback_snippet=getattr(plan, "plan_explanation", None))
+        key = (str(row.get("source_id") or ""), str(row.get("doc_id") or ""), str(row.get("chunk_id") or ""))
         if key in seen:
             continue
         seen.add(key)
         row.setdefault("source_index", len(sources))
-        row.setdefault("source_id", row.get("id") or row.get("procedure_id") or row.get("document_id") or f"source-{index}")
         sources.append(row)
     return sources
 
@@ -1438,11 +1435,12 @@ def _derive_snapshot_presentation(
         )
 
     if session_status == "COMPLETED" and sources:
+        answer_summary = sanitize_rag_answer_text(terminal_event.content if terminal_event else (plan.plan_explanation if plan else None))
         return PresentationResponse(
             kind="knowledge_answer",
             state="completed",
             operation_id=operation_id,
-            summary=terminal_event.content if terminal_event else (plan.plan_explanation if plan else None),
+            summary=answer_summary,
             rows=step_rows,
             sources=sources,
             diagnostics={"reason": "source_backed_answer"},

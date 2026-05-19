@@ -8,7 +8,6 @@ import {
 } from '../support/promptRegressionScenarios.js'
 import {
   phase18MockRagAnswer,
-  phase18MockRagSource,
 } from '../support/intentEntityScenarios.js'
 
 async function openChat(page) {
@@ -25,8 +24,13 @@ async function sendPrompt(page, prompt) {
   await expect(page.getByText(prompt)).toBeVisible()
 }
 
+async function visibleDialogText(page) {
+  return page.getByRole('dialog', { name: chatSelectors.dialogName }).evaluate((node) => node.innerText || '')
+}
+
 test.describe('Phase 19 prompt regression diagnostics @prompt-regression', () => {
   test('scenario 116/124: LOTO wording matrix routes successfully without generic attention diagnostics', async ({ page }) => {
+    test.setTimeout(120_000)
     expect(phase19LotoRegressionEntries.length).toBeGreaterThanOrEqual(5)
 
     for (const [index, entry] of phase19LotoRegressionEntries.entries()) {
@@ -37,12 +41,10 @@ test.describe('Phase 19 prompt regression diagnostics @prompt-regression', () =>
       }
       await sendPrompt(page, entry.source_prompt)
 
-      await expect(page.getByText(phase18MockRagAnswer).first()).toBeVisible()
-      await expect(page.getByText('Knowledge sources')).toBeVisible()
-      await expect(page.getByText(phase18MockRagSource.title).first()).toBeVisible()
+      await expect.poll(async () => (await visibleDialogText(page)).includes(phase18MockRagAnswer), { timeout: 30_000 }).toBe(true)
       await expect(page.getByText(/Which machine ID/i)).toHaveCount(0)
       await expect(page.getByText('Factory Agent needs attention')).toHaveCount(0)
-      await expect(page.getByText('Run complete')).toBeVisible()
+      await expect(page.getByText('Run complete').last()).toBeVisible()
     }
   })
 

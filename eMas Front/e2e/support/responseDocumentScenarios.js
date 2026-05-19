@@ -671,7 +671,7 @@ export function lotoDocument(session) {
     operationId: 'pw-plan-rd-loto',
     revision: 3,
     state: 'completed',
-    message: answer,
+    message: 'I found a source-backed answer.',
     currentStepId: 'completed-loto',
     runSteps: [
       { step_id: 'knowledge-loto', kind: 'knowledge', state: 'completed', title: 'Prepared sourced answer', summary: '1 source attached.' },
@@ -684,7 +684,16 @@ export function lotoDocument(session) {
         type: 'source_list',
         operation_id: 'pw-plan-rd-loto',
         sources: [
-          { source_number: 1, title: 'M-CNC-01 Lockout/Tagout Procedure', doc_id: 'LOTO-M-CNC-01', machine_id: 'M-CNC-01', organization: 'Factory Safety' },
+          {
+            source_id: 'LOTO-M-CNC-01#chunk-loto-m-cnc-01',
+            source_number: 1,
+            title: 'M-CNC-01 Lockout/Tagout Procedure',
+            doc_id: 'LOTO-M-CNC-01',
+            chunk_id: 'chunk-loto-m-cnc-01',
+            machine_id: 'M-CNC-01',
+            organization: 'Factory Safety',
+            snippet: 'Notify operations, isolate electrical and pneumatic energy, apply locks, and verify zero energy before work begins.',
+          },
         ],
       },
     ],
@@ -697,7 +706,7 @@ export function lotoNotificationDocument(session) {
     operationId: 'pw-plan-rd-loto-notification',
     revision: 3,
     state: 'completed',
-    message: answer,
+    message: 'I found a source-backed answer.',
     currentStepId: 'completed-loto-notification',
     runSteps: [
       { step_id: 'knowledge-loto-notification', kind: 'knowledge', state: 'completed', title: 'Prepared sourced answer', summary: '1 source attached.' },
@@ -710,7 +719,16 @@ export function lotoNotificationDocument(session) {
         type: 'source_list',
         operation_id: 'pw-plan-rd-loto-notification',
         sources: [
-          { source_number: 1, title: 'LOTO Notification Requirements', doc_id: 'LOTO-NOTIFICATION-REQ', organization: 'Factory Safety' },
+          {
+            source_id: 'LOTO-NOTIFICATION-REQ#chunk-notification-before-lockout',
+            source_number: 1,
+            title: 'LOTO Notification Requirements',
+            doc_id: 'LOTO-NOTIFICATION-REQ',
+            chunk_id: 'chunk-notification-before-lockout',
+            organization: 'Factory Safety',
+            snippet: 'Affected employees must be notified before lockout/tagout starts and told why shutdown is needed and when control begins.',
+            policy_only: true,
+          },
         ],
       },
     ],

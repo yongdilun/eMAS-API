@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
+from factory_agent.rag.source_metadata import normalize_source_locators, sanitize_rag_answer_text
+
 
 UNABLE_ANSWER_PREFIXES = (
     "no relevant documents",
@@ -103,6 +105,12 @@ class KnowledgePolicyRegistry:
                 if str(policy_source.get("doc_id") or "") not in existing_doc_ids:
                     merged_sources.append(dict(policy_source))
             merged_safety = merged_safety or policy.safety_content
+        merged_answer = sanitize_rag_answer_text(merged_answer)
+        merged_sources = normalize_source_locators(
+            merged_sources,
+            fallback_snippet=merged_answer,
+            policy_id=policy.policy_id,
+        )
 
         return KnowledgePolicyApplication(
             policy_id=policy.policy_id,
@@ -132,12 +140,19 @@ def default_knowledge_policy_registry() -> KnowledgePolicyRegistry:
                 ),
                 fallback_sources=(
                     {
+                        "source_id": "loto_notification_requirement#policy:loto-notification-requirement",
                         "source_number": 1,
                         "doc_id": "loto_notification_requirement",
+                        "chunk_id": "policy:loto-notification-requirement",
                         "title": "LOTO Notification Requirements",
                         "organization": "Factory Safety",
+                        "snippet": (
+                            "Affected employees must be notified before lockout/tagout starts, including why "
+                            "the shutdown is required and when the lockout/tagout condition begins."
+                        ),
                         "authority_level": "site_procedure",
                         "license": "internal",
+                        "policy_only": True,
                     },
                 ),
                 safety_content=(
@@ -170,21 +185,35 @@ def default_knowledge_policy_registry() -> KnowledgePolicyRegistry:
                 ),
                 fallback_sources=(
                     {
+                        "source_id": "osha_3120_lockout_tagout#policy:osha-3120-lockout-tagout",
                         "source_number": 1,
                         "doc_id": "osha_3120_lockout_tagout",
+                        "chunk_id": "policy:osha-3120-lockout-tagout",
                         "title": "Control of Hazardous Energy Lockout/Tagout",
                         "organization": "OSHA",
+                        "snippet": (
+                            "OSHA guidance explains that lockout/tagout controls hazardous energy during "
+                            "servicing and maintenance through energy-control procedures, training, and inspection."
+                        ),
                         "authority_level": "official_public_guidance",
                         "version": "2002 (Revised)",
                         "license": "public",
+                        "policy_only": True,
                     },
                     {
+                        "source_id": "29_cfr_1910_147#policy:29-cfr-1910-147",
                         "source_number": 2,
                         "doc_id": "29_cfr_1910_147",
+                        "chunk_id": "policy:29-cfr-1910-147",
                         "title": "29 CFR 1910.147 - The control of hazardous energy (lockout/tagout)",
                         "organization": "OSHA",
+                        "snippet": (
+                            "29 CFR 1910.147 is the OSHA general industry lockout/tagout standard for "
+                            "controlling hazardous energy."
+                        ),
                         "authority_level": "regulation",
                         "license": "public",
+                        "policy_only": True,
                     },
                 ),
                 safety_content=(

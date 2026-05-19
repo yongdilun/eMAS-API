@@ -1989,7 +1989,19 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
     created_at = datetime(2026, 5, 18, 15, 0, 0)
     session_id = "rd-rag-sources"
     plan_id = "rd-rag-plan"
-    source = {"machine_id": "M-CNC-01", "procedure_id": "LOTO-M-CNC-01", "title": "LOTO procedure"}
+    answer = (
+        ":::safety\n"
+        "**SAFETY WARNING**: legacy markdown should not be visible.\n"
+        ":::\n\n"
+        "Use the controlled LOTO procedure before working on M-CNC-01."
+    )
+    source = {
+        "machine_id": "M-CNC-01",
+        "procedure_id": "LOTO-M-CNC-01",
+        "title": "LOTO procedure",
+        "organization": "Factory Safety",
+        "file_path": "C:/local/docs/loto.pdf",
+    }
     db_session.add_all(
         [
             _session(session_id=session_id, plan_id=plan_id, created_at=created_at, event_seq=7, status="COMPLETED"),
@@ -1997,7 +2009,7 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
             _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
             _assistant_message(
                 session_id=session_id,
-                content="Use the controlled LOTO procedure before working on M-CNC-01.",
+                content=answer,
                 step_id=plan_id,
                 tool_name="__conversation__",
                 created_at=created_at + timedelta(seconds=2),
@@ -2013,9 +2025,17 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
     document = body["response_document"]
 
     assert body["presentation"]["kind"] == "knowledge_answer"
-    assert any(block["type"] == "knowledge_answer" for block in document["blocks"])
+    knowledge_block = next(block for block in document["blocks"] if block["type"] == "knowledge_answer")
+    assert knowledge_block["answer"] == "Use the controlled LOTO procedure before working on M-CNC-01."
+    assert document["message"] != knowledge_block["answer"]
+    assert document["message"] == "I found a source-backed answer."
+    assert ":::safety" not in json.dumps(document)
     source_block = next(block for block in document["blocks"] if block["type"] == "source_list")
     assert source_block["sources"][0]["procedure_id"] == "LOTO-M-CNC-01"
+    source_payload = source_block["sources"][0]
+    for key in ("source_id", "source_number", "doc_id", "chunk_id", "title", "organization", "snippet"):
+        assert source_payload[key]
+    assert "file_path" not in source_payload
     assert any(step["kind"] == "knowledge" for step in document["run_steps"])
 
 

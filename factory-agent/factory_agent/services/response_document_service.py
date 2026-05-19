@@ -11,6 +11,7 @@ from factory_agent.graph.noop_mutations import (
     NO_OP_MUTATION_STATUS,
     normalize_no_op_mutation,
 )
+from factory_agent.rag.source_metadata import normalize_source_locators, sanitize_rag_answer_text
 from factory_agent.schemas import (
     ActivityStepResponse,
     ApprovalRequiredBlock,
@@ -2788,7 +2789,7 @@ def _short_message(
         return _trimmed(presentation.summary) or "Some rows failed while others succeeded."
 
     if sources:
-        return _trimmed(presentation.summary) or "I found a source-backed answer."
+        return "I found a source-backed answer."
 
     if status_result:
         return _trimmed(status_result.get("summary")) or "Status is ready."
@@ -2987,8 +2988,16 @@ def _compose_blocks(
                 )
             )
 
-    if presentation.kind == "knowledge_answer" and message:
-        blocks.append(KnowledgeAnswerBlock(id=f"knowledge:{operation_id or document_id}", answer=message, operation_id=operation_id))
+    if presentation.kind == "knowledge_answer":
+        answer = sanitize_rag_answer_text(presentation.summary)
+        if answer:
+            blocks.append(
+                KnowledgeAnswerBlock(
+                    id=f"knowledge:{operation_id or document_id}",
+                    answer=answer,
+                    operation_id=operation_id,
+                )
+            )
 
     if status_result and not mutation_groups:
         blocks.append(
@@ -3105,7 +3114,10 @@ def compose_response_document(
     read_groups = _read_evidence(steps=steps, timeline=timeline, presentation=presentation, operation_id=operation_id)
     read_rows = _dedupe_rows([row for item in read_groups for row in item.rows if not _is_empty_result_envelope(row)])
     status_result = _status_result_from_read_rows(read_rows, operation_id=operation_id, session=session)
-    sources = presentation.sources if isinstance(presentation.sources, list) else []
+    sources = normalize_source_locators(
+        presentation.sources if isinstance(presentation.sources, list) else [],
+        fallback_snippet=presentation.summary,
+    )
     failure_profile = _failure_profile(
         state=state,
         presentation=presentation,
@@ -3131,7 +3143,7 @@ def compose_response_document(
         session=session,
         failure_profile=failure_profile,
     )
-    message = _short_message(
+    message = sanitize_rag_answer_text(_short_message(
         state=state,
         latest_pending=latest_pending,
         approvals=approvals,
@@ -3142,7 +3154,7 @@ def compose_response_document(
         presentation=presentation,
         session=session,
         failure_profile=failure_profile,
-    )
+    ))
     blocks = _compose_blocks(
         document_id=document_id,
         operation_id=operation_id,

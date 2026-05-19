@@ -772,6 +772,7 @@ test.describe('Final response quality response_document gate', () => {
   })
 
   test('RD-009 response_document LOTO document content notification answer does not ask for machine ID', async ({ page }, testInfo) => {
+    test.setTimeout(45_000)
     await openChat(page)
     await sendChatPrompt(page, responseDocumentLotoNotificationPrompt)
     await expect(page.getByText(/affected employees to be notified before lockout\/tagout starts/i).first()).toBeVisible()
@@ -781,6 +782,10 @@ test.describe('Final response quality response_document gate', () => {
     await expect(page.getByText('LOTO Notification Requirements').first()).toBeVisible()
     await expect(page.getByText('Which machine ID')).toHaveCount(0)
     await expect(page.getByText('No results')).toHaveCount(0)
+    const visible = await visibleText(page)
+    expect((visible.match(/The LOTO procedure requires affected employees to be notified before lockout\/tagout starts\./g) || []).length).toBe(1)
+    expect(visible).not.toMatch(/:::safety/i)
+    expect(visible).not.toMatch(/Safety Advisory/i)
 
     const summary = await expectTransitionCheckpoint(page, {
       checkpoint: 'RD-009 LOTO document content notification response contract',
@@ -813,6 +818,16 @@ test.describe('Final response quality response_document gate', () => {
       body: serializeSemanticProbe(summary),
       contentType: 'application/json',
     })
+    const snapshot = await snapshotForPage(page)
+    const sourceBlock = snapshot.response_document.blocks.find((block) => block.type === 'source_list')
+    expect(sourceBlock).toBeTruthy()
+    for (const source of sourceBlock.sources) {
+      for (const key of ['source_id', 'source_number', 'doc_id', 'chunk_id', 'title', 'organization', 'snippet']) {
+        expect(source[key]).toBeTruthy()
+      }
+      expect(source.file_path).toBeUndefined()
+    }
+    expect(snapshot.response_document.message).not.toBe(snapshot.response_document.blocks.find((block) => block.type === 'knowledge_answer')?.answer)
   })
 
   test('diagnostic documents cover no-result, partial failure, timeout, expired, and stale approvals', async ({ page }) => {

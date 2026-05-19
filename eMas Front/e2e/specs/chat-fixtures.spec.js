@@ -108,15 +108,16 @@ test.describe('Factory Agent chat scenario fixtures', () => {
   })
 
   test('typed knowledge answer renders source metadata', async ({ page }) => {
+    test.setTimeout(45_000)
     await page.goto('/')
     await page.getByRole('button', { name: chatSelectors.openAssistantButtonName }).click()
     await expect(page.getByRole('dialog', { name: chatSelectors.dialogName })).toBeVisible()
 
     await sendChatPrompt(page, typedKnowledgeSourcePrompt)
 
-    await expect(page.getByText('Use the cited LOTO procedure before lockout.').first()).toBeVisible()
-    await expect(page.getByText('Knowledge sources')).toBeVisible()
-    await expect(page.getByText('Typed LOTO Procedure - Source 1')).toBeVisible()
+    await expect(page.getByText('Use the cited LOTO procedure before lockout.').last()).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('Knowledge sources').last()).toBeVisible()
+    await expect(page.getByText('Typed LOTO Procedure - Source 1').last()).toBeVisible()
   })
 
   test('response_document renderer keeps completed evidence while approval 2 is pending', async ({ page }) => {

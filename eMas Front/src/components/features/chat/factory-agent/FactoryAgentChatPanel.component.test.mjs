@@ -1144,15 +1144,25 @@ test('FactoryAgentChatPanel renders completed mutation response_document as one 
 })
 
 test('FactoryAgentChatPanel renders RAG source block from response_document typed sources', async () => {
+  const answer = 'Use the cited LOTO procedure before lockout.'
   const document = baseResponseDocument({
     blocks: [
-      { id: 'message:knowledge', type: 'short_message', message: 'Use the cited LOTO procedure before lockout.', status: 'completed' },
-      { id: 'knowledge:op-1', type: 'knowledge_answer', answer: 'Use the cited LOTO procedure before lockout.' },
+      { id: 'message:knowledge', type: 'short_message', message: 'I found a source-backed answer.', status: 'completed' },
+      { id: 'knowledge:op-1', type: 'knowledge_answer', answer },
       {
         id: 'sources:op-1',
         type: 'source_list',
         sources: [
-          { source_number: 1, title: 'Machine LOTO Procedure', doc_id: 'LOTO-M-CNC-01', machine_id: 'M-CNC-01' },
+          {
+            source_id: 'LOTO-M-CNC-01#chunk-1',
+            source_number: 1,
+            title: 'Machine LOTO Procedure',
+            doc_id: 'LOTO-M-CNC-01',
+            chunk_id: 'chunk-1',
+            machine_id: 'M-CNC-01',
+            organization: 'Factory Safety',
+            snippet: 'Notify affected employees before lockout begins.',
+          },
         ],
       },
     ],
@@ -1161,15 +1171,58 @@ test('FactoryAgentChatPanel renders RAG source block from response_document type
     session: { session_id: 'session-rd-source', name: 'RD source', status: 'COMPLETED' },
     sessionList: [{ session_id: 'session-rd-source', name: 'RD source', status: 'COMPLETED' }],
     activeSessionName: 'RD source',
-    turns: [responseDocumentTurn(document)],
+    turns: [responseDocumentTurn(document, {
+      sources: [
+        {
+          source_number: 1,
+          title: 'Legacy source chrome should not render',
+          doc_id: 'LEGACY-SOURCE',
+        },
+      ],
+      safetyContent: 'Legacy safety advisory should not render on response_document turns.',
+    })],
   })
 
   const view = await renderPanelWithState(chatState)
 
   await waitFor(() => assert.match(view.text(), /Use the cited LOTO procedure/))
+  assert.equal((view.text().match(new RegExp(answer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 1)
+  assert.match(view.text(), /I found a source-backed answer/)
   assert.match(view.text(), /Knowledge sources/)
   assert.match(view.text(), /Machine LOTO Procedure/)
   assert.match(view.text(), /LOTO-M-CNC-01/)
+  assert.match(view.text(), /Chunk ID: chunk-1/)
+  assert.match(view.text(), /Notify affected employees before lockout begins/)
+  assert.doesNotMatch(view.text(), /Legacy source chrome should not render/)
+  assert.doesNotMatch(view.text(), /Legacy safety advisory should not render/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel strips legacy raw safety markdown from response_document answers', async () => {
+  const document = baseResponseDocument({
+    message: 'I found a source-backed answer.',
+    blocks: [
+      { id: 'message:knowledge', type: 'short_message', message: 'I found a source-backed answer.', status: 'completed' },
+      {
+        id: 'knowledge:op-1',
+        type: 'knowledge_answer',
+        answer: ':::safety\n**SAFETY WARNING**: raw markdown should be structured.\n:::\n\nNotify affected employees before lockout.',
+      },
+    ],
+  })
+  const chatState = createChatState({
+    session: { session_id: 'session-rd-safety', name: 'RD safety', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-rd-safety', name: 'RD safety', status: 'COMPLETED' }],
+    activeSessionName: 'RD safety',
+    turns: [responseDocumentTurn(document)],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.match(view.text(), /Notify affected employees before lockout/))
+  assert.doesNotMatch(view.text(), /:::safety/)
+  assert.doesNotMatch(view.text(), /SAFETY WARNING/)
 
   await view.unmount()
 })

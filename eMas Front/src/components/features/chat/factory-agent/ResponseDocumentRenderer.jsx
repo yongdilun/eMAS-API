@@ -10,9 +10,15 @@ import { TablePresentation } from '../turns/TurnBlocks'
 
 const PREVIEW_LIMIT = 5
 const TECHNICAL_REDACTION_RE = /\b(api[_-]?key|authorization|bearer|password|secret|token)\b\s*[:=]?\s*[^\s,;]+/gi
+const SAFETY_ADMONITION_RE = /(?:^|\n)[ \t]*:::\s*safety\b[\s\S]*?(?:\n[ \t]*:::[ \t]*(?=\n|$)|$)/gi
 
 function safeText(value) {
-  return value == null ? '' : String(value).trim()
+  if (value == null) return ''
+  return String(value)
+    .replace(SAFETY_ADMONITION_RE, '\n')
+    .replace(/^[ \t]*:::\s*safety\b[ \t]*$/gim, '')
+    .replace(/^[ \t]*:::[ \t]*$/gim, '')
+    .trim()
 }
 
 function rowLabel(row, index) {
@@ -417,14 +423,22 @@ function SourceListBlock({ block }) {
       <div className="mt-2 space-y-2 text-xs text-ink-muted">
         {sources.map((source, index) => {
           const title = safeText(source.title || source.doc_id || `Source ${index + 1}`)
+          const snippet = safeText(source.snippet)
           return (
-            <div key={`${source.doc_id || title}-${index}`} className="rounded-md bg-surface-2 px-2.5 py-2">
+            <div
+              key={`${source.source_id || source.doc_id || title}-${index}`}
+              className="rounded-md bg-surface-2 px-2.5 py-2"
+              data-source-id={safeText(source.source_id) || undefined}
+              data-doc-id={safeText(source.doc_id) || undefined}
+              data-chunk-id={safeText(source.chunk_id) || undefined}
+            >
               <div className="font-semibold text-ink">{title}</div>
               <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                {['doc_id', 'machine_id', 'organization'].map((key) => (
+                {['doc_id', 'chunk_id', 'page', 'machine_id', 'organization'].map((key) => (
                   source[key] ? <span key={key}>{humanizeResponseDocumentKey(key)}: {String(source[key])}</span> : null
                 ))}
               </div>
+              {snippet ? <div className="mt-1.5 line-clamp-2 text-ink-subtle">{snippet}</div> : null}
             </div>
           )
         })}
