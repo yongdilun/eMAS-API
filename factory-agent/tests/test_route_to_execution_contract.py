@@ -41,6 +41,12 @@ def _tool(
     for field in query_params or []:
         field_type = "integer" if field == "limit" else "string"
         properties.setdefault(field, {"type": field_type})
+        if field == "priority":
+            properties[field]["enum"] = ["high", "medium", "low"]
+        elif field == "sort_by":
+            properties[field]["enum"] = ["deadline", "created_at", "priority"]
+        elif field == "sort_dir":
+            properties[field]["enum"] = ["asc", "desc"]
     return ToolInfo(
         name=name,
         description=name.replace("_", " "),
@@ -70,7 +76,12 @@ def _job_lookup_tool() -> ToolInfo:
 
 
 def _job_list_tool() -> ToolInfo:
-    return _tool("get__jobs", endpoint="/jobs", tags=["job", "list"], query_params=["priority", "fields", "limit"])
+    return _tool(
+        "get__jobs",
+        endpoint="/jobs",
+        tags=["job", "list"],
+        query_params=["priority", "fields", "sort_by", "sort_dir", "limit"],
+    )
 
 
 def _parse_current_intent_id(prompt: str) -> str:
@@ -268,6 +279,48 @@ async def test_job_list_route_preserves_read_filter(monkeypatch):
             "args": {"priority": "high", "fields": "job_id,priority", "limit": 100},
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_hard_query_job_list_preserves_fields_sort_and_limit(monkeypatch):
+    contract = await _run_route_contract(
+        monkeypatch,
+        prompt="List low priority jobs, only job id and deadline, sorted by deadline ascending, limit 3.",
+        tools=[_machine_tool(), _job_lookup_tool(), _job_list_tool()],
+        first_tool_name="get__jobs",
+        first_args={"priority": "low"},
+        complete_summary="Low priority jobs read completed.",
+    )
+
+    expected_args = {
+        "priority": "low",
+        "fields": "job_id,deadline",
+        "sort_by": "deadline",
+        "sort_dir": "asc",
+        "limit": 3,
+    }
+    assert contract["frame"].route == "tool.read.jobs"
+    assert contract["selection"].tool_names[:2] == ["get__jobs", "get__jobs_{id}"]
+    assert contract["executed"] == [{"tool_name": "get__jobs", "args": expected_args}]
+    assert contract["result"]["validated_plan"].steps[0].args == expected_args
+
+
+@pytest.mark.asyncio
+async def test_hard_query_multi_read_selection_unions_clause_tools():
+    prompt = "Show M-CNC-01 status, then show JOB-SEED-001 status, then list the next 3 low priority jobs sorted by deadline."
+    tools = {
+        tool.name: tool
+        for tool in [
+            _machine_tool(),
+            _job_lookup_tool(),
+            _job_list_tool(),
+        ]
+    }
+    selector = ToolSelector(_settings())
+
+    selection = await selector.select_tools(intent=prompt, tools_by_name=tools, max_tools=8)
+
+    assert selection.tool_names[:3] == ["get__machines_{id}", "get__jobs_{id}", "get__jobs"]
 
 
 @pytest.mark.asyncio

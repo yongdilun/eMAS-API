@@ -2151,6 +2151,91 @@ async def test_phase37_status_only_projection_matrix_covers_machine_and_job(db_s
 
 
 @pytest.mark.asyncio
+async def test_hard_query_collection_requested_fields_project_result_table(db_session):
+    created_at = datetime(2026, 5, 19, 9, 20, 0)
+    session_id = "rd-hard-query-low-priority-fields"
+    plan_id = "rd-hard-query-low-priority-fields-plan"
+    prompt = "List low priority jobs, only job id and deadline, sorted by deadline ascending, limit 3."
+    rows = [
+        {
+            "job_id": "JOB-RD-001",
+            "priority": "low",
+            "product_id": "P-001",
+            "status": "planned",
+            "deadline": "2026-05-21",
+        },
+        {
+            "job_id": "JOB-RD-002",
+            "priority": "low",
+            "product_id": "P-002",
+            "status": "planned",
+            "deadline": "2026-05-22",
+        },
+        {
+            "job_id": "JOB-RD-003",
+            "priority": "low",
+            "product_id": "P-003",
+            "status": "ready",
+            "deadline": "2026-05-23",
+        },
+    ]
+    db_session.add_all(
+        [
+            _session(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                event_seq=8,
+                status="COMPLETED",
+                current_intent=prompt,
+            ),
+            _user_message(session_id=session_id, created_at=created_at, content=prompt),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _read_step(
+                session_id=session_id,
+                plan_id=plan_id,
+                step_id="rd-hard-query-low-priority-fields-step",
+                completed_at=created_at + timedelta(seconds=2),
+                rows=rows,
+                summary="Low priority jobs retrieved.",
+                tool_name="get__jobs",
+                args={
+                    "priority": "low",
+                    "fields": "job_id,deadline",
+                    "sort_by": "deadline",
+                    "sort_dir": "asc",
+                    "limit": 3,
+                },
+            ),
+            _assistant_message(
+                session_id=session_id,
+                content="Low priority jobs retrieved.",
+                step_id=plan_id,
+                created_at=created_at + timedelta(seconds=3),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    document = (await _snapshot(db_session, session_id))["response_document"]
+
+    assert document["invariants"]["read_scope"] == "records"
+    assert document["invariants"]["requested_fields"] == ["job_id", "deadline"]
+    assert document["invariants"]["display_mode"] == "collection_table"
+    table = next(block for block in document["blocks"] if block["type"] == "result_table")
+    assert table["read_scope"] == "records"
+    assert table["requested_fields"] == ["job_id", "deadline"]
+    assert table["display_mode"] == "collection_table"
+    assert table["entity_type"] == "job"
+    assert len(table["rows"]) == 3
+    assert [list(row.keys()) for row in table["rows"]] == [["job_id", "deadline"]] * 3
+    serialized_rows = json.dumps(table["rows"])
+    assert "priority" not in serialized_rows
+    assert "product_id" not in serialized_rows
+    assert "status" not in serialized_rows
+
+
+@pytest.mark.asyncio
 async def test_phase37_details_prompt_keeps_secondary_fields_collapsed(db_session):
     created_at = datetime(2026, 5, 19, 9, 30, 0)
     session_id = "rd-029-machine-details"

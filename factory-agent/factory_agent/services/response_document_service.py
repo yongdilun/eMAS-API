@@ -11,6 +11,7 @@ from factory_agent.graph.noop_mutations import (
     NO_OP_MUTATION_STATUS,
     normalize_no_op_mutation,
 )
+from factory_agent.planning.query_shape import parse_fields_arg
 from factory_agent.rag.source_metadata import (
     insufficient_context_answer,
     is_insufficient_context_answer,
@@ -394,6 +395,8 @@ class ReadEvidence:
     rows: list[dict[str, Any]] = field(default_factory=list)
     step_ids: list[str] = field(default_factory=list)
     completed_at: datetime | None = None
+    tool_name: str | None = None
+    args: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -1717,7 +1720,15 @@ def _read_evidence(
 ) -> list[ReadEvidence]:
     rows_by_key: dict[str, ReadEvidence] = {}
 
-    def add_rows(key: str, rows: list[dict[str, Any]], step_id: str | None, completed_at: datetime | None) -> None:
+    def add_rows(
+        key: str,
+        rows: list[dict[str, Any]],
+        step_id: str | None,
+        completed_at: datetime | None,
+        *,
+        tool_name: str | None = None,
+        args: dict[str, Any] | None = None,
+    ) -> None:
         if key not in rows_by_key:
             rows_by_key[key] = ReadEvidence(key=key, operation_id=operation_id)
         evidence = rows_by_key[key]
@@ -1726,6 +1737,10 @@ def _read_evidence(
             evidence.step_ids.append(step_id)
         if completed_at and (evidence.completed_at is None or completed_at > evidence.completed_at):
             evidence.completed_at = completed_at
+        if tool_name and not evidence.tool_name:
+            evidence.tool_name = tool_name
+        if args and not evidence.args:
+            evidence.args = dict(args)
 
     for step in steps:
         status = str(step.status or "").upper()
@@ -1742,13 +1757,21 @@ def _read_evidence(
             step_id=step.step_id,
             tool_name=step.tool_name,
         )
-        add_rows(f"read:{step.step_id}", rows, step.step_id, step.completed_at or step.started_at)
+        add_rows(
+            f"read:{step.step_id}",
+            rows,
+            step.step_id,
+            step.completed_at or step.started_at,
+            tool_name=step.tool_name,
+            args=step.args if isinstance(step.args, dict) else {},
+        )
 
     for event in timeline:
         if event.event_type != "tool_result" or _is_write_tool_name(event.tool_name):
             continue
         details = event.details if isinstance(event.details, dict) else {}
         result = details.get("result") if isinstance(details.get("result"), dict) else None
+        args = details.get("args") if isinstance(details.get("args"), dict) else {}
         status = str(event.status or "").upper()
         default_status = "failed" if status in {"FAILED", "AMBIGUOUS"} else "succeeded"
         rows = _operation_rows_from_result(
@@ -1759,7 +1782,14 @@ def _read_evidence(
             step_id=event.step_id,
             tool_name=event.tool_name,
         )
-        add_rows(f"read:{event.step_id or event.event_id}", rows, event.step_id, event.created_at)
+        add_rows(
+            f"read:{event.step_id or event.event_id}",
+            rows,
+            event.step_id,
+            event.created_at,
+            tool_name=event.tool_name,
+            args=args,
+        )
 
     if presentation.kind == "answer" and presentation.rows:
         add_rows("read:presentation", [dict(row) for row in presentation.rows], None, None)
@@ -2455,6 +2485,8 @@ def _is_zeroish(value: Any) -> bool:
 
 def _status_request_wants_full_details(session: Any) -> bool:
     text = _trimmed(getattr(session, "current_intent", None)).lower()
+    if re.search(r"\b(?:do\s+not|don't|dont|without|no)\s+(?:show\s+)?(?:other\s+)?(?:machine\s+|job\s+|record\s+)?details?\b", text):
+        return False
     return bool(_DETAILS_INTENT_RE.search(text))
 
 
@@ -2570,12 +2602,25 @@ def _read_policy_entity_type(rows: list[dict[str, Any]], status_result: dict[str
     return None
 
 
+def _requested_fields_from_read_evidence(read_evidence: list[ReadEvidence] | None) -> list[str]:
+    if not read_evidence:
+        return []
+    field_sets: list[tuple[str, ...]] = []
+    for evidence in read_evidence:
+        fields = tuple(parse_fields_arg(evidence.args.get("fields") if isinstance(evidence.args, dict) else None))
+        if fields:
+            field_sets.append(fields)
+    unique = list(dict.fromkeys(field_sets))
+    return list(unique[0]) if len(unique) == 1 else []
+
+
 def _read_display_policy(
     rows: list[dict[str, Any]],
     *,
     session: Any,
     status_result: dict[str, Any] | None,
     has_read_evidence: bool,
+    read_evidence: list[ReadEvidence] | None = None,
 ) -> ReadDisplayPolicy | None:
     if not rows:
         if has_read_evidence:
@@ -2633,7 +2678,7 @@ def _read_display_policy(
     )
     return ReadDisplayPolicy(
         read_scope=READ_SCOPE_RECORDS,
-        requested_fields=[],
+        requested_fields=_requested_fields_from_read_evidence(read_evidence),
         display_mode=display_mode,
         entity_count=entity_count,
         entity_type=entity_type,
@@ -2642,10 +2687,27 @@ def _read_display_policy(
     )
 
 
+def _canonical_requested_field_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _project_requested_fields_row(row: dict[str, Any], fields: list[str]) -> dict[str, Any]:
+    projected: dict[str, Any] = {}
+    by_canonical = {_canonical_requested_field_key(key): key for key in row.keys()}
+    for field in fields:
+        key = by_canonical.get(_canonical_requested_field_key(field))
+        if key is not None:
+            projected[_canonical_requested_field_key(field)] = row.get(key)
+    return projected
+
+
 def _project_read_rows_for_policy(rows: list[dict[str, Any]], policy: ReadDisplayPolicy | None) -> list[dict[str, Any]]:
+    if policy is None:
+        return rows
+    if policy.contract != ENTITY_STATUS_CONTRACT and policy.requested_fields:
+        return [_project_requested_fields_row(row, policy.requested_fields) for row in rows if isinstance(row, dict)]
     if (
-        policy is None
-        or policy.contract != ENTITY_STATUS_CONTRACT
+        policy.contract != ENTITY_STATUS_CONTRACT
         or policy.read_scope != READ_SCOPE_STATUS_ONLY
         or policy.entity_count <= 1
     ):
@@ -2764,6 +2826,33 @@ def _stateful_activity_fallback(
             )
         )
     return run_steps
+
+
+def _read_evidence_entity(item: ReadEvidence) -> str | None:
+    tool_name = _trimmed(item.tool_name).lower()
+    match = re.match(r"^(?:get|list|search|read)__([a-z0-9_-]+)", tool_name)
+    if not match:
+        return None
+    head = match.group(1).split("_", 1)[0].split("{", 1)[0].replace("-", "_")
+    if head.endswith("ies") and len(head) > 3:
+        return head[:-3] + "y"
+    if head.endswith("s") and len(head) > 1:
+        return head[:-1]
+    return head or None
+
+
+def _read_evidence_title(item: ReadEvidence) -> str:
+    rows = [row for row in item.rows if isinstance(row, dict)]
+    entity = _read_evidence_entity(item)
+    fields = parse_fields_arg(item.args.get("fields") if isinstance(item.args, dict) else None)
+    wants_status = "status" in fields or (
+        not fields and rows and all(_status_primary_value(row) for row in rows)
+    )
+    if rows and len(rows) == 1 and wants_status:
+        return f"Read {_human_status_label(entity or 'record').lower()} status"
+    if entity:
+        return f"Read {len(rows)} {_entity_noun(entity, len(rows))}"
+    return f"Read {len(rows)} {_plural(len(rows), 'record')}"
 
 
 def _compose_run_steps(
@@ -2942,7 +3031,44 @@ def _compose_run_steps(
             )
         )
 
-    if not approvals and read_evidence:
+    read_step_ids = {
+        step_id
+        for item in read_evidence
+        if item.tool_name
+        for step_id in item.step_ids
+    }
+    if not approvals and read_evidence and len(read_step_ids) > 1:
+        tool_read_evidence = [item for item in read_evidence if item.tool_name]
+        for index, item in enumerate(tool_read_evidence):
+            rows = [row for row in item.rows if isinstance(row, dict)]
+            requested_fields = parse_fields_arg(item.args.get("fields") if isinstance(item.args, dict) else None)
+            status_like = rows and _status_rows_are_projectable(rows) and (
+                "status" in requested_fields or _STATUS_INTENT_RE.search(_trimmed(getattr(session, "current_intent", None)))
+            )
+            row_policy = ReadDisplayPolicy(
+                read_scope=READ_SCOPE_STATUS_ONLY if status_like else READ_SCOPE_RECORDS,
+                requested_fields=requested_fields or (
+                    _status_requested_fields(rows[0], _status_entity_type(rows[0]), READ_SCOPE_STATUS_ONLY)
+                    if status_like
+                    else []
+                ),
+                display_mode=DISPLAY_MODE_RECORD_PREVIEW if len(rows) <= 1 else DISPLAY_MODE_COLLECTION_TABLE,
+                entity_count=len(rows),
+                entity_type=_read_evidence_entity(item),
+                contract=ENTITY_STATUS_CONTRACT if status_like else None,
+            )
+            run_steps.append(
+                RunStep(
+                    step_id=f"{item.key or 'read'}:{index}",
+                    kind="read",
+                    state="completed",
+                    title=_read_evidence_title(item),
+                    summary=_read_policy_summary(rows, row_policy, presentation.summary),
+                    operation_id=item.operation_id or operation_id,
+                    record_count=len(rows),
+                )
+            )
+    elif not approvals and read_evidence:
         total_rows = sum(len(item.rows) for item in read_evidence)
         read_rows = [row for item in read_evidence for row in item.rows]
         run_steps.append(
@@ -3597,6 +3723,7 @@ def compose_response_document(
         session=session,
         status_result=status_result,
         has_read_evidence=bool(read_groups),
+        read_evidence=read_groups,
     )
     read_rows = _project_read_rows_for_policy(raw_read_rows, read_policy)
     sources = normalize_source_locators(

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from ..config import Settings
-from .intent import SemanticFrame, assess_intent, semantic_frame_for_text
+from .intent import SemanticFrame, assess_intent, semantic_frame_for_text, split_user_intents
 from ..schemas import ToolInfo
 from ..observability.telemetry import log_event, log_llm_prompt, log_llm_prompt_skipped
 from .tool_scope import ScopedTools, filter_tools_for_intent, score_tool
@@ -29,7 +29,7 @@ ToolSelectorBackendName = Literal["retrieval", "langchain"]
 # the normal retrieval pipeline -- otherwise only the first clause's tool would
 # be returned and later clauses would silently lose their tools.
 _COMPOUND_SEPARATOR_RE = re.compile(
-    r"\b(?:and then|then|next|after that|afterwards|finally)\b|[;\n.]+",
+    r"\b(?:and then|then|next(?!\s+\d)|after that|afterwards|finally)\b|[;\n.]+",
     re.IGNORECASE,
 )
 _PRONOUN_FOLLOWUP_RE = re.compile(r"\b(?:its|their|that|those|it)\b", re.IGNORECASE)
@@ -735,6 +735,13 @@ class ToolSelector:
         context: dict[str, Any] | None = None,
     ) -> ToolSelectionResult:
         semantic_frame = semantic_frame_for_text(intent)
+        compound_semantic_tools = self._compound_semantic_route_tool_names(
+            intent=intent,
+            tools_by_name=tools_by_name,
+        )
+        if compound_semantic_tools is not None:
+            return ToolSelectionResult(tool_names=compound_semantic_tools[:max_tools], backend_used="retrieval", llm_calls=0)
+
         semantic_tools = self._semantic_route_tool_names(intent=intent, frame=semantic_frame, tools_by_name=tools_by_name)
         if semantic_tools is not None:
             return ToolSelectionResult(tool_names=semantic_tools[:max_tools], backend_used="retrieval", llm_calls=0)
@@ -809,6 +816,41 @@ class ToolSelector:
             return ToolSelectionResult(tool_names=candidate_names, backend_used="retrieval", llm_calls=1)
 
         return ToolSelectionResult(tool_names=ordered, backend_used="langchain", llm_calls=1)
+
+    def _compound_semantic_route_tool_names(
+        self,
+        *,
+        intent: str,
+        tools_by_name: dict[str, ToolInfo],
+    ) -> list[str] | None:
+        if not _is_compound_intent(intent or ""):
+            return None
+
+        clauses = [
+            item.description.strip()
+            for item in split_user_intents(intent or "")
+            if getattr(item, "description", "").strip()
+        ]
+        if len(clauses) < 2:
+            return None
+
+        selected: list[str] = []
+        seen: set[str] = set()
+        for clause in clauses:
+            frame = semantic_frame_for_text(clause)
+            if frame.route not in {"tool.read.machine_status", "tool.read.jobs"}:
+                return None
+            if frame.requires_approval or frame.action not in {None, "read"}:
+                return None
+            names = self._semantic_route_tool_names(intent=clause, frame=frame, tools_by_name=tools_by_name)
+            if names is None:
+                return None
+            for name in names:
+                if name not in seen:
+                    selected.append(name)
+                    seen.add(name)
+
+        return selected or None
 
     def _capability_tag_tokens(self, tool: ToolInfo) -> set[str]:
         tokens: set[str] = set()

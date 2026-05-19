@@ -313,6 +313,11 @@ function summarizeVisibleBlocks(blocks = []) {
     detailsCollapsed: compactBooleanEvidence(block?.detailsCollapsed, Object.hasOwn(block || {}, 'detailsCollapsed')),
     fieldCount: numberOrNull(block?.fieldCount),
     secondaryFieldCount: numberOrNull(block?.secondaryFieldCount),
+    statusFieldKeys: compactArray(block?.statusFieldKeys || []),
+    statusSecondaryFieldKeys: compactArray(block?.statusSecondaryFieldKeys || []),
+    tableColumnKeys: compactArray(block?.tableColumnKeys || []),
+    tableRowCount: numberOrNull(block?.tableRowCount),
+    tableRenderedRowCount: numberOrNull(block?.tableRenderedRowCount),
     approvalId: block?.approvalId || blockApprovalIdFromId(block?.id) || null,
     title: compactText(block?.title || '', 80) || null,
     text: compactText(block?.text || '', 180) || null,
@@ -896,6 +901,18 @@ export async function collectVisibleResponseDocumentUi(page) {
       const detailsCollapsed = nullableBoolean(node.getAttribute('data-details-collapsed'))
       const fieldCount = nullableNumber(node.getAttribute('data-status-field-count'))
       const secondaryFieldCount = nullableNumber(node.getAttribute('data-secondary-field-count'))
+      const statusFieldKeys = Array.from(node.querySelectorAll('[data-status-field]'))
+        .map((field) => field.getAttribute('data-status-field-key'))
+        .filter(Boolean)
+      const statusSecondaryFieldKeys = Array.from(node.querySelectorAll('[data-status-secondary-field]'))
+        .map((field) => field.getAttribute('data-status-field-key'))
+        .filter(Boolean)
+      const tableNode = node.querySelector('[data-table-presentation]')
+      const tableColumnKeys = Array.from(node.querySelectorAll('[data-table-column-key]'))
+        .map((column) => column.getAttribute('data-table-column-key'))
+        .filter(Boolean)
+      const tableRowCount = nullableNumber(tableNode?.getAttribute('data-table-row-count'))
+      const tableRenderedRowCount = nullableNumber(tableNode?.getAttribute('data-table-rendered-row-count'))
       const blockLines = lines(node)
       return {
         type,
@@ -910,6 +927,11 @@ export async function collectVisibleResponseDocumentUi(page) {
         detailsCollapsed,
         fieldCount,
         secondaryFieldCount,
+        statusFieldKeys,
+        statusSecondaryFieldKeys,
+        tableColumnKeys,
+        tableRowCount,
+        tableRenderedRowCount,
         approvalId: blockApprovalId(id),
         title: blockLines[0] || null,
         text: node.innerText || node.textContent || '',

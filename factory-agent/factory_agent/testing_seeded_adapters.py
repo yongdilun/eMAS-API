@@ -9,7 +9,8 @@ import httpx
 
 from factory_agent.config import Settings
 from factory_agent.observability.telemetry import log_event
-from factory_agent.planning.intent import intent_constraint_values, semantic_frame_for_text
+from factory_agent.planning.intent import intent_constraint_values, semantic_frame_for_text, split_user_intents
+from factory_agent.planning.query_shape import infer_collection_query_args, merge_inferred_read_args, parse_fields_arg
 from factory_agent.planner import PlannerApprovalRequired
 from factory_agent.rag.source_metadata import insufficient_context_answer
 from factory_agent.schemas import PlanDraft, PlanStepDraft, ToolInfo
@@ -292,6 +293,10 @@ class SeededPlaywrightPlanner:
         if scenario_result is not None:
             return scenario_result
 
+        multi_read = await self._multi_read_sequence_from_intent(intent=intent, scoped_tools=scoped_tools)
+        if multi_read is not None:
+            return multi_read
+
         if "approval" in lowered or ("low priority" in lowered and "high priority" in lowered):
             self._scenario_by_session[session_id] = "priority_approval"
             if call_index == 1:
@@ -502,6 +507,12 @@ class SeededPlaywrightPlanner:
                 return tool.name
         return preferred
 
+    def _tool_info(self, scoped_tools: list[ToolInfo], preferred: str) -> ToolInfo | None:
+        for tool in scoped_tools:
+            if tool.name == preferred:
+                return tool
+        return None
+
     def _is_job_lookup_request(self, intent: str) -> bool:
         return bool(intent_constraint_values(intent, "job_id"))
 
@@ -510,7 +521,15 @@ class SeededPlaywrightPlanner:
             return False
         return bool(re.search(r"\b(?:urgent|overdue|priority|priorities|delayed|late|low|medium|high)\b", lowered))
 
-    def _job_filters_from_intent(self, intent: str) -> dict[str, Any]:
+    def _job_filters_from_intent(self, intent: str, scoped_tools: list[ToolInfo]) -> dict[str, Any]:
+        tool = self._tool_info(scoped_tools, "get__jobs")
+        if tool is not None:
+            inferred = infer_collection_query_args(intent, tool)
+            if inferred:
+                limit_match = re.search(r"\b(?:limit|first|next|top)\s+(\d{1,4})\b", intent or "", re.IGNORECASE)
+                if limit_match and "limit" not in inferred:
+                    inferred["limit"] = max(1, min(int(limit_match.group(1)), 1000))
+                return inferred
         lowered = intent.lower()
         filters: dict[str, Any] = {"fields": "job_id,priority,product_id,status,deadline", "sort_by": "deadline", "sort_dir": "asc", "limit": 5}
         if re.search(r"\b(?:urgent|critical|high)\b", lowered):
@@ -522,6 +541,165 @@ class SeededPlaywrightPlanner:
         if re.search(r"\b(?:overdue|late|delayed)\b", lowered):
             filters["status"] = "delayed"
         return filters
+
+    def _path_params_for_tool(self, tool: ToolInfo | None) -> set[str]:
+        if tool is None:
+            return {"id"}
+        params = set(tool.path_params or [])
+        params.update(re.findall(r"\{([a-zA-Z0-9_]+)\}", tool.endpoint or ""))
+        required = (tool.input_schema or {}).get("required")
+        if isinstance(required, list):
+            params.update(str(item) for item in required)
+        return params or {"id"}
+
+    def _query_params_from_args(self, args: dict[str, Any], tool: ToolInfo | None) -> dict[str, Any]:
+        path_params = self._path_params_for_tool(tool)
+        return {key: value for key, value in args.items() if key not in path_params}
+
+    def _summary_fields_include(self, args: dict[str, Any], field: str) -> bool:
+        fields = parse_fields_arg(args.get("fields"))
+        return not fields or field in fields
+
+    async def _multi_read_sequence_from_intent(
+        self,
+        *,
+        intent: str,
+        scoped_tools: list[ToolInfo],
+    ) -> PlannerResult | None:
+        clauses = [item.description for item in split_user_intents(intent) if item.description.strip()]
+        if len(clauses) < 2:
+            return None
+        if any(re.search(r"\b(?:change|set|update|mark|make|delete|remove|create)\b", clause, re.IGNORECASE) for clause in clauses):
+            return None
+
+        steps: list[PlanStepDraft] = []
+        outputs: list[dict[str, Any]] = []
+        summaries: list[str] = []
+
+        async def add_lookup(
+            *,
+            clause: str,
+            preferred_tool: str,
+            path: str,
+            base_args: dict[str, Any],
+            summary_for_body,
+        ) -> bool:
+            tool = self._tool_info(scoped_tools, preferred_tool)
+            if tool is None:
+                return False
+            tool_name = tool.name
+            args = merge_inferred_read_args(clause, tool, base_args)
+            params = self._query_params_from_args(args, tool)
+            body = await self._get_json(path, params=params or None)
+            summary = summary_for_body(body, args)
+            step_index = len(steps)
+            steps.append(
+                PlanStepDraft(
+                    step_index=step_index,
+                    tool_name=tool_name,
+                    args=args,
+                    depends_on=[step_index - 1] if step_index else [],
+                )
+            )
+            outputs.append(
+                {
+                    "tool_name": tool_name,
+                    "args": args,
+                    "result": body,
+                    "http_status": 200,
+                    "summary": summary,
+                    "status": "DONE",
+                }
+            )
+            summaries.append(summary)
+            return True
+
+        async def add_job_collection(clause: str) -> bool:
+            tool = self._tool_info(scoped_tools, "get__jobs")
+            if tool is None:
+                return False
+            tool_name = tool.name
+            args = self._job_filters_from_intent(clause, scoped_tools)
+            body = await self._get_json("/jobs", params=args)
+            rows = self._rows(body)
+            ids = [str(row.get("job_id") or row.get("id")) for row in rows if row.get("job_id") or row.get("id")]
+            filter_label = ", ".join(
+                f"{key}={value}" for key, value in args.items() if key in {"priority", "status"}
+            ) or "all"
+            summary = f"Found {len(rows)} seeded jobs for {filter_label}: {', '.join(ids[:5])}."
+            step_index = len(steps)
+            steps.append(
+                PlanStepDraft(
+                    step_index=step_index,
+                    tool_name=tool_name,
+                    args=args,
+                    depends_on=[step_index - 1] if step_index else [],
+                )
+            )
+            outputs.append(
+                {
+                    "tool_name": tool_name,
+                    "args": args,
+                    "result": body,
+                    "http_status": 200,
+                    "summary": summary,
+                    "status": "DONE",
+                }
+            )
+            summaries.append(summary)
+            return True
+
+        for clause in clauses:
+            machine_ids = intent_constraint_values(clause, "machine_id")
+            job_ids = intent_constraint_values(clause, "job_id")
+            lowered_clause = clause.lower()
+            if machine_ids:
+                machine_id = machine_ids[0]
+                added = await add_lookup(
+                    clause=clause,
+                    preferred_tool="get__machines_{id}",
+                    path=f"/machines/{machine_id}",
+                    base_args={"id": machine_id},
+                    summary_for_body=lambda body, args: (
+                        f"Machine {machine_id} is {self._data(body).get('status') or self._data(body).get('Status') or 'unknown'}."
+                    ),
+                )
+                if not added:
+                    return None
+            elif job_ids:
+                job_id = job_ids[0]
+                added = await add_lookup(
+                    clause=clause,
+                    preferred_tool="get__jobs_{id}",
+                    path=f"/jobs/{job_id}",
+                    base_args={"id": job_id},
+                    summary_for_body=lambda body, args: (
+                        f"Job {job_id} is {self._data(body).get('status') or self._data(body).get('Status') or 'unknown'}"
+                        + (
+                            f" with {self._data(body).get('priority') or self._data(body).get('Priority') or 'unknown'} priority"
+                            if self._summary_fields_include(args, "priority")
+                            else ""
+                        )
+                        + "."
+                    ),
+                )
+                if not added:
+                    return None
+            elif self._is_job_collection_request(lowered_clause) or re.search(r"\bjobs?\b", lowered_clause):
+                added = await add_job_collection(clause)
+                if not added:
+                    return None
+
+        if len(steps) < 2:
+            return None
+
+        explanation = "Completed ordered read sequence: " + " ".join(summaries)
+        return self._plan_result(
+            explanation=explanation,
+            risk="Read-only seeded multi-step lookup with no approval required.",
+            steps=steps,
+            tool_outputs=outputs,
+        )
 
     def _plan_result(
         self,
@@ -548,15 +726,21 @@ class SeededPlaywrightPlanner:
                 steps=[],
             )
         machine_id = machine_ids[0]
-        body = await self._get_json(f"/machines/{machine_id}")
+        tool = self._tool_info(scoped_tools, "get__machines_{id}")
+        args = merge_inferred_read_args(intent, tool, {"id": machine_id}) if tool is not None else {"id": machine_id}
+        body = await self._get_json(f"/machines/{machine_id}", params=self._query_params_from_args(args, tool) or None)
         data = self._data(body)
         status = data.get("status") or data.get("Status") or "unknown"
-        name = data.get("machine_name") or data.get("MachineName") or "CNC Mill 01"
-        summary = f"Machine {machine_id} ({name}) is {status} in the seeded Go API data."
+        name = data.get("machine_name") or data.get("MachineName")
+        summary = (
+            f"Machine {machine_id} ({name}) is {status} in the seeded Go API data."
+            if name and self._summary_fields_include(args, "machine_name")
+            else f"Machine {machine_id} is {status} in the seeded Go API data."
+        )
         return self._completed(
             intent=intent,
             tool_name=self._tool_name(scoped_tools, "get__machines_{id}"),
-            args={"id": machine_id},
+            args=args,
             result=body,
             summary=summary,
             explanation=summary,
@@ -573,15 +757,21 @@ class SeededPlaywrightPlanner:
                 steps=[],
             )
         job_id = job_ids[0]
-        body = await self._get_json(f"/jobs/{job_id}")
+        tool = self._tool_info(scoped_tools, "get__jobs_{id}")
+        args = merge_inferred_read_args(intent, tool, {"id": job_id}) if tool is not None else {"id": job_id}
+        body = await self._get_json(f"/jobs/{job_id}", params=self._query_params_from_args(args, tool) or None)
         data = self._data(body)
         priority = data.get("priority") or data.get("Priority") or "unknown"
         status = data.get("status") or data.get("Status") or "unknown"
-        summary = f"Job {job_id} is {status} with {priority} priority in the seeded Go API data."
+        summary = (
+            f"Job {job_id} is {status} with {priority} priority in the seeded Go API data."
+            if self._summary_fields_include(args, "priority")
+            else f"Job {job_id} is {status} in the seeded Go API data."
+        )
         return self._completed(
             intent=intent,
             tool_name=self._tool_name(scoped_tools, "get__jobs_{id}"),
-            args={"id": job_id},
+            args=args,
             result=body,
             summary=summary,
             explanation=summary,
@@ -589,7 +779,7 @@ class SeededPlaywrightPlanner:
         )
 
     async def _jobs_from_intent(self, *, intent: str, scoped_tools: list[ToolInfo]) -> PlannerResult:
-        filters = self._job_filters_from_intent(intent)
+        filters = self._job_filters_from_intent(intent, scoped_tools)
         body = await self._get_json("/jobs", params=filters)
         rows = self._rows(body)
         ids = [str(row.get("job_id") or row.get("id")) for row in rows if row.get("job_id") or row.get("id")]
@@ -606,23 +796,20 @@ class SeededPlaywrightPlanner:
         )
 
     async def _low_priority_jobs(self, *, intent: str, scoped_tools: list[ToolInfo]) -> PlannerResult:
-        body = await self._get_json(
-            "/jobs",
-            params={
-                "priority": "low",
-                "fields": "job_id,priority,product_id,status,deadline",
-                "sort_by": "deadline",
-                "sort_dir": "asc",
-                "limit": 5,
-            },
-        )
+        filters = self._job_filters_from_intent(intent, scoped_tools)
+        filters.setdefault("priority", "low")
+        filters.setdefault("fields", "job_id,priority,product_id,status,deadline")
+        filters.setdefault("sort_by", "deadline")
+        filters.setdefault("sort_dir", "asc")
+        filters.setdefault("limit", 5)
+        body = await self._get_json("/jobs", params=filters)
         rows = self._rows(body)
         ids = [str(row.get("job_id") or row.get("id")) for row in rows if row.get("job_id") or row.get("id")]
         summary = f"Found {len(rows)} low-priority seeded jobs: {', '.join(ids[:5])}. Details are shown in the table below."
         return self._completed(
             intent=intent,
             tool_name=self._tool_name(scoped_tools, "get__jobs"),
-            args={"priority": "low", "fields": "job_id,priority,product_id,status,deadline", "sort_by": "deadline", "sort_dir": "asc", "limit": 5},
+            args=filters,
             result=body,
             summary=summary,
             explanation=summary,

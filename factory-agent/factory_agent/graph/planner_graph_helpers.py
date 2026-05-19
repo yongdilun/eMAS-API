@@ -14,6 +14,7 @@ from ..security.guardrails import (
     strip_unsupported_optional_args,
 )
 from ..planning.plan_validator import validate_plan
+from ..planning.query_shape import infer_collection_query_args, merge_inferred_read_args
 from ..schemas import PlanBinding, PlanDraft, PlanStepDraft, ToolInfo
 from ..observability.telemetry import log_event, log_llm_prompt
 from ..planning.tool_intent_profile import (
@@ -322,8 +323,12 @@ def _infer_multi_entity_lookup_plan(intent: str, scoped_tools: list[ToolInfo]) -
         query_params = set(tool.query_params or [])
         steps: list[AgentPlanStep] = []
         for entity_id in entity_ids:
-            args: dict[str, Any] = {param: entity_id}
-            if "fields" in query_params and re.search(r"\b(?:status|state|health|condition)\b", lowered):
+            args = merge_inferred_read_args(intent, tool, {param: entity_id})
+            if (
+                "fields" in query_params
+                and "fields" not in args
+                and re.search(r"\b(?:status|state|health|condition)\b", lowered)
+            ):
                 args["fields"] = f"{entity}_id,status"
             steps.append(
                 AgentPlanStep(
@@ -337,6 +342,38 @@ def _infer_multi_entity_lookup_plan(intent: str, scoped_tools: list[ToolInfo]) -
             plan_explanation=f"Look up {len(entity_ids)} {_pluralize_entity(entity, len(entity_ids))}.",
             risk_summary="Read-only multi-record lookup.",
             steps=steps,
+        )
+    return None
+
+
+def _infer_collection_query_shape(intent: str, scoped_tools: list[ToolInfo]) -> AgentPlanOutput | None:
+    """Infer collection reads with explicit query shape such as fields, sort, limit, and enum filters."""
+    lowered = (intent or "").lower()
+    if not re.search(r"\b(?:show|list|get|view|find|return)\b", lowered):
+        return None
+    if re.search(r"\b(?:change|set|update|mark|make|delete|remove|create)\b", lowered):
+        return None
+
+    for tool in scoped_tools:
+        if not _is_collection_read_tool(tool):
+            continue
+        entity = _collection_entity(tool)
+        if not entity or not re.search(rf"\b{re.escape(entity)}s?\b", lowered):
+            continue
+        args = infer_collection_query_args(intent, tool)
+        if not args and not re.search(r"\b(?:all|records?|rows?)\b", lowered):
+            continue
+        return AgentPlanOutput(
+            plan_explanation=f"List {_pluralize_entity(entity, 2)} with the requested read shape.",
+            risk_summary="Read-only collection lookup with no data changes.",
+            steps=[
+                AgentPlanStep(
+                    tool_name=tool.name,
+                    args=args,
+                    evidence={key: str(value) for key, value in args.items()},
+                    confidence=0.93,
+                )
+            ],
         )
     return None
 
@@ -460,6 +497,7 @@ def _infer_entity_lookup_read(intent: str, scoped_tools: list[ToolInfo]) -> Agen
                 args={},
                 evidence={},
             )
+            args = merge_inferred_read_args(intent, tool, args)
             if missing_required_fields(tool, args):
                 continue
             return AgentPlanOutput(
@@ -902,6 +940,10 @@ def _deterministic_plan_repair(
         return inferred
 
     inferred = _infer_bulk_job_priority_selection_plan(intent, scoped_tools)
+    if inferred is not None:
+        return inferred
+
+    inferred = _infer_collection_query_shape(intent, scoped_tools)
     if inferred is not None:
         return inferred
 

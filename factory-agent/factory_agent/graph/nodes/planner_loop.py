@@ -9,6 +9,7 @@ from typing import Any, Literal
 from ...config import Settings
 from ...llm.models import build_planner_chat_model
 from ...observability.telemetry import log_event, log_llm_prompt
+from ...planning.query_shape import infer_collection_query_args, infer_lookup_query_args, merge_inferred_read_args
 from ...schemas import ControlAction, PlannerDecision, ToolCall, ToolInfo
 from ...security.guardrails import promote_user_provenance, sanitize_tool_args_against_schema, strip_unsupported_optional_args
 from ..errors import LangGraphPlannerError
@@ -1294,6 +1295,16 @@ def decision_guard_node(state: AgentState) -> dict[str, Any]:
     fixed_calls: list[dict[str, Any]] = []
     context = state.get("context") if isinstance(state.get("context"), dict) else {}
     intent_memory = context.get("intent_memory") if isinstance(context.get("intent_memory"), dict) else {}
+    user_text = user_query_text(state)
+    if isinstance(current, dict):
+        intent_description = str(current.get("description") or "").strip()
+        intent_text = (
+            f"{intent_description}\n{user_text}"
+            if intent_description and intent_description != user_text
+            else intent_description or user_text
+        )
+    else:
+        intent_text = user_text
     for item in raw_calls:
         if not isinstance(item, dict):
             continue
@@ -1302,16 +1313,28 @@ def decision_guard_node(state: AgentState) -> dict[str, Any]:
         if tool is not None:
             raw_args = fixed.get("args") if isinstance(fixed.get("args"), dict) else {}
             sanitized_args, _ = sanitize_tool_args_against_schema(tool, dict(raw_args))
+            inferred_read_args: dict[str, Any] = {}
+            if tool.is_read_only:
+                inferred_read_args = (
+                    infer_collection_query_args(intent_text, tool)
+                    if not (tool.path_params or (tool.input_schema or {}).get("required"))
+                    else infer_lookup_query_args(intent_text, tool)
+                )
+                sanitized_args = merge_inferred_read_args(intent_text, tool, sanitized_args)
+                sanitized_args, _ = sanitize_tool_args_against_schema(tool, dict(sanitized_args))
             provenance = promote_user_provenance(
                 tool=tool,
                 args=sanitized_args,
-                intent=user_query_text(state),
+                intent=intent_text,
                 evidence={},
             )
+            for key, value in inferred_read_args.items():
+                if key in sanitized_args:
+                    provenance[key] = {"value": value, "source": "user", "confidence": 0.95}
             clean_args, _ = strip_unsupported_optional_args(
                 tool=tool,
                 args=sanitized_args,
-                intent=user_query_text(state),
+                intent=intent_text,
                 intent_memory=intent_memory,
                 arg_provenance=provenance,
             )

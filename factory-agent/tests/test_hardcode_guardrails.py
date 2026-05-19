@@ -29,6 +29,11 @@ EXACT_RESPONSE_DOCUMENT_PROMPTS = [
     "According to the OSHA lockout/tagout guide, what notification is required before reenergizing a machine after removing lockout or tagout devices?",
     "According to the OSHA lockout/tagout guide, what notification is required before starting lockout?",
 ]
+HARD_QUERY_EXACT_PROMPTS = [
+    "Show status for machine M-CNC-01 only. Do not show other machine details.",
+    "List low priority jobs, only job id and deadline, sorted by deadline ascending, limit 3.",
+    "Show M-CNC-01 status, then show JOB-SEED-001 status, then list the next 3 low priority jobs sorted by deadline.",
+]
 SYNTHETIC_LOTO_POLICY_SOURCE_RE = re.compile(
     r"loto_notification_requirement|LOTO Notification Requirements|policy:loto-notification-requirement"
 )
@@ -42,6 +47,7 @@ PRODUCT_RUNTIME_LITERAL_RE = re.compile(
             r"policy:loto-notification-requirement",
             r"osha_3120_lockout_tagout(?:_c\d+)?",
             *[re.escape(prompt) for prompt in EXACT_RESPONSE_DOCUMENT_PROMPTS],
+            *[re.escape(prompt) for prompt in HARD_QUERY_EXACT_PROMPTS],
         ]
     ),
     re.IGNORECASE,
@@ -64,6 +70,7 @@ FORBIDDEN_BRANCH_LITERAL_RE = re.compile(
             r"Original\s+High\s*->\s*Low",
             r"Updated\s+63\s+jobs\s+across\s+22\s+approved\s+steps",
             *[re.escape(prompt) for prompt in EXACT_RESPONSE_DOCUMENT_PROMPTS],
+            *[re.escape(prompt) for prompt in HARD_QUERY_EXACT_PROMPTS],
         ]
     ),
     re.IGNORECASE,
@@ -295,6 +302,20 @@ def test_product_branch_conditions_do_not_use_seeded_ids_exact_prompts_or_fixtur
         "Product-code branches must not key behavior off deterministic fixture ids, exact prompts, "
         "or canonical response-document labels. Put constants in fixtures/scenarios or route through "
         "typed metadata/contracts instead:\n" + "\n".join(hits)
+    )
+
+
+def test_product_runtime_code_has_no_hard_query_prompt_or_seeded_id_branches():
+    hits: list[str] = []
+    for rel_path in _product_branch_guard_files():
+        if rel_path.endswith(".py"):
+            hits.extend(_forbidden_python_branch_hits(rel_path))
+        else:
+            hits.extend(_forbidden_js_branch_hits(rel_path))
+
+    assert hits == [], (
+        "Hard-query behavior must route through generic semantic/query-shape contracts, "
+        "not branches on exact prompts or seeded ids:\n" + "\n".join(hits)
     )
 
 

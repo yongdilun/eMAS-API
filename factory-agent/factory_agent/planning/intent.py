@@ -40,7 +40,7 @@ _QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 _CLAUSE_SPLIT_RE = re.compile(
-    r"\s*\b(?:and then|then|next|after that|afterwards|finally)\b\s*|\s+\band\s+|\s+;\s*|\n+|(?<=[.!?])\s+(?=[A-Z])",
+    r"\s*\b(?:and then|then|next(?!\s+\d)|after that|afterwards|finally)\b\s*|\s+\band\s+|\s+;\s*|\n+|(?<=[.!?])\s+(?=[A-Z])",
     re.IGNORECASE,
 )
 _MACHINE_ID_PATTERN = r"(?:M-[A-Z0-9]+(?:-[A-Z0-9]+)*\d[A-Z0-9-]*|[A-Z]{1,3}-\d{2,})"
