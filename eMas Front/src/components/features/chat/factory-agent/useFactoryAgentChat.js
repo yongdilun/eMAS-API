@@ -24,6 +24,7 @@ const ACTIVITY_TIMELINE_ENABLED = !['0', 'false', 'off'].includes(
 const ACTIVE_SESSION_KEY = 'factory_agent_active_session_id'
 const SESSION_COUNTER_KEY = 'factory_agent_session_counter'
 const MESSAGE_MODE_KEY = 'factory_agent_message_mode'
+const DEFAULT_MESSAGE_MODE = 'normal'
 
 const hasStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined'
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
@@ -133,10 +134,8 @@ export function useFactoryAgentChat() {
   const [lastSyncedAt, setLastSyncedAt] = useState(null)
   const [streamDiagnosticsBySource, setStreamDiagnosticsBySource] = useState({})
   const [optimisticMessages, setOptimisticMessages] = useState([])
-  const [messageMode, setMessageMode] = useState(() => {
-    if (!hasStorage()) return 'normal'
-    return localStorage.getItem(MESSAGE_MODE_KEY) || 'normal'
-  })
+  const messageMode = DEFAULT_MESSAGE_MODE
+  const setMessageMode = useCallback(() => {}, [])
 
   const sessionPollTimerRef = useRef(null)
   const sendingGuardRef = useRef(false)
@@ -320,8 +319,8 @@ export function useFactoryAgentChat() {
   }, [mergeSessionSummary])
 
   useEffect(() => {
-    if (hasStorage()) localStorage.setItem(MESSAGE_MODE_KEY, messageMode)
-  }, [messageMode])
+    if (hasStorage()) localStorage.setItem(MESSAGE_MODE_KEY, DEFAULT_MESSAGE_MODE)
+  }, [])
 
   const clearSnapshotState = useCallback(() => {
     setSession(null)

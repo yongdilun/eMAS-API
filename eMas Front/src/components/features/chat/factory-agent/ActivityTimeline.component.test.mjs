@@ -91,6 +91,31 @@ test('ActivityTimeline renders completed runs as a collapsed latest-step summary
   await view.unmount()
 })
 
+test('ActivityTimeline keeps the latest successful action spinning until the run completes', async () => {
+  const { default: ActivityTimeline } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/ActivityTimeline.jsx')
+  const view = await render(
+    React.createElement(ActivityTimeline, {
+      steps: [
+        {
+          id: 'step-1',
+          timestamp: 1,
+          group: 'research',
+          label: 'Checking knowledge sources',
+          detail: 'Searching source documents',
+          state: 'success',
+        },
+      ],
+    }),
+  )
+
+  const spinnerIcon = view.container.querySelector('[data-icon="progress_activity"]')
+  assert.ok(spinnerIcon)
+  assert.match(spinnerIcon.className, /animate-spin/)
+  assert.equal(view.container.querySelector('[data-icon="check"]'), null)
+
+  await view.unmount()
+})
+
 test('ActivityTimeline respects manual collapse while active rows refresh', async () => {
   const { default: ActivityTimeline } = await server.ssrLoadModule('/src/components/features/chat/factory-agent/ActivityTimeline.jsx')
   const activeSteps = [

@@ -68,7 +68,7 @@ async function closeChat(page) {
 
 async function expectComposerReady(page) {
   await expect(page.locator('[role="status"][aria-busy="true"]')).toHaveCount(0)
-  await expect(page.getByRole('combobox', { name: chatSelectors.messageModeName })).toBeEnabled()
+  await expect(page.getByRole('dialog', { name: chatSelectors.dialogName }).getByRole('combobox')).toHaveCount(0)
   await expect(page.getByPlaceholder(chatSelectors.composerPlaceholder)).toBeEnabled()
 }
 
@@ -125,7 +125,7 @@ test.describe('Phase 13 normal-use hardening @normal-use', () => {
 
     await page.getByText('Show details').last().click()
     await expectAnyVisibleText(page, /Reason: normal_use_fixture/)
-    await expect(page.getByRole('combobox', { name: chatSelectors.messageModeName })).toHaveValue('normal')
+    await expect(page.getByRole('dialog', { name: chatSelectors.dialogName }).getByRole('combobox')).toHaveCount(0)
     await expect(page.getByText(/Factory Agent backend unavailable|Run cancelled by operator request/)).toHaveCount(0)
   })
 
@@ -175,14 +175,14 @@ test.describe('Phase 13 normal-use hardening @normal-use', () => {
     expect(await activeSessionId(page)).toBe(sessionIdBeforeReload)
   })
 
-  test('scenario 84: edited draft and switched mode submit once with final text and mode', async ({ page }) => {
-    await openChat(page)
+  test('scenario 84: edited draft submits once with final text in normal mode', async ({ page }) => {
+    await page.goto('/')
+    await page.evaluate(() => window.localStorage.setItem('factory_agent_message_mode', 'plan'))
+    await openAssistant(page)
 
     const composer = page.getByPlaceholder(chatSelectors.composerPlaceholder)
-    const mode = page.getByRole('combobox', { name: chatSelectors.messageModeName })
+    await expect(page.getByRole('dialog', { name: chatSelectors.dialogName }).getByRole('combobox')).toHaveCount(0)
     await composer.fill(normalUsePlanModeDraftPrompt)
-    await mode.selectOption('plan')
-    await expect(mode).toHaveValue('plan')
     await composer.fill(normalUsePlanModeFinalPrompt)
     await page.getByRole('button', { name: chatSelectors.sendButtonName }).click()
 
@@ -190,13 +190,12 @@ test.describe('Phase 13 normal-use hardening @normal-use', () => {
     await expect(page.getByText(normalUsePlanModeAnswer).first()).toBeVisible()
     await expectComposerReady(page)
     await expect(composer).toHaveValue('')
-    await expect(mode).toHaveValue('plan')
 
     const finalRequests = await requestsFor({ contains: normalUsePlanModeFinalPrompt })
     const finalMessageRequests = finalRequests.filter((entry) => entry.path.endsWith('/messages'))
     expect(finalMessageRequests).toHaveLength(1)
     expect(finalMessageRequests[0].body.content).toBe(normalUsePlanModeFinalPrompt)
-    expect(finalMessageRequests[0].body.mode).toBe('plan')
+    expect(finalMessageRequests[0].body.mode).toBe('normal')
 
     const draftRequests = await requestsFor({ contains: normalUsePlanModeDraftPrompt })
     expect(draftRequests.filter((entry) => entry.path.endsWith('/messages'))).toHaveLength(0)

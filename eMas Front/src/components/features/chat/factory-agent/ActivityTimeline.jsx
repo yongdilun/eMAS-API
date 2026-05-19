@@ -40,14 +40,23 @@ function findActiveStepIndex(rows) {
         const st = rows[i]?.state
         if (st === 'running' || st === 'retry' || st === 'waiting') return i
     }
+    const latest = rows[rows.length - 1]
+    if (latest?.state === 'success') return rows.length - 1
     return -1
 }
 
-/** Marks the last in-progress row (running / retry / waiting), even if ids differ (e.g. server + client rows). */
+/** Marks the row still representing the active action, even if ids differ (e.g. server + client rows). */
 function isCurrentStep(step, rows) {
     const idx = Array.isArray(rows) ? rows.indexOf(step) : -1
     if (idx < 0) return false
     return idx === findActiveStepIndex(rows)
+}
+
+function visualStateForStep(step, rows, isTerminal) {
+    if (!isTerminal && isCurrentStep(step, rows) && step?.state === 'success') {
+        return 'running'
+    }
+    return step?.state
 }
 
 const ActivityTimeline = ({ steps = [] }) => {
@@ -83,9 +92,10 @@ const ActivityTimeline = ({ steps = [] }) => {
 
     if (!rows.length || !latest || !shouldShowActivityTimeline(rows)) return null
 
-    const icon = stateIcon[latest.state] || 'progress_activity'
-    const tone = stateTone[latest.state] || stateTone.running
-    const iconMotion = latest.state === 'running' || latest.state === 'retry' ? 'animate-spin' : ''
+    const latestVisualState = visualStateForStep(latest, rows, isTerminal)
+    const icon = stateIcon[latestVisualState] || 'progress_activity'
+    const tone = stateTone[latestVisualState] || stateTone.running
+    const iconMotion = latestVisualState === 'running' || latestVisualState === 'retry' ? 'animate-spin' : ''
     // Collapsed: mirror the latest row. Expanded: generic header so the list is not a duplicate of the title.
     const summaryLabel = expanded ? 'Session activity' : latest.label
     const summaryDetail = expanded ? null : latest.detail
@@ -123,10 +133,11 @@ const ActivityTimeline = ({ steps = [] }) => {
                 <div className="mt-2 border-t border-hairline pt-2">
                     <ol className="space-y-2">
                         {rows.map((step) => {
-                            const stepTone = stateTone[step.state] || stateTone.running
-                            const stepIcon = stateIcon[step.state] || 'progress_activity'
-                            const stepMotion = step.state === 'running' || step.state === 'retry' ? 'animate-spin' : ''
                             const current = isCurrentStep(step, rows)
+                            const stepVisualState = visualStateForStep(step, rows, isTerminal)
+                            const stepTone = stateTone[stepVisualState] || stateTone.running
+                            const stepIcon = stateIcon[stepVisualState] || 'progress_activity'
+                            const stepMotion = stepVisualState === 'running' || stepVisualState === 'retry' ? 'animate-spin' : ''
                             return (
                                 <li
                                     key={step.id}

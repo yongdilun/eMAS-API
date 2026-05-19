@@ -1,8 +1,6 @@
 const FactoryAgentChatComposer = ({
   input,
   onInputChange,
-  messageMode,
-  onMessageModeChange,
   disabled,
   placeholder,
   canCancel,
@@ -18,16 +16,6 @@ const FactoryAgentChatComposer = ({
       onSend()
     }}
   >
-    <select
-      value={messageMode}
-      onChange={(e) => onMessageModeChange(e.target.value)}
-      disabled={disabled}
-      className="h-11 rounded-md border border-hairline bg-surface-2 px-3 text-xs text-ink outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
-      aria-label="Message mode"
-    >
-      <option value="normal">Normal</option>
-      <option value="plan">Plan</option>
-    </select>
     <textarea
       rows={1}
       value={input}

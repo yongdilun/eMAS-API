@@ -70,7 +70,7 @@ async function sendPrompt(page, prompt, visibleText = prompt) {
 
 async function expectComposerReady(page) {
   await expect(page.locator('[role="status"][aria-busy="true"]')).toHaveCount(0)
-  await expect(page.getByRole('combobox', { name: chatSelectors.messageModeName })).toBeEnabled()
+  await expect(page.getByRole('dialog', { name: chatSelectors.dialogName }).getByRole('combobox')).toHaveCount(0)
   await expect(page.getByPlaceholder(chatSelectors.composerPlaceholder)).toBeEnabled()
 }
 

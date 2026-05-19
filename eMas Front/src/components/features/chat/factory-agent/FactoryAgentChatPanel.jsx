@@ -793,26 +793,13 @@ function FactoryAgentDiagnostics({ error, streamDiagnostics = [], retrying, onRe
 }
 
 function FullscreenWindowIcon({ isFullscreen }) {
-  if (isFullscreen) {
-    return (
-      <span
-        className="relative block h-4 w-4"
-        aria-hidden="true"
-        data-ai-assistant-fullscreen-icon="restore"
-      >
-        <span className="absolute left-[4px] top-[2px] h-[10px] w-[10px] rounded-[2px] border-2 border-current" />
-        <span className="absolute left-[1px] top-[5px] h-[10px] w-[10px] rounded-[2px] border-2 border-current bg-surface-1" />
-      </span>
-    )
-  }
-
   return (
     <span
-      className="relative block h-4 w-4"
+      className="material-symbols-outlined text-[20px] leading-none"
       aria-hidden="true"
-      data-ai-assistant-fullscreen-icon="maximize"
+      data-ai-assistant-fullscreen-icon={isFullscreen ? 'restore' : 'maximize'}
     >
-      <span className="absolute left-[3px] top-[3px] h-[10px] w-[10px] rounded-[2px] border-2 border-current" />
+      {isFullscreen ? 'filter_none' : 'check_box_outline_blank'}
     </span>
   )
 }
@@ -843,10 +830,8 @@ const FactoryAgentChatPanel = ({
     streamDiagnostics,
     pendingApproval,
     approvalReason,
-    messageMode,
     clientProgress,
     setApprovalReason,
-    setMessageMode,
     isDecidingApproval,
     isPollingSession,
     getStashedBundlePresentation,
@@ -1170,8 +1155,6 @@ const FactoryAgentChatPanel = ({
             <FactoryAgentChatComposer
               input={input}
               onInputChange={setInput}
-              messageMode={messageMode}
-              onMessageModeChange={setMessageMode}
               disabled={inputDisabled}
               placeholder={placeholder}
               canCancel={canCancel}

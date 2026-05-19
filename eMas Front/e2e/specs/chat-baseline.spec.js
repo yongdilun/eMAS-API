@@ -16,7 +16,7 @@ test.describe('Factory Agent chat baseline', () => {
     await expect(page.getByRole('dialog', { name: 'AI Assistant' })).toBeVisible()
     await expect(page.getByText('Start a session from the sidebar.')).toBeVisible()
     await expect(page.getByText('Ask for operations tasks requiring safe approvals.')).toBeVisible()
-    await expect(page.getByRole('combobox', { name: 'Message mode' })).toBeEnabled()
+    await expect(page.getByRole('dialog', { name: 'AI Assistant' }).getByRole('combobox')).toHaveCount(0)
     await expect(page.getByPlaceholder('Ask factory agent...')).toBeEnabled()
     await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled()
   })

@@ -29,7 +29,7 @@ test.describe('Phase 13 seeded normal-use checks @normal-use', () => {
     await expect(page.getByText('Knowledge sources').first()).toBeVisible()
     await expect(page.getByText('Seeded General LOTO Guidance').first()).toBeVisible()
     await expect(page.locator('[role="status"][aria-busy="true"]')).toHaveCount(0)
-    await expect(page.getByRole('combobox', { name: chatSelectors.messageModeName })).toBeEnabled()
+    await expect(page.getByRole('dialog', { name: chatSelectors.dialogName }).getByRole('combobox')).toHaveCount(0)
     await expect(page.getByPlaceholder(chatSelectors.composerPlaceholder)).toBeEnabled()
 
     const snapshot = await factoryAgentJson(`/sessions/${sessionId}/snapshot`)

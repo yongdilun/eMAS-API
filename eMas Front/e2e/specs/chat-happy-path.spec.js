@@ -22,7 +22,7 @@ test.describe('Factory Agent chat happy path', () => {
     await expect(page.getByText(machineStatusAnswer).first()).toBeVisible()
     await expect(page.getByText('Run complete')).toBeVisible()
     await expect(page.locator('[role="status"][aria-busy="true"]')).toHaveCount(0)
-    await expect(page.getByRole('combobox', { name: chatSelectors.messageModeName })).toBeEnabled()
+    await expect(page.getByRole('dialog', { name: chatSelectors.dialogName }).getByRole('combobox')).toHaveCount(0)
     await expect(page.getByPlaceholder(chatSelectors.composerPlaceholder)).toBeEnabled()
   })
 })
