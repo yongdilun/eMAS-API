@@ -3,7 +3,7 @@ import { useThemeContext } from '../context/ThemeContext'
 import SettingRow from '../components/features/settings/SettingRow'
 import ThemeToggle from '../components/features/settings/ThemeToggle'
 import PageHeader from '../components/shared/PageHeader'
-import { settingsApi, schedulingApi, toData, apiErrorMessage } from '../services/api'
+import { settingsApi, schedulingApi, toData, apiErrorMessage, apiErrorToastOptions } from '../services/api'
 import logger from '../services/logger'
 import { useToast } from '../context/ToastContext'
 
@@ -200,7 +200,7 @@ const Settings = () => {
       logger.error('Failed to save settings', err)
       const msg = apiErrorMessage(err, 'Failed to save settings.')
       setSaveErr(msg)
-      toast.error(msg)
+      toast.error(msg, apiErrorToastOptions(err))
     }
   }, [
     aiEnabled,
@@ -231,7 +231,7 @@ const Settings = () => {
       await schedulingApi.refreshWorkCalendars()
       toast.success('Work calendars refreshed.')
     } catch (err) {
-      toast.error(apiErrorMessage(err, 'Failed to refresh work calendars.'))
+      toast.error(apiErrorMessage(err, 'Failed to refresh work calendars.'), apiErrorToastOptions(err))
     } finally {
       setRefreshCalendarsLoading(false)
     }
