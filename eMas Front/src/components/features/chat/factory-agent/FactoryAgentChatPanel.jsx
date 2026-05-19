@@ -984,14 +984,17 @@ const FactoryAgentChatPanel = ({
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-hairline bg-surface-1">
+        <div
+          className="flex h-14 shrink-0 items-center justify-between border-b border-hairline bg-surface-1 px-4 py-2"
+          data-chatbot-topbar=""
+        >
           <div
             className="flex items-center gap-3 cursor-move select-none flex-1 min-w-0"
             onMouseDown={onHeaderMouseDown}
             data-drag-handle
             role="presentation"
           >
-            <h2 className="text-lg font-semibold text-ink truncate">
+            <h2 className="truncate text-base font-semibold text-ink">
               {activeSessionName || 'Factory Agent Chat'}
             </h2>
             <span className="flex items-center gap-1.5 rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-ink-subtle">
@@ -1017,10 +1020,10 @@ const FactoryAgentChatPanel = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-2 rounded-md hover:bg-surface-2 text-ink-subtle"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink-subtle hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-primary/30"
                 aria-label="Close"
               >
-                <span className="material-symbols-outlined">close</span>
+                <span className="material-symbols-outlined text-2xl">close</span>
               </button>
             )}
           </div>
