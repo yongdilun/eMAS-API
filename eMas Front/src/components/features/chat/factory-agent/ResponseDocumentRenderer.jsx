@@ -238,7 +238,41 @@ function formatDiagnosticValue(value) {
   return redactTechnicalText(value)
 }
 
-function CompactCard({ title, children, tone = 'default', blockType = null, blockId = null, contract = null, entityType = null }) {
+function dataText(value) {
+  return safeText(value) || undefined
+}
+
+function dataNumber(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : undefined
+}
+
+function dataBoolean(value) {
+  if (value === null || value === undefined) return undefined
+  return String(Boolean(value))
+}
+
+function requestedFieldsData(value) {
+  return Array.isArray(value) && value.length ? value.map((item) => safeText(item)).filter(Boolean).join(',') : undefined
+}
+
+function CompactCard({
+  title,
+  children,
+  tone = 'default',
+  blockType = null,
+  blockId = null,
+  contract = null,
+  entityType = null,
+  readScope = null,
+  requestedFields = [],
+  displayMode = null,
+  entityCount = null,
+  previewLimit = null,
+  detailsCollapsed = null,
+  fieldCount = null,
+  secondaryFieldCount = null,
+}) {
   const toneClass = tone === 'error'
     ? 'border-hairline bg-surface-1'
     : tone === 'warning'
@@ -249,8 +283,16 @@ function CompactCard({ title, children, tone = 'default', blockType = null, bloc
       className={`mt-3 w-full min-w-0 max-w-full rounded-md border px-3 py-3 text-sm ${toneClass}`}
       data-response-block-type={blockType || undefined}
       data-response-block-id={blockId || undefined}
-      data-response-contract={safeText(contract) || undefined}
-      data-entity-type={safeText(entityType) || undefined}
+      data-response-contract={dataText(contract)}
+      data-entity-type={dataText(entityType)}
+      data-read-scope={dataText(readScope)}
+      data-requested-fields={requestedFieldsData(requestedFields)}
+      data-display-mode={dataText(displayMode)}
+      data-entity-count={dataNumber(entityCount)}
+      data-preview-limit={dataNumber(previewLimit)}
+      data-details-collapsed={dataBoolean(detailsCollapsed)}
+      data-status-field-count={dataNumber(fieldCount)}
+      data-secondary-field-count={dataNumber(secondaryFieldCount)}
     >
       {title ? <div className="text-sm font-semibold text-ink">{title}</div> : null}
       {children}
@@ -1494,10 +1536,51 @@ function FinalBusinessResultBlock({ summaryBlock, mutationBlock }) {
 
 function RecordPreviewBlock({ block }) {
   const rows = Array.isArray(block.rows) ? block.rows : []
+  const previewLimit = Number.isFinite(Number(block.preview_limit)) ? Number(block.preview_limit) : PREVIEW_LIMIT
   return (
-    <CompactCard title={block.title || 'Records'} blockType="record_preview" blockId={block.id}>
-      <RowPreview rows={rows} limit={5} />
-      {rows.length > 5 ? <ExpandableTable title={block.title || 'Records'} rows={rows} defaultCollapsed={block.details_collapsed !== false} blockId={block.id} /> : null}
+    <CompactCard
+      title={block.title || 'Records'}
+      blockType="record_preview"
+      blockId={block.id}
+      contract={block.contract}
+      entityType={block.entity_type}
+      readScope={block.read_scope}
+      requestedFields={block.requested_fields}
+      displayMode={block.display_mode}
+      entityCount={block.entity_count}
+      previewLimit={previewLimit}
+      detailsCollapsed={block.details_collapsed}
+    >
+      <RowPreview rows={rows} limit={previewLimit} />
+      {rows.length > previewLimit ? <ExpandableTable title={block.title || 'Records'} rows={rows} defaultCollapsed={block.details_collapsed !== false} blockId={block.id} /> : null}
+    </CompactCard>
+  )
+}
+
+function ResultTableBlock({ block }) {
+  const rows = Array.isArray(block.rows) ? block.rows : []
+  const previewLimit = Number.isFinite(Number(block.preview_limit)) ? Number(block.preview_limit) : PREVIEW_LIMIT
+  return (
+    <CompactCard
+      title={block.title || 'Results'}
+      blockType="result_table"
+      blockId={block.id}
+      contract={block.contract}
+      entityType={block.entity_type}
+      readScope={block.read_scope}
+      requestedFields={block.requested_fields}
+      displayMode={block.display_mode}
+      entityCount={block.entity_count}
+      previewLimit={previewLimit}
+      detailsCollapsed={block.details_collapsed}
+    >
+      <RowPreview rows={rows} limit={previewLimit} />
+      <ExpandableTable
+        title={block.title || 'Results'}
+        rows={rows}
+        defaultCollapsed={block.details_collapsed !== false}
+        blockId={block.id}
+      />
     </CompactCard>
   )
 }
@@ -1641,12 +1724,25 @@ function StatusResultBlock({ block, documentMessage }) {
       blockId={block.id}
       contract={block.contract}
       entityType={block.entity_type}
+      readScope={block.read_scope}
+      requestedFields={block.requested_fields}
+      displayMode={block.display_mode}
+      entityCount={block.entity_count}
+      previewLimit={block.preview_limit}
+      detailsCollapsed={block.details_collapsed}
+      fieldCount={fields.length}
+      secondaryFieldCount={secondaryFields.length}
     >
       {shouldShowSummary ? <div className="mt-1 text-sm text-ink">{summary}</div> : null}
       {fields.length ? (
         <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
           {fields.map((field, index) => (
-            <div key={`${field.key || field.label}-${index}`} className="min-w-0 rounded-md bg-surface-2 px-2.5 py-2">
+            <div
+              key={`${field.key || field.label}-${index}`}
+              className="min-w-0 rounded-md bg-surface-2 px-2.5 py-2"
+              data-status-field=""
+              data-status-field-key={dataText(field.key)}
+            >
               <dt className="font-semibold text-ink-muted">{field.label}</dt>
               <dd className="mt-0.5 break-words text-ink">{String(field.value)}</dd>
             </div>
@@ -1659,10 +1755,16 @@ function StatusResultBlock({ block, documentMessage }) {
           summaryClassName="cursor-pointer px-3 py-2 text-xs font-medium text-ink-subtle"
           title="Technical details"
           defaultCollapsed={block.details_collapsed !== false}
+          data-status-details=""
         >
           <dl className="grid gap-2 border-t border-hairline px-3 py-3 text-xs sm:grid-cols-2">
             {secondaryFields.map((field, index) => (
-              <div key={`${field.key || field.label}-${index}`} className="min-w-0">
+              <div
+                key={`${field.key || field.label}-${index}`}
+                className="min-w-0"
+                data-status-secondary-field=""
+                data-status-field-key={dataText(field.key)}
+              >
                 <dt className="font-semibold text-ink-muted">{field.label}</dt>
                 <dd className="mt-0.5 break-words text-ink">{String(field.value)}</dd>
               </div>
@@ -1731,7 +1833,7 @@ function renderBlock(block, props) {
   if (block.type === 'completed_step') return <CompletedStepBlock key={block.id} block={block} />
   if (block.type === 'result_summary') return <ResultSummaryBlock key={block.id} block={block} />
   if (block.type === 'mutation_result') return <MutationResultBlock key={block.id} block={block} />
-  if (block.type === 'result_table') return <ExpandableTable key={block.id} title={block.title || 'Affected records'} rows={block.rows} defaultCollapsed blockId={block.id} />
+  if (block.type === 'result_table') return <ResultTableBlock key={block.id} block={block} />
   if (block.type === 'status_result') return <StatusResultBlock key={block.id} block={block} documentMessage={props.documentMessage} />
   if (block.type === 'record_preview') return <RecordPreviewBlock key={block.id} block={block} />
   if (block.type === 'safety_notice') return <SafetyNoticeBlock key={block.id} block={block} />

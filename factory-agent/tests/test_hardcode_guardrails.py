@@ -22,6 +22,9 @@ EXACT_RESPONSE_DOCUMENT_PROMPTS = [
     "change all medium priority job to high then change all high priority job to low",
     "change all high priority job to low then change all low priority job to medium",
     "Show status for machine with machine id M-CNC-01",
+    "Show full details for machine with machine id M-CNC-01",
+    "find status for job with job id JOB-SEED-001",
+    "find status for job with job id JOB-SEED-001 and JOB-SEED-002",
     "According to the LOTO procedure, what notification is required before starting lockout",
     "According to the OSHA lockout/tagout guide, what notification is required before reenergizing a machine after removing lockout or tagout devices?",
     "According to the OSHA lockout/tagout guide, what notification is required before starting lockout?",
@@ -350,6 +353,21 @@ def test_knowledge_policy_uses_registry_metadata_not_policy_id_branches():
         "not one-off policy_id branches:\n" + "\n".join(hits)
     )
     assert "EvidenceSupportProfile" in source
+
+
+def test_phase37_read_display_policy_does_not_branch_on_one_entity_label_for_projection():
+    source = _read("factory-agent/factory_agent/services/response_document_service.py")
+    hits: list[str] = []
+    for match in re.finditer(r"(?m)^\s*(?:if|elif)\s+.*(?:display_mode|read_scope|requested_fields).*:", source):
+        line = source.count("\n", 0, match.start()) + 1
+        segment = match.group(0)
+        if re.search(r"['\"](?:machine|job)['\"]", segment):
+            hits.append(f"factory-agent/factory_agent/services/response_document_service.py:{line}: {segment.strip()}")
+
+    assert hits == [], (
+        "Read display projection must be driven by generic read_scope/requested_fields/display_mode "
+        "policy, not a branch for one entity label:\n" + "\n".join(hits)
+    )
 
 
 def test_phase_and_seeded_fixture_allowlist_is_explicit():

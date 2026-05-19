@@ -4,6 +4,7 @@ import { responseDocumentTrafficPrompt } from '../fixtures/factoryAgentFixtures.
 import { expectTransitionCheckpoint } from '../support/factoryAgentTransitionOracle.js'
 import {
   documentContentRagForbiddenProbeText,
+  machineStatusOnlyForbiddenDetailProbeText,
   pendingApprovalGuidanceProbeText,
   readOnlyStatusForbiddenProbeText,
   serializeSemanticProbe,
@@ -14,11 +15,15 @@ import {
   responseDocumentCancelledRunPrompt,
   responseDocumentAllNoOpPrompt,
   responseDocumentCascadePrompt,
+  responseDocumentCollapsedResultsPrompt,
   responseDocumentExpiredApprovalPrompt,
+  responseDocumentJobStatusPrompt,
   responseDocumentLotoPrompt,
   responseDocumentLotoNotificationPrompt,
+  responseDocumentMachineDetailsPrompt,
   responseDocumentMixedOperationRagPrompt,
   responseDocumentNoResultsPrompt,
+  responseDocumentMultiStatusPrompt,
   responseDocumentOshaReenergizingPrompt,
   responseDocumentPartialNoOpPrompt,
   responseDocumentPartialFailurePrompt,
@@ -787,13 +792,16 @@ test.describe('Final response quality response_document gate', () => {
     await expect(page.getByText('Read machine status').first()).toBeVisible()
     await expect(page.getByText('Run complete').first()).toBeVisible()
     await expect(page.getByText('Machine ID').first()).toBeVisible()
-    await expect(page.getByText('Machine name').first()).toBeVisible()
-    await expect(page.getByText('Machine type').first()).toBeVisible()
-    await expect(page.getByText('Location').first()).toBeVisible()
     await expect(page.getByText('Status').first()).toBeVisible()
-    await expect(page.getByText('Capacity per hour').first()).toBeVisible()
-    await expect(page.getByText('Last maintenance').first()).toBeVisible()
-    await expect(page.getByText('Maintenance interval').first()).toBeVisible()
+    await expect(statusCard).toHaveAttribute('data-read-scope', 'status_only')
+    await expect(statusCard).toHaveAttribute('data-requested-fields', 'machine_id,status')
+    await expect(statusCard).toHaveAttribute('data-display-mode', 'compact_status_card')
+    await expect(statusCard).toHaveAttribute('data-entity-count', '1')
+    await expect(statusCard).toHaveAttribute('data-preview-limit', '5')
+    await expect(statusCard).toHaveAttribute('data-details-collapsed', 'true')
+    await expect(statusCard).toHaveAttribute('data-status-field-count', '2')
+    await expect(statusCard).toHaveAttribute('data-secondary-field-count', '0')
+    await expect(statusCard.locator('[data-status-field]')).toHaveCount(2)
     const summary = await expectTransitionCheckpoint(page, {
       checkpoint: 'RD-008 read-only status response contract',
       snapshotForPage,
@@ -808,21 +816,21 @@ test.describe('Final response quality response_document gate', () => {
         hiddenBackendBlockTypes: ['approval_required', 'mutation_result', 'result_table', 'record_preview'],
         responseContracts: ['entity_status_v1'],
         approvalActionCount: 0,
-        forbiddenText: readOnlyStatusForbiddenProbeText,
+        forbiddenText: [...readOnlyStatusForbiddenProbeText, ...machineStatusOnlyForbiddenDetailProbeText],
         textIncludes: [
           'Machine ID',
-          'Machine name',
-          'Machine type',
-          'Location',
           'Status',
-          'Capacity per hour',
-          'Last maintenance',
-          'Maintenance interval',
         ],
         textExcludes: [
           /Approval required/i,
           /Mutation result/i,
           /Machine status \(1\)/i,
+          /Machine name/i,
+          /Machine type/i,
+          /Location/i,
+          /Capacity per hour/i,
+          /Last maintenance/i,
+          /Maintenance interval/i,
           /Default setup/i,
           /Default cleaning/i,
           /Default changeover/i,
@@ -833,6 +841,29 @@ test.describe('Final response quality response_document gate', () => {
     await testInfo.attach('rd-008-read-only-status-semantic-probe.json', {
       body: serializeSemanticProbe(summary),
       contentType: 'application/json',
+    })
+    const backendStatusBlock = summary.backend.responseDocument.blocks.find((block) => block.type === 'status_result')
+    const visibleStatusBlock = summary.visible.visibleBlocks.find((block) => block.type === 'status_result')
+    expect(backendStatusBlock).toMatchObject({
+      contract: 'entity_status_v1',
+      readScope: 'status_only',
+      requestedFields: ['machine_id', 'status'],
+      displayMode: 'compact_status_card',
+      entityCount: 1,
+      previewLimit: 5,
+      detailsCollapsed: true,
+      fieldCount: 2,
+      secondaryFieldCount: 0,
+    })
+    expect(visibleStatusBlock).toMatchObject({
+      readScope: 'status_only',
+      requestedFields: ['machine_id', 'status'],
+      displayMode: 'compact_status_card',
+      entityCount: 1,
+      previewLimit: 5,
+      detailsCollapsed: true,
+      fieldCount: 2,
+      secondaryFieldCount: 0,
     })
     await expect(page.getByText('Approval required')).toHaveCount(0)
     await expect(page.getByRole('button', { name: exactAction('Approve') })).toHaveCount(0)
@@ -846,6 +877,222 @@ test.describe('Final response quality response_document gate', () => {
     await expect(page.getByText('M-CNC-01 Lockout/Tagout Procedure').first()).toBeVisible()
     await expect(page.getByText('LOTO-M-CNC-01').first()).toBeVisible()
     await expectForbiddenTextAbsent(page)
+  })
+
+  test('RD-027 job status entity_status compact display policy carries requested fields', async ({ page }, testInfo) => {
+    await openChat(page)
+    await sendChatPrompt(page, responseDocumentJobStatusPrompt)
+
+    const statusCard = page.locator('[data-response-block-type="status_result"][data-response-contract="entity_status_v1"]').last()
+    await expect(statusCard).toBeVisible()
+    await expect(statusCard).toHaveAttribute('data-entity-type', 'job')
+    await expect(statusCard).toHaveAttribute('data-read-scope', 'status_only')
+    await expect(statusCard).toHaveAttribute('data-requested-fields', 'job_id,status')
+    await expect(statusCard).toHaveAttribute('data-display-mode', 'compact_status_card')
+    await expect(statusCard).toHaveAttribute('data-entity-count', '1')
+    await expect(statusCard).toHaveAttribute('data-status-field-count', '2')
+    await expect(statusCard).toContainText('Job ID')
+    await expect(statusCard).toContainText('JOB-SEED-001')
+    await expect(statusCard).toContainText('Status')
+    await expect(statusCard).toContainText('running')
+
+    const summary = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-027 job status entity_status display policy',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['status_result'],
+        backendBlockTypes: ['status_result'],
+        hiddenBlockTypes: ['approval_required', 'mutation_result', 'result_table'],
+        hiddenBackendBlockTypes: ['approval_required', 'mutation_result', 'result_table', 'record_preview'],
+        responseContracts: ['entity_status_v1'],
+        approvalActionCount: 0,
+        forbiddenText: readOnlyStatusForbiddenProbeText,
+        textIncludes: ['Job ID', 'JOB-SEED-001', 'Status', 'running'],
+        textExcludes: [/Approval required/i, /Priority/i, /Machine ID/i, /Due date/i],
+      },
+    })
+    await testInfo.attach('rd-027-job-status-display-policy-probe.json', {
+      body: serializeSemanticProbe(summary),
+      contentType: 'application/json',
+    })
+    const backendStatusBlock = summary.backend.responseDocument.blocks.find((block) => block.type === 'status_result')
+    expect(backendStatusBlock).toMatchObject({
+      entityType: 'job',
+      readScope: 'status_only',
+      requestedFields: ['job_id', 'status'],
+      displayMode: 'compact_status_card',
+      entityCount: 1,
+      fieldCount: 2,
+    })
+  })
+
+  test('RD-028 multi-status entity_status display policy renders collection table without loops', async ({ page }, testInfo) => {
+    await openChat(page)
+    await sendChatPrompt(page, responseDocumentMultiStatusPrompt)
+
+    const tableBlock = page.locator('[data-response-block-type="result_table"][data-response-contract="entity_status_v1"]').last()
+    await expect(tableBlock).toBeVisible()
+    await expect(tableBlock).toHaveAttribute('data-entity-type', 'job')
+    await expect(tableBlock).toHaveAttribute('data-read-scope', 'status_only')
+    await expect(tableBlock).toHaveAttribute('data-requested-fields', 'job_id,status')
+    await expect(tableBlock).toHaveAttribute('data-display-mode', 'collection_table')
+    await expect(tableBlock).toHaveAttribute('data-entity-count', '2')
+    await expect(tableBlock).toHaveAttribute('data-details-collapsed', 'false')
+    await expect(tableBlock).toContainText('JOB-SEED-001')
+    await expect(tableBlock).toContainText('JOB-SEED-002')
+    await expect(tableBlock).toContainText('running')
+    await expect(tableBlock).toContainText('planned')
+
+    const summary = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-028 multi-status entity_status collection display policy',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['result_table'],
+        backendBlockTypes: ['result_table'],
+        hiddenBlockTypes: ['approval_required', 'diagnostic', 'mutation_result'],
+        hiddenBackendBlockTypes: ['approval_required', 'diagnostic', 'mutation_result'],
+        responseContracts: ['entity_status_v1'],
+        approvalActionCount: 0,
+        textIncludes: ['JOB-SEED-001', 'JOB-SEED-002', 'running', 'planned'],
+        textExcludes: [/Priority/i, /planner/i, /guard/i, /loop/i, /Needs attention/i],
+      },
+    })
+    await testInfo.attach('rd-028-multi-status-display-policy-probe.json', {
+      body: serializeSemanticProbe(summary),
+      contentType: 'application/json',
+    })
+    const backendTable = summary.backend.responseDocument.blocks.find((block) => block.type === 'result_table')
+    const visibleTable = summary.visible.visibleBlocks.find((block) => block.type === 'result_table')
+    expect(backendTable).toMatchObject({
+      contract: 'entity_status_v1',
+      readScope: 'status_only',
+      requestedFields: ['job_id', 'status'],
+      displayMode: 'collection_table',
+      entityCount: 2,
+      detailsCollapsed: 'false',
+    })
+    expect(visibleTable).toMatchObject({
+      readScope: 'status_only',
+      requestedFields: ['job_id', 'status'],
+      displayMode: 'collection_table',
+      entityCount: 2,
+      detailsCollapsed: 'false',
+    })
+  })
+
+  test('RD-029 machine status details contrast uses collapsed detail display policy', async ({ page }, testInfo) => {
+    await openChat(page)
+    await sendChatPrompt(page, responseDocumentMachineDetailsPrompt)
+
+    const statusCard = page.locator('[data-response-block-type="status_result"][data-response-contract="entity_status_v1"]').last()
+    await expect(statusCard).toBeVisible()
+    await expect(statusCard).toHaveAttribute('data-read-scope', 'details')
+    await expect(statusCard).toHaveAttribute('data-requested-fields', 'machine_id,status,details')
+    await expect(statusCard).toHaveAttribute('data-display-mode', 'detail_status_card')
+    await expect(statusCard).toHaveAttribute('data-details-collapsed', 'true')
+    await expect(statusCard).toHaveAttribute('data-status-field-count', '2')
+    await expect(statusCard).toHaveAttribute('data-secondary-field-count', '6')
+    const details = statusCard.locator('details[data-status-details]').first()
+    await expectDetailsClosed(details)
+    await details.locator('summary').click()
+    await expect(statusCard.getByText('Machine name')).toBeVisible()
+    await expect(statusCard.getByText('Machine type')).toBeVisible()
+    await expect(statusCard.getByText('Location')).toBeVisible()
+    await expect(statusCard.getByText('Capacity per hour')).toBeVisible()
+
+    const summary = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-029 machine status details display policy contrast',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['status_result'],
+        backendBlockTypes: ['status_result'],
+        hiddenBlockTypes: ['approval_required', 'mutation_result', 'result_table'],
+        hiddenBackendBlockTypes: ['approval_required', 'mutation_result', 'result_table', 'record_preview'],
+        responseContracts: ['entity_status_v1'],
+        approvalActionCount: 0,
+        textIncludes: ['Machine ID', 'Status', 'Technical details'],
+      },
+    })
+    await testInfo.attach('rd-029-machine-details-display-policy-probe.json', {
+      body: serializeSemanticProbe(summary),
+      contentType: 'application/json',
+    })
+    const backendStatusBlock = summary.backend.responseDocument.blocks.find((block) => block.type === 'status_result')
+    expect(backendStatusBlock).toMatchObject({
+      readScope: 'details',
+      requestedFields: ['machine_id', 'status', 'details'],
+      displayMode: 'detail_status_card',
+      entityCount: 1,
+      detailsCollapsed: true,
+      fieldCount: 2,
+      secondaryFieldCount: 6,
+    })
+  })
+
+  test('RD-029 collapsed results display policy renders preview and collapsed table', async ({ page }, testInfo) => {
+    await openChat(page)
+    await sendChatPrompt(page, responseDocumentCollapsedResultsPrompt)
+
+    const previewBlock = page.locator('[data-response-block-type="record_preview"][data-display-mode="collapsed_collection_table"]').last()
+    const tableBlock = page.locator('[data-response-block-type="result_table"][data-display-mode="collapsed_collection_table"]').last()
+    await expect(previewBlock).toBeVisible()
+    await expect(tableBlock).toBeVisible()
+    await expect(tableBlock).toHaveAttribute('data-read-scope', 'records')
+    await expect(tableBlock).toHaveAttribute('data-entity-count', '6')
+    await expect(tableBlock).toHaveAttribute('data-preview-limit', '5')
+    await expect(tableBlock).toHaveAttribute('data-details-collapsed', 'true')
+    await expect(tableBlock.locator('[data-affected-record-row]')).toHaveCount(5)
+    const details = tableBlock.locator('details').filter({ hasText: /Results \(6\)/ }).first()
+    await expectDetailsClosed(details)
+
+    const summary = await expectTransitionCheckpoint(page, {
+      checkpoint: 'RD-029 collapsed results display policy',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['record_preview', 'result_table'],
+        backendBlockTypes: ['record_preview', 'result_table'],
+        hiddenBlockTypes: ['approval_required', 'diagnostic', 'mutation_result'],
+        hiddenBackendBlockTypes: ['approval_required', 'diagnostic', 'mutation_result'],
+        approvalActionCount: 0,
+        textIncludes: ['Found 6 low-priority jobs.', 'Preview', 'Results'],
+      },
+    })
+    await testInfo.attach('rd-029-collapsed-results-display-policy-probe.json', {
+      body: serializeSemanticProbe(summary),
+      contentType: 'application/json',
+    })
+    const backendTable = summary.backend.responseDocument.blocks.find((block) => block.type === 'result_table')
+    const visibleTable = summary.visible.visibleBlocks.find((block) => block.type === 'result_table')
+    expect(backendTable).toMatchObject({
+      readScope: 'records',
+      displayMode: 'collapsed_collection_table',
+      entityCount: 6,
+      previewLimit: 5,
+      detailsCollapsed: true,
+    })
+    expect(visibleTable).toMatchObject({
+      readScope: 'records',
+      displayMode: 'collapsed_collection_table',
+      entityCount: 6,
+      previewLimit: 5,
+      detailsCollapsed: true,
+    })
   })
 
   test('Phase 33 side evidence drawer opens PDF panel with back navigation and related source identity', async ({ page }, testInfo) => {
@@ -1222,7 +1469,7 @@ test.describe('Final response quality response_document gate', () => {
     await expect(page.getByText('Machine status').first()).toBeVisible()
     await expect(page.getByText('Procedure guidance').first()).toBeVisible()
     await expect(page.getByText('Knowledge sources').first()).toBeVisible()
-    await expect(page.getByText(/M-CNC-01 is running on Line 1/i).first()).toBeVisible()
+    await expect(page.getByText(/M-CNC-01 is running\./i).first()).toBeVisible()
     await expect(page.getByText(/Before reenergizing after lockout or tagout devices are removed/i).first()).toBeVisible()
 
     const operationSections = page.locator('[data-response-block-type="status_result"][data-response-contract="entity_status_v1"]')
@@ -1252,7 +1499,7 @@ test.describe('Final response quality response_document gate', () => {
         textIncludes: [
           'Machine status',
           'Procedure guidance',
-          'M-CNC-01 is running on Line 1.',
+          'M-CNC-01 is running.',
           'Before reenergizing after lockout or tagout devices are removed',
         ],
       },

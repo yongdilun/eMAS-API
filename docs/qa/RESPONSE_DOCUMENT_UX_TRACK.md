@@ -44,6 +44,7 @@ Created: 2026-05-18
 | 34 | Source tooltip and responsive chat width | Done | Codex | Added collision-aware source hover placement and responsive assistant response card width, with prose width constraints and browser proofs for right-edge tooltip and modal resize behavior. |
 | 35 | Final RAG source UX release gate | Done | Codex | Integrated release proof passed after fixing the two manual blockers: shell-level side evidence panel ownership and backend-routed in-panel PDF URLs. |
 | 36 | Post-Phase-27 hardcode and generalization audit | Done | Codex | Audited Phase 27+ RAG/source UX commits, fixed product hardcodes, and added guardrails for exact source/prompt/fixture literals plus policy-id branches; user-owned starter prompt copy is explicitly allowlisted. |
+| 37 | Status read scope and display policy contract | Done | Codex | Added generic read-scope/display-policy contract fields, status-only machine/job projection matrix, details contrast, multi-status loop regression, frontend semantic evidence, and hardcode guardrails. |
 
 ## Current Blockers
 
@@ -61,6 +62,7 @@ Created: 2026-05-18
 - Phase 32 proved the post-cleanup RAG release behavior: the OSHA reenergizing prompt is source-backed by `osha_3120_lockout_tagout` with PDF locator metadata, and the before-starting-lockout prompt returns insufficient context with related OSHA sources checked instead of a policy fallback or machine-ID clarification.
 - Source evidence workspace is complete through Phase 35: source chips open a shell-owned right-side workspace panel, cited evidence appears before related supporting sources, PDF-backed sources open in-panel through the configured Factory Agent `/documents/{doc_id}/pdf` route, true no-PDF sources keep drawer-only evidence, hover cards stay inside visible chat/evidence bounds, and wider chatbot/modal layouts give structured response content more usable width.
 - Phase 36 is complete. Product/runtime code no longer embeds Phase 27+ exact RAG prompts, seeded job ids, OSHA source/chunk ids, or synthetic LOTO policy source ids; the remaining exact references are scoped to tests, fixtures, docs, generated RAG stores, and user-owned starter prompt copy in `FactoryAgentChatPanel.jsx`.
+- Phase 37 is complete. Status-only reads project identity plus primary status across machine and job, explicit details remain available in collapsed secondary fields, multi-job status returns a typed collection without looping, and card/table/collapsed display is owned by backend contract fields rather than prose or frontend inference.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -177,6 +179,9 @@ Created: 2026-05-18
 | RD-024 | Source chip near right edge plus wide chatbot/modal viewport | Phase 34 layout proof. Proves hover collision handling and responsive assistant response width. |
 | RD-025 | Full RAG source UX release gate | Phase 35 integrated proof. Proves RD-021, RD-022, RD-023, RD-024, hardcode guardrails, and existing typed RAG/source contracts together. |
 | RD-026 | Phase 27+ hardcode/generalization audit | Phase 36 maintainability proof. Audits commits `dd9e0cbe` through `56dc16e5` for one-off prompt/source/entity fixes and records reusable source/entity/vocabulary/contract replacements or accepted exceptions. |
+| RD-027 | `Show status for machine with machine id M-CNC-01` | Phase 37 status-scope regression. Proves status-only machine reads render only machine id and status by default, not full machine attributes. |
+| RD-028 | `find status for job with job id JOB-SEED-001 and JOB-SEED-002` | Phase 37 multi-status regression. Proves multi-entity status reads do not loop and return either deterministic multi-status output or a typed unsupported/clarification response. |
+| RD-029 | Read display policy examples: single status, single details, multi-status, large filtered list | Phase 37 display-policy proof. Proves backend-owned display mode chooses compact card, detail card, collection/table, or collapsed result based on typed request/result shape, not entity name or prose; includes semantic probes for display mode, entity count, field count, requested fields, and collapsed state. |
 
 ## Additional Required Scenario Groups
 
@@ -215,6 +220,7 @@ Created: 2026-05-18
 | Tooltip and responsive chat width | RD-024 | Hover card stays inside the container and assistant response cards grow with available width. |
 | Final RAG source UX release gate | RD-021 through RD-025 | Backend truth, live RAG, side evidence/PDF, tooltip/layout, and hardcode guardrails pass together. |
 | Post-Phase-27 hardcode/generalization audit | RD-026 | Phase 27+ RAG/source UX commits are audited for exact prompt/source/chunk/entity coupling, guardrails are extended for blind spots, and reusable metadata/vocabulary/contract replacements are identified. |
+| Status read scope and display policy | RD-027 through RD-029 | Status-only projection is proven with machine/job matrix tests, detail prompts retain collapsed secondary fields, multi-status reads do not loop, and card/table/collapsed display is decided by typed backend contract fields. |
 
 ## Phase 0 Checklist
 
@@ -2707,7 +2713,7 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 
 ## Next Action
 
-Phase 36 is complete. The next RAG/source follow-up should externalize additional evidence-support vocabulary into source-register or generated metadata if another domain-specific policy profile is added.
+Phase 37 is complete. Next response-document work can move to broader release proof or the next UX polish item, using RD-027 through RD-029 as the gate for status/read display regressions.
 
 ## Post-Gate Regression: Approved Data But UI Still Shows Approval
 

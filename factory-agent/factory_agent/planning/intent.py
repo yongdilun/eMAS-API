@@ -127,6 +127,10 @@ _LIVE_STATE_REQUEST_RE = re.compile(
     r"\b(?:status|state|condition|health|running|idle|available|availability|oee|currently|current)\b",
     re.IGNORECASE,
 )
+_DETAILS_REQUEST_RE = re.compile(
+    r"\b(?:details?|full|complete|technical|raw|all\s+fields?|every\s+field)\b",
+    re.IGNORECASE,
+)
 _DOCUMENT_PROCEDURE_HINT_RE = re.compile(
     r"\b(?:procedure|procedures|sop|steps?|instructions?|guidance|standard|policy|manual|source|appl(?:y|ies)|before\s+(?:working|servicing|maintenance|cleaning|touching)|working\s+on|service|servicing|maintenance)\b",
     re.IGNORECASE,
@@ -234,7 +238,30 @@ def _split_clauses(text: str) -> list[str]:
     if not raw:
         return []
     parts = [p.strip(" \t,;") for p in _CLAUSE_SPLIT_RE.split(raw) if p and p.strip(" \t,;")]
-    return parts or [raw]
+    if not parts:
+        return [raw]
+    merged: list[str] = []
+    for part in parts:
+        if merged and _is_entity_id_continuation_clause(part):
+            merged[-1] = f"{merged[-1]} and {part}"
+        else:
+            merged.append(part)
+    return merged
+
+
+def _is_entity_id_continuation_clause(clause: str) -> bool:
+    text = (clause or "").strip(" \t,;")
+    if not text:
+        return False
+    if any(pattern.search(text) for _name, pattern in _ACTION_PATTERNS):
+        return False
+    stripped = _BARE_JOB_ID_RE.sub(" ", text)
+    stripped = _MATERIAL_REF_RE.sub(" ", stripped)
+    stripped = _PRODUCT_RE.sub(" ", stripped)
+    stripped = _MACHINE_ID_RE.sub(" ", stripped)
+    stripped = re.sub(r"\b(?:and|or|with|id|ids|job|jobs|machine|machines|product|material)\b", " ", stripped, flags=re.I)
+    stripped = re.sub(r"[\s,;#-]+", "", stripped)
+    return not stripped
 
 
 def _constraint_strength(clause: str, match: re.Match[str]) -> Literal["hard", "soft"]:
@@ -886,6 +913,35 @@ def semantic_frame_for_text(text: str, *, previous_texts: Sequence[str] | None =
             route="tool.read.machine_status",
             confidence=0.91,
             question_type=question_type,
+            clarification_reason=None,
+            negative_route_assertions=["rag.loto_procedure", "rag.procedure", "rag.safety_policy"],
+        )
+
+    if entity == "machine" and action in {None, "read"} and _DETAILS_REQUEST_RE.search(raw):
+        if not machine_ids and not normalized.get("machine_ref"):
+            return SemanticFrame(
+                domain_intent="machine_query",
+                action="read",
+                entity="machine",
+                entities=entities,
+                normalized_entities=normalized,
+                missing_required_entities=["machine_id"],
+                route="clarification.machine_id_missing",
+                confidence=0.8,
+                question_type=None,
+                clarification_reason="machine_id is required for machine details",
+                negative_route_assertions=["rag.loto_procedure", "rag.procedure"],
+            )
+        return SemanticFrame(
+            domain_intent="machine_query",
+            action="read",
+            entity="machine",
+            entities=entities,
+            normalized_entities=normalized,
+            missing_required_entities=[],
+            route="tool.read.machine_status",
+            confidence=0.86,
+            question_type=None,
             clarification_reason=None,
             negative_route_assertions=["rag.loto_procedure", "rag.procedure", "rag.safety_policy"],
         )

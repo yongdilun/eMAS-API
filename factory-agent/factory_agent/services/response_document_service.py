@@ -75,6 +75,16 @@ KNOWLEDGE_ANSWER_CONTRACT = "knowledge_answer_v1"
 SOURCE_CITATION_CONTRACT = "source_citation_v1"
 SOURCE_LIST_CONTRACT = "source_list_v1"
 SOURCE_LOCATOR_CONTRACT = "source_locator_v1"
+READ_DISPLAY_PREVIEW_LIMIT = 5
+READ_SCOPE_STATUS_ONLY = "status_only"
+READ_SCOPE_DETAILS = "details"
+READ_SCOPE_RECORDS = "records"
+DISPLAY_MODE_COMPACT_STATUS_CARD = "compact_status_card"
+DISPLAY_MODE_DETAIL_STATUS_CARD = "detail_status_card"
+DISPLAY_MODE_COLLECTION_TABLE = "collection_table"
+DISPLAY_MODE_COLLAPSED_COLLECTION_TABLE = "collapsed_collection_table"
+DISPLAY_MODE_RECORD_PREVIEW = "record_preview"
+DISPLAY_MODE_NO_MATCH_DIAGNOSTIC = "no_match_diagnostic"
 
 
 @dataclass(frozen=True)
@@ -384,6 +394,18 @@ class ReadEvidence:
     rows: list[dict[str, Any]] = field(default_factory=list)
     step_ids: list[str] = field(default_factory=list)
     completed_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ReadDisplayPolicy:
+    read_scope: str
+    requested_fields: list[str]
+    display_mode: str
+    entity_count: int
+    preview_limit: int = READ_DISPLAY_PREVIEW_LIMIT
+    details_collapsed: bool = True
+    entity_type: str | None = None
+    contract: str | None = None
 
 
 def _trimmed(value: Any) -> str:
@@ -2273,6 +2295,15 @@ def _read_summary(rows: list[dict[str, Any]], fallback: str | None) -> str:
     return f"Found {len(rows)} {_plural(len(rows), 'record')}."
 
 
+def _read_scope_for_request(session: Any) -> str:
+    text = _trimmed(getattr(session, "current_intent", None))
+    if _status_request_wants_full_details(session):
+        return READ_SCOPE_DETAILS
+    if _STATUS_INTENT_RE.search(text):
+        return READ_SCOPE_STATUS_ONLY
+    return READ_SCOPE_RECORDS
+
+
 _STATUS_VALUE_KEYS = ("currentstatus", "machinestatus", "operationalstatus", "state", "status")
 _STATUS_OUTCOME_VALUES = {"succeeded", "success", "ok", "done", "updated", "created", "deleted", "applied", "pending"}
 _STATUS_METADATA_KEYS = {
@@ -2293,6 +2324,10 @@ _STATUS_LOW_VALUE_KEYS = {
     "utilizationrate",
 }
 _STATUS_INTENT_RE = re.compile(r"\b(status|state|health|condition|running|availability|available|alarms?)\b", re.IGNORECASE)
+_DETAILS_INTENT_RE = re.compile(
+    r"\b(full|technical|raw|all\s+fields?|every\s+field|complete\s+details?|details?)\b",
+    re.IGNORECASE,
+)
 _STATUS_ENTITY_ID_KEYS: dict[str, tuple[str, ...]] = {
     "machine": ("machineid", "id", "recordid", "rowid"),
     "job": ("jobid", "id", "recordid", "rowid"),
@@ -2314,6 +2349,26 @@ _STATUS_FIELD_ORDER: dict[str, list[tuple[str, str, tuple[str, ...]]]] = {
 }
 
 
+def _singular_entity_token(value: Any) -> str:
+    token = re.sub(r"[^a-z0-9_]+", "_", str(value or "").lower()).strip("_")
+    if not token:
+        return ""
+    if token.endswith("ies") and len(token) > 3:
+        return f"{token[:-3]}y"
+    if token.endswith("s") and not token.endswith("ss") and len(token) > 1:
+        return token[:-1]
+    return token
+
+
+def _tool_entity_type(tool_name: Any) -> str | None:
+    text = _trimmed(tool_name).lower()
+    match = re.search(r"^[a-z]+__([a-z][a-z0-9_-]*?)(?:_\{|$|__)", text)
+    if not match:
+        return None
+    entity_type = _singular_entity_token(match.group(1).replace("-", "_"))
+    return entity_type or None
+
+
 def _canonical_status_key(key: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(key or "").lower())
 
@@ -2327,6 +2382,13 @@ def _human_status_label(key: Any) -> str:
     return " ".join("ID" if part.lower() == "id" else part.capitalize() for part in parts)
 
 
+def _snake_status_key(key: Any) -> str:
+    raw = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key or "field"))
+    raw = re.sub(r"[^a-zA-Z0-9]+", "_", raw).strip("_")
+    lowered = raw.lower()
+    return lowered or "field"
+
+
 def _status_row_value(row: dict[str, Any], aliases: tuple[str, ...]) -> Any:
     wanted = {_canonical_status_key(alias) for alias in aliases}
     for key, value in row.items():
@@ -2336,6 +2398,9 @@ def _status_row_value(row: dict[str, Any], aliases: tuple[str, ...]) -> Any:
 
 
 def _status_entity_type(row: dict[str, Any]) -> str:
+    tool_entity = _tool_entity_type(row.get("tool_name"))
+    if tool_entity and _status_entity_id(row, tool_entity):
+        return tool_entity
     tool_name = _trimmed(row.get("tool_name")).lower()
     key_text = " ".join(_canonical_status_key(key) for key in row)
     probe = f"{tool_name} {key_text}"
@@ -2373,7 +2438,7 @@ def _is_zeroish(value: Any) -> bool:
 
 def _status_request_wants_full_details(session: Any) -> bool:
     text = _trimmed(getattr(session, "current_intent", None)).lower()
-    return bool(re.search(r"\b(full|technical|raw|all\s+fields?|every\s+field|complete\s+details?)\b", text))
+    return bool(_DETAILS_INTENT_RE.search(text))
 
 
 def _status_primary_value(row: dict[str, Any]) -> str | None:
@@ -2391,33 +2456,53 @@ def _status_entity_id(row: dict[str, Any], entity_type: str) -> str | None:
     return text or None
 
 
+def _status_identity_field_key(row: dict[str, Any], entity_type: str) -> str:
+    aliases = _STATUS_ENTITY_ID_KEYS.get(entity_type, _STATUS_ENTITY_ID_KEYS["record"])
+    alias_tokens = {_canonical_status_key(alias) for alias in aliases}
+    for key, value in row.items():
+        canonical = _canonical_status_key(key)
+        if canonical not in alias_tokens or canonical in {"id", "recordid", "rowid"}:
+            continue
+        if value not in (None, ""):
+            return _snake_status_key(key)
+    if entity_type and entity_type != "record":
+        return f"{entity_type}_id"
+    return "record_id"
+
+
+def _status_requested_fields(row: dict[str, Any], entity_type: str, read_scope: str) -> list[str]:
+    fields = [_status_identity_field_key(row, entity_type), "status"]
+    if read_scope == READ_SCOPE_DETAILS:
+        fields.append("details")
+    return fields
+
+
 def _status_visible_fields(row: dict[str, Any], entity_type: str) -> list[dict[str, Any]]:
     fields: list[dict[str, Any]] = []
-    order = _STATUS_FIELD_ORDER.get(entity_type)
-    if not order:
-        entity_id = _status_entity_id(row, entity_type)
-        status = _status_primary_value(row)
-        if entity_id:
-            fields.append({"key": f"{entity_type}_id", "label": f"{entity_type.capitalize()} ID", "value": entity_id})
-        if status:
-            fields.append({"key": "status", "label": "Status", "value": status, "primary": True})
-        return fields
-
-    seen: set[str] = set()
-    for canonical, label, aliases in order:
-        value = _status_row_value(row, aliases)
-        if value in (None, ""):
-            continue
-        if canonical in {"capacity_per_hour", "maintenance_interval"} and _is_zeroish(value):
-            continue
-        display = _status_display_value(canonical, value)
-        if not display:
-            continue
-        if canonical in seen:
-            continue
-        seen.add(canonical)
-        fields.append({"key": canonical, "label": label, "value": display, "primary": canonical == "status"})
+    entity_id = _status_entity_id(row, entity_type)
+    status = _status_primary_value(row)
+    if entity_id:
+        identity_key = _status_identity_field_key(row, entity_type)
+        fields.append({"key": identity_key, "label": _human_status_label(identity_key), "value": entity_id})
+    if status:
+        fields.append({"key": "status", "label": "Status", "value": status, "primary": True})
     return fields
+
+
+def _status_visible_key_tokens(row: dict[str, Any], entity_type: str, fields: list[dict[str, Any]]) -> set[str]:
+    visible_key_tokens = {
+        _canonical_status_key(field.get("key"))
+        for field in fields
+        if isinstance(field, dict)
+    }
+    visible_key_tokens.update(_canonical_status_key(alias) for alias in _STATUS_ENTITY_ID_KEYS.get(entity_type, ()))
+    visible_key_tokens.update(_canonical_status_key(alias) for alias in _STATUS_VALUE_KEYS)
+    visible_key_tokens.update(
+        _canonical_status_key(key)
+        for key, value in row.items()
+        if _canonical_status_key(key) in visible_key_tokens and value not in (None, "")
+    )
+    return visible_key_tokens
 
 
 def _status_secondary_fields(row: dict[str, Any], *, visible_keys: set[str], include: bool) -> list[dict[str, Any]]:
@@ -2433,8 +2518,128 @@ def _status_secondary_fields(row: dict[str, Any], *, visible_keys: set[str], inc
         display = _status_display_value(canonical, value)
         if not display:
             continue
-        fields.append({"key": str(key), "label": _human_status_label(key), "value": display})
+        fields.append({"key": _snake_status_key(key), "label": _human_status_label(key), "value": display})
     return fields[:12]
+
+
+def _project_status_row(row: dict[str, Any], entity_type: str | None = None) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    resolved_entity_type = entity_type or _status_entity_type(row)
+    entity_id = _status_entity_id(row, resolved_entity_type)
+    primary_status = _status_primary_value(row)
+    if not entity_id or not primary_status:
+        return None
+    return {
+        _status_identity_field_key(row, resolved_entity_type): entity_id,
+        "status": primary_status,
+    }
+
+
+def _status_rows_are_projectable(rows: list[dict[str, Any]]) -> bool:
+    return bool(rows) and all(_project_status_row(row) is not None for row in rows if isinstance(row, dict))
+
+
+def _read_policy_entity_type(rows: list[dict[str, Any]], status_result: dict[str, Any] | None) -> str | None:
+    if status_result and status_result.get("entity_type"):
+        return _trimmed(status_result.get("entity_type")) or None
+    entity_types = {
+        _status_entity_type(row)
+        for row in rows
+        if isinstance(row, dict) and _status_entity_id(row, _status_entity_type(row))
+    }
+    if len(entity_types) == 1:
+        return next(iter(entity_types))
+    return None
+
+
+def _read_display_policy(
+    rows: list[dict[str, Any]],
+    *,
+    session: Any,
+    status_result: dict[str, Any] | None,
+    has_read_evidence: bool,
+) -> ReadDisplayPolicy | None:
+    if not rows:
+        if has_read_evidence:
+            return ReadDisplayPolicy(
+                read_scope=READ_SCOPE_RECORDS,
+                requested_fields=[],
+                display_mode=DISPLAY_MODE_NO_MATCH_DIAGNOSTIC,
+                entity_count=0,
+            )
+        return None
+
+    read_scope = _read_scope_for_request(session)
+    entity_type = _read_policy_entity_type(rows, status_result)
+    entity_count = len(rows)
+    if status_result:
+        requested_fields = list(status_result.get("requested_fields") or [])
+        display_mode = (
+            DISPLAY_MODE_DETAIL_STATUS_CARD
+            if read_scope == READ_SCOPE_DETAILS
+            else DISPLAY_MODE_COMPACT_STATUS_CARD
+        )
+        return ReadDisplayPolicy(
+            read_scope=read_scope,
+            requested_fields=requested_fields,
+            display_mode=display_mode,
+            entity_count=entity_count,
+            entity_type=entity_type,
+            contract=ENTITY_STATUS_CONTRACT,
+        )
+
+    if read_scope in {READ_SCOPE_STATUS_ONLY, READ_SCOPE_DETAILS} and _status_rows_are_projectable(rows):
+        first_row = rows[0]
+        resolved_entity_type = entity_type or _status_entity_type(first_row)
+        display_mode = (
+            DISPLAY_MODE_COLLAPSED_COLLECTION_TABLE
+            if entity_count > READ_DISPLAY_PREVIEW_LIMIT
+            else DISPLAY_MODE_COLLECTION_TABLE
+        )
+        return ReadDisplayPolicy(
+            read_scope=read_scope,
+            requested_fields=_status_requested_fields(first_row, resolved_entity_type, read_scope),
+            display_mode=display_mode,
+            entity_count=entity_count,
+            entity_type=resolved_entity_type,
+            contract=ENTITY_STATUS_CONTRACT,
+            details_collapsed=entity_count > READ_DISPLAY_PREVIEW_LIMIT,
+        )
+
+    display_mode = (
+        DISPLAY_MODE_COLLAPSED_COLLECTION_TABLE
+        if entity_count > READ_DISPLAY_PREVIEW_LIMIT
+        else DISPLAY_MODE_COLLECTION_TABLE
+        if entity_count > 1
+        else DISPLAY_MODE_RECORD_PREVIEW
+    )
+    return ReadDisplayPolicy(
+        read_scope=READ_SCOPE_RECORDS,
+        requested_fields=[],
+        display_mode=display_mode,
+        entity_count=entity_count,
+        entity_type=entity_type,
+        preview_limit=READ_DISPLAY_PREVIEW_LIMIT,
+        details_collapsed=entity_count > READ_DISPLAY_PREVIEW_LIMIT,
+    )
+
+
+def _project_read_rows_for_policy(rows: list[dict[str, Any]], policy: ReadDisplayPolicy | None) -> list[dict[str, Any]]:
+    if (
+        policy is None
+        or policy.contract != ENTITY_STATUS_CONTRACT
+        or policy.read_scope != READ_SCOPE_STATUS_ONLY
+        or policy.entity_count <= 1
+    ):
+        return rows
+    projected: list[dict[str, Any]] = []
+    for row in rows:
+        projected_row = _project_status_row(row, policy.entity_type)
+        if projected_row is None:
+            return rows
+        projected.append(projected_row)
+    return projected
 
 
 def _status_result_from_read_rows(
@@ -2447,7 +2652,8 @@ def _status_result_from_read_rows(
         return None
     row = rows[0]
     intent_probe = f"{_trimmed(getattr(session, 'current_intent', None))} {_trimmed(row.get('tool_name'))}"
-    if not _STATUS_INTENT_RE.search(intent_probe):
+    read_scope = _read_scope_for_request(session)
+    if read_scope not in {READ_SCOPE_STATUS_ONLY, READ_SCOPE_DETAILS} and not _STATUS_INTENT_RE.search(intent_probe):
         return None
     primary_status = _status_primary_value(row)
     if not primary_status:
@@ -2460,21 +2666,11 @@ def _status_result_from_read_rows(
     entity_label = entity_type.capitalize()
     summary = f"{entity_label} {entity_id} is {primary_status}."
     fields = _status_visible_fields(row, entity_type)
-    visible_key_tokens = {
-        _canonical_status_key(field.get("key"))
-        for field in fields
-        if isinstance(field, dict)
-    }
-    visible_key_tokens.update(
-        _canonical_status_key(alias)
-        for _canonical, _label, aliases in _STATUS_FIELD_ORDER.get(entity_type, [])
-        for alias in aliases
-        if any(field.get("key") == _canonical for field in fields)
-    )
+    visible_key_tokens = _status_visible_key_tokens(row, entity_type, fields)
     secondary_fields = _status_secondary_fields(
         row,
         visible_keys=visible_key_tokens,
-        include=_status_request_wants_full_details(session),
+        include=read_scope == READ_SCOPE_DETAILS,
     )
     return {
         "contract": ENTITY_STATUS_CONTRACT,
@@ -2486,6 +2682,15 @@ def _status_result_from_read_rows(
         "primary_status": primary_status,
         "fields": fields,
         "secondary_fields": secondary_fields,
+        "read_scope": read_scope,
+        "requested_fields": _status_requested_fields(row, entity_type, read_scope),
+        "display_mode": (
+            DISPLAY_MODE_DETAIL_STATUS_CARD
+            if read_scope == READ_SCOPE_DETAILS
+            else DISPLAY_MODE_COMPACT_STATUS_CARD
+        ),
+        "entity_count": 1,
+        "preview_limit": READ_DISPLAY_PREVIEW_LIMIT,
         "details_collapsed": True,
     }
 
@@ -2978,27 +3183,78 @@ def _record_blocks_for_rows(
     approval_id: str | None,
     rows: list[dict[str, Any]],
     title: str,
+    policy: ReadDisplayPolicy | None = None,
 ) -> list[ResponseBlock]:
     if not rows:
         return []
+    preview_limit = policy.preview_limit if policy else READ_DISPLAY_PREVIEW_LIMIT
+    details_collapsed = policy.details_collapsed if policy else True
+    read_scope = policy.read_scope if policy else None
+    requested_fields = policy.requested_fields if policy else []
+    display_mode = policy.display_mode if policy else None
+    entity_type = policy.entity_type if policy else None
+    entity_count = policy.entity_count if policy else len(rows)
+    contract = policy.contract if policy else None
     shape = _read_result_shape(rows)
+    if (
+        policy
+        and policy.entity_count > 1
+        and policy.display_mode in {DISPLAY_MODE_COLLECTION_TABLE, DISPLAY_MODE_COLLAPSED_COLLECTION_TABLE}
+    ):
+        shape = "table"
     if shape == "table":
-        return [
+        blocks: list[ResponseBlock] = []
+        if len(rows) > preview_limit:
+            blocks.append(
+                RecordPreviewBlock(
+                    id=f"record-preview:{id_prefix}:preview",
+                    contract=contract,
+                    title="Preview",
+                    rows=rows[:preview_limit],
+                    operation_id=operation_id,
+                    approval_id=approval_id,
+                    read_scope=read_scope,
+                    requested_fields=requested_fields,
+                    display_mode=display_mode,
+                    entity_type=entity_type,
+                    entity_count=entity_count,
+                    preview_limit=preview_limit,
+                    details_collapsed=details_collapsed,
+                )
+            )
+        blocks.append(
             ResultTableBlock(
                 id=f"table:{id_prefix}",
+                contract=contract,
                 title=title,
                 rows=rows,
                 operation_id=operation_id,
                 approval_id=approval_id,
+                read_scope=read_scope,
+                requested_fields=requested_fields,
+                display_mode=display_mode,
+                entity_type=entity_type,
+                entity_count=entity_count,
+                preview_limit=preview_limit,
+                details_collapsed=details_collapsed,
             )
-        ]
+        )
+        return blocks
     return [
         RecordPreviewBlock(
             id=f"record-preview:{id_prefix}",
+            contract=contract,
             title=title,
             rows=rows,
             operation_id=operation_id,
             approval_id=approval_id,
+            read_scope=read_scope,
+            requested_fields=requested_fields,
+            display_mode=display_mode,
+            entity_type=entity_type,
+            entity_count=entity_count,
+            preview_limit=preview_limit,
+            details_collapsed=details_collapsed,
         )
     ]
 
@@ -3017,6 +3273,7 @@ def _compose_blocks(
     read_rows: list[dict[str, Any]],
     has_read_evidence: bool,
     status_result: dict[str, Any] | None,
+    read_policy: ReadDisplayPolicy | None,
     sources: list[dict[str, Any]],
     presentation: PresentationResponse,
     failure_profile: FailureProfile | None,
@@ -3183,6 +3440,15 @@ def _compose_blocks(
                     if isinstance(status_result.get("secondary_fields"), list)
                     else []
                 ),
+                read_scope=_trimmed(status_result.get("read_scope")) or None,
+                requested_fields=(
+                    status_result.get("requested_fields")
+                    if isinstance(status_result.get("requested_fields"), list)
+                    else []
+                ),
+                display_mode=_trimmed(status_result.get("display_mode")) or None,
+                entity_count=int(status_result.get("entity_count") or 1),
+                preview_limit=int(status_result.get("preview_limit") or READ_DISPLAY_PREVIEW_LIMIT),
                 details_collapsed=bool(status_result.get("details_collapsed", True)),
             )
         )
@@ -3194,6 +3460,7 @@ def _compose_blocks(
                 approval_id=None,
                 rows=read_rows,
                 title="Results",
+                policy=read_policy,
             )
         )
 
@@ -3295,8 +3562,15 @@ def compose_response_document(
             key=lambda group: _business_group_sort_key(group, approval_positions, business_order),
         )
     read_groups = _read_evidence(steps=steps, timeline=timeline, presentation=presentation, operation_id=operation_id)
-    read_rows = _dedupe_rows([row for item in read_groups for row in item.rows if not _is_empty_result_envelope(row)])
-    status_result = _status_result_from_read_rows(read_rows, operation_id=operation_id, session=session)
+    raw_read_rows = _dedupe_rows([row for item in read_groups for row in item.rows if not _is_empty_result_envelope(row)])
+    status_result = _status_result_from_read_rows(raw_read_rows, operation_id=operation_id, session=session)
+    read_policy = _read_display_policy(
+        raw_read_rows,
+        session=session,
+        status_result=status_result,
+        has_read_evidence=bool(read_groups),
+    )
+    read_rows = _project_read_rows_for_policy(raw_read_rows, read_policy)
     sources = normalize_source_locators(
         presentation.sources if isinstance(presentation.sources, list) else [],
         fallback_snippet=presentation.summary,
@@ -3354,6 +3628,7 @@ def compose_response_document(
         read_rows=read_rows,
         has_read_evidence=bool(read_groups),
         status_result=status_result,
+        read_policy=read_policy,
         sources=sources,
         presentation=presentation,
         failure_profile=failure_profile,
@@ -3392,8 +3667,24 @@ def compose_response_document(
         "approved_business_change_count": len(changed_mutation_groups) if mutation_groups and not latest_pending else None,
         "affected_record_preview_limit": 5 if mutation_groups else None,
         "read_result_shape": read_shape,
-        "read_status_contract": ENTITY_STATUS_CONTRACT if status_result else None,
-        "read_status_entity_type": status_result.get("entity_type") if status_result else None,
+        "read_scope": read_policy.read_scope if read_policy else None,
+        "requested_fields": read_policy.requested_fields if read_policy else None,
+        "display_mode": read_policy.display_mode if read_policy else None,
+        "entity_count": read_policy.entity_count if read_policy else None,
+        "preview_limit": read_policy.preview_limit if read_policy else None,
+        "read_details_collapsed": read_policy.details_collapsed if read_policy else None,
+        "read_status_contract": (
+            ENTITY_STATUS_CONTRACT
+            if status_result or (read_policy and read_policy.contract == ENTITY_STATUS_CONTRACT)
+            else None
+        ),
+        "read_status_entity_type": (
+            status_result.get("entity_type")
+            if status_result
+            else read_policy.entity_type
+            if read_policy and read_policy.contract == ENTITY_STATUS_CONTRACT
+            else None
+        ),
         "safety_notice_contract": SAFETY_NOTICE_CONTRACT if safety_content else None,
         "knowledge_answer_contract": KNOWLEDGE_ANSWER_CONTRACT if presentation.kind == "knowledge_answer" else None,
         "source_list_contract": SOURCE_LIST_CONTRACT if sources else None,

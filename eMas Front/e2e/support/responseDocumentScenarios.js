@@ -3,6 +3,10 @@ export const responseDocumentCascadePrompt =
 export const responseDocumentReverseCascadePrompt =
   'change all high priority job to low then change all low priority job to medium'
 export const responseDocumentReadStatusPrompt = 'Show status for machine with machine id M-CNC-01'
+export const responseDocumentJobStatusPrompt = 'find status for job with job id JOB-SEED-001'
+export const responseDocumentMultiStatusPrompt = 'find status for job with job id JOB-SEED-001 and JOB-SEED-002'
+export const responseDocumentMachineDetailsPrompt = 'Show full details for machine with machine id M-CNC-01'
+export const responseDocumentCollapsedResultsPrompt = 'Show collapsed results for low priority jobs display policy'
 export const responseDocumentLotoPrompt = 'Render response_document LOTO procedure answer for M-CNC-01'
 export const responseDocumentOshaReenergizingPrompt =
   'According to the OSHA lockout/tagout guide, what notification is required before reenergizing a machine after removing lockout or tagout devices?'
@@ -78,6 +82,7 @@ const KNOWLEDGE_ANSWER_CONTRACT = 'knowledge_answer_v1'
 const SOURCE_CITATION_CONTRACT = 'source_citation_v1'
 const SOURCE_LOCATOR_CONTRACT = 'source_locator_v1'
 const SOURCE_LIST_CONTRACT = 'source_list_v1'
+const READ_DISPLAY_PREVIEW_LIMIT = 5
 
 function priorityBusinessChangeId(source, target) {
   return `job-priority-original-${source}-to-${target}`
@@ -656,22 +661,236 @@ export function readStatusDocument(session) {
         primary_status: 'running',
         fields: [
           { key: 'machine_id', label: 'Machine ID', value: 'M-CNC-01' },
-          { key: 'machine_name', label: 'Machine name', value: 'CNC Mill 01' },
-          { key: 'machine_type', label: 'Machine type', value: 'CNC mill' },
-          { key: 'location', label: 'Location', value: 'Line 1' },
           { key: 'status', label: 'Status', value: 'running', primary: true },
-          { key: 'capacity_per_hour', label: 'Capacity per hour', value: '40' },
-          { key: 'last_maintenance', label: 'Last maintenance', value: '2026-05-01' },
-          { key: 'maintenance_interval', label: 'Maintenance interval', value: '30 days' },
         ],
         secondary_fields: [],
+        read_scope: 'status_only',
+        requested_fields: ['machine_id', 'status'],
+        display_mode: 'compact_status_card',
+        entity_count: 1,
+        preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
         details_collapsed: true,
       },
     ],
     invariants: {
       read_result_shape: 'status',
+      read_scope: 'status_only',
+      requested_fields: ['machine_id', 'status'],
+      display_mode: 'compact_status_card',
+      entity_count: 1,
+      preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+      read_details_collapsed: true,
       read_status_contract: 'entity_status_v1',
       read_status_entity_type: 'machine',
+    },
+  })
+}
+
+export function jobStatusDocument(session) {
+  const summary = 'Job JOB-SEED-001 is running.'
+  return baseDocument(session, {
+    operationId: 'pw-plan-rd-job-status',
+    revision: 3,
+    state: 'completed',
+    message: summary,
+    currentStepId: 'completed-job-status',
+    runSteps: [
+      { step_id: 'read-job-status', kind: 'read', state: 'completed', title: 'Read job status', summary: 'JOB-SEED-001 status was retrieved.' },
+      { step_id: 'completed-job-status', kind: 'completed', state: 'completed', title: 'Run complete', summary: 'Job status answer is ready.' },
+    ],
+    blocks: [
+      {
+        id: 'status:job-status',
+        type: 'status_result',
+        contract: ENTITY_STATUS_CONTRACT,
+        operation_id: 'pw-plan-rd-job-status',
+        title: 'Job status',
+        summary,
+        entity_type: 'job',
+        entity_id: 'JOB-SEED-001',
+        primary_status: 'running',
+        fields: [
+          { key: 'job_id', label: 'Job ID', value: 'JOB-SEED-001' },
+          { key: 'status', label: 'Status', value: 'running', primary: true },
+        ],
+        secondary_fields: [],
+        read_scope: 'status_only',
+        requested_fields: ['job_id', 'status'],
+        display_mode: 'compact_status_card',
+        entity_count: 1,
+        preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+        details_collapsed: true,
+      },
+    ],
+    invariants: {
+      read_result_shape: 'status',
+      read_scope: 'status_only',
+      requested_fields: ['job_id', 'status'],
+      display_mode: 'compact_status_card',
+      entity_count: 1,
+      preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+      read_details_collapsed: true,
+      read_status_contract: ENTITY_STATUS_CONTRACT,
+      read_status_entity_type: 'job',
+    },
+  })
+}
+
+export function machineDetailsDocument(session) {
+  const summary = 'Machine M-CNC-01 is running.'
+  return baseDocument(session, {
+    operationId: 'pw-plan-rd-machine-details',
+    revision: 3,
+    state: 'completed',
+    message: summary,
+    currentStepId: 'completed-machine-details',
+    runSteps: [
+      { step_id: 'read-machine-details', kind: 'read', state: 'completed', title: 'Read machine details', summary: 'M-CNC-01 details were retrieved.' },
+      { step_id: 'completed-machine-details', kind: 'completed', state: 'completed', title: 'Run complete', summary: 'Machine details answer is ready.' },
+    ],
+    blocks: [
+      {
+        id: 'status:machine-details',
+        type: 'status_result',
+        contract: ENTITY_STATUS_CONTRACT,
+        operation_id: 'pw-plan-rd-machine-details',
+        title: 'Machine status',
+        summary,
+        entity_type: 'machine',
+        entity_id: 'M-CNC-01',
+        primary_status: 'running',
+        fields: [
+          { key: 'machine_id', label: 'Machine ID', value: 'M-CNC-01' },
+          { key: 'status', label: 'Status', value: 'running', primary: true },
+        ],
+        secondary_fields: [
+          { key: 'machine_name', label: 'Machine name', value: 'CNC Mill 01' },
+          { key: 'machine_type', label: 'Machine type', value: 'CNC mill' },
+          { key: 'location', label: 'Location', value: 'Line 1' },
+          { key: 'capacity_per_hour', label: 'Capacity per hour', value: '40' },
+          { key: 'last_maintenance_date', label: 'Last maintenance date', value: '2026-05-01' },
+          { key: 'maintenance_interval_days', label: 'Maintenance interval days', value: '30' },
+        ],
+        read_scope: 'details',
+        requested_fields: ['machine_id', 'status', 'details'],
+        display_mode: 'detail_status_card',
+        entity_count: 1,
+        preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+        details_collapsed: true,
+      },
+    ],
+    invariants: {
+      read_result_shape: 'status',
+      read_scope: 'details',
+      requested_fields: ['machine_id', 'status', 'details'],
+      display_mode: 'detail_status_card',
+      entity_count: 1,
+      preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+      read_details_collapsed: true,
+      read_status_contract: ENTITY_STATUS_CONTRACT,
+      read_status_entity_type: 'machine',
+    },
+  })
+}
+
+export function multiStatusDocument(session) {
+  const rows = [
+    { job_id: 'JOB-SEED-001', status: 'running' },
+    { job_id: 'JOB-SEED-002', status: 'planned' },
+  ]
+  return baseDocument(session, {
+    operationId: 'pw-plan-rd-multi-status',
+    revision: 3,
+    state: 'completed',
+    message: 'Found 2 job statuses.',
+    currentStepId: 'completed-multi-status',
+    runSteps: [
+      { step_id: 'read-job-status-1', kind: 'read', state: 'completed', title: 'Read job status', summary: 'JOB-SEED-001 status was retrieved.' },
+      { step_id: 'read-job-status-2', kind: 'read', state: 'completed', title: 'Read job status', summary: 'JOB-SEED-002 status was retrieved.' },
+      { step_id: 'completed-multi-status', kind: 'completed', state: 'completed', title: 'Run complete', summary: 'Job status collection is ready.' },
+    ],
+    blocks: [
+      {
+        id: 'table:multi-job-status',
+        type: 'result_table',
+        contract: ENTITY_STATUS_CONTRACT,
+        operation_id: 'pw-plan-rd-multi-status',
+        title: 'Results',
+        rows,
+        read_scope: 'status_only',
+        requested_fields: ['job_id', 'status'],
+        display_mode: 'collection_table',
+        entity_type: 'job',
+        entity_count: rows.length,
+        preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+        details_collapsed: false,
+      },
+    ],
+    invariants: {
+      read_result_shape: 'list',
+      read_scope: 'status_only',
+      requested_fields: ['job_id', 'status'],
+      display_mode: 'collection_table',
+      entity_count: rows.length,
+      preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+      read_details_collapsed: false,
+      read_status_contract: ENTITY_STATUS_CONTRACT,
+      read_status_entity_type: 'job',
+    },
+  })
+}
+
+export function collapsedResultsDocument(session) {
+  const rows = [
+    ...lowPriorityRows.map((row) => ({ job_id: row.job_id, priority: 'low', status: 'planned' })),
+    { job_id: 'JOB-SEED-027', priority: 'low', status: 'queued' },
+  ]
+  return baseDocument(session, {
+    operationId: 'pw-plan-rd-collapsed-results',
+    revision: 3,
+    state: 'completed',
+    message: 'Found 6 low-priority jobs.',
+    currentStepId: 'completed-collapsed-results',
+    runSteps: [
+      { step_id: 'read-low-priority-jobs', kind: 'read', state: 'completed', title: 'Read filtered jobs', summary: '6 low-priority jobs matched.' },
+      { step_id: 'completed-collapsed-results', kind: 'completed', state: 'completed', title: 'Run complete', summary: 'Collapsed results are ready.' },
+    ],
+    blocks: [
+      {
+        id: 'record-preview:collapsed-results:preview',
+        type: 'record_preview',
+        title: 'Preview',
+        rows: rows.slice(0, READ_DISPLAY_PREVIEW_LIMIT),
+        read_scope: 'records',
+        requested_fields: [],
+        display_mode: 'collapsed_collection_table',
+        entity_type: 'job',
+        entity_count: rows.length,
+        preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+        details_collapsed: true,
+      },
+      {
+        id: 'table:collapsed-results',
+        type: 'result_table',
+        title: 'Results',
+        rows,
+        read_scope: 'records',
+        requested_fields: [],
+        display_mode: 'collapsed_collection_table',
+        entity_type: 'job',
+        entity_count: rows.length,
+        preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+        details_collapsed: true,
+      },
+    ],
+    invariants: {
+      read_result_shape: 'table',
+      read_scope: 'records',
+      requested_fields: [],
+      display_mode: 'collapsed_collection_table',
+      entity_count: rows.length,
+      preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+      read_details_collapsed: true,
     },
   })
 }
@@ -934,16 +1153,21 @@ export function mixedOperationRagDocument(session) {
         contract: ENTITY_STATUS_CONTRACT,
         operation_id: 'pw-plan-rd-mixed-operation-rag',
         title: 'Machine status',
-        summary: 'M-CNC-01 is running on Line 1.',
+        summary: 'M-CNC-01 is running.',
         entity_type: 'machine',
         entity_id: 'M-CNC-01',
         primary_status: 'running',
         fields: [
           { key: 'machine_id', label: 'Machine ID', value: 'M-CNC-01' },
           { key: 'status', label: 'Status', value: 'running', primary: true },
-          { key: 'location', label: 'Location', value: 'Line 1' },
         ],
         secondary_fields: [],
+        read_scope: 'status_only',
+        requested_fields: ['machine_id', 'status'],
+        display_mode: 'compact_status_card',
+        entity_count: 1,
+        preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+        details_collapsed: true,
       },
       {
         id: 'safety:mixed-loto',
@@ -985,6 +1209,12 @@ export function mixedOperationRagDocument(session) {
       },
     ],
     invariants: {
+      read_scope: 'status_only',
+      requested_fields: ['machine_id', 'status'],
+      display_mode: 'compact_status_card',
+      entity_count: 1,
+      preview_limit: READ_DISPLAY_PREVIEW_LIMIT,
+      read_details_collapsed: true,
       read_status_contract: ENTITY_STATUS_CONTRACT,
       read_status_entity_type: 'machine',
       mixed_operation_rag_sections: true,

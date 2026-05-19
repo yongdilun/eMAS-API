@@ -67,6 +67,15 @@ export const readOnlyStatusForbiddenProbeText = Object.freeze([
   { label: 'dump-style Utilizationrate label', pattern: /\bUtilizationrate\b/i },
 ])
 
+export const machineStatusOnlyForbiddenDetailProbeText = Object.freeze([
+  { label: 'status-only machine name label', pattern: /\bMachine name\b/i },
+  { label: 'status-only machine type label', pattern: /\bMachine type\b/i },
+  { label: 'status-only machine location label', pattern: /\bLocation\b/i },
+  { label: 'status-only capacity label', pattern: /\bCapacity per hour\b/i },
+  { label: 'status-only last maintenance label', pattern: /\bLast maintenance\b/i },
+  { label: 'status-only maintenance interval label', pattern: /\bMaintenance interval\b/i },
+])
+
 export const documentContentRagForbiddenProbeText = Object.freeze([
   { label: 'raw safety admonition directive', pattern: /:::safety/i },
   { label: 'raw safety warning markdown', pattern: /SAFETY WARNING/i },
@@ -137,6 +146,16 @@ function compactObject(value) {
   )))
 }
 
+function numberOrNull(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+function compactBooleanEvidence(value, hasValue) {
+  if (!hasValue) return null
+  return Boolean(value) || 'false'
+}
+
 export function redactProbeText(value) {
   return String(value == null ? '' : value)
     .replace(STACK_TRACE_RE, '[stack trace redacted]')
@@ -176,6 +195,14 @@ function summarizeBlocks(blocks = []) {
     id: block?.id || null,
     contract: block?.contract || null,
     entityType: block?.entity_type || null,
+    readScope: block?.read_scope || null,
+    requestedFields: compactArray(block?.requested_fields || []),
+    displayMode: block?.display_mode || null,
+    entityCount: numberOrNull(block?.entity_count),
+    previewLimit: numberOrNull(block?.preview_limit),
+    detailsCollapsed: compactBooleanEvidence(block?.details_collapsed, Object.hasOwn(block || {}, 'details_collapsed')),
+    fieldCount: Array.isArray(block?.fields) ? block.fields.length : null,
+    secondaryFieldCount: Array.isArray(block?.secondary_fields) ? block.secondary_fields.length : null,
     approvalId: block?.approval_id || blockApprovalIdFromId(block?.id) || null,
     title: compactText(block?.title || '', 80) || null,
     summary: compactText(block?.summary || block?.message || block?.user_message || block?.answer || '', 140) || null,
@@ -250,6 +277,17 @@ export function summarizeBackendSnapshot(snapshot) {
       state: document.state || null,
       revision: document.revision ?? null,
       currentStepId: document.current_step_id || null,
+      readPolicy: compactObject({
+        readScope: document.invariants?.read_scope || null,
+        requestedFields: compactArray(document.invariants?.requested_fields || []),
+        displayMode: document.invariants?.display_mode || null,
+        entityCount: numberOrNull(document.invariants?.entity_count),
+        previewLimit: numberOrNull(document.invariants?.preview_limit),
+        detailsCollapsed: compactBooleanEvidence(
+          document.invariants?.read_details_collapsed,
+          Object.hasOwn(document.invariants || {}, 'read_details_collapsed'),
+        ),
+      }),
       blockTypes,
       blockIds: compactArray(blocks.map((block) => block?.id)),
       contracts,
@@ -267,6 +305,14 @@ function summarizeVisibleBlocks(blocks = []) {
     id: block?.id || null,
     contract: block?.contract || null,
     entityType: block?.entityType || null,
+    readScope: block?.readScope || null,
+    requestedFields: compactArray(block?.requestedFields || []),
+    displayMode: block?.displayMode || null,
+    entityCount: numberOrNull(block?.entityCount),
+    previewLimit: numberOrNull(block?.previewLimit),
+    detailsCollapsed: compactBooleanEvidence(block?.detailsCollapsed, Object.hasOwn(block || {}, 'detailsCollapsed')),
+    fieldCount: numberOrNull(block?.fieldCount),
+    secondaryFieldCount: numberOrNull(block?.secondaryFieldCount),
     approvalId: block?.approvalId || blockApprovalIdFromId(block?.id) || null,
     title: compactText(block?.title || '', 80) || null,
     text: compactText(block?.text || '', 180) || null,
@@ -769,6 +815,18 @@ export async function collectVisibleResponseDocumentUi(page) {
     const messageText = (container, roleLabel) => lines(container)
       .filter((line) => line !== roleLabel && !/^\d{1,2}:\d{2}/.test(line) && line !== 'eMAS Response')
       .join(' ')
+    const splitCsv = (value) => String(value || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+    const nullableNumber = (value) => {
+      const number = Number(value)
+      return Number.isFinite(number) ? number : null
+    }
+    const nullableBoolean = (value) => {
+      if (value == null || value === '') return null
+      return value === 'true'
+    }
     const groupFromNode = (node) => ({
       label: node.getAttribute('data-business-change-label') || '',
       count: Number(node.getAttribute('data-business-change-count') || 0),
@@ -830,12 +888,28 @@ export async function collectVisibleResponseDocumentUi(page) {
       const id = node.getAttribute('data-response-block-id') || null
       const contract = node.getAttribute('data-response-contract') || null
       const entityType = node.getAttribute('data-entity-type') || null
+      const readScope = node.getAttribute('data-read-scope') || null
+      const requestedFields = splitCsv(node.getAttribute('data-requested-fields'))
+      const displayMode = node.getAttribute('data-display-mode') || null
+      const entityCount = nullableNumber(node.getAttribute('data-entity-count'))
+      const previewLimit = nullableNumber(node.getAttribute('data-preview-limit'))
+      const detailsCollapsed = nullableBoolean(node.getAttribute('data-details-collapsed'))
+      const fieldCount = nullableNumber(node.getAttribute('data-status-field-count'))
+      const secondaryFieldCount = nullableNumber(node.getAttribute('data-secondary-field-count'))
       const blockLines = lines(node)
       return {
         type,
         id,
         contract,
         entityType,
+        readScope,
+        requestedFields,
+        displayMode,
+        entityCount,
+        previewLimit,
+        detailsCollapsed,
+        fieldCount,
+        secondaryFieldCount,
         approvalId: blockApprovalId(id),
         title: blockLines[0] || null,
         text: node.innerText || node.textContent || '',

@@ -208,6 +208,48 @@ async def test_job_status_route_reaches_execution_without_machine_repair(monkeyp
 
 
 @pytest.mark.asyncio
+async def test_machine_details_route_uses_same_read_tool_without_status_word():
+    prompt = "Show full details for machine with machine id M-CNC-01"
+    tools = {_machine_tool().name: _machine_tool(), _job_lookup_tool().name: _job_lookup_tool()}
+    selector = ToolSelector(_settings())
+    selection = await selector.select_tools(intent=prompt, tools_by_name=tools, max_tools=8)
+    frame = semantic_frame_for_text(prompt)
+
+    assert frame.route == "tool.read.machine_status"
+    assert frame.domain_intent == "machine_query"
+    assert frame.normalized_entities["machine_id"] == ["M-CNC-01"]
+    assert selection.tool_names == ["get__machines_{id}"]
+
+
+@pytest.mark.asyncio
+async def test_multi_job_status_route_terminates_with_typed_multi_read_repair(monkeypatch):
+    prompt = "find status for job with job id JOB-SEED-001 and JOB-SEED-002"
+    contract = await _run_route_contract(
+        monkeypatch,
+        prompt=prompt,
+        tools=[_machine_tool(), _job_lookup_tool(), _job_list_tool()],
+        first_tool_name="get__jobs_{id}",
+        first_args={"id": "JOB-SEED-999"},
+        complete_summary="Job statuses read completed.",
+    )
+
+    assert contract["frame"].route == "tool.read.jobs"
+    assert contract["frame"].normalized_entities["job_id"] == ["JOB-SEED-001", "JOB-SEED-002"]
+    assert contract["selection"].tool_names == ["get__jobs_{id}"]
+    assert contract["executed"] == [
+        {"tool_name": "get__jobs_{id}", "args": {"id": "JOB-SEED-001"}},
+        {"tool_name": "get__jobs_{id}", "args": {"id": "JOB-SEED-002"}},
+    ]
+    assert contract["result"]["status"] == "completed"
+    assert not contract["result"].get("errors")
+    assert not any(
+        item.get("kind") == "typed_diagnostic" and item.get("reason") == "constraint_violation_loop"
+        for item in contract["result"].get("failed_strategies", [])
+        if isinstance(item, dict)
+    )
+
+
+@pytest.mark.asyncio
 async def test_job_list_route_preserves_read_filter(monkeypatch):
     contract = await _run_route_contract(
         monkeypatch,

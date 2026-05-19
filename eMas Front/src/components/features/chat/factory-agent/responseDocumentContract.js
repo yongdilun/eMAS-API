@@ -115,6 +115,17 @@ function cleanStatusFields(value) {
     : []
 }
 
+function cleanStringArray(value) {
+  return Array.isArray(value)
+    ? value.map((item) => cleanString(item)).filter(Boolean)
+    : []
+}
+
+function cleanOptionalNumber(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
 function fallbackId(prefix, index) {
   return `${prefix}:${index + 1}`
 }
@@ -227,6 +238,8 @@ function normalizeBlock(block, index, violations) {
   const rows = cleanRows(block.rows)
   const groups = cleanGroups(block.groups)
   const sources = cleanSources(block.sources)
+  const fields = cleanStatusFields(block.fields)
+  const secondaryFields = cleanStatusFields(block.secondary_fields || block.secondaryFields)
   return {
     ...block,
     id,
@@ -240,6 +253,12 @@ function normalizeBlock(block, index, violations) {
     approval_id: cleanString(block.approval_id || block.approvalId) || null,
     operation_id: cleanString(block.operation_id || block.operationId) || null,
     contract: cleanString(block.contract) || null,
+    read_scope: cleanString(block.read_scope || block.readScope) || null,
+    requested_fields: cleanStringArray(block.requested_fields || block.requestedFields),
+    display_mode: cleanString(block.display_mode || block.displayMode) || null,
+    entity_type: cleanString(block.entity_type || block.entityType) || null,
+    entity_count: cleanOptionalNumber(block.entity_count ?? block.entityCount),
+    preview_limit: cleanOptionalNumber(block.preview_limit ?? block.previewLimit),
     rows,
     groups,
     sources,
@@ -258,8 +277,8 @@ function normalizeBlock(block, index, violations) {
     citations: Array.isArray(block.citations)
       ? block.citations.filter((citation) => citation && typeof citation === 'object' && !Array.isArray(citation))
       : [],
-    fields: cleanStatusFields(block.fields),
-    secondary_fields: cleanStatusFields(block.secondary_fields || block.secondaryFields),
+    fields,
+    secondary_fields: secondaryFields,
     steps: Array.isArray(block.steps) ? block.steps.filter((row) => row && typeof row === 'object') : [],
     impact: cleanObject(block.impact),
     technical_details: cleanObject(block.technical_details || block.technicalDetails),

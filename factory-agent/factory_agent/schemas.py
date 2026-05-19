@@ -463,10 +463,18 @@ class ResultSummaryBlock(ResponseBlockBase):
 
 class ResultTableBlock(ResponseBlockBase):
     type: Literal["result_table"] = "result_table"
+    contract: str | None = None
     title: str = "Affected records"
     rows: list[dict[str, Any]] = Field(min_length=1)
     operation_id: str | None = None
     approval_id: str | None = None
+    read_scope: str | None = None
+    requested_fields: list[str] = Field(default_factory=list)
+    display_mode: str | None = None
+    entity_type: str | None = None
+    entity_count: int | None = Field(default=None, ge=0)
+    preview_limit: int = Field(default=5, ge=1)
+    details_collapsed: bool = True
 
 
 class StatusResultBlock(ResponseBlockBase):
@@ -480,15 +488,27 @@ class StatusResultBlock(ResponseBlockBase):
     primary_status: str | None = None
     fields: list[dict[str, Any]] = Field(default_factory=list)
     secondary_fields: list[dict[str, Any]] = Field(default_factory=list)
+    read_scope: str | None = None
+    requested_fields: list[str] = Field(default_factory=list)
+    display_mode: str | None = None
+    entity_count: int | None = Field(default=None, ge=0)
+    preview_limit: int = Field(default=5, ge=1)
     details_collapsed: bool = True
 
 
 class RecordPreviewBlock(ResponseBlockBase):
     type: Literal["record_preview"] = "record_preview"
+    contract: str | None = None
     title: str = Field(default="Records", min_length=1)
     rows: list[dict[str, Any]] = Field(min_length=1)
     operation_id: str | None = None
     approval_id: str | None = None
+    read_scope: str | None = None
+    requested_fields: list[str] = Field(default_factory=list)
+    display_mode: str | None = None
+    entity_type: str | None = None
+    entity_count: int | None = Field(default=None, ge=0)
+    preview_limit: int = Field(default=5, ge=1)
     details_collapsed: bool = True
 
 

@@ -93,6 +93,19 @@ def test_plural_jobs_does_not_create_job_id_constraint():
     assert not any(c.field == "job_id" for c in flat)
 
 
+def test_phase37_multi_status_ids_stay_in_one_read_intent():
+    intents = split_user_intents("find status for job with job id JOB-SEED-001 and JOB-SEED-002")
+    frame = semantic_frame_for_text("find status for job with job id JOB-SEED-001 and JOB-SEED-002")
+
+    assert len(intents) == 1
+    assert [(c.field, c.value) for c in intents[0].explicit_constraints] == [
+        ("job_id", "JOB-SEED-001"),
+        ("job_id", "JOB-SEED-002"),
+    ]
+    assert frame.route == "tool.read.jobs"
+    assert frame.normalized_entities["job_id"] == ["JOB-SEED-001", "JOB-SEED-002"]
+
+
 def test_job_for_product_does_not_treat_for_as_job_id():
     intents = split_user_intents("create a job for product P-001 quantity 10")
     flat = [c for i in intents for c in i.explicit_constraints]

@@ -275,11 +275,25 @@ def _constraints_violated(
     tool_calls: list[dict[str, Any]],
     tools_by_name: dict[str, ToolInfo] | None = None,
 ) -> bool:
-    """Each hard constraint must be satisfiable by at least one *applicable* tool, and no applicable tool may violate it."""
+    """Each hard constraint must be satisfiable by at least one applicable tool call.
+
+    Multiple hard constraints for the same field represent multi-entity reads, so
+    sibling read calls may satisfy different values without being treated as a loop
+    trigger for each other.
+    """
     tbn = tools_by_name or {}
+    hard_constraints = [c for c in constraints if isinstance(c, dict) and c.get("strength") != "soft"]
+    field_value_counts: dict[str, set[str]] = {}
+    for c in hard_constraints:
+        field = str(c.get("field") or "")
+        if not field:
+            continue
+        field_value_counts.setdefault(field, set()).add(json.dumps(c.get("value"), sort_keys=True, default=str))
     for c in constraints:
         if not isinstance(c, dict) or c.get("strength") == "soft":
             continue
+        field = str(c.get("field") or "")
+        allow_sibling_values = len(field_value_counts.get(field, set())) > 1
         applicable: list[dict[str, Any]] = []
         for tc in tool_calls:
             if not isinstance(tc, dict):
@@ -290,11 +304,18 @@ def _constraints_violated(
                 applicable.append(tc)
         if not applicable:
             return True
+        satisfied = False
         for tc in applicable:
             args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
             tool = tbn.get(str(tc.get("tool_name") or ""))
-            if _constraint_violated(constraint=c, tool_args=args, tool=tool):
+            violated = _constraint_violated(constraint=c, tool_args=args, tool=tool)
+            if not violated:
+                satisfied = True
+                continue
+            if not allow_sibling_values:
                 return True
+        if not satisfied:
+            return True
     return False
 
 
@@ -758,14 +779,16 @@ def _fallback_decision_from_repair(
     repaired = _deterministic_plan_repair(clause, scoped_tools, context={})
     if repaired is None or not repaired.steps:
         return None
-    first = repaired.steps[0]
     tools_by_name = {t.name: t for t in scoped_tools}
-    tcs = [ToolCall(tool_name=first.tool_name, args=dict(first.args or {}))]
+    repaired_steps = list(repaired.steps)
+    if not all(tools_by_name.get(step.tool_name) and tools_by_name[step.tool_name].is_read_only for step in repaired_steps):
+        repaired_steps = repaired_steps[:1]
+    tcs = [ToolCall(tool_name=step.tool_name, args=dict(step.args or {})) for step in repaired_steps]
     return PlannerDecision(
         intent_id=str(current_intent.get("intent_id") or "unknown"),
         kind="domain_tool",
         tool_calls=tcs,
-        decision_summary="Deterministic repair selected the first safe tool step.",
+        decision_summary="Deterministic repair selected safe tool step(s).",
         risk_level=_risk_for_tools(tcs, tools_by_name),
     )
 

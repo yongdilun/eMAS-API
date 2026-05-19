@@ -164,6 +164,23 @@ def _extract_entity_id(intent: str, entity: str) -> str | None:
     return None
 
 
+def _extract_entity_ids(intent: str, entity: str) -> list[str]:
+    prefixes = _generated_id_prefixes_by_entity().get(entity.lower(), [])
+    if not prefixes:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for match in _TOKEN_ID_RE.finditer(intent or ""):
+        value = match.group(1).upper()
+        if not any(value.startswith(prefix) for prefix in prefixes):
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
 def _schema_properties(tool: ToolInfo) -> dict[str, Any]:
     properties = (tool.input_schema or {}).get("properties")
     return properties if isinstance(properties, dict) else {}
@@ -269,6 +286,59 @@ def _collection_entity(tool: ToolInfo) -> str | None:
 
 def _is_collection_read_tool(tool: ToolInfo) -> bool:
     return tool.method == "GET" and not tool.path_params and "{" not in (tool.endpoint or "") and _collection_entity(tool) is not None
+
+
+def _item_lookup_entity_and_param(tool: ToolInfo) -> tuple[str, str] | None:
+    if tool.method != "GET" or not tool.is_read_only or tool.requires_approval:
+        return None
+    params = list(tool.path_params or re.findall(r"\{([a-zA-Z0-9_]+)\}", tool.endpoint or ""))
+    if len(params) != 1:
+        return None
+    param = params[0]
+    segments = [segment for segment in (tool.endpoint or "").split("/") if segment]
+    target = f"{{{param}}}"
+    for idx, segment in enumerate(segments):
+        if segment != target or idx == 0:
+            continue
+        prior = next((item for item in reversed(segments[:idx]) if not item.startswith("{")), "")
+        entity = _singularize_entity(prior)
+        if entity:
+            return entity, param
+    return None
+
+
+def _infer_multi_entity_lookup_plan(intent: str, scoped_tools: list[ToolInfo]) -> AgentPlanOutput | None:
+    lowered = (intent or "").lower()
+    if not re.search(r"\b(?:status|state|health|condition|details?|lookup|read|show|get|find|view)\b", lowered):
+        return None
+    for tool in scoped_tools:
+        lookup = _item_lookup_entity_and_param(tool)
+        if lookup is None:
+            continue
+        entity, param = lookup
+        entity_ids = _extract_entity_ids(intent, entity)
+        if len(entity_ids) < 2:
+            continue
+        query_params = set(tool.query_params or [])
+        steps: list[AgentPlanStep] = []
+        for entity_id in entity_ids:
+            args: dict[str, Any] = {param: entity_id}
+            if "fields" in query_params and re.search(r"\b(?:status|state|health|condition)\b", lowered):
+                args["fields"] = f"{entity}_id,status"
+            steps.append(
+                AgentPlanStep(
+                    tool_name=tool.name,
+                    args=args,
+                    evidence={param: entity_id},
+                    confidence=0.9,
+                )
+            )
+        return AgentPlanOutput(
+            plan_explanation=f"Look up {len(entity_ids)} {_pluralize_entity(entity, len(entity_ids))}.",
+            risk_summary="Read-only multi-record lookup.",
+            steps=steps,
+        )
+    return None
 
 
 def _infer_enum_collection_filter(intent: str, scoped_tools: list[ToolInfo]) -> AgentPlanOutput | None:
@@ -650,6 +720,10 @@ def _deterministic_plan_repair(
     """
     lowered = (intent or "").lower()
     tools = {tool.name: tool for tool in scoped_tools}
+
+    multi_lookup = _infer_multi_entity_lookup_plan(intent, scoped_tools)
+    if multi_lookup is not None:
+        return multi_lookup
 
     # Narrow catalog reads (avoid LLM clarification on optional sort/filter).
     if (
@@ -1252,6 +1326,15 @@ def _singularize_entity(segment: str) -> str:
     if cleaned.endswith("s") and len(cleaned) > 1:
         return cleaned[:-1]
     return cleaned
+
+
+def _pluralize_entity(entity: str, count: int) -> str:
+    cleaned = _singularize_entity(entity)
+    if count == 1:
+        return cleaned or "record"
+    if cleaned.endswith("y"):
+        return f"{cleaned[:-1]}ies"
+    return f"{cleaned or 'record'}s"
 
 
 def _endpoint_entity_before_param(endpoint: str, field: str) -> str | None:

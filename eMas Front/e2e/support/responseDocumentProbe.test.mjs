@@ -5,6 +5,7 @@ import { findSensitiveArtifactLeaks, sensitiveArtifactSamples } from './artifact
 import {
   buildSemanticProbe,
   finalResponseQualityViolations,
+  machineStatusOnlyForbiddenDetailProbeText,
   serializeSemanticProbe,
 } from './responseDocumentProbe.js'
 
@@ -81,6 +82,119 @@ test('semantic probe builds compact current-turn summary from mocked UI and back
   assert.equal(probe.backend.responseDocument.revision, 8)
   assert.deepEqual(probe.backend.responseDocument.blockTypes, ['completed_step', 'approval_required'])
   assert.equal(probe.diagnosis.classification, 'unknown')
+})
+
+test('semantic probe summarizes Phase 37 status display policy evidence', () => {
+  const snapshot = baseSnapshot({
+    session: { session_id: 'session-phase37', name: 'Machine status', status: 'COMPLETED' },
+    phase: 'COMPLETED',
+    pending_approval: null,
+    response_document: {
+      state: 'completed',
+      revision: 37,
+      current_step_id: 'completed-status',
+      run_steps: [{ step_id: 'completed-status', kind: 'completed', state: 'completed', title: 'Run complete' }],
+      blocks: [
+        {
+          id: 'status:machine',
+          type: 'status_result',
+          contract: 'entity_status_v1',
+          title: 'Machine status',
+          entity_type: 'machine',
+          read_scope: 'status_only',
+          requested_fields: ['machine_id', 'status'],
+          display_mode: 'compact_status_card',
+          entity_count: 1,
+          preview_limit: 5,
+          details_collapsed: true,
+          fields: [
+            { key: 'machine_id', label: 'Machine ID', value: 'M-CNC-01' },
+            { key: 'status', label: 'Status', value: 'running', primary: true },
+          ],
+          secondary_fields: [],
+        },
+      ],
+      invariants: {
+        read_scope: 'status_only',
+        requested_fields: ['machine_id', 'status'],
+        display_mode: 'compact_status_card',
+        entity_count: 1,
+        preview_limit: 5,
+        read_details_collapsed: true,
+        read_status_contract: 'entity_status_v1',
+      },
+    },
+  })
+  const ui = baseUi({
+    headerStatus: 'Complete',
+    activeSidebarStatus: 'Complete',
+    visibleBlockTypes: ['status_result'],
+    visibleBlockIds: ['status:machine'],
+    visibleContracts: ['entity_status_v1'],
+    visibleBlocks: [
+      {
+        type: 'status_result',
+        id: 'status:machine',
+        contract: 'entity_status_v1',
+        entityType: 'machine',
+        readScope: 'status_only',
+        requestedFields: ['machine_id', 'status'],
+        displayMode: 'compact_status_card',
+        entityCount: 1,
+        previewLimit: 5,
+        detailsCollapsed: true,
+        fieldCount: 2,
+        secondaryFieldCount: 0,
+        title: 'Machine status',
+        text: 'Machine status Machine ID M-CNC-01 Status running',
+        buttons: [],
+      },
+    ],
+    approvalActionLabels: [],
+    visibleApprovalIds: [],
+    visibleText: 'Machine status Machine ID M-CNC-01 Status running',
+  })
+  const probe = buildSemanticProbe({
+    checkpoint: 'phase37 status evidence',
+    snapshot,
+    ui,
+    expected: {
+      sessionStatus: 'COMPLETED',
+      responseState: 'completed',
+      pendingApprovalId: null,
+      visibleBlockTypes: ['status_result'],
+      backendBlockTypes: ['status_result'],
+      responseContracts: ['entity_status_v1'],
+      forbiddenText: machineStatusOnlyForbiddenDetailProbeText,
+    },
+  })
+
+  assert.equal(probe.diagnosis.classification, 'unknown')
+  assert.deepEqual(probe.backend.responseDocument.readPolicy, {
+    readScope: 'status_only',
+    requestedFields: ['machine_id', 'status'],
+    displayMode: 'compact_status_card',
+    entityCount: 1,
+    previewLimit: 5,
+    detailsCollapsed: true,
+  })
+  assert.deepEqual(
+    probe.backend.responseDocument.blocks.map((block) => [
+      block.type,
+      block.contract,
+      block.readScope,
+      block.requestedFields.join(','),
+      block.displayMode,
+      block.entityCount,
+      block.fieldCount,
+      block.secondaryFieldCount,
+    ]),
+    [['status_result', 'entity_status_v1', 'status_only', 'machine_id,status', 'compact_status_card', 1, 2, 0]],
+  )
+  assert.deepEqual(
+    probe.visible.visibleBlocks.map((block) => [block.readScope, block.requestedFields.join(','), block.displayMode, block.entityCount, block.fieldCount, block.secondaryFieldCount]),
+    [['status_only', 'machine_id,status', 'compact_status_card', 1, 2, 0]],
+  )
 })
 
 test('semantic probe classifies header/sidebar/backend mismatch as session_list_sync_gap', () => {

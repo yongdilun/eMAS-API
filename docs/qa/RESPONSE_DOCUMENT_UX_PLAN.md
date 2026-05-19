@@ -2325,6 +2325,80 @@ git diff --check
 git status --short --branch
 ```
 
+### Phase 37: Status Read Scope And Display Policy Contract
+
+Status: Complete as of 2026-05-19.
+
+Goal: Make read-only status answers consistent, prevent multi-entity status loops, and define a deterministic backend-owned display policy for card/table/collapsed result rendering.
+
+Problem this phase targets:
+
+- `Show status for machine with machine id M-CNC-01` currently returns many machine attributes even though the user asked only for status. This is inconsistent with job status, which returns only `Job ID` and `Status`.
+- `find status for job with job id JOB-SEED-001 and JOB-SEED-002` can loop/fail instead of returning two statuses or a clear typed unsupported/clarification response.
+- There is no explicit rule for when a result should render as a compact single-entity status card versus a collapsed multi-record result/table. The decision must not depend on LLM prose, exact prompt text, entity name, or frontend heuristics.
+
+Prerequisite:
+
+- Phase 36 must be marked Done.
+
+Implementation steps:
+
+- Define a backend-owned read display policy for `entity_status_v1` and read-only result blocks.
+- Add a request-scope signal such as `requested_fields`, `read_scope`, or equivalent typed metadata so "status only" means only identity plus primary status by default.
+- For single-entity status-only reads, render a compact status card with:
+  - entity id;
+  - primary status;
+  - no unrelated secondary attributes such as machine name, type, location, capacity, last maintenance, or maintenance interval unless explicitly requested.
+- For explicit detail requests such as "show machine details" or "show full status details", allow expanded/detail fields through collapsed secondary fields.
+- Add generic tests proving machine status and job status obey the same status-only projection rule.
+- Add a status-only projection matrix, not only one screenshot regression:
+  - machine status prompt -> id plus status only;
+  - job status prompt -> id plus status only;
+  - machine status-only output must explicitly forbid unrelated detail labels such as machine name, machine type, location, capacity per hour, last maintenance, and maintenance interval.
+- Add a details-vs-status contrast test so an explicit details prompt still allows secondary/detail fields in a collapsed details area. Phase 37 must not "fix" over-display by deleting details forever.
+- Add support or a typed fallback for multi-entity status reads. For `JOB-SEED-001` and `JOB-SEED-002`, the preferred result is a deterministic multi-status response rather than a loop.
+- Add a multi-entity status loop regression proving the planner/guard/tool path terminates. Assert no repeated planner/guard/tool loop, no generic failure, and either typed status collection or typed unsupported/clarification.
+- If a requested multi-entity status path is unsupported for an entity/tool, return a typed diagnostic/clarification explaining the unsupported shape; do not loop through planner/guard/tool execution.
+- Define a deterministic display-mode decision contract:
+  - single entity + status-only -> compact status card;
+  - single entity + details requested -> status card with collapsed detail fields;
+  - multiple entities -> result collection/table block, collapsed when the row count exceeds the preview limit;
+  - large filtered list -> collapsed result collection/table with count and preview;
+  - no matching records -> typed no-match/no-op-style read diagnostic.
+- Make the display mode a typed backend field/block contract, not an LLM/frontend inference.
+- Add direct backend contract tests asserting `read_scope`, `requested_fields`, `display_mode`, `entity_count`, `preview_limit`, and collapsed state where applicable.
+- Add a display-policy contrast for low-priority jobs or another large filtered read so the old collapsed result-list behavior remains intentional and typed.
+- Add guardrails that fail if product code branches on exact `M-CNC-01`, `JOB-SEED-001`, `JOB-SEED-002`, the exact example prompts, or one entity label to decide status projection/display mode.
+- Update response-document probes so they assert contract evidence such as block contract, entity count, requested fields, display mode, collapsed state, status fields, field count, and forbidden machine detail labels rather than only visible text.
+
+Acceptance criteria:
+
+- `Show status for machine with machine id M-CNC-01` renders only machine id and status by default.
+- `find status for job with job id JOB-SEED-001` continues to render only job id and status by default.
+- `find status for job with job id JOB-SEED-001 and JOB-SEED-002` does not loop; it returns a deterministic multi-status result or a typed unsupported/clarification response.
+- Machine and job status behavior is driven by the same generic status/read policy, not entity-specific rendering branches.
+- The card/table/collapsed decision is documented and asserted by typed response-document fields/blocks.
+- Large read/list results such as low-priority jobs remain collapsed with a count/preview, while single status reads stay compact.
+- Explicit detail prompts still have access to detail/secondary fields, preferably collapsed by default.
+- Backend and browser/probe tests prove both visible output and semantic contract evidence.
+- No display policy depends on exact prompt text, fixture id, entity label, or assistant prose parsing.
+
+Verification command:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_route_to_execution_contract.py tests/test_intent_splitter.py tests/test_hardcode_guardrails.py -q
+
+Set-Location "..\eMas Front"
+npm test
+node --test --test-concurrency=1 e2e/support/responseDocumentProbe.test.mjs
+npm run test:e2e:response-document -- --grep "machine status|job status|multi-status|display policy|collapsed results|entity_status"
+
+Set-Location ".."
+git diff --check
+git status --short --branch
+```
+
 ## Stop Conditions
 
 Stop and fix before continuing when:

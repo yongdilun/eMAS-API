@@ -1858,7 +1858,14 @@ async def test_read_only_result_shape_is_deterministic_for_table_and_list(db_ses
     list_plan = "rd-read-list-plan"
     db_session.add_all(
         [
-            _session(session_id=table_session, plan_id=table_plan, created_at=created_at, event_seq=6, status="COMPLETED"),
+            _session(
+                session_id=table_session,
+                plan_id=table_plan,
+                created_at=created_at,
+                event_seq=6,
+                status="COMPLETED",
+                current_intent="Show low priority jobs",
+            ),
             _user_message(session_id=table_session, created_at=created_at),
             _plan(session_id=table_session, plan_id=table_plan, created_at=created_at + timedelta(seconds=1)),
             _read_step(
@@ -1897,7 +1904,19 @@ async def test_read_only_result_shape_is_deterministic_for_table_and_list(db_ses
     list_body = await _snapshot(db_session, list_session)
 
     assert table_body["response_document"]["invariants"]["read_result_shape"] == "table"
-    assert any(block["type"] == "result_table" and block["title"] == "Results" for block in table_body["response_document"]["blocks"])
+    assert table_body["response_document"]["invariants"]["read_scope"] == "records"
+    assert table_body["response_document"]["invariants"]["display_mode"] == "collapsed_collection_table"
+    assert table_body["response_document"]["invariants"]["entity_count"] == 6
+    assert table_body["response_document"]["invariants"]["preview_limit"] == 5
+    table = next(block for block in table_body["response_document"]["blocks"] if block["type"] == "result_table")
+    preview = next(block for block in table_body["response_document"]["blocks"] if block["type"] == "record_preview")
+    assert table["title"] == "Results"
+    assert table["display_mode"] == "collapsed_collection_table"
+    assert table["entity_count"] == 6
+    assert table["preview_limit"] == 5
+    assert table["details_collapsed"] is True
+    assert preview["title"] == "Preview"
+    assert len(preview["rows"]) == 5
     assert list_body["response_document"]["invariants"]["read_result_shape"] == "list"
     assert any(block["type"] == "record_preview" and block["title"] == "Results" for block in list_body["response_document"]["blocks"])
     assert not any(block["type"] == "approval_required" for block in table_body["response_document"]["blocks"])
@@ -1988,15 +2007,15 @@ async def test_machine_status_read_only_response_uses_typed_status_contract(db_s
     assert status_block["entity_type"] == "machine"
     assert status_block["entity_id"] == "M-CNC-01"
     assert status_block["primary_status"] == "running"
+    assert status_block["read_scope"] == "status_only"
+    assert status_block["requested_fields"] == ["machine_id", "status"]
+    assert status_block["display_mode"] == "compact_status_card"
+    assert status_block["entity_count"] == 1
+    assert status_block["preview_limit"] == 5
+    assert status_block["details_collapsed"] is True
     assert [(field["label"], field["value"]) for field in status_block["fields"]] == [
         ("Machine ID", "M-CNC-01"),
-        ("Machine name", "CNC Mill 01"),
-        ("Machine type", "CNC mill"),
-        ("Location", "Line 1"),
         ("Status", "running"),
-        ("Capacity per hour", "40"),
-        ("Last maintenance", "2026-05-01"),
-        ("Maintenance interval", "30 days"),
     ]
     assert status_block["secondary_fields"] == []
     assert any(step["kind"] == "read" and step["title"] == "Read machine status" for step in document["run_steps"])
@@ -2011,8 +2030,268 @@ async def test_machine_status_read_only_response_uses_typed_status_contract(db_s
         "Defaultcleaningtime",
         "Defaultchangeovertime",
         "Utilizationrate",
+        "Machine name",
+        "Machine type",
+        "Location",
+        "Capacity per hour",
+        "Last maintenance",
+        "Maintenance interval",
+        "CNC Mill 01",
+        "CNC mill",
+        "Line 1",
     ]:
         assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_phase37_status_only_projection_matrix_covers_machine_and_job(db_session):
+    created_at = datetime(2026, 5, 19, 9, 0, 0)
+    cases = [
+        {
+            "session_id": "rd-027-machine-status-only",
+            "plan_id": "rd-027-machine-status-only-plan",
+            "prompt": "Show status for machine with machine id M-CNC-01",
+            "tool_name": "get__machines_{id}",
+            "args": {"id": "M-CNC-01"},
+            "payload": {
+                "machineID": "M-CNC-01",
+                "machineName": "CNC Mill 01",
+                "machineType": "CNC mill",
+                "location": "Line 1",
+                "status": "RUNNING",
+                "capacityPerHour": 40,
+                "lastMaintenanceDate": "2026-05-01",
+                "maintenanceIntervalDays": 30,
+            },
+            "expected_title": "Machine status",
+            "expected_fields": [("machine_id", "Machine ID", "M-CNC-01"), ("status", "Status", "running")],
+            "forbidden_labels": [
+                "Machine name",
+                "Machine type",
+                "Location",
+                "Capacity per hour",
+                "Last maintenance",
+                "Maintenance interval",
+            ],
+        },
+        {
+            "session_id": "rd-027-job-status-only",
+            "plan_id": "rd-027-job-status-only-plan",
+            "prompt": "find status for job with job id JOB-SEED-001",
+            "tool_name": "get__jobs_{id}",
+            "args": {"id": "JOB-SEED-001"},
+            "payload": {
+                "jobID": "JOB-SEED-001",
+                "priority": "high",
+                "machineID": "M-CNC-01",
+                "status": "RUNNING",
+                "dueDate": "2026-05-20",
+            },
+            "expected_title": "Job status",
+            "expected_fields": [("job_id", "Job ID", "JOB-SEED-001"), ("status", "Status", "running")],
+            "forbidden_labels": ["Priority", "Machine ID", "Due date"],
+        },
+    ]
+    for index, case in enumerate(cases):
+        db_session.add_all(
+            [
+                _session(
+                    session_id=case["session_id"],
+                    plan_id=case["plan_id"],
+                    created_at=created_at + timedelta(minutes=index),
+                    event_seq=8,
+                    status="COMPLETED",
+                    current_intent=case["prompt"],
+                ),
+                _user_message(
+                    session_id=case["session_id"],
+                    created_at=created_at + timedelta(minutes=index),
+                    content=case["prompt"],
+                ),
+                _plan(
+                    session_id=case["session_id"],
+                    plan_id=case["plan_id"],
+                    created_at=created_at + timedelta(minutes=index, seconds=1),
+                ),
+                _read_step(
+                    session_id=case["session_id"],
+                    plan_id=case["plan_id"],
+                    step_id=f"{case['session_id']}-step",
+                    completed_at=created_at + timedelta(minutes=index, seconds=2),
+                    rows=[],
+                    summary="Raw backend details should not drive status-only display.",
+                    tool_name=case["tool_name"],
+                    args=case["args"],
+                    result={"success": True, "data": case["payload"]},
+                ),
+                _assistant_message(
+                    session_id=case["session_id"],
+                    content="Raw backend details should not drive status-only display.",
+                    step_id=case["plan_id"],
+                    created_at=created_at + timedelta(minutes=index, seconds=3),
+                ),
+            ]
+        )
+    await db_session.commit()
+
+    for case in cases:
+        document = (await _snapshot(db_session, case["session_id"]))["response_document"]
+        status_block = next(block for block in document["blocks"] if block["type"] == "status_result")
+
+        assert status_block["title"] == case["expected_title"]
+        assert status_block["read_scope"] == "status_only"
+        assert status_block["display_mode"] == "compact_status_card"
+        assert status_block["entity_count"] == 1
+        assert [(field["key"], field["label"], field["value"]) for field in status_block["fields"]] == case["expected_fields"]
+        assert status_block["requested_fields"] == [case["expected_fields"][0][0], "status"]
+        assert status_block["secondary_fields"] == []
+        serialized = json.dumps(status_block)
+        for forbidden in case["forbidden_labels"]:
+            assert forbidden not in serialized
+
+
+@pytest.mark.asyncio
+async def test_phase37_details_prompt_keeps_secondary_fields_collapsed(db_session):
+    created_at = datetime(2026, 5, 19, 9, 30, 0)
+    session_id = "rd-029-machine-details"
+    plan_id = "rd-029-machine-details-plan"
+    prompt = "Show full details for machine with machine id M-CNC-01"
+    machine_payload = {
+        "machineID": "M-CNC-01",
+        "machineName": "CNC Mill 01",
+        "machineType": "CNC mill",
+        "location": "Line 1",
+        "status": "RUNNING",
+        "capacityPerHour": 40,
+        "lastMaintenanceDate": "2026-05-01",
+        "maintenanceIntervalDays": 30,
+    }
+    db_session.add_all(
+        [
+            _session(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                event_seq=8,
+                status="COMPLETED",
+                current_intent=prompt,
+            ),
+            _user_message(session_id=session_id, created_at=created_at, content=prompt),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _read_step(
+                session_id=session_id,
+                plan_id=plan_id,
+                step_id="rd-029-machine-details-step",
+                completed_at=created_at + timedelta(seconds=2),
+                rows=[],
+                summary="Machine details retrieved.",
+                tool_name="get__machines_{id}",
+                args={"id": "M-CNC-01"},
+                result={"success": True, "data": machine_payload},
+            ),
+            _assistant_message(
+                session_id=session_id,
+                content="Machine details retrieved.",
+                step_id=plan_id,
+                created_at=created_at + timedelta(seconds=3),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    document = (await _snapshot(db_session, session_id))["response_document"]
+    status_block = next(block for block in document["blocks"] if block["type"] == "status_result")
+
+    assert status_block["read_scope"] == "details"
+    assert status_block["requested_fields"] == ["machine_id", "status", "details"]
+    assert status_block["display_mode"] == "detail_status_card"
+    assert [(field["key"], field["value"]) for field in status_block["fields"]] == [
+        ("machine_id", "M-CNC-01"),
+        ("status", "running"),
+    ]
+    assert status_block["details_collapsed"] is True
+    secondary = {field["key"]: field["value"] for field in status_block["secondary_fields"]}
+    assert secondary["machine_name"] == "CNC Mill 01"
+    assert secondary["machine_type"] == "CNC mill"
+    assert secondary["location"] == "Line 1"
+    assert secondary["capacity_per_hour"] == "40"
+    assert secondary["last_maintenance_date"] == "2026-05-01"
+    assert secondary["maintenance_interval_days"] == "30"
+
+
+@pytest.mark.asyncio
+async def test_phase37_multi_entity_status_read_returns_typed_collection_without_loop_shape(db_session):
+    created_at = datetime(2026, 5, 19, 10, 0, 0)
+    session_id = "rd-028-multi-job-status"
+    plan_id = "rd-028-multi-job-status-plan"
+    prompt = "find status for job with job id JOB-SEED-001 and JOB-SEED-002"
+    db_session.add_all(
+        [
+            _session(
+                session_id=session_id,
+                plan_id=plan_id,
+                created_at=created_at,
+                event_seq=9,
+                status="COMPLETED",
+                step_count=2,
+                current_intent=prompt,
+            ),
+            _user_message(session_id=session_id, created_at=created_at, content=prompt),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _read_step(
+                session_id=session_id,
+                plan_id=plan_id,
+                step_id="rd-028-job-1",
+                completed_at=created_at + timedelta(seconds=2),
+                rows=[],
+                summary="First job status retrieved.",
+                tool_name="get__jobs_{id}",
+                args={"id": "JOB-SEED-001"},
+                result={"success": True, "data": {"jobID": "JOB-SEED-001", "priority": "high", "status": "RUNNING"}},
+            ),
+            _read_step(
+                session_id=session_id,
+                plan_id=plan_id,
+                step_id="rd-028-job-2",
+                completed_at=created_at + timedelta(seconds=3),
+                rows=[],
+                summary="Second job status retrieved.",
+                tool_name="get__jobs_{id}",
+                args={"id": "JOB-SEED-002"},
+                result={"success": True, "data": {"jobID": "JOB-SEED-002", "priority": "medium", "status": "PLANNED"}},
+            ),
+            _assistant_message(
+                session_id=session_id,
+                content="Job statuses retrieved.",
+                step_id=plan_id,
+                created_at=created_at + timedelta(seconds=4),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    document = (await _snapshot(db_session, session_id))["response_document"]
+    table = next(block for block in document["blocks"] if block["type"] == "result_table")
+
+    assert document["state"] == "completed"
+    assert document["invariants"]["read_status_contract"] == ENTITY_STATUS_CONTRACT
+    assert document["invariants"]["read_scope"] == "status_only"
+    assert document["invariants"]["requested_fields"] == ["job_id", "status"]
+    assert document["invariants"]["display_mode"] == "collection_table"
+    assert document["invariants"]["entity_count"] == 2
+    assert table["contract"] == ENTITY_STATUS_CONTRACT
+    assert table["read_scope"] == "status_only"
+    assert table["requested_fields"] == ["job_id", "status"]
+    assert table["display_mode"] == "collection_table"
+    assert table["entity_type"] == "job"
+    assert table["entity_count"] == 2
+    assert table["details_collapsed"] is False
+    assert table["rows"] == [
+        {"job_id": "JOB-SEED-001", "status": "running"},
+        {"job_id": "JOB-SEED-002", "status": "planned"},
+    ]
+    assert "priority" not in json.dumps(table).lower()
+    assert not any(block["type"] == "diagnostic" for block in document["blocks"])
 
 
 @pytest.mark.asyncio
