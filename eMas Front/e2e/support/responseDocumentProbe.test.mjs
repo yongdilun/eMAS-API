@@ -441,7 +441,7 @@ test('semantic probe summarizes side evidence drawer and in-panel PDF state', ()
       visibleContracts: ['knowledge_answer_v1', 'source_list_v1', 'source_locator_v1'],
       visibleBlocks: [
         { type: 'knowledge_answer', id: 'knowledge:osha', contract: 'knowledge_answer_v1', title: 'Procedure guidance', text: 'Notify affected employees before reenergizing. [1]', buttons: ['[1]'] },
-        { type: 'source_list', id: 'sources:osha', contract: 'source_list_v1', title: 'Knowledge sources', text: 'OSHA LOTO', buttons: ['View evidence'] },
+        { type: 'source_list', id: 'sources:osha', contract: 'source_list_v1', title: 'Knowledge sources', text: 'OSHA LOTO', buttons: [] },
       ],
       sourceChips: [{ sourceId: 'osha#chunk-29', docId: 'osha', chunkId: 'chunk-29', sourceNumber: '1', title: 'OSHA LOTO', text: '[1]' }],
       citedAnswerHighlights: [{ sourceId: 'osha#chunk-29', docId: 'osha', chunkId: 'chunk-29', sourceNumber: '1', title: 'OSHA LOTO', text: 'Notify affected employees before reenergizing.' }],

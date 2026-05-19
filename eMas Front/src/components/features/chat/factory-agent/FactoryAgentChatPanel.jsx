@@ -795,13 +795,28 @@ function FactoryAgentDiagnostics({ error, streamDiagnostics = [], retrying, onRe
 function FullscreenWindowIcon({ isFullscreen }) {
   return (
     <span
-      className="material-symbols-outlined text-[17px] leading-none"
+      className="material-symbols-outlined text-[13px] leading-none"
       aria-hidden="true"
       data-ai-assistant-fullscreen-icon={isFullscreen ? 'restore' : 'maximize'}
     >
       {isFullscreen ? 'filter_none' : 'check_box_outline_blank'}
     </span>
   )
+}
+
+function sourceEvidenceKey(evidence) {
+  const source = evidence?.source || {}
+  return [
+    evidence?.documentId,
+    evidence?.revision,
+    source.source_id,
+    source.doc_id,
+    source.chunk_id,
+    source.source_number,
+    source.title,
+  ]
+    .map((value) => String(value ?? '').trim())
+    .join('\u001f')
 }
 
 const FactoryAgentChatPanel = ({
@@ -869,11 +884,15 @@ const FactoryAgentChatPanel = ({
 
   const handleOpenSourceEvidence = useCallback((payload) => {
     if (!payload?.source) return
-    setSourceEvidence({
+    const nextEvidence = {
       source: payload.source,
       sources: Array.isArray(payload.sources) ? payload.sources : [],
       documentId: payload.documentId || null,
       revision: payload.revision ?? null,
+    }
+    setSourceEvidence((current) => {
+      if (current && sourceEvidenceKey(current) === sourceEvidenceKey(nextEvidence)) return null
+      return nextEvidence
     })
     setSourceEvidencePdf(null)
   }, [])
@@ -1008,7 +1027,7 @@ const FactoryAgentChatPanel = ({
                 className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink-subtle hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-primary/30"
                 aria-label="Close"
               >
-                <span className="material-symbols-outlined text-[19px] leading-none">close</span>
+                <span className="material-symbols-outlined text-[17px] leading-none">close</span>
               </button>
             )}
           </div>

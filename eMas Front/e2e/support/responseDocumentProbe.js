@@ -822,6 +822,7 @@ export async function collectVisibleResponseDocumentUi(page) {
     const latestRoot = roots[roots.length - 1] || latestAssistantContainer || dialog
     const visibleBlocks = Array.from(latestRoot.querySelectorAll('[data-response-block-type]')).map((node) => {
       const buttons = Array.from(node.querySelectorAll('button'))
+        .filter((button) => !button.hasAttribute('data-source-list-open'))
         .map((button) => (button.textContent || '').trim())
         .filter(Boolean)
       const type = node.getAttribute('data-response-block-type') || null

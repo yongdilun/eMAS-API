@@ -1600,34 +1600,28 @@ function SourceListBlock({ block, onOpenSource }) {
           const title = safeText(safeSource?.title || safeSource?.doc_id || `Source ${index + 1}`)
           const snippet = safeText(safeSource?.snippet)
           return (
-            <div
+            <button
+              type="button"
               key={`${safeSource?.source_id || safeSource?.doc_id || title}-${index}`}
-              className="rounded-md bg-surface-2 px-2.5 py-2"
+              className="block w-full rounded-md bg-surface-2 px-2.5 py-2 text-left transition-colors hover:bg-surface-3 focus:outline-none focus:ring-2 focus:ring-primary/30"
+              onClick={() => onOpenSource?.(safeSource)}
+              aria-label={`Toggle source evidence for ${title}`}
               data-response-contract={safeText(source?.contract) || undefined}
+              data-source-list-open=""
               data-source-id={safeText(safeSource?.source_id) || undefined}
               data-doc-id={safeText(safeSource?.doc_id) || undefined}
               data-chunk-id={safeText(safeSource?.chunk_id) || undefined}
               data-source-number={safeText(safeSource?.source_number) || undefined}
               data-source-title={title || undefined}
             >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="font-semibold text-ink">{title}</div>
-                <button
-                  type="button"
-                  className="rounded-md px-2 py-1 text-[11px] font-semibold text-primary hover:bg-surface-1 focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  onClick={() => onOpenSource?.(safeSource)}
-                  data-source-list-open=""
-                >
-                  View evidence
-                </button>
-              </div>
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+              <span className="block font-semibold text-ink">{title}</span>
+              <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
                 {['doc_id', 'chunk_id', 'page', 'machine_id', 'organization'].map((key) => (
                   safeSource?.[key] ? <span key={key}>{humanizeResponseDocumentKey(key)}: {String(safeSource[key])}</span> : null
                 ))}
-              </div>
-              {snippet ? <div className="mt-1.5 line-clamp-2 text-ink-subtle">{snippet}</div> : null}
-            </div>
+              </span>
+              {snippet ? <span className="mt-1.5 block line-clamp-2 text-ink-subtle">{snippet}</span> : null}
+            </button>
           )
         })}
       </div>
