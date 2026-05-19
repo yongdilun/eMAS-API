@@ -430,13 +430,13 @@ test('FactoryAgentChatPanel renders backend unavailable errors without fake succ
   )
 
   assert.match(view.text(), /Cannot connect to factory-agent/)
-  assert.match(view.text(), /Factory Agent backend unavailable/)
-  assert.match(view.text(), /Retry connection/)
+  assert.match(view.text(), /Factory Agent is disconnected/)
+  assert.match(view.text(), /Try starting chat again/)
   assert.match(view.text(), /Start a session from the sidebar/)
   assert.doesNotMatch(view.text(), /Run complete/)
   assert.doesNotMatch(view.text(), /Approval received/)
 
-  const retryButton = Array.from(view.container.querySelectorAll('button')).find((button) => button.textContent.includes('Retry connection'))
+  const retryButton = Array.from(view.container.querySelectorAll('button')).find((button) => button.textContent.includes('Try starting chat again'))
   await click(retryButton)
   assert.equal(retryCount, 1)
 

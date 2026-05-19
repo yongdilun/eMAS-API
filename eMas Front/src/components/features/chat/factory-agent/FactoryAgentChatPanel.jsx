@@ -760,6 +760,7 @@ function isBackendUnavailableError(error) {
 function FactoryAgentDiagnostics({ error, streamDiagnostics = [], retrying, onRetryConnection }) {
   const diagnostics = Array.isArray(streamDiagnostics) ? streamDiagnostics.filter((item) => item?.message) : []
   if (!error && diagnostics.length === 0) return null
+  const backendUnavailable = isBackendUnavailableError(error)
 
   return (
     <div className="border-b border-hairline bg-surface-2 px-4 py-2 text-sm text-ink-muted">
@@ -767,7 +768,7 @@ function FactoryAgentDiagnostics({ error, streamDiagnostics = [], retrying, onRe
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="font-semibold text-ink">
-              {isBackendUnavailableError(error) ? 'Factory Agent backend unavailable' : 'Factory Agent needs attention'}
+              {backendUnavailable ? 'Factory Agent is disconnected' : 'Factory Agent chat could not start'}
             </div>
             <div className="mt-0.5">{error}</div>
           </div>
@@ -778,7 +779,7 @@ function FactoryAgentDiagnostics({ error, streamDiagnostics = [], retrying, onRe
               disabled={retrying}
               className="rounded-md border border-hairline bg-surface-1 px-2.5 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-surface-3 disabled:opacity-60"
             >
-              {retrying ? 'Retrying...' : 'Retry connection'}
+              {retrying ? 'Retrying...' : 'Try starting chat again'}
             </button>
           ) : null}
         </div>

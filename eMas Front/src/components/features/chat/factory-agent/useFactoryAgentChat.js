@@ -548,7 +548,10 @@ export function useFactoryAgentChat() {
       await safelyRefreshSnapshot(created.session_id)
       return created
     } catch (err) {
-      setError(normalizeFactoryAgentError(err, 'Failed to create session'))
+      setError(normalizeFactoryAgentError(
+        err,
+        'Could not start a Factory Agent chat session. Check that the Factory Agent backend is running, then try again.',
+      ))
       return null
     } finally {
       setLoading(false)
