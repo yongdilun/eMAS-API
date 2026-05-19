@@ -212,6 +212,69 @@ def test_generate_osha_reenergizing_answer_has_pdf_source_locator_without_policy
     assert "loto_notification_requirement" not in serialized
     assert "LOTO Notification Requirements" not in serialized
 
+
+@patch("factory_agent.rag.generation.build_rag_answer_chat_model")
+def test_generate_osha_reenergizing_source_locator_uses_supporting_chunk_when_doc_chunk_order_is_noisy(
+    mock_build_llm,
+    mock_settings,
+):
+    prompt = (
+        "According to the OSHA lockout/tagout guide, what notification is required before reenergizing "
+        "a machine after removing lockout or tagout devices?"
+    )
+    appendix_chunk = Chunk(
+        chunk_id="osha_3120_lockout_tagout_c0027",
+        text=(
+            "In Appendix A to 1910.147, OSHA provides a Typical Minimal Lockout Procedure. "
+            "Before beginning service or maintenance, prepare for shutdown and apply lockout devices."
+        ),
+        metadata={
+            "doc_id": "osha_3120_lockout_tagout",
+            "title": "Control of Hazardous Energy Lockout/Tagout",
+            "organization": "OSHA",
+            "authority_level": "official_public_guidance",
+            "domain": "safety_maintenance",
+            "subdomain": "lockout_tagout",
+            "risk_level": "high",
+            "license": "public",
+            "version": "2002 (Revised)",
+            "retrieved_date": "2026-05-10",
+            "page": 14,
+            "pdf_url": "/documents/osha_3120_lockout_tagout/pdf",
+        },
+    )
+    supporting_chunk = Chunk(
+        chunk_id="osha_3120_lockout_tagout_c0029",
+        text=(
+            "After removing the lockout or tagout devices but before reenergizing the machine, the employer "
+            "must assure that all employees who operate or work with the machine know that the devices have "
+            "been removed and that the machine is capable of being reenergized."
+        ),
+        metadata={
+            **appendix_chunk.metadata,
+            "chunk_id": "osha_3120_lockout_tagout_c0029",
+            "page": 15,
+            "char_range": [0, 1017],
+            "text_search": "After removing the lockout or tagout devices but before reenergizing the machine",
+        },
+    )
+    mock_llm = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content = (
+        "Before reenergizing, the employer must assure that all employees who operate or work with the machine "
+        "know that the devices have been removed and that the machine is capable of being reenergized [^1]."
+    )
+    mock_llm.invoke.return_value = mock_response
+    mock_build_llm.return_value = mock_llm
+
+    generator = AnswerGenerator(mock_settings)
+    result = generator.generate(prompt, [appendix_chunk, supporting_chunk])
+
+    source = result.sources[0].model_dump()
+    assert source["chunk_id"] == "osha_3120_lockout_tagout_c0029"
+    assert source["page"] == 15
+    assert source["text_search"] == "After removing the lockout or tagout devices but before reenergizing the machine"
+
 @patch("factory_agent.rag.generation.build_rag_answer_chat_model")
 def test_generate_answer_no_safety_warning(mock_build_llm, mock_settings, sample_chunks):
     # Only use the low-risk chunk

@@ -17,6 +17,11 @@ def build_documents_router(*, require_jwt: Callable[..., dict[str, Any]]) -> API
         pdf_path = resolve_source_pdf_path(doc_id)
         if pdf_path is None:
             raise HTTPException(status_code=404, detail="document not found")
-        return FileResponse(path=pdf_path, media_type="application/pdf", filename=pdf_path.name)
+        return FileResponse(
+            path=pdf_path,
+            media_type="application/pdf",
+            filename=pdf_path.name,
+            content_disposition_type="inline",
+        )
 
     return router

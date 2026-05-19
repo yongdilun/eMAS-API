@@ -173,6 +173,83 @@ def test_osha_reenergizing_notification_policy_preserves_pdf_backed_answer():
     assert "approved energy-control procedure" in result.safety_content
 
 
+def test_osha_reenergizing_notification_policy_accepts_osha_assure_know_wording():
+    registry = default_knowledge_policy_registry()
+    frame = semantic_frame_for_text(SUPPORTED_REENERGIZING_NOTIFICATION_PROMPT)
+
+    result = registry.apply(
+        route_family=frame.route,
+        query=SUPPORTED_REENERGIZING_NOTIFICATION_PROMPT,
+        answer=(
+            "Before reenergizing the machine, the employer must assure that all employees who operate or work "
+            "with the machine know that the lockout or tagout devices have been removed and that the machine "
+            "is capable of being reenergized [^1]."
+        ),
+        sources=[
+            {
+                "source_number": 1,
+                "source_id": "osha_3120_lockout_tagout#osha_3120_lockout_tagout_c0029",
+                "doc_id": "osha_3120_lockout_tagout",
+                "chunk_id": "osha_3120_lockout_tagout_c0029",
+                "title": "Control of Hazardous Energy Lockout/Tagout",
+                "organization": "OSHA",
+                "snippet": (
+                    "After removing the lockout or tagout devices but before reenergizing the machine, "
+                    "the employer must assure that all employees who operate or work with the machine know "
+                    "that the devices have been removed."
+                ),
+                "page": 15,
+                "pdf_url": "/documents/osha_3120_lockout_tagout/pdf",
+            }
+        ],
+        safety_content=None,
+        semantic_frame=frame,
+    )
+
+    assert result.policy_id == "loto_notification_document_content"
+    assert not result.answer.startswith("I do not have enough retrieved evidence")
+    assert "must assure" in result.answer
+    assert result.sources[0]["chunk_id"] == "osha_3120_lockout_tagout_c0029"
+    assert_no_synthetic_loto_notification_source(result)
+
+
+def test_osha_reenergizing_notification_policy_recovers_when_llm_refuses_but_source_proves_answer():
+    registry = default_knowledge_policy_registry()
+    frame = semantic_frame_for_text(SUPPORTED_REENERGIZING_NOTIFICATION_PROMPT)
+
+    result = registry.apply(
+        route_family=frame.route,
+        query=SUPPORTED_REENERGIZING_NOTIFICATION_PROMPT,
+        answer="I do not have enough retrieved evidence to answer that safely.",
+        sources=[
+            {
+                "source_number": 1,
+                "source_id": "osha_3120_lockout_tagout#osha_3120_lockout_tagout_c0029",
+                "doc_id": "osha_3120_lockout_tagout",
+                "chunk_id": "osha_3120_lockout_tagout_c0029",
+                "title": "Control of Hazardous Energy Lockout/Tagout",
+                "organization": "OSHA",
+                "snippet": (
+                    "After removing the lockout or tagout devices but before reenergizing the machine, "
+                    "the employer must assure that all employees who operate or work with the machine, as well as "
+                    "those in the area where service or maintenance is performed, know that the devices have been "
+                    "removed and that the machine is capable of being reenergized."
+                ),
+                "page": 15,
+                "pdf_url": "/documents/osha_3120_lockout_tagout/pdf",
+            }
+        ],
+        safety_content=None,
+        semantic_frame=frame,
+    )
+
+    assert result.policy_id == "loto_notification_document_content"
+    assert result.answer.startswith("Before reenergizing the machine")
+    assert "[^1]" in result.answer
+    assert result.sources[0]["chunk_id"] == "osha_3120_lockout_tagout_c0029"
+    assert_no_synthetic_loto_notification_source(result)
+
+
 def test_osha_loto_policy_does_not_invent_standard_when_rag_is_empty():
     registry = default_knowledge_policy_registry()
     frame = semantic_frame_for_text(OSHA_LOTO_PROMPT)
