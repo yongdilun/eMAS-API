@@ -795,7 +795,7 @@ function FactoryAgentDiagnostics({ error, streamDiagnostics = [], retrying, onRe
 function FullscreenWindowIcon({ isFullscreen }) {
   return (
     <span
-      className="material-symbols-outlined text-[20px] leading-none"
+      className="material-symbols-outlined text-[17px] leading-none"
       aria-hidden="true"
       data-ai-assistant-fullscreen-icon={isFullscreen ? 'restore' : 'maximize'}
     >
@@ -1008,7 +1008,7 @@ const FactoryAgentChatPanel = ({
                 className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink-subtle hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-primary/30"
                 aria-label="Close"
               >
-                <span className="material-symbols-outlined text-2xl">close</span>
+                <span className="material-symbols-outlined text-[19px] leading-none">close</span>
               </button>
             )}
           </div>
