@@ -20,6 +20,30 @@ from factory_agent.rag.source_metadata import snippet_from_text
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+def _find_text_range(text: str, needle: str, start: int = 0) -> tuple[int, int] | None:
+    """Locate chunk text in extracted page text while tolerating whitespace normalization."""
+    if not needle:
+        return None
+
+    exact_start = text.find(needle, start)
+    if exact_start < 0 and start:
+        exact_start = text.find(needle)
+    if exact_start >= 0:
+        return exact_start, exact_start + len(needle)
+
+    tokens = [token for token in re.split(r"\s+", needle.strip()) if token]
+    if not tokens:
+        return None
+
+    pattern = r"\s+".join(re.escape(token) for token in tokens)
+    for lookup_start in (start, 0):
+        match = re.search(pattern, text[lookup_start:])
+        if match:
+            return lookup_start + match.start(), lookup_start + match.end()
+    return None
+
+
 class IngestionEngine:
     CHUNK_SIZE = 1000
     CHUNK_OVERLAP = 200
@@ -88,9 +112,13 @@ class IngestionEngine:
                 prefixed_text = f"[Section: {section_title}] {sub_text}"
                 chunk_index = chunk_start_index + len(final_chunks)
                 chunk_id = f"{doc_metadata['doc_id']}_c{chunk_index:04d}"
+                snippet = snippet_from_text(prefixed_text)
                 chunk_metadata = {
                     **doc_metadata,
                     **section.metadata,
+                    "source_id": f"{doc_metadata['doc_id']}#{chunk_id}",
+                    "chunk_id": chunk_id,
+                    "snippet": snippet,
                     "section_title": section_title,
                     "section_path": section_path,
                     "chunk_index": chunk_index,
@@ -98,14 +126,13 @@ class IngestionEngine:
                 }
                 if preserve_char_range:
                     needle = sub_text.strip()
-                    lookup_start = max(0, search_cursor - self.CHUNK_OVERLAP - 50)
-                    char_start = text.find(needle, lookup_start) if needle else -1
-                    if char_start < 0 and needle:
-                        char_start = text.find(needle)
-                    if char_start >= 0:
-                        char_end = char_start + len(needle)
-                        chunk_metadata["char_range"] = [char_start, char_end]
+                    if needle:
                         chunk_metadata["text_search"] = snippet_from_text(needle, limit=240)
+                    lookup_start = max(0, search_cursor - self.CHUNK_OVERLAP - 50)
+                    text_range = _find_text_range(text, needle, lookup_start)
+                    if text_range is not None:
+                        char_start, char_end = text_range
+                        chunk_metadata["char_range"] = [char_start, char_end]
                         search_cursor = char_start + 1
                 
                 final_chunks.append(Chunk(

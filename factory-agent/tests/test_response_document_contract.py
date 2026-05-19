@@ -2028,6 +2028,7 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
     )
     source = {
         "machine_id": "M-CNC-01",
+        "job_id": "JOB-SEED-001",
         "procedure_id": "LOTO-M-CNC-01",
         "title": "LOTO procedure",
         "organization": "Factory Safety",
@@ -2093,6 +2094,7 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
     assert source_payload["contract"] == "source_locator_v1"
     for key in ("source_id", "source_number", "doc_id", "chunk_id", "title", "organization", "snippet"):
         assert source_payload[key]
+    assert source_payload["job_id"] == "JOB-SEED-001"
     assert "file_path" not in source_payload
     assert source_payload["pdf_url"] == "/documents/LOTO-M-CNC-01/pdf"
     assert source_payload["page"] == 9
@@ -2100,6 +2102,46 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
     assert source_payload["text_search"] == "Notify affected employees before lockout starts."
     assert "C:/local/docs" not in json.dumps(document)
     assert any(step["kind"] == "knowledge" for step in document["run_steps"])
+
+
+@pytest.mark.asyncio
+async def test_rag_no_source_fallback_keeps_safety_notice(db_session):
+    created_at = datetime(2026, 5, 18, 15, 30, 0)
+    session_id = "rd-rag-no-source-safety"
+    plan_id = "rd-rag-no-source-plan"
+    answer = (
+        "Controlled seeded RAG fallback: I do not have an available cited LOTO source. "
+        "Verify the site procedure before acting."
+    )
+    db_session.add_all(
+        [
+            _session(session_id=session_id, plan_id=plan_id, created_at=created_at, event_seq=7, status="COMPLETED"),
+            _user_message(session_id=session_id, created_at=created_at),
+            _plan(session_id=session_id, plan_id=plan_id, created_at=created_at + timedelta(seconds=1)),
+            _assistant_message(
+                session_id=session_id,
+                content=answer,
+                step_id=plan_id,
+                tool_name="__conversation__",
+                created_at=created_at + timedelta(seconds=2),
+            ),
+        ]
+    )
+    plan = await db_session.get(Plan, plan_id)
+    assert plan is not None
+    plan.sources = []
+    plan.safety_content = "No retrievable seeded source was available for this LOTO answer."
+    await db_session.commit()
+
+    body = await _snapshot(db_session, session_id)
+    document = body["response_document"]
+
+    assert body["presentation"]["kind"] == "answer"
+    safety_block = next(block for block in document["blocks"] if block["type"] == "safety_notice")
+    assert safety_block["safety_content"] == "No retrievable seeded source was available for this LOTO answer."
+    assert not any(block["type"] == "source_list" for block in document["blocks"])
+    assert not any(block["type"] == "diagnostic" and block["reason"] == "no_results" for block in document["blocks"])
+    assert "Controlled seeded RAG fallback" in json.dumps(document)
 
 
 @pytest.mark.asyncio

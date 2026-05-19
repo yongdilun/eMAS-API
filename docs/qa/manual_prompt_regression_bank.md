@@ -381,6 +381,27 @@ Phase 29 closure evidence:
 - Passed: `npm run test:e2e:response-document -- --grep "source PDF|source drawer|highlight|LOTO"` -> 4 passed.
 - Migration note: existing vector/BM25 indexes need reingestion from `rag_sources/00_metadata_templates/source_register.json` before live sources can rely on Phase 29 page/highlight fields. Until then, source drawer fallback remains valid.
 
+## Response Document Phase 30 RAG Reingestion And Live Release Proof
+
+Phase 30 promotes the Phase 29 migration note into an executed local release proof with reingested RAG data.
+
+| Candidate ID | Prompt / flow class | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `response-document-phase30-rag-index-reingestion` | Reingest from `rag_sources/00_metadata_templates/source_register.json`. | Current vector/BM25 chunks for OSHA LOTO carry `source_id`, `doc_id`, `chunk_id`, `title`, `organization`, `snippet`, `page`, safe `pdf_url`, `text_search`, and `char_range`; raw local `file_path` is absent. | Reingestion audit plus `factory-agent/tests/test_rag_ingestion.py`. |
+| `response-document-phase30-live-loto-source-payload` | `According to the LOTO procedure, what notification is required before starting lockout` against reingested retrieval data. | Live source payload includes safe locator metadata and no `file_path`; typed browser fixtures still prove source chip, drawer, PDF page/highlight fallback, and drawer-only fallback. | Live retrieval/generation probe, backend RAG tests, and response-document browser grep. |
+| `response-document-phase30-seeded-loto-source-regression` | Seeded LOTO/source/RAG grep. | Seeded LOTO routes preserve machine/job source metadata, no-source fallback does not invent citations, and source UX remains stable after typed RAG migration. | `npm run test:e2e:seeded-oracles -- --grep "LOTO|source|RAG"`. |
+
+Phase 30 closure evidence:
+
+- Before reingestion, Factory Agent vector/BM25 LOTO chunks still contained raw `file_path` and lacked page-aware locator metadata.
+- Reingestion succeeded for 5/5 registered PDFs; current Factory Agent and workspace-root RAG stores contain 382 chunks, including 93 OSHA LOTO chunks.
+- Current OSHA LOTO vector/BM25 chunks: 93/93 have source/chunk/snippet/page/PDF/text-search/char-range locator metadata; 0/93 have `file_path`.
+- Passed: `python -m pytest tests/test_rag_ingestion.py tests/test_rag_generation.py tests/test_response_document_contract.py tests/test_rag_knowledge_policy.py -q` -> 44 passed after setting pytest temp vars to the workspace.
+- Passed: `npm test` -> 120 passed.
+- Passed: `npm run test:e2e:response-document -- --grep "LOTO|source PDF|source drawer|highlight|typed RAG"` -> 5 passed.
+- Passed: `npm run test:e2e:seeded-oracles -- --grep "LOTO|source|RAG"` -> 18 passed.
+- Passed: `git diff --check` -> passed with line-ending warnings only.
+
 ## Phase 15 Release Enforcement Note
 
 Phase 15 assigns every fixed or newly found prompt/workflow miss to a blocking lane:

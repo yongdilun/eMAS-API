@@ -142,6 +142,7 @@ def normalize_source_locator(
     passthrough_keys = (
         "procedure_id",
         "machine_id",
+        "job_id",
         "authority_level",
         "domain",
         "subdomain",

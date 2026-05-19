@@ -37,6 +37,7 @@ Created: 2026-05-18
 | 27 | RAG metadata readiness and legacy renderer cleanup | Done | Codex | Added minimum RAG source locator metadata, stopped raw `:::safety` answer injection, sanitized legacy safety markdown, prevented duplicate response-document RAG bodies, and isolated legacy source/safety chrome to no-response-document compatibility paths. |
 | 28 | Typed RAG answer and source citation UX | Done | Codex | Added typed safety notices, knowledge answer citations, inline source chips, compact hover metadata, source drawer click behavior, PDF page-link fallback, and separate operation/RAG sections. |
 | 29 | PDF source locator and highlight upgrade | Done | Codex | PDF ingestion is page-aware, sources use safe `/documents/{doc_id}/pdf` locators, source clicks choose exact/text-search/page/drawer fallbacks deterministically, and drawer-only fallback remains covered. |
+| 30 | RAG reingestion and live release proof | Done | Codex | Rebuilt local Chroma/BM25 from the source register, proved live LOTO source locators carry safe page/highlight metadata without `file_path`, and kept typed RAG/source browser gates green. |
 
 ## Current Blockers
 
@@ -50,6 +51,7 @@ Created: 2026-05-18
 - Phase 23 is complete for existing flows: machine status uses `entity_status_v1`, job priority cascade groups use `business_change_v1`, and job no-op groups continue through `entity_agnostic_no_matching_records_v1` with frontend contract/probe evidence.
 - Phase 26 is complete. Backend contract diversity beyond jobs/machines remains covered by Phase 24 product/material fixtures; no safe non-job real/seeded browser path has been exposed without broadening write/read product scope.
 - Phase 27 fixed the post-Phase-26 RAG display regression: LOTO document-content answers no longer show raw `:::safety`, source-backed answer bodies render once, valid response-document turns do not get legacy ChatMessage source/safety chrome, and cited RAG sources carry minimum locator metadata.
+- Phase 30 reingested both local RAG stores from `rag_sources/00_metadata_templates/source_register.json`; current LOTO vector/BM25 chunks now carry source id, chunk id, snippet, page, safe PDF URL, text-search, and char-range metadata without raw `file_path`.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -2181,6 +2183,72 @@ Results:
 - Frontend unit/component/probe lane: 120 passed.
 - Focused source PDF/source drawer/highlight/LOTO browser grep: 4 passed.
 
+## Response Document Phase 30 RAG Reingestion And Live Release Proof
+
+Date: 2026-05-19
+
+Phase 30 is complete. The local release-proof pass found the expected pre-Phase-29 index problem, reingested the registered RAG sources, and proved the typed source UX against reingested LOTO data instead of only mocked fixtures.
+
+### Findings Before Reingestion
+
+- The Factory Agent Chroma/BM25 stores contained 337 chunks and the OSHA LOTO chunks still had raw local `file_path` metadata.
+- LOTO chunks in both vector and BM25 lacked Phase 29 `page`, `pdf_url`, `text_search`, and `char_range` locator metadata.
+- This matched the Phase 29 migration warning and required clearing the local Chroma collection before reingestion because unchanged document versions would otherwise be skipped.
+
+### Reingestion Result
+
+- Rebuilt the Factory Agent app store from `../rag_sources/00_metadata_templates/source_register.json`.
+- Refreshed the duplicate tracked workspace-root BM25 artifact and matching root Chroma store so tracked indexes do not disagree.
+- Full ingestion succeeded for 5/5 registered PDFs.
+- Current chunk counts: 382 total chunks; 93 OSHA LOTO chunks.
+- Current LOTO vector and BM25 metadata coverage: 93/93 carry `source_id`, `doc_id`, `chunk_id`, `title`, `organization`, `snippet`, `page`, `pdf_url`, `text_search`, and `char_range`; 0/93 carry `file_path`.
+
+### Product Fixes
+
+- PDF ingestion now stores stable `source_id`, `chunk_id`, and `snippet` metadata for every chunk.
+- PDF ingestion now creates `text_search` for every page-aware chunk and finds `char_range` even when PDF text extraction normalizes whitespace differently than the splitter.
+- Source locator normalization preserves `job_id` as safe business metadata for multi-entity LOTO source evidence.
+- Source-less RAG fallback answers no longer get mislabeled as generic `No results` diagnostics when they are real completed answers.
+- The seeded no-source fallback now carries explicit visible no-source evidence without inventing citations.
+
+### Live Source Proof
+
+Live retrieval for `According to the LOTO procedure, what notification is required before starting lockout` returned OSHA LOTO chunks with safe locator metadata. The generated source payload included:
+
+- `source_id`: `osha_3120_lockout_tagout#osha_3120_lockout_tagout_c0027`
+- `doc_id`: `osha_3120_lockout_tagout`
+- `chunk_id`: `osha_3120_lockout_tagout_c0027`
+- `title`: `Control of Hazardous Energy Lockout/Tagout`
+- `organization`: `OSHA`
+- `page`: `14`
+- `pdf_url`: `/documents/osha_3120_lockout_tagout/pdf`
+- `char_range` and `text_search` locator data
+- no `file_path` in the normal answer/source payload
+
+The mocked browser source UX still proves the full click fallback order: exact `char_range`/`bbox`, text-search, page-only PDF open, and drawer-only fallback. The seeded browser lane proves the real seeded LOTO document-content flow with safety/source behavior, no machine-ID clarification, no invented no-source citations, and preserved machine/job source metadata.
+
+### Phase 30 Verification
+
+```powershell
+Set-Location "factory-agent"
+New-Item -ItemType Directory -Force -Path ".pytest_tmp" | Out-Null
+$env:TEMP=(Resolve-Path ".pytest_tmp").Path; $env:TMP=$env:TEMP
+python -m pytest tests/test_rag_ingestion.py tests/test_rag_generation.py tests/test_response_document_contract.py tests/test_rag_knowledge_policy.py -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "LOTO|source PDF|source drawer|highlight|typed RAG"
+npm run test:e2e:seeded-oracles -- --grep "LOTO|source|RAG"
+```
+
+Results:
+
+- Backend RAG/response-document/policy lane: 44 passed.
+- Frontend unit/component/probe lane: 120 passed.
+- Focused response-document source UX browser grep: 5 passed.
+- Focused seeded LOTO/source/RAG browser grep: 18 passed.
+- `git diff --check`: passed with line-ending warnings only.
+
 ## Phase 10 Implementation Notes
 
 Date: 2026-05-18
@@ -2335,7 +2403,7 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 
 ## Next Action
 
-Phase 29 is complete. Next response-document RAG work should start from the page-aware locator contract, reingest existing vector/BM25 indexes before relying on PDF page/highlight metadata in live data, and keep drawer-only fallback as the non-negotiable compatibility floor.
+Phase 30 is complete. Next response-document RAG work can assume the local release-proof indexes are reingested with page-aware safe locators; future work should keep reingestion explicit whenever `source_register.json` or ingestion metadata changes and continue treating drawer-only fallback as the compatibility floor.
 
 ## Post-Gate Regression: Approved Data But UI Still Shows Approval
 

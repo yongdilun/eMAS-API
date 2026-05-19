@@ -15,6 +15,8 @@ from factory_agent.schemas import PlanDraft, PlanStepDraft, ToolInfo
 from factory_agent.services.planner_service import PlannerResult
 from factory_agent.testing_seeded_scenarios import SeededScenarioInterpreter
 
+_JOB_ID_RE = re.compile(r"\bJOB-[A-Z0-9]+(?:-[A-Z0-9]+)*\b", re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class _FakeRagResult:
@@ -29,9 +31,31 @@ class SeededPlaywrightRAGPipeline:
         lowered = query.lower()
         machine_ids = intent_constraint_values(query, "machine_id")
         job_ids = intent_constraint_values(query, "job_id")
+        if not job_ids:
+            job_ids = [match.group(0).upper() for match in _JOB_ID_RE.finditer(query)]
         requested_machine_id = machine_ids[0] if machine_ids else None
         requested_job_id = job_ids[0] if job_ids else None
         semantic_frame = semantic_frame_for_text(query)
+        no_source_requested = "no-source" in lowered or "no source" in lowered or "unavailable source" in lowered
+        if no_source_requested or requested_machine_id == "M-CNC-02":
+            subject = (
+                f"machine {requested_machine_id} exists in seeded data, but "
+                if requested_machine_id
+                else ""
+            )
+            source_target = f"{requested_machine_id} LOTO" if requested_machine_id else "the requested maintenance procedure"
+            return _FakeRagResult(
+                answer=(
+                    f"Controlled seeded RAG fallback: {subject}"
+                    "I do not have an available cited LOTO source for that machine/procedure. "
+                    f"No retrievable seeded source was available for {source_target} in this Playwright answer. "
+                    "Verify the site procedure before acting."
+                ),
+                sources=[],
+                safety_content=(
+                    f"No retrievable seeded source was available for {source_target} in this Playwright answer."
+                ),
+            )
         if requested_machine_id is None:
             if semantic_frame.domain_intent == "loto_procedure" and "machine_id" in semantic_frame.missing_required_entities:
                 return _FakeRagResult(
@@ -52,31 +76,21 @@ class SeededPlaywrightRAGPipeline:
                 sources=[
                     {
                         "source_number": 1,
+                        "source_id": "seeded-general-loto-guidance#seeded-general-loto-guidance_c0000",
                         "doc_id": "seeded-general-loto-guidance",
+                        "chunk_id": "seeded-general-loto-guidance_c0000",
                         "title": "Seeded General LOTO Guidance",
                         "organization": "eMas Safety",
+                        "snippet": "Lockout/Tagout controls hazardous energy during servicing or maintenance.",
                         "authority_level": "controlled_test_fixture",
                         "license": "internal-test",
                     }
                 ],
                 safety_content="Controlled fake RAG output for Playwright L3; verify the site procedure before acting.",
             )
-        if (
-            "no-source" in lowered
-            or "no source" in lowered
-            or "unavailable source" in lowered
-            or requested_machine_id == "M-CNC-02"
-        ):
-            return _FakeRagResult(
-                answer=(
-                    f"Controlled seeded RAG fallback: machine {requested_machine_id} exists in seeded data, "
-                    "but I do not have an available cited LOTO source for that machine/procedure. "
-                    "Verify the site procedure before acting."
-                ),
-                sources=[],
-                safety_content=f"No retrievable seeded source was available for {requested_machine_id} LOTO in this Playwright answer.",
-            )
         job_fragment = f" for {requested_job_id}" if requested_job_id else ""
+        doc_id = f"seeded-loto-procedure-{requested_machine_id.lower()}"
+        chunk_id = f"{doc_id}_c0000"
         return _FakeRagResult(
             answer=(
                 f"Controlled seeded RAG answer: the LOTO procedure for {requested_machine_id}{job_fragment} requires "
@@ -86,9 +100,15 @@ class SeededPlaywrightRAGPipeline:
             sources=[
                 {
                     "source_number": 1,
-                    "doc_id": f"seeded-loto-procedure-{requested_machine_id.lower()}",
+                    "source_id": f"{doc_id}#{chunk_id}",
+                    "doc_id": doc_id,
+                    "chunk_id": chunk_id,
                     "title": f"Seeded LOTO Procedure for {requested_machine_id}",
                     "organization": "eMas Safety",
+                    "snippet": (
+                        "The seeded LOTO procedure requires isolating hazardous energy, locking and tagging "
+                        "energy-isolating devices, and verifying zero energy before work begins."
+                    ),
                     "authority_level": "controlled_test_fixture",
                     "license": "internal-test",
                     "machine_id": requested_machine_id,

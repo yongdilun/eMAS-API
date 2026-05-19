@@ -3,7 +3,7 @@ import shutil
 import pytest
 import json
 import fitz
-from factory_agent.rag.ingestion import IngestionEngine
+from factory_agent.rag.ingestion import IngestionEngine, _find_text_range
 from factory_agent.rag.document_registry import resolve_source_pdf_path, source_pdf_url
 from factory_agent.rag.schemas import DocumentEntry
 
@@ -89,6 +89,15 @@ def _write_pdf_test_register(tmp_path):
     )
     return register_path, doc_path
 
+
+def test_pdf_text_range_tolerates_extracted_whitespace():
+    page_text = "Control of \nHazardous Energy \nLockout/Tagout \n"
+    chunk_text = "Control of\nHazardous Energy\nLockout/Tagout"
+
+    expected_end = page_text.index("Lockout/Tagout") + len("Lockout/Tagout")
+    assert _find_text_range(page_text, chunk_text) == (0, expected_end)
+
+
 @pytest.fixture
 def engine(tmp_path):
     # Cleanup before test
@@ -134,6 +143,9 @@ def test_full_ingestion(engine):
         
         # I4: Required metadata fields
         assert "doc_id" in meta
+        assert "source_id" in meta
+        assert "chunk_id" in meta
+        assert "snippet" in meta
         assert "section_title" in meta
         assert "section_path" in meta
         assert "authority_level" in meta
@@ -161,6 +173,9 @@ def test_pdf_ingestion_preserves_page_locator_metadata(engine, tmp_path):
         assert meta["pdf_url"] == source_pdf_url("PDF-LOTO")
         assert meta["pdf_url"] == "/documents/PDF-LOTO/pdf"
         assert "file_path" not in meta
+        assert meta["source_id"] == f"PDF-LOTO#{meta['chunk_id']}"
+        assert meta["chunk_id"]
+        assert meta["snippet"]
         assert "char_range" in meta
         assert isinstance(json.loads(meta["char_range"]), list)
         assert meta["text_search"]

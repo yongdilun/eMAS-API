@@ -2985,6 +2985,7 @@ def _compose_blocks(
     approvals: list[ApprovalResponse],
     mutation_groups: list[MutationGroup],
     read_rows: list[dict[str, Any]],
+    has_read_evidence: bool,
     status_result: dict[str, Any] | None,
     sources: list[dict[str, Any]],
     presentation: PresentationResponse,
@@ -3109,7 +3110,7 @@ def _compose_blocks(
                 )
             )
 
-    if presentation.kind == "knowledge_answer":
+    if presentation.kind in {"answer", "knowledge_answer"}:
         safety_text = _strip_footnote_markup(safety_content)
         if safety_text:
             knowledge_blocks.append(
@@ -3121,6 +3122,7 @@ def _compose_blocks(
                     operation_id=operation_id,
                 )
             )
+    if presentation.kind == "knowledge_answer":
         answer, segments, citations = _knowledge_answer_payload(presentation.summary, sources)
         if answer:
             knowledge_blocks.append(
@@ -3177,7 +3179,14 @@ def _compose_blocks(
             )
         )
 
-    no_result = presentation.kind == "answer" and not read_rows and not sources and state == "completed" and not mutation_groups
+    no_result = (
+        presentation.kind == "answer"
+        and has_read_evidence
+        and not read_rows
+        and not sources
+        and state == "completed"
+        and not mutation_groups
+    )
     diagnostic_kind = (
         presentation.kind in {"diagnostic", "cancelled", "rejected", "expired", "partial_failure"}
         and not _is_non_terminal_progress_presentation(presentation=presentation, state=state)
@@ -3313,6 +3322,7 @@ def compose_response_document(
         approvals=approvals,
         mutation_groups=mutation_groups,
         read_rows=read_rows,
+        has_read_evidence=bool(read_groups),
         status_result=status_result,
         sources=sources,
         presentation=presentation,
