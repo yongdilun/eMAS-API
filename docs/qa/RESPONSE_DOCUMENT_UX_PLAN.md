@@ -2200,7 +2200,7 @@ git status --short --branch
 
 Goal: Audit all RAG/source UX work from Phase 27 onward for one-off hardcoded fixes, entity-specific assumptions, exact prompt/source-id coupling, and vocabulary/tool metadata gaps that should be replaced by reusable contracts or registries.
 
-Status: Completed 2026-05-19. Product hardcodes found by the audit were fixed: seeded/exact starter prompts were generalized, a tracked OSHA scratch script was removed, policy-id-specific RAG answer rescue was replaced with evidence-profile registry metadata, and guardrails now block exact source/prompt/fixture literals plus policy-id branches in product/runtime code.
+Status: Completed 2026-05-19. Product hardcodes found by the audit were fixed: a tracked OSHA scratch script was removed, policy-id-specific RAG answer rescue was replaced with evidence-profile registry metadata, and guardrails now block exact source/prompt/fixture literals plus policy-id branches in product/runtime code. The only product-source exception is user-owned starter prompt copy in `FactoryAgentChatPanel.jsx`, documented and allowlisted as a UI affordance rather than runtime routing behavior.
 
 Problem this phase targets:
 

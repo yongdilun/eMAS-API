@@ -43,7 +43,7 @@ Created: 2026-05-18
 | 33 | Side evidence drawer and PDF panel UX | Done | Codex | Replaced metadata-only source interaction with a resizable side evidence drawer, cited/related source grouping, in-panel PDF view, back navigation, and no-PDF fallback. |
 | 34 | Source tooltip and responsive chat width | Done | Codex | Added collision-aware source hover placement and responsive assistant response card width, with prose width constraints and browser proofs for right-edge tooltip and modal resize behavior. |
 | 35 | Final RAG source UX release gate | Done | Codex | Integrated release proof passed after fixing the two manual blockers: shell-level side evidence panel ownership and backend-routed in-panel PDF URLs. |
-| 36 | Post-Phase-27 hardcode and generalization audit | Done | Codex | Audited Phase 27+ RAG/source UX commits, fixed product hardcodes, and added guardrails for exact source/prompt/fixture literals plus policy-id branches. |
+| 36 | Post-Phase-27 hardcode and generalization audit | Done | Codex | Audited Phase 27+ RAG/source UX commits, fixed product hardcodes, and added guardrails for exact source/prompt/fixture literals plus policy-id branches; user-owned starter prompt copy is explicitly allowlisted. |
 
 ## Current Blockers
 
@@ -60,7 +60,7 @@ Created: 2026-05-18
 - Phase 30 reingested both local RAG stores from `rag_sources/00_metadata_templates/source_register.json`; current LOTO vector/BM25 chunks now carry source id, chunk id, snippet, page, safe PDF URL, text-search, and char-range metadata without raw `file_path`.
 - Phase 32 proved the post-cleanup RAG release behavior: the OSHA reenergizing prompt is source-backed by `osha_3120_lockout_tagout` with PDF locator metadata, and the before-starting-lockout prompt returns insufficient context with related OSHA sources checked instead of a policy fallback or machine-ID clarification.
 - Source evidence workspace is complete through Phase 35: source chips open a shell-owned right-side workspace panel, cited evidence appears before related supporting sources, PDF-backed sources open in-panel through the configured Factory Agent `/documents/{doc_id}/pdf` route, true no-PDF sources keep drawer-only evidence, hover cards stay inside visible chat/evidence bounds, and wider chatbot/modal layouts give structured response content more usable width.
-- Phase 36 is complete. Product/runtime code no longer embeds Phase 27+ exact RAG prompts, seeded machine/job ids, OSHA source/chunk ids, or synthetic LOTO policy source ids; the remaining exact references are scoped to tests, fixtures, docs, and generated RAG stores.
+- Phase 36 is complete. Product/runtime code no longer embeds Phase 27+ exact RAG prompts, seeded job ids, OSHA source/chunk ids, or synthetic LOTO policy source ids; the remaining exact references are scoped to tests, fixtures, docs, generated RAG stores, and user-owned starter prompt copy in `FactoryAgentChatPanel.jsx`.
 - Existing `PresentationResponse` remains in the API only for compatibility snapshots where `response_document` is absent.
 - Real LangGraph and seeded suites remain broader release gates; focused response-document mocked browser coverage is now the fast UX lane.
 
@@ -2631,7 +2631,7 @@ Phase 36 is complete. The audit used the actual git range `dd9e0cbe^..HEAD` and 
 
 ### Product Risks Fixed
 
-- Runtime chat starter prompts used the seeded machine id `M-CNC-01` and an exact LOTO regression prompt. They now use generic capability prompts, and a guardrail prevents product code from reintroducing exact seeded ids or Phase 27+ RAG prompts.
+- Runtime chat starter prompts use user-owned example copy, including the seeded machine id `M-CNC-01` and an exact LOTO example prompt. This is documented as a UI-only exception with Product UX ownership; it must not be reused for routing, source selection, or response behavior.
 - A tracked scratch script under `factory_agent/brain/.../scratch` hardcoded the OSHA source id. The unused generated/debug artifact was removed from the product tree.
 - `KnowledgePolicy` had policy-id-specific branches and a source-backed reenergizing answer template. The behavior now routes through reusable `SourceIdentityRequirement` and `EvidenceSupportProfile` registry metadata, and answer recovery uses the supporting source excerpt with citation rather than a one-off hardcoded answer body.
 - Product comments that mentioned seeded job ids were generalized so static guards can scan product source, including comments, without allowing fixture literals to creep back in.
@@ -2651,11 +2651,11 @@ Phase 36 is complete. The audit used the actual git range `dd9e0cbe^..HEAD` and 
 - Generated vocabulary/OpenAPI/tool metadata: existing entity/status/mutation paths already use `entity_type`, `business_change_v1`, and capability tags; broader RAG evidence vocabulary should be generated when additional policy profiles appear.
 - Entity/capability registry: seeded machine/job ids remain fixture data only; product starter prompts are now generic capability examples.
 - Shared frontend evidence utility: source chip, drawer, PDF route, highlight fallback, and selected-source highlighting continue through shared source utility functions in `ResponseDocumentRenderer.jsx`.
-- Documented exception: `generation.py` still contains domain vocabulary boosts for notification/reenergizing evidence ranking. Owner: RAG/source relevance. Revisit when evidence-support profiles move into generated/source-register metadata.
+- Documented exceptions: `generation.py` still contains domain vocabulary boosts for notification/reenergizing evidence ranking. Owner: RAG/source relevance. Revisit when evidence-support profiles move into generated/source-register metadata. `FactoryAgentChatPanel.jsx` keeps user-owned starter prompt examples, including `M-CNC-01` and the LOTO notification prompt. Owner: Product UX. Revisit when starter prompts are config/registry-backed.
 
 ### Guardrails Added
 
-- Product runtime code must not embed exact Phase 27+ RAG prompts, seeded fixture ids, synthetic LOTO source ids, or OSHA source/chunk ids.
+- Product runtime code must not embed exact Phase 27+ RAG prompts, seeded fixture ids, synthetic LOTO source ids, or OSHA source/chunk ids except for the explicit starter-prompt UI copy allowlist.
 - Knowledge policy code must use registry metadata, not `policy.policy_id` branches, for source/answer support behavior.
 
 ### Phase 36 Verification

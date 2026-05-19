@@ -43,6 +43,15 @@ PRODUCT_RUNTIME_LITERAL_RE = re.compile(
     ),
     re.IGNORECASE,
 )
+PRODUCT_RUNTIME_LITERAL_ALLOWLIST = {
+    "eMas Front/src/components/features/chat/factory-agent/FactoryAgentChatPanel.jsx": {
+        "Show status for machine with machine id M-CNC-01": "User-owned starter prompt copy; UI affordance only.",
+        "M-CNC-01": "User-owned starter prompt copy; UI affordance only.",
+        "According to the LOTO procedure, what notification is required before starting lockout": (
+            "User-owned starter prompt copy; UI affordance only."
+        ),
+    },
+}
 FORBIDDEN_BRANCH_LITERAL_RE = re.compile(
     "|".join(
         [
@@ -203,7 +212,10 @@ def _forbidden_js_branch_hits(rel_path: str) -> list[str]:
     lines = source.splitlines()
     hits: list[str] = []
     for index, line in enumerate(lines):
-        if not FORBIDDEN_BRANCH_LITERAL_RE.search(line):
+        matches = [match.group(0) for match in FORBIDDEN_BRANCH_LITERAL_RE.finditer(line)]
+        if not matches:
+            continue
+        if all(_allowed_product_runtime_literal(rel_path, literal) for literal in matches):
             continue
         window_start = max(0, index - 4)
         window_end = min(len(lines), index + 5)
@@ -224,6 +236,11 @@ def _seeded_default_hits(rel_path: str) -> list[str]:
             line = source.count("\n", 0, match.start()) + 1
             hits.append(f"{rel_path}:{line}: {label}")
     return hits
+
+
+def _allowed_product_runtime_literal(rel_path: str, literal: str) -> bool:
+    reasons = PRODUCT_RUNTIME_LITERAL_ALLOWLIST.get(rel_path, {})
+    return bool(reasons.get(literal))
 
 
 def test_product_runtime_code_has_no_phase_prompt_branches():
@@ -298,6 +315,8 @@ def test_runtime_product_code_does_not_embed_phase27_source_prompt_or_fixture_li
     for rel_path in _product_branch_guard_files():
         source = _read(rel_path)
         for match in PRODUCT_RUNTIME_LITERAL_RE.finditer(source):
+            if _allowed_product_runtime_literal(rel_path, match.group(0)):
+                continue
             line = source.count("\n", 0, match.start()) + 1
             hits.append(f"{rel_path}:{line}: {match.group(0)}")
 
@@ -306,6 +325,13 @@ def test_runtime_product_code_does_not_embed_phase27_source_prompt_or_fixture_li
         "or exact RAG regression prompts. Put those values in tests, seeded fixtures, docs, "
         "or source/entity registries instead:\n" + "\n".join(hits)
     )
+
+
+def test_product_runtime_literal_allowlist_is_explicit_and_narrow():
+    for rel_path, reasons in PRODUCT_RUNTIME_LITERAL_ALLOWLIST.items():
+        assert rel_path in _product_branch_guard_files()
+        for literal, reason in reasons.items():
+            assert reason.strip(), f"{rel_path} literal {literal!r} needs an allowlist reason"
 
 
 def test_knowledge_policy_uses_registry_metadata_not_policy_id_branches():
