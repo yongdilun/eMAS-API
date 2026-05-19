@@ -10,6 +10,8 @@ SAFETY_ADMONITION_RE = re.compile(
 )
 
 _WHITESPACE_RE = re.compile(r"\s+")
+_FOOTNOTE_DEFINITION_RE = re.compile(r"(?m)^[ \t]*\[\^[^\]\n]+\]:[^\n]*(?:\n[ \t]+[^\n]*)*")
+_FOOTNOTE_MARKER_RE = re.compile(r"\[\^[^\]\n]+\]")
 _LOCAL_FILE_KEYS = {"file_path", "filepath", "local_file_path", "local_path"}
 
 
@@ -22,7 +24,11 @@ def sanitize_rag_answer_text(value: Any) -> str:
 
 
 def snippet_from_text(value: Any, *, limit: int = 320) -> str:
-    text = _WHITESPACE_RE.sub(" ", sanitize_rag_answer_text(value)).strip()
+    cleaned = sanitize_rag_answer_text(value)
+    cleaned = _FOOTNOTE_DEFINITION_RE.sub("", cleaned)
+    cleaned = _FOOTNOTE_MARKER_RE.sub("", cleaned)
+    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+    text = _WHITESPACE_RE.sub(" ", cleaned).strip()
     if not text:
         return ""
     if len(text) <= limit:
@@ -108,6 +114,7 @@ def normalize_source_locator(
         snippet = f"Source locator for {title}."
 
     normalized: dict[str, Any] = {
+        "contract": "source_locator_v1",
         "source_id": _clean_text(data.get("source_id") or data.get("sourceId")) or f"{doc_id}#{chunk_id}",
         "source_number": number,
         "doc_id": doc_id,

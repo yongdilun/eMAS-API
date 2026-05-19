@@ -17,6 +17,7 @@ import {
   responseDocumentExpiredApprovalPrompt,
   responseDocumentLotoPrompt,
   responseDocumentLotoNotificationPrompt,
+  responseDocumentMixedOperationRagPrompt,
   responseDocumentNoResultsPrompt,
   responseDocumentPartialNoOpPrompt,
   responseDocumentPartialFailurePrompt,
@@ -778,6 +779,17 @@ test.describe('Final response quality response_document gate', () => {
     await expect(page.getByText(/affected employees to be notified before lockout\/tagout starts/i).first()).toBeVisible()
     await expandActivity(page, 'Run complete')
     await expect(page.getByText('Prepared sourced answer').first()).toBeVisible()
+    await expect(page.getByText('Safety notice').first()).toBeVisible()
+    await expect(page.getByText(/site-approved SOP/i).first()).toBeVisible()
+    const sourceChip = page.locator('[data-source-chip][data-source-id="LOTO-NOTIFICATION-REQ#chunk-notification-before-lockout"]').first()
+    await expect(sourceChip).toBeVisible()
+    await sourceChip.hover()
+    await expect(page.locator('[data-source-chip-hover]').filter({ hasText: 'LOTO Notification Requirements' }).first()).toBeVisible()
+    await expect(page.locator('[data-source-chip-hover]').filter({ hasText: 'Factory Safety' }).first()).toBeVisible()
+    await expect(page.locator('[data-source-chip-hover]').filter({ hasText: /Chunk chunk-notification-before-lockout/i }).first()).toBeVisible()
+    await sourceChip.click()
+    await expect(page.locator('[data-source-drawer][data-doc-id="LOTO-NOTIFICATION-REQ"][data-chunk-id="chunk-notification-before-lockout"]').first()).toBeVisible()
+    await expect(page.locator('[data-source-drawer-snippet]').filter({ hasText: /Affected employees must be notified/i }).first()).toBeVisible()
     await expect(page.getByText('Knowledge sources').first()).toBeVisible()
     await expect(page.getByText('LOTO Notification Requirements').first()).toBeVisible()
     await expect(page.getByText('Which machine ID')).toHaveCount(0)
@@ -795,15 +807,17 @@ test.describe('Final response quality response_document gate', () => {
         sessionStatus: 'COMPLETED',
         responseState: 'completed',
         pendingApprovalId: null,
-        visibleBlockTypes: ['source_list'],
-        backendBlockTypes: ['knowledge_answer', 'source_list'],
+        visibleBlockTypes: ['safety_notice', 'knowledge_answer', 'source_list'],
+        backendBlockTypes: ['safety_notice', 'knowledge_answer', 'source_list'],
         hiddenBlockTypes: ['approval_required', 'diagnostic', 'status_result', 'mutation_result'],
         hiddenBackendBlockTypes: ['approval_required', 'diagnostic', 'status_result', 'mutation_result'],
         approvalActionCount: 0,
+        responseContracts: ['safety_notice_v1', 'knowledge_answer_v1', 'source_list_v1'],
         forbiddenText: documentContentRagForbiddenProbeText,
         textIncludes: [
           responseDocumentLotoNotificationPrompt,
           'The LOTO procedure requires affected employees to be notified before lockout/tagout starts.',
+          'Safety notice',
           'LOTO Notification Requirements',
         ],
         textExcludes: [
@@ -819,15 +833,73 @@ test.describe('Final response quality response_document gate', () => {
       contentType: 'application/json',
     })
     const snapshot = await snapshotForPage(page)
+    const safetyBlock = snapshot.response_document.blocks.find((block) => block.type === 'safety_notice')
+    expect(safetyBlock).toBeTruthy()
+    expect(safetyBlock.contract).toBe('safety_notice_v1')
+    const knowledgeBlock = snapshot.response_document.blocks.find((block) => block.type === 'knowledge_answer')
+    expect(knowledgeBlock.contract).toBe('knowledge_answer_v1')
+    expect(knowledgeBlock.citations?.[0]?.contract).toBe('source_citation_v1')
+    expect(knowledgeBlock.segments?.[0]?.citation_ids?.length).toBeGreaterThan(0)
     const sourceBlock = snapshot.response_document.blocks.find((block) => block.type === 'source_list')
     expect(sourceBlock).toBeTruthy()
+    expect(sourceBlock.contract).toBe('source_list_v1')
     for (const source of sourceBlock.sources) {
+      expect(source.contract).toBe('source_locator_v1')
       for (const key of ['source_id', 'source_number', 'doc_id', 'chunk_id', 'title', 'organization', 'snippet']) {
         expect(source[key]).toBeTruthy()
       }
       expect(source.file_path).toBeUndefined()
     }
     expect(snapshot.response_document.message).not.toBe(snapshot.response_document.blocks.find((block) => block.type === 'knowledge_answer')?.answer)
+  })
+
+  test('typed RAG mixed operation answer renders separate operation and procedure sections', async ({ page }, testInfo) => {
+    test.setTimeout(45_000)
+    await openChat(page)
+    await sendChatPrompt(page, responseDocumentMixedOperationRagPrompt)
+
+    await expect(page.getByText('Machine status').first()).toBeVisible()
+    await expect(page.getByText('Procedure guidance').first()).toBeVisible()
+    await expect(page.getByText('Knowledge sources').first()).toBeVisible()
+    await expect(page.getByText(/M-CNC-01 is running on Line 1/i).first()).toBeVisible()
+    await expect(page.getByText(/Affected employees must be notified before lockout\/tagout starts/i).first()).toBeVisible()
+
+    const operationSections = page.locator('[data-response-block-type="status_result"][data-response-contract="entity_status_v1"]')
+    const guidanceSections = page.locator('[data-response-block-type="knowledge_answer"][data-response-contract="knowledge_answer_v1"]')
+    const operationSection = operationSections.first()
+    const guidanceSection = guidanceSections.first()
+    await expect(operationSection).toBeVisible()
+    await expect(guidanceSection).toBeVisible()
+    await expect(operationSections).toHaveCount(1)
+    await expect(guidanceSections).toHaveCount(1)
+    await expect(guidanceSection.locator('[data-source-chip]')).toHaveCount(1)
+
+    const summary = await expectTransitionCheckpoint(page, {
+      checkpoint: 'Phase 28 mixed operation plus RAG sections',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['status_result', 'safety_notice', 'knowledge_answer', 'source_list'],
+        backendBlockTypes: ['status_result', 'safety_notice', 'knowledge_answer', 'source_list'],
+        hiddenBlockTypes: ['approval_required', 'diagnostic', 'mutation_result'],
+        hiddenBackendBlockTypes: ['approval_required', 'diagnostic', 'mutation_result'],
+        responseContracts: ['entity_status_v1', 'safety_notice_v1', 'knowledge_answer_v1', 'source_list_v1'],
+        forbiddenText: documentContentRagForbiddenProbeText,
+        textIncludes: [
+          'Machine status',
+          'Procedure guidance',
+          'M-CNC-01 is running on Line 1.',
+          'Affected employees must be notified before lockout/tagout starts',
+        ],
+      },
+    })
+    await testInfo.attach('phase28-mixed-operation-rag-semantic-probe.json', {
+      body: serializeSemanticProbe(summary),
+      contentType: 'application/json',
+    })
   })
 
   test('diagnostic documents cover no-result, partial failure, timeout, expired, and stale approvals', async ({ page }) => {

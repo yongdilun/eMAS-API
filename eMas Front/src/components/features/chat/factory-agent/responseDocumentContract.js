@@ -24,6 +24,7 @@ const BLOCK_TYPES = new Set([
   'status_result',
   'record_preview',
   'knowledge_answer',
+  'safety_notice',
   'source_list',
   'warning',
   'diagnostic',
@@ -52,6 +53,8 @@ const ACTIVITY_STATE_BY_STEP = {
 }
 
 const SAFETY_ADMONITION_RE = /(?:^|\n)[ \t]*:::\s*safety\b[\s\S]*?(?:\n[ \t]*:::[ \t]*(?=\n|$)|$)/gi
+const FOOTNOTE_DEFINITION_RE = /^[ \t]*\[\^[^\]\n]+\]:[^\n]*(?:\n[ \t]+[^\n]*)*/gm
+const FOOTNOTE_MARKER_RE = /\[\^[^\]\n]+\]/g
 
 function cleanString(value) {
   if (value == null) return ''
@@ -59,6 +62,9 @@ function cleanString(value) {
     .replace(SAFETY_ADMONITION_RE, '\n')
     .replace(/^[ \t]*:::\s*safety\b[ \t]*$/gim, '')
     .replace(/^[ \t]*:::[ \t]*$/gim, '')
+    .replace(FOOTNOTE_DEFINITION_RE, '')
+    .replace(FOOTNOTE_MARKER_RE, '')
+    .replace(/\s+([,.;:!?])/g, '$1')
     .trim()
 }
 
@@ -81,6 +87,16 @@ function cleanGroups(value) {
 function cleanSources(value) {
   return Array.isArray(value)
     ? value.filter((source) => source && typeof source === 'object' && !Array.isArray(source))
+      .map((source) => ({
+        ...source,
+        title: cleanString(source.title),
+        organization: cleanString(source.organization),
+        snippet: cleanString(source.snippet),
+        doc_id: cleanString(source.doc_id || source.docId),
+        chunk_id: cleanString(source.chunk_id || source.chunkId),
+        source_id: cleanString(source.source_id || source.sourceId),
+        contract: cleanString(source.contract),
+      }))
     : []
 }
 
@@ -220,12 +236,28 @@ function normalizeBlock(block, index, violations) {
     summary: cleanString(block.summary),
     user_message: cleanString(block.user_message || block.userMessage),
     answer: cleanString(block.answer),
+    safety_content: cleanString(block.safety_content || block.safetyContent),
     approval_id: cleanString(block.approval_id || block.approvalId) || null,
     operation_id: cleanString(block.operation_id || block.operationId) || null,
     contract: cleanString(block.contract) || null,
     rows,
     groups,
     sources,
+    segments: Array.isArray(block.segments)
+      ? block.segments
+        .filter((segment) => segment && typeof segment === 'object' && !Array.isArray(segment))
+        .map((segment) => ({
+          ...segment,
+          text: cleanString(segment.text),
+          citation_ids: Array.isArray(segment.citation_ids || segment.citationIds)
+            ? (segment.citation_ids || segment.citationIds).map((item) => cleanString(item)).filter(Boolean)
+            : [],
+        }))
+        .filter((segment) => segment.text)
+      : [],
+    citations: Array.isArray(block.citations)
+      ? block.citations.filter((citation) => citation && typeof citation === 'object' && !Array.isArray(citation))
+      : [],
     fields: cleanStatusFields(block.fields),
     secondary_fields: cleanStatusFields(block.secondary_fields || block.secondaryFields),
     steps: Array.isArray(block.steps) ? block.steps.filter((row) => row && typeof row === 'object') : [],
@@ -247,6 +279,8 @@ function defaultBlockTitle(type) {
   if (type === 'result_table') return 'Affected records'
   if (type === 'status_result') return 'Status'
   if (type === 'record_preview') return 'Records'
+  if (type === 'knowledge_answer') return 'Procedure guidance'
+  if (type === 'safety_notice') return 'Safety notice'
   if (type === 'source_list') return 'Knowledge sources'
   if (type === 'diagnostic') return 'Needs attention'
   if (type === 'warning') return 'Warning'

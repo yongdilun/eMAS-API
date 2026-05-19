@@ -1145,15 +1145,42 @@ test('FactoryAgentChatPanel renders completed mutation response_document as one 
 
 test('FactoryAgentChatPanel renders RAG source block from response_document typed sources', async () => {
   const answer = 'Use the cited LOTO procedure before lockout.'
+  const citation = {
+    contract: 'source_citation_v1',
+    citation_id: 'citation:LOTO-M-CNC-01#chunk-1',
+    source_id: 'LOTO-M-CNC-01#chunk-1',
+    source_number: 1,
+    title: 'Machine LOTO Procedure',
+    doc_id: 'LOTO-M-CNC-01',
+    chunk_id: 'chunk-1',
+    organization: 'Factory Safety',
+    snippet: 'Notify affected employees before lockout begins.',
+  }
   const document = baseResponseDocument({
     blocks: [
       { id: 'message:knowledge', type: 'short_message', message: 'I found a source-backed answer.', status: 'completed' },
-      { id: 'knowledge:op-1', type: 'knowledge_answer', answer },
+      {
+        id: 'safety:op-1',
+        type: 'safety_notice',
+        contract: 'safety_notice_v1',
+        title: 'Safety notice',
+        safety_content: 'Follow the site-approved SOP and verify zero energy before acting.',
+      },
+      {
+        id: 'knowledge:op-1',
+        type: 'knowledge_answer',
+        contract: 'knowledge_answer_v1',
+        answer,
+        segments: [{ text: answer, citation_ids: ['citation:LOTO-M-CNC-01#chunk-1'] }],
+        citations: [citation],
+      },
       {
         id: 'sources:op-1',
         type: 'source_list',
+        contract: 'source_list_v1',
         sources: [
           {
+            contract: 'source_locator_v1',
             source_id: 'LOTO-M-CNC-01#chunk-1',
             source_number: 1,
             title: 'Machine LOTO Procedure',
@@ -1188,13 +1215,24 @@ test('FactoryAgentChatPanel renders RAG source block from response_document type
   await waitFor(() => assert.match(view.text(), /Use the cited LOTO procedure/))
   assert.equal((view.text().match(new RegExp(answer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 1)
   assert.match(view.text(), /I found a source-backed answer/)
+  assert.match(view.text(), /Safety notice/)
+  assert.match(view.text(), /Follow the site-approved SOP/)
   assert.match(view.text(), /Knowledge sources/)
   assert.match(view.text(), /Machine LOTO Procedure/)
   assert.match(view.text(), /LOTO-M-CNC-01/)
   assert.match(view.text(), /Chunk ID: chunk-1/)
   assert.match(view.text(), /Notify affected employees before lockout begins/)
+  const sourceChip = view.container.querySelector('[data-source-chip][data-source-id="LOTO-M-CNC-01#chunk-1"]')
+  assert.ok(sourceChip)
+  assert.equal(sourceChip.textContent.trim(), '[1]')
+  await click(sourceChip)
+  await waitFor(() => assert.ok(view.container.querySelector('[data-source-drawer]')))
+  assert.match(view.text(), /Document/)
+  assert.match(view.text(), /Chunk/)
+  assert.match(view.text(), /Notify affected employees before lockout begins/)
   assert.doesNotMatch(view.text(), /Legacy source chrome should not render/)
   assert.doesNotMatch(view.text(), /Legacy safety advisory should not render/)
+  assert.doesNotMatch(view.text(), /\[\^1\]/)
 
   await view.unmount()
 })
@@ -1223,6 +1261,76 @@ test('FactoryAgentChatPanel strips legacy raw safety markdown from response_docu
   await waitFor(() => assert.match(view.text(), /Notify affected employees before lockout/))
   assert.doesNotMatch(view.text(), /:::safety/)
   assert.doesNotMatch(view.text(), /SAFETY WARNING/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel offers PDF page link when source locator includes pdf_url and page', async () => {
+  const answer = 'Use page-specific LOTO notification guidance.'
+  const document = baseResponseDocument({
+    blocks: [
+      { id: 'message:knowledge', type: 'short_message', message: 'I found a source-backed answer.', status: 'completed' },
+      {
+        id: 'knowledge:op-pdf',
+        type: 'knowledge_answer',
+        contract: 'knowledge_answer_v1',
+        answer,
+        segments: [{ text: answer, citation_ids: ['citation:PDF-LOTO#chunk-9'] }],
+        citations: [
+          {
+            contract: 'source_citation_v1',
+            citation_id: 'citation:PDF-LOTO#chunk-9',
+            source_id: 'PDF-LOTO#chunk-9',
+            source_number: 1,
+            title: 'PDF LOTO Procedure',
+            doc_id: 'PDF-LOTO',
+            chunk_id: 'chunk-9',
+            organization: 'Factory Safety',
+            snippet: 'Page 9 covers notification timing.',
+            pdf_url: '/documents/pdf-loto.pdf',
+            page: 9,
+          },
+        ],
+      },
+      {
+        id: 'sources:op-pdf',
+        type: 'source_list',
+        contract: 'source_list_v1',
+        sources: [
+          {
+            contract: 'source_locator_v1',
+            source_id: 'PDF-LOTO#chunk-9',
+            source_number: 1,
+            title: 'PDF LOTO Procedure',
+            doc_id: 'PDF-LOTO',
+            chunk_id: 'chunk-9',
+            organization: 'Factory Safety',
+            snippet: 'Page 9 covers notification timing.',
+            pdf_url: '/documents/pdf-loto.pdf',
+            page: 9,
+          },
+        ],
+      },
+    ],
+  })
+  const chatState = createChatState({
+    session: { session_id: 'session-rd-pdf-source', name: 'RD PDF source', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-rd-pdf-source', name: 'RD PDF source', status: 'COMPLETED' }],
+    activeSessionName: 'RD PDF source',
+    turns: [responseDocumentTurn(document)],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  await waitFor(() => assert.ok(view.container.querySelector('[data-source-chip]')))
+  await click(view.container.querySelector('[data-source-chip]'))
+  const link = await waitFor(() => {
+    const node = view.container.querySelector('[data-source-pdf-link]')
+    assert.ok(node)
+    return node
+  })
+  assert.match(link.textContent, /Open PDF page 9/)
+  assert.match(link.getAttribute('href'), /\/documents\/pdf-loto\.pdf#page=9$/)
 
   await view.unmount()
 })

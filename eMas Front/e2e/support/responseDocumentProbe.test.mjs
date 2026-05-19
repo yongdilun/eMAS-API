@@ -317,6 +317,80 @@ test('final response quality guardrail requires typed field evidence for busines
   assert.match(violations.join('\n'), /business_change_v1 expectation Material hold status must include typed field-change evidence/)
 })
 
+test('semantic probe summarizes typed RAG source chip and citation evidence', () => {
+  const probe = buildSemanticProbe({
+    checkpoint: 'typed RAG source citation',
+    snapshot: baseSnapshot({
+      session: { session_id: 'session-phase28', name: 'Chat 28', status: 'COMPLETED' },
+      phase: 'COMPLETED',
+      pending_approval: null,
+      response_document: {
+        state: 'completed',
+        revision: 28,
+        current_step_id: 'completed-rag',
+        run_steps: [{ step_id: 'completed-rag', kind: 'completed', state: 'completed', title: 'Run complete' }],
+        blocks: [
+          { id: 'safety:loto', type: 'safety_notice', contract: 'safety_notice_v1', safety_content: 'Follow the site SOP.' },
+          {
+            id: 'knowledge:loto',
+            type: 'knowledge_answer',
+            contract: 'knowledge_answer_v1',
+            answer: 'Notify affected employees before lockout.',
+            citations: [
+              {
+                contract: 'source_citation_v1',
+                citation_id: 'citation:LOTO#chunk-1',
+                source_id: 'LOTO#chunk-1',
+                source_number: 1,
+                doc_id: 'LOTO',
+                chunk_id: 'chunk-1',
+                title: 'LOTO Procedure',
+              },
+            ],
+          },
+          {
+            id: 'sources:loto',
+            type: 'source_list',
+            contract: 'source_list_v1',
+            sources: [{ contract: 'source_locator_v1', source_id: 'LOTO#chunk-1', doc_id: 'LOTO', chunk_id: 'chunk-1' }],
+          },
+        ],
+      },
+    }),
+    ui: baseUi({
+      headerStatus: 'Complete',
+      activeSidebarStatus: 'Complete',
+      visibleBlockTypes: ['safety_notice', 'knowledge_answer', 'source_list'],
+      visibleBlockIds: ['safety:loto', 'knowledge:loto', 'sources:loto'],
+      visibleContracts: ['safety_notice_v1', 'knowledge_answer_v1', 'source_list_v1', 'source_locator_v1'],
+      visibleBlocks: [
+        { type: 'safety_notice', id: 'safety:loto', contract: 'safety_notice_v1', title: 'Safety notice', text: 'Safety notice Follow the site SOP.', buttons: [] },
+        { type: 'knowledge_answer', id: 'knowledge:loto', contract: 'knowledge_answer_v1', title: 'Procedure guidance', text: 'Notify affected employees before lockout. [1]', buttons: ['[1]'] },
+        { type: 'source_list', id: 'sources:loto', contract: 'source_list_v1', title: 'Knowledge sources', text: 'LOTO Procedure', buttons: [] },
+      ],
+      sourceChips: [{ sourceId: 'LOTO#chunk-1', docId: 'LOTO', chunkId: 'chunk-1', sourceNumber: '1', text: '[1]' }],
+      sourceDrawer: { open: true, sourceId: 'LOTO#chunk-1', docId: 'LOTO', chunkId: 'chunk-1', text: 'LOTO Procedure Notify affected employees before lockout.' },
+      approvalActionLabels: [],
+      visibleApprovalIds: [],
+      visibleText: 'Safety notice Follow the site SOP. Procedure guidance Notify affected employees before lockout. [1] Knowledge sources LOTO Procedure',
+    }),
+    expected: {
+      sessionStatus: 'COMPLETED',
+      responseState: 'completed',
+      pendingApprovalId: null,
+      visibleBlockTypes: ['safety_notice', 'knowledge_answer', 'source_list'],
+      backendBlockTypes: ['safety_notice', 'knowledge_answer', 'source_list'],
+      responseContracts: ['safety_notice_v1', 'knowledge_answer_v1', 'source_list_v1', 'source_locator_v1'],
+    },
+  })
+
+  assert.equal(probe.diagnosis.classification, 'unknown')
+  assert.deepEqual(probe.visible.sourceChips.map((chip) => [chip.sourceId, chip.docId, chip.chunkId]), [['LOTO#chunk-1', 'LOTO', 'chunk-1']])
+  assert.equal(probe.visible.sourceDrawer.open, true)
+  assert.deepEqual(probe.backend.responseDocument.sourceCitations.map((citation) => citation.contract), ['source_citation_v1'])
+  assert.ok(probe.backend.responseContracts.includes('source_locator_v1'))
+})
+
 test('final response quality violations explain noisy or duplicated rendered output', () => {
   const violations = finalResponseQualityViolations({
     finalResultCardCount: 2,

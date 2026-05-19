@@ -454,14 +454,43 @@ def test_response_document_schema_validates_phase_1_block_types():
                 {
                     "id": "knowledge:op-1",
                     "type": "knowledge_answer",
+                    "contract": "knowledge_answer_v1",
                     "operation_id": "op-1",
                     "answer": "Use the controlled LOTO procedure.",
+                    "segments": [
+                        {
+                            "text": "Use the controlled LOTO procedure.",
+                            "citation_ids": ["citation:LOTO-M-CNC-01#chunk-1"],
+                        }
+                    ],
+                    "citations": [
+                        {
+                            "contract": "source_citation_v1",
+                            "citation_id": "citation:LOTO-M-CNC-01#chunk-1",
+                            "source_id": "LOTO-M-CNC-01#chunk-1",
+                            "source_number": 1,
+                            "doc_id": "LOTO-M-CNC-01",
+                            "chunk_id": "chunk-1",
+                            "title": "LOTO procedure",
+                            "organization": "Factory Safety",
+                            "snippet": "Use the controlled LOTO procedure.",
+                        }
+                    ],
+                },
+                {
+                    "id": "safety:op-1",
+                    "type": "safety_notice",
+                    "contract": "safety_notice_v1",
+                    "title": "Safety notice",
+                    "safety_content": "Follow the approved SOP before acting.",
+                    "operation_id": "op-1",
                 },
                 {
                     "id": "sources:op-1",
                     "type": "source_list",
+                    "contract": "source_list_v1",
                     "operation_id": "op-1",
-                    "sources": [{"procedure_id": "LOTO-M-CNC-01"}],
+                    "sources": [{"contract": "source_locator_v1", "procedure_id": "LOTO-M-CNC-01"}],
                 },
                 {
                     "id": "diagnostic:op-1:planner_timeout",
@@ -487,6 +516,7 @@ def test_response_document_schema_validates_phase_1_block_types():
         "result_table",
         "status_result",
         "knowledge_answer",
+        "safety_notice",
         "source_list",
         "diagnostic",
     }
@@ -1993,7 +2023,8 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
         ":::safety\n"
         "**SAFETY WARNING**: legacy markdown should not be visible.\n"
         ":::\n\n"
-        "Use the controlled LOTO procedure before working on M-CNC-01."
+        "Notify affected employees before lockout starts [^1].\n\n"
+        "[^1]: LOTO notification requirements."
     )
     source = {
         "machine_id": "M-CNC-01",
@@ -2019,20 +2050,39 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
     plan = await db_session.get(Plan, plan_id)
     assert plan is not None
     plan.sources = [source]
+    plan.safety_content = "This topic involves high-risk industrial procedures. Follow the site-approved SOP before acting."
     await db_session.commit()
 
     body = await _snapshot(db_session, session_id)
     document = body["response_document"]
 
     assert body["presentation"]["kind"] == "knowledge_answer"
+    safety_block = next(block for block in document["blocks"] if block["type"] == "safety_notice")
+    assert safety_block["contract"] == "safety_notice_v1"
+    assert "site-approved SOP" in safety_block["safety_content"]
+    assert ":::safety" not in safety_block["safety_content"]
     knowledge_block = next(block for block in document["blocks"] if block["type"] == "knowledge_answer")
-    assert knowledge_block["answer"] == "Use the controlled LOTO procedure before working on M-CNC-01."
+    assert knowledge_block["contract"] == "knowledge_answer_v1"
+    assert knowledge_block["answer"] == "Notify affected employees before lockout starts."
+    assert "[^1]" not in knowledge_block["answer"]
+    assert knowledge_block["segments"] == [
+        {
+            "text": "Notify affected employees before lockout starts.",
+            "citation_ids": [knowledge_block["citations"][0]["citation_id"]],
+        }
+    ]
+    assert knowledge_block["citations"][0]["contract"] == "source_citation_v1"
+    assert knowledge_block["citations"][0]["doc_id"] == "LOTO-M-CNC-01"
+    assert knowledge_block["citations"][0]["chunk_id"]
     assert document["message"] != knowledge_block["answer"]
     assert document["message"] == "I found a source-backed answer."
     assert ":::safety" not in json.dumps(document)
+    assert "[^1]" not in json.dumps(document)
     source_block = next(block for block in document["blocks"] if block["type"] == "source_list")
+    assert source_block["contract"] == "source_list_v1"
     assert source_block["sources"][0]["procedure_id"] == "LOTO-M-CNC-01"
     source_payload = source_block["sources"][0]
+    assert source_payload["contract"] == "source_locator_v1"
     for key in ("source_id", "source_number", "doc_id", "chunk_id", "title", "organization", "snippet"):
         assert source_payload[key]
     assert "file_path" not in source_payload

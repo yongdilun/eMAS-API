@@ -72,6 +72,7 @@ import {
   closedApprovalDocument,
   lotoDocument,
   lotoNotificationDocument,
+  mixedOperationRagDocument,
   noResultsDocument,
   partialFailureDocument,
   partialNoOpApprovalPayload,
@@ -87,6 +88,7 @@ import {
   responseDocumentExpiredApprovalPrompt,
   responseDocumentLotoPrompt,
   responseDocumentLotoNotificationPrompt,
+  responseDocumentMixedOperationRagPrompt,
   responseDocumentNoResultsPrompt,
   responseDocumentPartialNoOpPrompt,
   responseDocumentPartialFailurePrompt,
@@ -960,6 +962,14 @@ export const scenarioCatalog = {
     operationId: 'pw-plan-rd-loto-notification',
     objective: 'Render response_document document-content LOTO notification answer.',
     buildDocument: lotoNotificationDocument,
+  }),
+
+  responseDocumentMixedOperationRag: responseDocumentCompletionScenario({
+    name: 'responseDocumentMixedOperationRag',
+    prompt: responseDocumentMixedOperationRagPrompt,
+    operationId: 'pw-plan-rd-mixed-operation-rag',
+    objective: 'Render response_document mixed operation and RAG sections.',
+    buildDocument: mixedOperationRagDocument,
   }),
 
   responseDocumentNoResults: responseDocumentCompletionScenario({

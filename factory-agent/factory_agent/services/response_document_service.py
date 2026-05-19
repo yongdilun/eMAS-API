@@ -30,6 +30,7 @@ from factory_agent.schemas import (
     ResultTableBlock,
     RunActivityBlock,
     RunStep,
+    SafetyNoticeBlock,
     ShortMessageBlock,
     SourceListBlock,
     StatusResultBlock,
@@ -64,6 +65,11 @@ _ACTION_LABELS = {
 ENTITY_STATUS_CONTRACT = "entity_status_v1"
 BUSINESS_CHANGE_CONTRACT = "business_change_v1"
 NO_OP_MUTATION_CONTRACT = "entity_agnostic_no_matching_records_v1"
+SAFETY_NOTICE_CONTRACT = "safety_notice_v1"
+KNOWLEDGE_ANSWER_CONTRACT = "knowledge_answer_v1"
+SOURCE_CITATION_CONTRACT = "source_citation_v1"
+SOURCE_LIST_CONTRACT = "source_list_v1"
+SOURCE_LOCATOR_CONTRACT = "source_locator_v1"
 
 
 @dataclass(frozen=True)
@@ -377,6 +383,108 @@ class ReadEvidence:
 
 def _trimmed(value: Any) -> str:
     return str(value or "").strip()
+
+
+_FOOTNOTE_DEFINITION_RE = re.compile(
+    r"(?m)^[ \t]*\[\^[^\]\n]+\]:[^\n]*(?:\n[ \t]+[^\n]*)*"
+)
+_FOOTNOTE_MARKER_RE = re.compile(r"\[\^([^\]\n]+)\]")
+_FOOTNOTE_MARKER_CLUSTER_RE = re.compile(r"((?:\s*\[\^[^\]\n]+\])+)")
+
+
+def _strip_footnote_markup(value: Any) -> str:
+    text = sanitize_rag_answer_text(value)
+    text = _FOOTNOTE_DEFINITION_RE.sub("", text)
+    text = _FOOTNOTE_MARKER_RE.sub("", text)
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return re.sub(r"[ \t]+\n", "\n", text).strip()
+
+
+def _source_key(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _citation_payload(source: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "contract": SOURCE_CITATION_CONTRACT,
+        "citation_id": f"citation:{_source_key(source.get('source_id') or source.get('doc_id') or source.get('source_number'))}",
+        "source_id": source.get("source_id"),
+        "source_number": source.get("source_number"),
+        "doc_id": source.get("doc_id"),
+        "chunk_id": source.get("chunk_id"),
+        "title": source.get("title"),
+        "organization": source.get("organization"),
+        "snippet": source.get("snippet"),
+    }
+    for key in ("page", "pdf_url", "policy_only", "source_kind"):
+        if source.get(key) not in (None, "", [], {}):
+            payload[key] = source.get(key)
+    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
+
+
+def _knowledge_answer_payload(answer: Any, sources: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    raw_answer = sanitize_rag_answer_text(answer)
+    answer_without_definitions = _FOOTNOTE_DEFINITION_RE.sub("", raw_answer).strip()
+    source_by_number = {
+        str(source.get("source_number")): source
+        for source in sources
+        if source.get("source_number") not in (None, "")
+    }
+    citations_by_id: dict[str, dict[str, Any]] = {}
+    segments: list[dict[str, Any]] = []
+    cursor = 0
+
+    for match in _FOOTNOTE_MARKER_CLUSTER_RE.finditer(answer_without_definitions):
+        end = match.end()
+        trailing_punctuation = ""
+        while end < len(answer_without_definitions) and answer_without_definitions[end] in ".,;:!?":
+            trailing_punctuation += answer_without_definitions[end]
+            end += 1
+        text = f"{answer_without_definitions[cursor:match.start()]}{trailing_punctuation}"
+        refs: list[dict[str, Any]] = []
+        for marker in _FOOTNOTE_MARKER_RE.findall(match.group(0)):
+            source = source_by_number.get(str(marker).strip())
+            if not source:
+                continue
+            citation = _citation_payload(source)
+            citation_id = str(citation.get("citation_id") or "")
+            if citation_id:
+                citations_by_id[citation_id] = citation
+                refs.append({"citation_id": citation_id, "source_id": source.get("source_id"), "source_number": source.get("source_number")})
+        clean_text = _strip_footnote_markup(text)
+        if clean_text:
+            segments.append(
+                {
+                    "text": clean_text,
+                    "citation_ids": [ref["citation_id"] for ref in refs if ref.get("citation_id")],
+                }
+            )
+        elif refs and segments:
+            existing = segments[-1].setdefault("citation_ids", [])
+            for ref in refs:
+                citation_id = ref.get("citation_id")
+                if citation_id and citation_id not in existing:
+                    existing.append(citation_id)
+        cursor = end
+
+    tail = _strip_footnote_markup(answer_without_definitions[cursor:])
+    if tail:
+        segments.append({"text": tail, "citation_ids": []})
+
+    clean_answer = _strip_footnote_markup(answer_without_definitions)
+    if clean_answer and not segments:
+        segments.append({"text": clean_answer, "citation_ids": []})
+
+    if sources and segments and not any(segment.get("citation_ids") for segment in segments):
+        first_source = sources[0]
+        citation = _citation_payload(first_source)
+        citation_id = str(citation.get("citation_id") or "")
+        if citation_id:
+            citations_by_id[citation_id] = citation
+            segments[0]["citation_ids"] = [citation_id]
+
+    return clean_answer, segments, list(citations_by_id.values())
 
 
 def _action(action_id: str) -> dict[str, str]:
@@ -2642,6 +2750,8 @@ def _compose_run_steps(
             completion_summary = _aggregate_mutation_summary(mutation_groups)
         elif status_result:
             completion_summary = _trimmed(status_result.get("summary")) or None
+        elif sources:
+            completion_summary = _strip_footnote_markup(presentation.summary) or "Source-backed answer is ready."
         else:
             completion_summary = _trimmed(presentation.summary) or None
         run_steps.append(
@@ -2860,6 +2970,7 @@ def _compose_blocks(
     operation_id: str | None,
     state: str,
     message: str,
+    safety_content: str | None,
     run_steps: list[RunStep],
     latest_pending: ApprovalResponse | None,
     approvals: list[ApprovalResponse],
@@ -2871,6 +2982,7 @@ def _compose_blocks(
     failure_profile: FailureProfile | None,
 ) -> list[ResponseBlock]:
     blocks: list[ResponseBlock] = []
+    knowledge_blocks: list[ResponseBlock] = []
     if run_steps:
         blocks.append(RunActivityBlock(id=f"activity:{document_id}", step_ids=[step.step_id for step in run_steps]))
 
@@ -2989,13 +3101,27 @@ def _compose_blocks(
             )
 
     if presentation.kind == "knowledge_answer":
-        answer = sanitize_rag_answer_text(presentation.summary)
+        safety_text = _strip_footnote_markup(safety_content)
+        if safety_text:
+            knowledge_blocks.append(
+                SafetyNoticeBlock(
+                    id=f"safety:{operation_id or document_id}",
+                    contract=SAFETY_NOTICE_CONTRACT,
+                    title="Safety notice",
+                    safety_content=safety_text,
+                    operation_id=operation_id,
+                )
+            )
+        answer, segments, citations = _knowledge_answer_payload(presentation.summary, sources)
         if answer:
-            blocks.append(
+            knowledge_blocks.append(
                 KnowledgeAnswerBlock(
                     id=f"knowledge:{operation_id or document_id}",
+                    contract=KNOWLEDGE_ANSWER_CONTRACT,
                     answer=answer,
                     operation_id=operation_id,
+                    segments=segments,
+                    citations=citations,
                 )
             )
 
@@ -3030,8 +3156,17 @@ def _compose_blocks(
             )
         )
 
+    blocks.extend(knowledge_blocks)
+
     if sources:
-        blocks.append(SourceListBlock(id=f"sources:{operation_id or document_id}", sources=sources, operation_id=operation_id))
+        blocks.append(
+            SourceListBlock(
+                id=f"sources:{operation_id or document_id}",
+                contract=SOURCE_LIST_CONTRACT,
+                sources=sources,
+                operation_id=operation_id,
+            )
+        )
 
     no_result = presentation.kind == "answer" and not read_rows and not sources and state == "completed" and not mutation_groups
     diagnostic_kind = (
@@ -3118,6 +3253,9 @@ def compose_response_document(
         presentation.sources if isinstance(presentation.sources, list) else [],
         fallback_snippet=presentation.summary,
     )
+    for source in sources:
+        source.setdefault("contract", SOURCE_LOCATOR_CONTRACT)
+    safety_content = _trimmed(getattr(plan, "safety_content", None)) or None
     failure_profile = _failure_profile(
         state=state,
         presentation=presentation,
@@ -3160,6 +3298,7 @@ def compose_response_document(
         operation_id=operation_id,
         state=state,
         message=message,
+        safety_content=safety_content,
         run_steps=run_steps,
         latest_pending=latest_pending,
         approvals=approvals,
@@ -3206,6 +3345,10 @@ def compose_response_document(
         "read_result_shape": read_shape,
         "read_status_contract": ENTITY_STATUS_CONTRACT if status_result else None,
         "read_status_entity_type": status_result.get("entity_type") if status_result else None,
+        "safety_notice_contract": SAFETY_NOTICE_CONTRACT if safety_content else None,
+        "knowledge_answer_contract": KNOWLEDGE_ANSWER_CONTRACT if presentation.kind == "knowledge_answer" else None,
+        "source_list_contract": SOURCE_LIST_CONTRACT if sources else None,
+        "source_locator_contract": SOURCE_LOCATOR_CONTRACT if sources else None,
         "failure_reason": failure_profile.reason if failure_profile else None,
         "orphan_turn_state": (
             failure_profile.reason == "orphan_turn_state"

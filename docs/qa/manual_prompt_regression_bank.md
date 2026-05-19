@@ -345,6 +345,24 @@ Phase 27 closure evidence:
 - Passed: `npm run test:e2e:response-document -- --grep "LOTO|RAG|source|safety|duplicate"` -> 7 passed.
 - Accepted limitation: PDF page jumps and exact highlights remain Phase 29 because ingestion is not page-aware yet.
 
+## Response Document Phase 28 Typed RAG Answer And Source Citation UX
+
+Phase 28 promotes the LOTO/RAG display proof from source-list-only evidence to typed inline claim citations, hover metadata, and a source drawer.
+
+| Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
+|---|---|---|---|
+| `response-document-phase28-loto-typed-rag-source-citation` | `According to the LOTO procedure, what notification is required before starting lockout` | Renders one typed knowledge answer with a dedicated safety notice, inline source chip, hover metadata, source drawer snippet/metadata, and `Knowledge sources` bibliography/details. No raw `:::safety`, footnote definitions, or unconverted `[^1]` markers are visible. | Covered: `factory-agent/tests/test_response_document_contract.py::test_rag_response_document_includes_knowledge_answer_and_source_blocks`; `FactoryAgentChatPanel.component.test.mjs`; `responseDocumentProbe.test.mjs`; `final-response-quality.spec.js::RD-009 response_document LOTO document content notification answer does not ask for machine ID`. |
+| `response-document-phase28-mixed-operation-rag-sections` | `Show M-CNC-01 status and the LOTO notification guidance as separate sections` | Renders live machine status as `status_result` and procedure guidance as separate `safety_notice`/`knowledge_answer`/`source_list` sections, with source chip evidence attached to the procedure claim. | Covered: `eMas Front/e2e/specs/final-response-quality.spec.js::typed RAG mixed operation answer renders separate operation and procedure sections`. |
+| `response-document-phase28-pdf-page-link-fallback` | Source chip with `pdf_url` and `page`. | Source drawer offers an `Open PDF page N` link when locator metadata exists, while exact PDF highlight remains Phase 29. | Covered: `FactoryAgentChatPanel.component.test.mjs::FactoryAgentChatPanel offers PDF page link when source locator includes pdf_url and page`. |
+
+Phase 28 closure evidence:
+
+- Passed: `python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_rag_generation.py tests/test_rag_knowledge_policy.py -q` -> 47 passed.
+- Passed: `npm test` -> 119 passed.
+- Passed: `node --test --test-concurrency=1 e2e/support/responseDocumentProbe.test.mjs` -> 11 passed.
+- Passed: `npm run test:e2e:response-document -- --grep "LOTO|typed RAG|source chip|safety notice|source drawer|mixed operation"` -> 4 passed.
+- Accepted limitation: exact PDF highlighting and page-aware ingestion remain Phase 29; Phase 28 only provides drawer and page-link fallback behavior.
+
 ## Phase 15 Release Enforcement Note
 
 Phase 15 assigns every fixed or newly found prompt/workflow miss to a blocking lane:

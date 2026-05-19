@@ -6,6 +6,8 @@ export const responseDocumentReadStatusPrompt = 'Show status for machine with ma
 export const responseDocumentLotoPrompt = 'Render response_document LOTO procedure answer for M-CNC-01'
 export const responseDocumentLotoNotificationPrompt =
   'According to the LOTO procedure, what notification is required before starting lockout'
+export const responseDocumentMixedOperationRagPrompt =
+  'Show M-CNC-01 status and the LOTO notification guidance as separate sections'
 export const responseDocumentNoResultsPrompt = 'Find response_document jobs that do not exist'
 export const responseDocumentPartialFailurePrompt = 'Run response_document partial failure fixture'
 export const responseDocumentTimeoutPrompt = 'Run response_document planner timeout fixture'
@@ -67,6 +69,11 @@ export const lowPriorityRows = Object.freeze([
 const BUSINESS_CHANGE_CONTRACT = 'business_change_v1'
 const NO_OP_MUTATION_CONTRACT = 'entity_agnostic_no_matching_records_v1'
 const ENTITY_STATUS_CONTRACT = 'entity_status_v1'
+const SAFETY_NOTICE_CONTRACT = 'safety_notice_v1'
+const KNOWLEDGE_ANSWER_CONTRACT = 'knowledge_answer_v1'
+const SOURCE_CITATION_CONTRACT = 'source_citation_v1'
+const SOURCE_LOCATOR_CONTRACT = 'source_locator_v1'
+const SOURCE_LIST_CONTRACT = 'source_list_v1'
 
 function priorityBusinessChangeId(source, target) {
   return `job-priority-original-${source}-to-${target}`
@@ -667,6 +674,18 @@ export function readStatusDocument(session) {
 
 export function lotoDocument(session) {
   const answer = 'Use the M-CNC-01 lockout/tagout procedure before opening the CNC enclosure: notify operations, stop the machine, isolate electrical and pneumatic energy, apply locks, and verify zero energy before work begins.'
+  const citation = {
+    contract: 'source_citation_v1',
+    citation_id: 'citation:LOTO-M-CNC-01#chunk-loto-m-cnc-01',
+    source_id: 'LOTO-M-CNC-01#chunk-loto-m-cnc-01',
+    source_number: 1,
+    title: 'M-CNC-01 Lockout/Tagout Procedure',
+    doc_id: 'LOTO-M-CNC-01',
+    chunk_id: 'chunk-loto-m-cnc-01',
+    machine_id: 'M-CNC-01',
+    organization: 'Factory Safety',
+    snippet: 'Notify operations, isolate electrical and pneumatic energy, apply locks, and verify zero energy before work begins.',
+  }
   return baseDocument(session, {
     operationId: 'pw-plan-rd-loto',
     revision: 3,
@@ -678,13 +697,30 @@ export function lotoDocument(session) {
       { step_id: 'completed-loto', kind: 'completed', state: 'completed', title: 'Run complete', summary: 'LOTO answer is ready.' },
     ],
     blocks: [
-      { id: 'knowledge:loto', type: 'knowledge_answer', operation_id: 'pw-plan-rd-loto', answer },
+      {
+        id: 'safety:loto',
+        type: 'safety_notice',
+        contract: 'safety_notice_v1',
+        operation_id: 'pw-plan-rd-loto',
+        safety_content: 'LOTO is safety critical. Follow the site-approved SOP and verify zero energy before work begins.',
+      },
+      {
+        id: 'knowledge:loto',
+        type: 'knowledge_answer',
+        contract: 'knowledge_answer_v1',
+        operation_id: 'pw-plan-rd-loto',
+        answer,
+        segments: [{ text: answer, citation_ids: [citation.citation_id] }],
+        citations: [citation],
+      },
       {
         id: 'sources:loto',
         type: 'source_list',
+        contract: 'source_list_v1',
         operation_id: 'pw-plan-rd-loto',
         sources: [
           {
+            contract: 'source_locator_v1',
             source_id: 'LOTO-M-CNC-01#chunk-loto-m-cnc-01',
             source_number: 1,
             title: 'M-CNC-01 Lockout/Tagout Procedure',
@@ -702,6 +738,18 @@ export function lotoDocument(session) {
 
 export function lotoNotificationDocument(session) {
   const answer = 'The LOTO procedure requires affected employees to be notified before lockout/tagout starts. Tell them the equipment will be locked out, why the shutdown is needed, and when the lockout condition begins.'
+  const citation = {
+    contract: 'source_citation_v1',
+    citation_id: 'citation:LOTO-NOTIFICATION-REQ#chunk-notification-before-lockout',
+    source_id: 'LOTO-NOTIFICATION-REQ#chunk-notification-before-lockout',
+    source_number: 1,
+    title: 'LOTO Notification Requirements',
+    doc_id: 'LOTO-NOTIFICATION-REQ',
+    chunk_id: 'chunk-notification-before-lockout',
+    organization: 'Factory Safety',
+    snippet: 'Affected employees must be notified before lockout/tagout starts and told why shutdown is needed and when control begins.',
+    policy_only: true,
+  }
   return baseDocument(session, {
     operationId: 'pw-plan-rd-loto-notification',
     revision: 3,
@@ -713,13 +761,30 @@ export function lotoNotificationDocument(session) {
       { step_id: 'completed-loto-notification', kind: 'completed', state: 'completed', title: 'Run complete', summary: 'LOTO notification answer is ready.' },
     ],
     blocks: [
-      { id: 'knowledge:loto-notification', type: 'knowledge_answer', operation_id: 'pw-plan-rd-loto-notification', answer },
+      {
+        id: 'safety:loto-notification',
+        type: 'safety_notice',
+        contract: 'safety_notice_v1',
+        operation_id: 'pw-plan-rd-loto-notification',
+        safety_content: 'LOTO notification is part of a high-risk control process. Follow the site-approved SOP before acting.',
+      },
+      {
+        id: 'knowledge:loto-notification',
+        type: 'knowledge_answer',
+        contract: 'knowledge_answer_v1',
+        operation_id: 'pw-plan-rd-loto-notification',
+        answer,
+        segments: [{ text: answer, citation_ids: [citation.citation_id] }],
+        citations: [citation],
+      },
       {
         id: 'sources:loto-notification',
         type: 'source_list',
+        contract: 'source_list_v1',
         operation_id: 'pw-plan-rd-loto-notification',
         sources: [
           {
+            contract: 'source_locator_v1',
             source_id: 'LOTO-NOTIFICATION-REQ#chunk-notification-before-lockout',
             source_number: 1,
             title: 'LOTO Notification Requirements',
@@ -735,6 +800,93 @@ export function lotoNotificationDocument(session) {
     invariants: {
       rag_question_type: 'document_content_question',
       missing_required_entities: [],
+    },
+  })
+}
+
+export function mixedOperationRagDocument(session) {
+  const guidance = 'Affected employees must be notified before lockout/tagout starts and told why the equipment shutdown is needed.'
+  const citation = {
+    contract: SOURCE_CITATION_CONTRACT,
+    citation_id: 'citation:LOTO-MIXED-NOTIFICATION#chunk-notification',
+    source_id: 'LOTO-MIXED-NOTIFICATION#chunk-notification',
+    source_number: 1,
+    title: 'LOTO Notification Requirements',
+    doc_id: 'LOTO-MIXED-NOTIFICATION',
+    chunk_id: 'chunk-notification',
+    organization: 'Factory Safety',
+    snippet: 'Affected employees must be notified before lockout/tagout starts and told why shutdown is needed.',
+    policy_only: true,
+  }
+  return baseDocument(session, {
+    operationId: 'pw-plan-rd-mixed-operation-rag',
+    revision: 3,
+    state: 'completed',
+    message: 'Machine status and sourced LOTO guidance are ready.',
+    currentStepId: 'completed-mixed-operation-rag',
+    runSteps: [
+      { step_id: 'read-mixed-status', kind: 'read', state: 'completed', title: 'Read machine status', summary: 'M-CNC-01 status is running.' },
+      { step_id: 'knowledge-mixed-loto', kind: 'knowledge', state: 'completed', title: 'Prepared sourced guidance', summary: '1 source attached.' },
+      { step_id: 'completed-mixed-operation-rag', kind: 'completed', state: 'completed', title: 'Run complete', summary: 'Status and LOTO guidance are ready.' },
+    ],
+    blocks: [
+      {
+        id: 'status:mixed-operation',
+        type: 'status_result',
+        contract: ENTITY_STATUS_CONTRACT,
+        operation_id: 'pw-plan-rd-mixed-operation-rag',
+        title: 'Machine status',
+        summary: 'M-CNC-01 is running on Line 1.',
+        entity_type: 'machine',
+        entity_id: 'M-CNC-01',
+        primary_status: 'running',
+        fields: [
+          { key: 'machine_id', label: 'Machine ID', value: 'M-CNC-01' },
+          { key: 'status', label: 'Status', value: 'running', primary: true },
+          { key: 'location', label: 'Location', value: 'Line 1' },
+        ],
+        secondary_fields: [],
+      },
+      {
+        id: 'safety:mixed-loto',
+        type: 'safety_notice',
+        contract: SAFETY_NOTICE_CONTRACT,
+        operation_id: 'pw-plan-rd-mixed-operation-rag',
+        safety_content: 'LOTO guidance is safety critical. Follow the site-approved SOP before acting.',
+      },
+      {
+        id: 'knowledge:mixed-loto',
+        type: 'knowledge_answer',
+        contract: KNOWLEDGE_ANSWER_CONTRACT,
+        operation_id: 'pw-plan-rd-mixed-operation-rag',
+        answer: guidance,
+        segments: [{ text: guidance, citation_ids: [citation.citation_id] }],
+        citations: [citation],
+      },
+      {
+        id: 'sources:mixed-loto',
+        type: 'source_list',
+        contract: SOURCE_LIST_CONTRACT,
+        operation_id: 'pw-plan-rd-mixed-operation-rag',
+        sources: [
+          {
+            contract: SOURCE_LOCATOR_CONTRACT,
+            source_id: citation.source_id,
+            source_number: citation.source_number,
+            title: citation.title,
+            doc_id: citation.doc_id,
+            chunk_id: citation.chunk_id,
+            organization: citation.organization,
+            snippet: citation.snippet,
+            policy_only: true,
+          },
+        ],
+      },
+    ],
+    invariants: {
+      read_status_contract: ENTITY_STATUS_CONTRACT,
+      read_status_entity_type: 'machine',
+      mixed_operation_rag_sections: true,
     },
   })
 }

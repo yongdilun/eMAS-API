@@ -11,6 +11,8 @@ import { TablePresentation } from '../turns/TurnBlocks'
 const PREVIEW_LIMIT = 5
 const TECHNICAL_REDACTION_RE = /\b(api[_-]?key|authorization|bearer|password|secret|token)\b\s*[:=]?\s*[^\s,;]+/gi
 const SAFETY_ADMONITION_RE = /(?:^|\n)[ \t]*:::\s*safety\b[\s\S]*?(?:\n[ \t]*:::[ \t]*(?=\n|$)|$)/gi
+const FOOTNOTE_DEFINITION_RE = /^[ \t]*\[\^[^\]\n]+\]:[^\n]*(?:\n[ \t]+[^\n]*)*/gm
+const FOOTNOTE_MARKER_RE = /\[\^[^\]\n]+\]/g
 
 function safeText(value) {
   if (value == null) return ''
@@ -18,6 +20,9 @@ function safeText(value) {
     .replace(SAFETY_ADMONITION_RE, '\n')
     .replace(/^[ \t]*:::\s*safety\b[ \t]*$/gim, '')
     .replace(/^[ \t]*:::[ \t]*$/gim, '')
+    .replace(FOOTNOTE_DEFINITION_RE, '')
+    .replace(FOOTNOTE_MARKER_RE, '')
+    .replace(/\s+([,.;:!?])/g, '$1')
     .trim()
 }
 
@@ -274,6 +279,170 @@ function ExpandableTable({ title, rows, defaultCollapsed = true, blockId = null 
   )
 }
 
+function citationKey(value) {
+  return safeText(value?.citation_id || value?.citationId || value?.source_id || value?.sourceId || value?.doc_id || value?.docId || value?.source_number || value?.sourceNumber)
+}
+
+function citationFromSource(source) {
+  if (!source || typeof source !== 'object') return null
+  const sourceId = safeText(source.source_id || source.sourceId || source.doc_id || source.docId)
+  const sourceNumber = source.source_number || source.sourceNumber
+  const citationId = safeText(source.citation_id || source.citationId) || `citation:${sourceId || sourceNumber || 'source'}`
+  return {
+    ...source,
+    contract: safeText(source.contract) === 'source_citation_v1' ? 'source_citation_v1' : 'source_citation_v1',
+    citation_id: citationId,
+    source_id: sourceId,
+    source_number: sourceNumber,
+    doc_id: safeText(source.doc_id || source.docId),
+    chunk_id: safeText(source.chunk_id || source.chunkId),
+    title: safeText(source.title || source.doc_id || source.docId || `Source ${sourceNumber || ''}`),
+    organization: safeText(source.organization),
+    snippet: safeText(source.snippet),
+    page: source.page,
+    pdf_url: safeText(source.pdf_url || source.pdfUrl),
+    policy_only: Boolean(source.policy_only || source.policyOnly),
+  }
+}
+
+function sourceLocationLabel(source) {
+  const page = safeText(source?.page)
+  const chunk = safeText(source?.chunk_id || source?.chunkId)
+  if (page && chunk) return `Page ${page} / Chunk ${chunk}`
+  if (page) return `Page ${page}`
+  if (chunk) return `Chunk ${chunk}`
+  return null
+}
+
+function sourcePdfHref(source) {
+  const url = safeText(source?.pdf_url || source?.pdfUrl)
+  if (!url) return null
+  const page = safeText(source?.page)
+  if (!page) return url
+  const separator = url.includes('#') ? '&' : '#'
+  return `${url}${separator}page=${encodeURIComponent(page)}`
+}
+
+function SourceHoverCard({ source }) {
+  if (!source) return null
+  const location = sourceLocationLabel(source)
+  return (
+    <span
+      role="tooltip"
+      className="absolute left-0 top-full z-20 mt-1 w-72 max-w-[min(18rem,80vw)] rounded-md border border-hairline bg-surface-1 px-3 py-2 text-left text-[11px] font-normal text-ink shadow-lg"
+      data-source-chip-hover=""
+    >
+      <span className="block font-semibold text-ink">{safeText(source.title) || 'Source'}</span>
+      {source.organization ? <span className="mt-0.5 block text-ink-muted">{source.organization}</span> : null}
+      {location ? <span className="mt-1 block text-ink-subtle">{location}</span> : null}
+      {source.snippet ? <span className="mt-1.5 block text-ink-muted">{source.snippet}</span> : null}
+    </span>
+  )
+}
+
+function SourceChip({ citation, index, activeHoverId, setActiveHoverId, onOpenSource }) {
+  const source = citationFromSource(citation)
+  if (!source) return null
+  const id = citationKey(source) || `citation:${index + 1}`
+  const label = `[${source.source_number || index + 1}]`
+  return (
+    <span className="relative inline-flex align-baseline">
+      <button
+        type="button"
+        className="mx-1 inline-flex h-5 min-w-5 items-center justify-center rounded-md border border-hairline bg-surface-2 px-1.5 text-[11px] font-semibold leading-none text-primary hover:bg-surface-3 focus:outline-none focus:ring-2 focus:ring-primary/30"
+        aria-label={`Open source ${source.source_number || index + 1}`}
+        data-source-chip=""
+        data-source-id={safeText(source.source_id) || undefined}
+        data-doc-id={safeText(source.doc_id) || undefined}
+        data-chunk-id={safeText(source.chunk_id) || undefined}
+        data-source-number={safeText(source.source_number) || undefined}
+        onMouseEnter={() => setActiveHoverId(id)}
+        onMouseLeave={() => setActiveHoverId((current) => (current === id ? null : current))}
+        onFocus={() => setActiveHoverId(id)}
+        onBlur={() => setActiveHoverId((current) => (current === id ? null : current))}
+        onClick={() => onOpenSource?.(source)}
+      >
+        {label}
+      </button>
+      {activeHoverId === id ? <SourceHoverCard source={source} /> : null}
+    </span>
+  )
+}
+
+function SourceDrawer({ source, onClose }) {
+  const safeSource = citationFromSource(source)
+  if (!safeSource) return null
+  const location = sourceLocationLabel(safeSource)
+  const pdfHref = sourcePdfHref(safeSource)
+  return (
+    <aside
+      role="dialog"
+      aria-label="Source details"
+      className="mt-3 rounded-md border border-hairline bg-surface-1 px-3 py-3 text-sm"
+      data-source-drawer=""
+      data-source-id={safeText(safeSource.source_id) || undefined}
+      data-doc-id={safeText(safeSource.doc_id) || undefined}
+      data-chunk-id={safeText(safeSource.chunk_id) || undefined}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-ink">{safeSource.title || 'Source details'}</div>
+          {safeSource.organization ? <div className="mt-0.5 text-xs text-ink-muted">{safeSource.organization}</div> : null}
+        </div>
+        <button
+          type="button"
+          className="rounded-md px-2 py-1 text-xs font-semibold text-ink-muted hover:bg-surface-2"
+          onClick={onClose}
+        >
+          Close
+        </button>
+      </div>
+      <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+        {safeSource.doc_id ? (
+          <div className="min-w-0 rounded-md bg-surface-2 px-2.5 py-2">
+            <dt className="font-semibold text-ink-muted">Document</dt>
+            <dd className="mt-0.5 break-words text-ink">{safeSource.doc_id}</dd>
+          </div>
+        ) : null}
+        {safeSource.chunk_id ? (
+          <div className="min-w-0 rounded-md bg-surface-2 px-2.5 py-2">
+            <dt className="font-semibold text-ink-muted">Chunk</dt>
+            <dd className="mt-0.5 break-words text-ink">{safeSource.chunk_id}</dd>
+          </div>
+        ) : null}
+        {location ? (
+          <div className="min-w-0 rounded-md bg-surface-2 px-2.5 py-2">
+            <dt className="font-semibold text-ink-muted">Location</dt>
+            <dd className="mt-0.5 break-words text-ink">{location}</dd>
+          </div>
+        ) : null}
+        {safeSource.source_number ? (
+          <div className="min-w-0 rounded-md bg-surface-2 px-2.5 py-2">
+            <dt className="font-semibold text-ink-muted">Citation</dt>
+            <dd className="mt-0.5 break-words text-ink">Source {safeSource.source_number}</dd>
+          </div>
+        ) : null}
+      </dl>
+      {safeSource.snippet ? (
+        <div className="mt-3 rounded-md bg-surface-2 px-3 py-2 text-xs text-ink" data-source-drawer-snippet="">
+          {safeSource.snippet}
+        </div>
+      ) : null}
+      {pdfHref ? (
+        <a
+          className="mt-3 inline-flex items-center rounded-md bg-surface-3 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-surface-2"
+          href={pdfHref}
+          target="_blank"
+          rel="noreferrer"
+          data-source-pdf-link=""
+        >
+          {safeSource.page ? `Open PDF page ${safeSource.page}` : 'Open PDF'}
+        </a>
+      ) : null}
+    </aside>
+  )
+}
+
 function ApprovalBlock({
   block,
   pendingApproval,
@@ -415,11 +584,75 @@ function RecordPreviewBlock({ block }) {
   )
 }
 
+function SafetyNoticeBlock({ block }) {
+  const safetyContent = safeText(block.safety_content || block.safetyContent || block.message || block.summary)
+  if (!safetyContent) return null
+  return (
+    <CompactCard
+      title={block.title || 'Safety notice'}
+      tone="warning"
+      blockType="safety_notice"
+      blockId={block.id}
+      contract={block.contract || 'safety_notice_v1'}
+    >
+      <div className="mt-1 text-sm text-ink" data-safety-notice-content="">{safetyContent}</div>
+    </CompactCard>
+  )
+}
+
+function KnowledgeAnswerBlock({ block, sourceLookup, activeHoverId, setActiveHoverId, onOpenSource }) {
+  const blockCitations = Array.isArray(block.citations) ? block.citations : []
+  const citationsById = new Map(sourceLookup)
+  for (const citation of blockCitations) {
+    const safeCitation = citationFromSource(citation)
+    const key = citationKey(safeCitation)
+    if (key) citationsById.set(key, safeCitation)
+  }
+  const segments = Array.isArray(block.segments) && block.segments.length
+    ? block.segments
+    : [{ text: safeText(block.answer), citation_ids: blockCitations.map((citation) => citationKey(citationFromSource(citation))).filter(Boolean) }]
+  return (
+    <CompactCard
+      title={block.title || 'Procedure guidance'}
+      blockType="knowledge_answer"
+      blockId={block.id}
+      contract={block.contract || 'knowledge_answer_v1'}
+    >
+      <div className="mt-1 whitespace-pre-wrap break-words text-sm text-ink" data-knowledge-answer="">
+        {segments.map((segment, segmentIndex) => {
+          const text = safeText(segment.text)
+          if (!text) return null
+          const citationIds = Array.isArray(segment.citation_ids || segment.citationIds)
+            ? (segment.citation_ids || segment.citationIds).map((item) => safeText(item)).filter(Boolean)
+            : []
+          const citations = citationIds.map((id) => citationsById.get(id)).filter(Boolean)
+          return (
+            <span key={`${block.id}:segment:${segmentIndex}`}>
+              {segmentIndex > 0 ? ' ' : ''}
+              {text}
+              {citations.map((citation, citationIndex) => (
+                <SourceChip
+                  key={`${citationKey(citation)}:${citationIndex}`}
+                  citation={citation}
+                  index={citationIndex}
+                  activeHoverId={activeHoverId}
+                  setActiveHoverId={setActiveHoverId}
+                  onOpenSource={onOpenSource}
+                />
+              ))}
+            </span>
+          )
+        })}
+      </div>
+    </CompactCard>
+  )
+}
+
 function SourceListBlock({ block }) {
   const sources = Array.isArray(block.sources) ? block.sources : []
   if (!sources.length) return null
   return (
-    <CompactCard title={block.title || 'Knowledge sources'} blockType="source_list" blockId={block.id}>
+    <CompactCard title={block.title || 'Knowledge sources'} blockType="source_list" blockId={block.id} contract={block.contract || 'source_list_v1'}>
       <div className="mt-2 space-y-2 text-xs text-ink-muted">
         {sources.map((source, index) => {
           const title = safeText(source.title || source.doc_id || `Source ${index + 1}`)
@@ -428,6 +661,7 @@ function SourceListBlock({ block }) {
             <div
               key={`${source.source_id || source.doc_id || title}-${index}`}
               className="rounded-md bg-surface-2 px-2.5 py-2"
+              data-response-contract={safeText(source.contract) || undefined}
               data-source-id={safeText(source.source_id) || undefined}
               data-doc-id={safeText(source.doc_id) || undefined}
               data-chunk-id={safeText(source.chunk_id) || undefined}
@@ -552,7 +786,8 @@ function renderBlock(block, props) {
   if (block.type === 'result_table') return <ExpandableTable key={block.id} title={block.title || 'Affected records'} rows={block.rows} defaultCollapsed blockId={block.id} />
   if (block.type === 'status_result') return <StatusResultBlock key={block.id} block={block} documentMessage={props.documentMessage} />
   if (block.type === 'record_preview') return <RecordPreviewBlock key={block.id} block={block} />
-  if (block.type === 'knowledge_answer') return <div key={block.id} className="mt-3 whitespace-pre-wrap break-words text-sm text-ink">{block.answer}</div>
+  if (block.type === 'safety_notice') return <SafetyNoticeBlock key={block.id} block={block} />
+  if (block.type === 'knowledge_answer') return <KnowledgeAnswerBlock key={block.id} block={block} {...props} />
   if (block.type === 'source_list') return <SourceListBlock key={block.id} block={block} />
   if (block.type === 'warning' || block.type === 'diagnostic') return <DiagnosticBlock key={block.id} block={block} />
   return null
@@ -565,6 +800,24 @@ export default function ResponseDocumentRenderer({
   decideApproval,
   isDecidingApproval,
 }) {
+  const [activeSource, setActiveSource] = useState(null)
+  const [activeHoverId, setActiveHoverId] = useState(null)
+  const sourceLookup = useMemo(() => {
+    const lookup = new Map()
+    for (const block of document?.blocks || []) {
+      if (block?.type !== 'source_list' || !Array.isArray(block.sources)) continue
+      for (const source of block.sources) {
+        const citation = citationFromSource(source)
+        const key = citationKey(citation)
+        if (key) lookup.set(key, citation)
+        const sourceId = safeText(citation?.source_id)
+        if (sourceId) lookup.set(`citation:${sourceId}`, citation)
+        const number = safeText(citation?.source_number)
+        if (number) lookup.set(`citation:${number}`, citation)
+      }
+    }
+    return lookup
+  }, [document])
   if (!document) return null
   const activitySteps = activityStepsFromResponseDocument(document)
   const message = responseDocumentMessage(document)
@@ -623,6 +876,10 @@ export default function ResponseDocumentRenderer({
         decideApproval,
         isDecidingApproval,
         documentMessage: message,
+        sourceLookup,
+        activeHoverId,
+        setActiveHoverId,
+        onOpenSource: setActiveSource,
       })]
     })
     .filter(Boolean)
@@ -632,6 +889,7 @@ export default function ResponseDocumentRenderer({
       <ActivityTimeline steps={activitySteps} />
       {message ? <div className="whitespace-pre-wrap break-words text-ink">{message}</div> : null}
       {renderedBlocks}
+      <SourceDrawer source={activeSource} onClose={() => setActiveSource(null)} />
     </div>
   )
 }

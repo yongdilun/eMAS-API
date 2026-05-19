@@ -35,7 +35,7 @@ Created: 2026-05-18
 | 25 | Hardcode regression guardrails | Done | Codex | Added product branch-condition static guards, typed composer summary-prose guardrail, and frontend probe contract-evidence guardrails. |
 | 26 | Real flow release proof | Done | Codex | Real/seeded release proof passed for RD-001, machine status, LOTO RAG, no-op mutation, final visual quality, and real LangGraph critical; no safe non-job real/seeded browser path exists yet beyond Phase 24 backend contract coverage. |
 | 27 | RAG metadata readiness and legacy renderer cleanup | Done | Codex | Added minimum RAG source locator metadata, stopped raw `:::safety` answer injection, sanitized legacy safety markdown, prevented duplicate response-document RAG bodies, and isolated legacy source/safety chrome to no-response-document compatibility paths. |
-| 28 | Typed RAG answer and source citation UX | Planned | Codex | Render safety notices, knowledge answers, inline source chips, compact hover metadata, source drawer click behavior, and separate operation/RAG sections from typed response-document blocks. |
+| 28 | Typed RAG answer and source citation UX | Done | Codex | Added typed safety notices, knowledge answer citations, inline source chips, compact hover metadata, source drawer click behavior, PDF page-link fallback, and separate operation/RAG sections. |
 | 29 | PDF source locator and highlight upgrade | Planned | Codex | Make PDF ingestion page-aware, add safe PDF/document locators, and support exact or fallback highlighting after typed RAG UX is stable. |
 
 ## Current Blockers
@@ -2111,6 +2111,33 @@ Phase 28 starts only after Phase 27 proves the metadata and legacy cleanup. It t
 
 Phase 28 closure must still keep `Knowledge sources` as bibliography/details, but inline chips become the primary claim-to-source evidence.
 
+Phase 28 closure evidence:
+
+- Backend response documents now emit `safety_notice_v1`, `knowledge_answer_v1`, `source_citation_v1`, `source_locator_v1`, and `source_list_v1` evidence for RAG answers.
+- LOTO notification answers render one answer body, a dedicated safety notice panel, inline source chips, hover metadata, source drawer content, and source bibliography/details.
+- Source chip click opens the source drawer without PDF metadata; PDF page links are offered only when `pdf_url` and `page` exist. Exact PDF highlight remains Phase 29.
+- Mixed operation plus RAG fixtures render `status_result` separately from procedure guidance and source evidence.
+- Raw `:::safety`, raw footnote definitions, and unconverted `[^1]` markers are forbidden in response-document RAG UI.
+
+Phase 28 verification:
+
+```powershell
+Set-Location "factory-agent"
+python -m pytest tests/test_response_document_contract.py tests/test_response_document_failures.py tests/test_rag_generation.py tests/test_rag_knowledge_policy.py -q
+
+Set-Location "..\eMas Front"
+npm test
+node --test --test-concurrency=1 e2e/support/responseDocumentProbe.test.mjs
+npm run test:e2e:response-document -- --grep "LOTO|typed RAG|source chip|safety notice|source drawer|mixed operation"
+```
+
+Results:
+
+- Backend RAG/response-document lane: 47 passed.
+- Frontend unit/component/probe lane: 119 passed.
+- Focused semantic probe lane: 11 passed.
+- Focused response-document browser grep: 4 passed.
+
 ## Response Document Phase 29 PDF Source Locator And Highlight Upgrade
 
 Phase 29 is intentionally separate because current ingestion does not preserve enough PDF locator data for exact highlight.
@@ -2277,7 +2304,7 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 
 ## Next Action
 
-Start Phase 28: typed RAG answer and source citation UX. Use Phase 27 locator metadata and renderer cleanup as the prerequisite baseline; do not claim PDF page/highlight completion until Phase 29 ingestion/source-locator work is done.
+Start Phase 29: PDF source locator and highlight upgrade. Use the Phase 28 typed source-chip/drawer UX as the baseline, and keep drawer-only fallback working while page-aware ingestion and safe PDF routes are added.
 
 ## Post-Gate Regression: Approved Data But UI Still Shows Approval
 

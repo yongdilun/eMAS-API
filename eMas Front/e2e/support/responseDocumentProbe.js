@@ -70,6 +70,8 @@ export const readOnlyStatusForbiddenProbeText = Object.freeze([
 export const documentContentRagForbiddenProbeText = Object.freeze([
   { label: 'raw safety admonition directive', pattern: /:::safety/i },
   { label: 'raw safety warning markdown', pattern: /SAFETY WARNING/i },
+  { label: 'raw markdown footnote definition', pattern: /^\s*\[\^[^\]]+\]:/im },
+  { label: 'unconverted markdown citation marker', pattern: /\[\^[^\]]+\]/i },
   { label: 'legacy safety advisory chrome', pattern: /Safety Advisory/i },
   { label: 'machine ID clarification', pattern: /Which machine ID/i },
   { label: 'exact machine ID clarification', pattern: /exact machine ID/i },
@@ -88,6 +90,7 @@ const DISPLAYABLE_BLOCK_TYPES = new Set([
   'status_result',
   'record_preview',
   'knowledge_answer',
+  'safety_notice',
   'source_list',
   'warning',
   'diagnostic',
@@ -187,6 +190,25 @@ function summarizeRunSteps(steps = []) {
   }))
 }
 
+function summarizeSourceCitationsFromBlocks(blocks = []) {
+  const citations = []
+  for (const block of blocks) {
+    if (block?.type !== 'knowledge_answer' || !Array.isArray(block.citations)) continue
+    for (const citation of block.citations) {
+      citations.push(compactObject({
+        contract: citation?.contract || null,
+        citationId: citation?.citation_id || citation?.citationId || null,
+        sourceId: citation?.source_id || citation?.sourceId || null,
+        sourceNumber: citation?.source_number || citation?.sourceNumber || null,
+        docId: citation?.doc_id || citation?.docId || null,
+        chunkId: citation?.chunk_id || citation?.chunkId || null,
+        title: compactText(citation?.title || '', 100) || null,
+      }))
+    }
+  }
+  return citations.slice(0, 12)
+}
+
 export function summarizeBackendSnapshot(snapshot) {
   const document = snapshot?.response_document || {}
   const blocks = Array.isArray(document.blocks) ? document.blocks : []
@@ -199,6 +221,8 @@ export function summarizeBackendSnapshot(snapshot) {
   const contracts = compactArray([
     ...blocks.map((block) => block?.contract),
     ...blocks.flatMap((block) => Array.isArray(block?.groups) ? block.groups.map((group) => group?.contract) : []),
+    ...blocks.flatMap((block) => Array.isArray(block?.citations) ? block.citations.map((citation) => citation?.contract) : []),
+    ...blocks.flatMap((block) => Array.isArray(block?.sources) ? block.sources.map((source) => source?.contract) : []),
     document.invariants?.read_status_contract,
     document.invariants?.mutation_business_contract,
     document.invariants?.no_op_mutation_contract,
@@ -228,6 +252,7 @@ export function summarizeBackendSnapshot(snapshot) {
       blockIds: compactArray(blocks.map((block) => block?.id)),
       contracts,
       approvalIds,
+      sourceCitations: summarizeSourceCitationsFromBlocks(blocks),
       runSteps: summarizeRunSteps(runSteps),
       blocks: blockSummaries,
     },
@@ -333,6 +358,20 @@ export function summarizeVisibleUi(ui = {}, expected = {}) {
     visibleRunSteps: summarizeRunSteps(ui.visibleRunSteps || []),
     visibleApprovalIds: approvalIds,
     approvalButtons: compactArray(ui.approvalActionLabels || ui.approvalButtons || []),
+    sourceChips: asArray(ui.sourceChips).slice(0, 12).map((chip) => compactObject({
+      sourceId: chip?.sourceId || null,
+      docId: chip?.docId || null,
+      chunkId: chip?.chunkId || null,
+      sourceNumber: chip?.sourceNumber || null,
+      text: compactText(chip?.text || '', 40) || null,
+    })),
+    sourceDrawer: ui.sourceDrawer ? compactObject({
+      open: Boolean(ui.sourceDrawer.open),
+      sourceId: ui.sourceDrawer.sourceId || null,
+      docId: ui.sourceDrawer.docId || null,
+      chunkId: ui.sourceDrawer.chunkId || null,
+      text: compactText(ui.sourceDrawer.text || '', 180) || null,
+    }) : null,
     forbiddenTextHits: compactArray(forbiddenTextHits(ui.visibleText || '', expected), 20),
     finalResponseQuality: summarizeFinalResponseQuality(ui.finalResponseQuality || {}),
   }
@@ -818,6 +857,23 @@ export async function collectVisibleResponseDocumentUi(page) {
     const visibleContracts = Array.from(latestRoot.querySelectorAll('[data-response-contract]'))
       .map((node) => node.getAttribute('data-response-contract'))
       .filter(Boolean)
+    const sourceChips = Array.from(latestRoot.querySelectorAll('[data-source-chip]')).map((node) => ({
+      sourceId: node.getAttribute('data-source-id') || null,
+      docId: node.getAttribute('data-doc-id') || null,
+      chunkId: node.getAttribute('data-chunk-id') || null,
+      sourceNumber: node.getAttribute('data-source-number') || null,
+      text: compact(node.innerText || node.textContent || '', 40),
+    }))
+    const drawer = latestRoot.querySelector('[data-source-drawer]')
+    const sourceDrawer = drawer
+      ? {
+        open: true,
+        sourceId: drawer.getAttribute('data-source-id') || null,
+        docId: drawer.getAttribute('data-doc-id') || null,
+        chunkId: drawer.getAttribute('data-chunk-id') || null,
+        text: compact(drawer.innerText || drawer.textContent || '', 220),
+      }
+      : null
 
     return {
       activeSessionId,
@@ -834,6 +890,8 @@ export async function collectVisibleResponseDocumentUi(page) {
       visibleRunSteps,
       visibleApprovalIds: visibleBlocks.map((block) => block.approvalId).filter(Boolean),
       approvalActionLabels,
+      sourceChips,
+      sourceDrawer,
       latestAssistantText: latestRoot.innerText || latestRoot.textContent || '',
       visibleText: dialog.innerText || document.body.innerText || '',
       finalResponseQuality,

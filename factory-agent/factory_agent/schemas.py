@@ -494,12 +494,25 @@ class RecordPreviewBlock(ResponseBlockBase):
 
 class KnowledgeAnswerBlock(ResponseBlockBase):
     type: Literal["knowledge_answer"] = "knowledge_answer"
+    contract: Literal["knowledge_answer_v1"] | None = None
     answer: str = Field(min_length=1)
+    operation_id: str | None = None
+    segments: list[dict[str, Any]] = Field(default_factory=list)
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SafetyNoticeBlock(ResponseBlockBase):
+    type: Literal["safety_notice"] = "safety_notice"
+    contract: Literal["safety_notice_v1"] = "safety_notice_v1"
+    title: str = Field(default="Safety notice", min_length=1)
+    safety_content: str = Field(min_length=1)
+    severity: Literal["info", "warning"] = "warning"
     operation_id: str | None = None
 
 
 class SourceListBlock(ResponseBlockBase):
     type: Literal["source_list"] = "source_list"
+    contract: Literal["source_list_v1"] | None = None
     sources: list[dict[str, Any]] = Field(min_length=1)
     operation_id: str | None = None
 
@@ -531,6 +544,7 @@ ResponseBlock = Annotated[
     | StatusResultBlock
     | RecordPreviewBlock
     | KnowledgeAnswerBlock
+    | SafetyNoticeBlock
     | SourceListBlock
     | DiagnosticBlock,
     Field(discriminator="type"),
