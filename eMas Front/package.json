@@ -28,6 +28,7 @@
     "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
+    "pdfjs-dist": "^5.7.284",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0"

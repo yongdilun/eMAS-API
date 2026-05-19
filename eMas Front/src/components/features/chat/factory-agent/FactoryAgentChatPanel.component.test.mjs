@@ -1346,7 +1346,8 @@ test('FactoryAgentChatPanel offers PDF page search link when source locator incl
     assert.ok(node)
     return node
   })
-  assert.match(frame.getAttribute('src'), /^http:\/\/127\.0\.0\.1:8000\/documents\/PDF-LOTO\/pdf#page=9&search=Page\+9\+covers\+notification\+timing\.$/)
+  assert.equal(frame.getAttribute('data-source-pdf-renderer'), 'pdfjs')
+  assert.match(frame.getAttribute('data-source-pdf-src'), /^http:\/\/127\.0\.0\.1:8000\/documents\/PDF-LOTO\/pdf#page=9&search=Page\+9\+covers\+notification\+timing\.$/)
   assert.match(view.container.querySelector('[data-source-pdf-evidence]')?.textContent || '', /Exact highlight unavailable/)
   await click(view.container.querySelector('[data-source-pdf-back]'))
   await waitFor(() => assert.equal(view.container.querySelector('[data-source-drawer]')?.getAttribute('data-source-drawer-view'), 'list'))

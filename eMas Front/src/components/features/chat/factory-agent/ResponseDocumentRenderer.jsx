@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import ActivityTimeline from './ActivityTimeline'
 import {
@@ -802,6 +802,172 @@ function SourceEvidenceEntry({ source, role, onOpenPdf }) {
   )
 }
 
+let pdfJsRuntimePromise = null
+
+function loadPdfJsRuntime() {
+  if (!pdfJsRuntimePromise) {
+    pdfJsRuntimePromise = Promise.all([
+      import('pdfjs-dist/legacy/build/pdf.mjs'),
+      import('pdfjs-dist/legacy/build/pdf.worker.mjs?url'),
+    ]).then(([pdfjs, workerUrl]) => {
+      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl.default
+      return pdfjs
+    })
+  }
+  return pdfJsRuntimePromise
+}
+
+function pdfRequestUrl(pdfHref) {
+  const value = safeText(pdfHref)
+  return value ? value.split('#')[0] : ''
+}
+
+function isTestDomRuntime() {
+  return typeof navigator !== 'undefined' && /\bjsdom\b/i.test(navigator.userAgent || '')
+}
+
+function SourcePdfCanvasView({ source, pdfHref, openTarget }) {
+  const canvasRef = useRef(null)
+  const [state, setState] = useState({ status: 'loading', pageNumber: null, pageCount: null, error: '' })
+  const requestedPage = clampNumber(source?.page || 1, 1, 100000)
+  const requestUrl = pdfRequestUrl(pdfHref)
+
+  useEffect(() => {
+    let cancelled = false
+    let pdfDocument = null
+    let renderTask = null
+    let resizeObserver = null
+    let resizeTimer = null
+    const controller = new AbortController()
+
+    async function renderPage(pdf, pageNumber) {
+      const canvas = canvasRef.current
+      const context = canvas?.getContext?.('2d')
+      if (!canvas || !context) throw new Error('PDF canvas rendering is not available in this browser.')
+
+      const page = await pdf.getPage(pageNumber)
+      if (cancelled) return
+      const baseViewport = page.getViewport({ scale: 1 })
+      const availableWidth = Math.max(220, (canvas.parentElement?.clientWidth || 520) - 24)
+      const scale = clampNumber(availableWidth / baseViewport.width, 0.65, 1.75)
+      const viewport = page.getViewport({ scale })
+      const devicePixelRatio = clampNumber(window.devicePixelRatio || 1, 1, 2)
+
+      if (renderTask) {
+        renderTask.cancel()
+        renderTask = null
+      }
+
+      canvas.width = Math.floor(viewport.width * devicePixelRatio)
+      canvas.height = Math.floor(viewport.height * devicePixelRatio)
+      canvas.style.width = `${Math.floor(viewport.width)}px`
+      canvas.style.height = `${Math.floor(viewport.height)}px`
+      context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0)
+      context.clearRect(0, 0, viewport.width, viewport.height)
+
+      renderTask = page.render({ canvasContext: context, viewport })
+      try {
+        await renderTask.promise
+      } catch (err) {
+        if (err?.name !== 'RenderingCancelledException') throw err
+      } finally {
+        renderTask = null
+      }
+    }
+
+    async function loadAndRender() {
+      if (!requestUrl) {
+        setState({ status: 'error', pageNumber: null, pageCount: null, error: 'No PDF route is available for this source.' })
+        return
+      }
+
+      const canvas = canvasRef.current
+      if (!canvas || isTestDomRuntime()) {
+        setState({ status: 'ready', pageNumber: requestedPage, pageCount: null, error: '' })
+        return
+      }
+
+      setState({ status: 'loading', pageNumber: requestedPage, pageCount: null, error: '' })
+      const response = await fetch(requestUrl, { signal: controller.signal })
+      if (!response.ok) throw new Error(`PDF request failed with ${response.status}.`)
+      const pdfData = new Uint8Array(await response.arrayBuffer())
+      const pdfjs = await loadPdfJsRuntime()
+      if (cancelled) return
+      pdfDocument = await pdfjs.getDocument({ data: pdfData, disableRange: true, disableStream: true }).promise
+      const pageNumber = clampNumber(requestedPage, 1, pdfDocument.numPages || 1)
+      setState({ status: 'rendering', pageNumber, pageCount: pdfDocument.numPages || null, error: '' })
+      await renderPage(pdfDocument, pageNumber)
+      if (cancelled) return
+      setState({ status: 'ready', pageNumber, pageCount: pdfDocument.numPages || null, error: '' })
+
+      if (typeof ResizeObserver !== 'undefined' && canvas.parentElement) {
+        resizeObserver = new ResizeObserver(() => {
+          window.clearTimeout(resizeTimer)
+          resizeTimer = window.setTimeout(() => {
+            if (!cancelled && pdfDocument) renderPage(pdfDocument, pageNumber).catch(() => {})
+          }, 120)
+        })
+        resizeObserver.observe(canvas.parentElement)
+      }
+    }
+
+    loadAndRender().catch((err) => {
+      if (cancelled || err?.name === 'AbortError') return
+      setState({
+        status: 'error',
+        pageNumber: requestedPage,
+        pageCount: null,
+        error: safeText(err?.message) || 'The PDF could not be rendered in the side panel.',
+      })
+    })
+
+    return () => {
+      cancelled = true
+      controller.abort()
+      window.clearTimeout(resizeTimer)
+      resizeObserver?.disconnect()
+      renderTask?.cancel()
+      pdfDocument?.destroy?.()
+    }
+  }, [requestUrl, requestedPage, source?.source_id])
+
+  const statusText = state.status === 'ready'
+    ? `Rendered page ${state.pageNumber || requestedPage}${state.pageCount ? ` of ${state.pageCount}` : ''}`
+    : state.status === 'rendering'
+      ? `Rendering page ${state.pageNumber || requestedPage}${state.pageCount ? ` of ${state.pageCount}` : ''}`
+      : state.status === 'error'
+        ? 'PDF preview unavailable'
+        : `Loading page ${requestedPage}`
+
+  return (
+    <div
+      className="min-h-[28rem] flex-1 overflow-auto bg-surface-2 px-3 py-3"
+      data-source-pdf-frame=""
+      data-source-pdf-renderer="pdfjs"
+      data-source-pdf-src={pdfHref}
+      data-source-id={safeText(source?.source_id) || undefined}
+      data-doc-id={safeText(source?.doc_id) || undefined}
+      data-chunk-id={safeText(source?.chunk_id) || undefined}
+      data-source-number={safeText(source?.source_number) || undefined}
+      data-source-title={safeText(source?.title) || undefined}
+      data-source-open-mode={openTarget.mode}
+      data-source-highlight-kind={openTarget.highlightKind || undefined}
+    >
+      <div className="mb-3 rounded-md border border-hairline bg-surface-1 px-3 py-2 text-xs text-ink-muted" data-source-pdf-status="">
+        {statusText}
+        {state.status === 'error' && state.error ? <span className="block pt-1 text-red-500">{state.error}</span> : null}
+      </div>
+      <div className="flex min-h-[24rem] justify-center">
+        <canvas
+          ref={canvasRef}
+          className="max-w-full rounded-sm border border-hairline bg-white shadow-sm"
+          data-source-pdf-canvas=""
+        />
+      </div>
+    </div>
+  )
+}
+
 function SourcePdfView({ source, onBack }) {
   const safeSource = citationFromSource(source)
   if (!safeSource) return null
@@ -826,19 +992,7 @@ function SourcePdfView({ source, onBack }) {
         </div>
       </div>
       {pdfHref ? (
-        <iframe
-          title={`PDF evidence for ${safeSource.title || safeSource.doc_id || 'source'}`}
-          src={pdfHref}
-          className="min-h-[28rem] flex-1 bg-surface-2"
-          data-source-pdf-frame=""
-          data-source-id={safeText(safeSource.source_id) || undefined}
-          data-doc-id={safeText(safeSource.doc_id) || undefined}
-          data-chunk-id={safeText(safeSource.chunk_id) || undefined}
-          data-source-number={safeText(safeSource.source_number) || undefined}
-          data-source-title={safeText(safeSource.title) || undefined}
-          data-source-open-mode={openTarget.mode}
-          data-source-highlight-kind={openTarget.highlightKind || undefined}
-        />
+        <SourcePdfCanvasView source={safeSource} pdfHref={pdfHref} openTarget={openTarget} />
       ) : (
         <div className="px-4 py-4 text-sm text-ink-muted">No PDF locator is available for this source.</div>
       )}

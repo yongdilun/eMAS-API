@@ -927,7 +927,8 @@ export async function collectVisibleResponseDocumentUi(page) {
       const deadFrontendDocumentUrl = parsed.origin === window.location.origin && /^\/documents\/[^/]+\/pdf$/.test(parsed.pathname)
       return { routeOk, deadFrontendDocumentUrl }
     }
-    const pdfSrcInfo = pdfUrlInfo(pdfFrame?.getAttribute('src'))
+    const pdfFrameSrc = pdfFrame?.getAttribute('data-source-pdf-src') || pdfFrame?.getAttribute('src') || null
+    const pdfSrcInfo = pdfUrlInfo(pdfFrameSrc)
     const pdfHrefInfo = pdfUrlInfo(pdfLinkHref)
     const sourceDrawer = drawer
       ? {
@@ -948,7 +949,8 @@ export async function collectVisibleResponseDocumentUi(page) {
             chunkId: pdfFrame.getAttribute('data-chunk-id') || null,
             sourceNumber: pdfFrame.getAttribute('data-source-number') || null,
             title: pdfFrame.getAttribute('data-source-title') || null,
-            src: pdfFrame.getAttribute('src') || null,
+            src: pdfFrameSrc,
+            renderer: pdfFrame.getAttribute('data-source-pdf-renderer') || null,
             href: pdfLinkHref,
             openMode: pdfFrame.getAttribute('data-source-open-mode') || null,
             highlightKind: pdfFrame.getAttribute('data-source-highlight-kind') || null,
