@@ -8,6 +8,7 @@ export const responseDocumentLotoNotificationPrompt =
   'According to the LOTO procedure, what notification is required before starting lockout'
 export const responseDocumentMixedOperationRagPrompt =
   'Show M-CNC-01 status and the LOTO notification guidance as separate sections'
+export const responseDocumentSourcePdfPrompt = 'Render response_document source PDF highlight fixture'
 export const responseDocumentNoResultsPrompt = 'Find response_document jobs that do not exist'
 export const responseDocumentPartialFailurePrompt = 'Run response_document partial failure fixture'
 export const responseDocumentTimeoutPrompt = 'Run response_document planner timeout fixture'
@@ -887,6 +888,73 @@ export function mixedOperationRagDocument(session) {
       read_status_contract: ENTITY_STATUS_CONTRACT,
       read_status_entity_type: 'machine',
       mixed_operation_rag_sections: true,
+    },
+  })
+}
+
+export function sourcePdfLocatorDocument(session) {
+  const answer = 'The PDF-backed LOTO source opens on the cited page with text-layer highlight metadata.'
+  const citation = {
+    contract: SOURCE_CITATION_CONTRACT,
+    citation_id: 'citation:osha_3120_lockout_tagout#osha_3120_lockout_tagout_c0007',
+    source_id: 'osha_3120_lockout_tagout#osha_3120_lockout_tagout_c0007',
+    source_number: 1,
+    title: 'Control of Hazardous Energy Lockout/Tagout',
+    doc_id: 'osha_3120_lockout_tagout',
+    chunk_id: 'osha_3120_lockout_tagout_c0007',
+    organization: 'OSHA',
+    snippet: 'Affected employees must be notified by the employer before lockout or tagout devices are applied.',
+    pdf_url: '/documents/osha_3120_lockout_tagout/pdf',
+    page: 9,
+    char_range: [488, 606],
+    text_search: 'Affected employees must be notified by the employer before lockout or tagout devices are applied.',
+  }
+  return baseDocument(session, {
+    operationId: 'pw-plan-rd-source-pdf',
+    revision: 3,
+    state: 'completed',
+    message: 'I found PDF-backed source locator evidence.',
+    currentStepId: 'completed-source-pdf',
+    runSteps: [
+      { step_id: 'knowledge-source-pdf', kind: 'knowledge', state: 'completed', title: 'Prepared sourced answer', summary: '1 PDF source attached.' },
+      { step_id: 'completed-source-pdf', kind: 'completed', state: 'completed', title: 'Run complete', summary: 'PDF source locator is ready.' },
+    ],
+    blocks: [
+      {
+        id: 'knowledge:source-pdf',
+        type: 'knowledge_answer',
+        contract: KNOWLEDGE_ANSWER_CONTRACT,
+        operation_id: 'pw-plan-rd-source-pdf',
+        answer,
+        segments: [{ text: answer, citation_ids: [citation.citation_id] }],
+        citations: [citation],
+      },
+      {
+        id: 'sources:source-pdf',
+        type: 'source_list',
+        contract: SOURCE_LIST_CONTRACT,
+        operation_id: 'pw-plan-rd-source-pdf',
+        sources: [
+          {
+            contract: SOURCE_LOCATOR_CONTRACT,
+            source_id: citation.source_id,
+            source_number: citation.source_number,
+            title: citation.title,
+            doc_id: citation.doc_id,
+            chunk_id: citation.chunk_id,
+            organization: citation.organization,
+            snippet: citation.snippet,
+            pdf_url: citation.pdf_url,
+            page: citation.page,
+            char_range: citation.char_range,
+            text_search: citation.text_search,
+          },
+        ],
+      },
+    ],
+    invariants: {
+      source_locator_contract: SOURCE_LOCATOR_CONTRACT,
+      pdf_source_locator: true,
     },
   })
 }

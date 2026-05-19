@@ -233,6 +233,8 @@ class AnswerGenerator:
             retrieved_date=meta.get("retrieved_date", ""),
             page=locator.get("page"),
             pdf_url=locator.get("pdf_url"),
+            page_label=locator.get("page_label"),
             bbox=locator.get("bbox"),
             char_range=locator.get("char_range"),
+            text_search=locator.get("text_search"),
         )

@@ -130,6 +130,7 @@ def test_generate_answer_safety_warning(mock_build_llm, mock_settings, sample_ch
     assert result.sources[0].page == 3
     assert result.sources[0].pdf_url == "/documents/doc1.pdf"
     assert result.sources[0].char_range == [120, 220]
+    assert result.sources[0].text_search == "The LOTO procedure requires locking out all energy sources."
 
 
 @patch("factory_agent.rag.generation.build_rag_answer_chat_model")

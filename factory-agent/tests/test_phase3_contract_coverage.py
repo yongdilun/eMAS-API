@@ -75,6 +75,7 @@ EXPECTED_PATH_METHODS = {
     "/dlq/{dlq_id}/dismiss": ["post"],
     "/dlq/{dlq_id}/replay": ["post"],
     "/dlq/{dlq_id}/replay-request": ["post"],
+    "/documents/{doc_id}/pdf": ["get"],
     "/metrics": ["get"],
     "/sessions": ["get", "post"],
     "/sessions/{session_id}": ["delete", "get", "patch"],
@@ -121,6 +122,7 @@ USER_AUTH_CONTRACTS = [
     ("post", "/dlq/{dlq_id}/replay"),
     ("post", "/dlq/{dlq_id}/replay-request"),
     ("post", "/dlq/{dlq_id}/dismiss"),
+    ("get", "/documents/{doc_id}/pdf"),
 ]
 
 

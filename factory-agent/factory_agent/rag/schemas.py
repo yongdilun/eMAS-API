@@ -52,8 +52,10 @@ class SourceCitation(BaseModel):
     retrieved_date: str
     page: Optional[int] = None
     pdf_url: Optional[str] = None
+    page_label: Optional[str] = None
     bbox: Optional[Any] = None
     char_range: Optional[Any] = None
+    text_search: Optional[str] = None
 
 class AnswerResult(BaseModel):
     answer: str

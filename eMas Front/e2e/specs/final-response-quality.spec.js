@@ -24,6 +24,7 @@ import {
   responseDocumentReadStatusPrompt,
   responseDocumentRejectedApprovalPrompt,
   responseDocumentReverseCascadePrompt,
+  responseDocumentSourcePdfPrompt,
   responseDocumentStaleApprovalPrompt,
   responseDocumentTimeoutPrompt,
 } from '../support/responseDocumentScenarios.js'
@@ -900,6 +901,60 @@ test.describe('Final response quality response_document gate', () => {
       body: serializeSemanticProbe(summary),
       contentType: 'application/json',
     })
+  })
+
+  test('source PDF highlight locator opens cited page before source drawer fallback', async ({ page }, testInfo) => {
+    test.setTimeout(45_000)
+    await openChat(page)
+    await sendChatPrompt(page, responseDocumentSourcePdfPrompt)
+
+    await expect(page.getByText(/PDF-backed LOTO source opens on the cited page/i).first()).toBeVisible()
+    const sourceChip = page.locator('[data-source-chip][data-source-id="osha_3120_lockout_tagout#osha_3120_lockout_tagout_c0007"]').first()
+    await expect(sourceChip).toBeVisible()
+    await expect(sourceChip).toHaveAttribute('data-source-open-mode', 'exact')
+    await expect(sourceChip).toHaveAttribute('data-source-highlight-kind', 'char_range')
+    await sourceChip.click()
+
+    const drawer = page.locator('[data-source-drawer][data-source-open-mode="exact"][data-source-highlight-kind="char_range"]').first()
+    await expect(drawer).toBeVisible()
+    await expect(drawer.locator('[data-source-drawer-snippet]')).toContainText(/Affected employees must be notified/i)
+    const link = drawer.locator('[data-source-pdf-link]').first()
+    await expect(link).toBeVisible()
+    await expect(link).toHaveAttribute('href', /\/documents\/osha_3120_lockout_tagout\/pdf#page=9&highlight=char_range&char_start=488&char_end=606$/)
+
+    const summary = await expectTransitionCheckpoint(page, {
+      checkpoint: 'Phase 29 source PDF highlight locator',
+      snapshotForPage,
+      testInfo,
+      expected: {
+        sessionStatus: 'COMPLETED',
+        responseState: 'completed',
+        pendingApprovalId: null,
+        visibleBlockTypes: ['knowledge_answer', 'source_list'],
+        backendBlockTypes: ['knowledge_answer', 'source_list'],
+        hiddenBlockTypes: ['approval_required', 'diagnostic', 'mutation_result'],
+        hiddenBackendBlockTypes: ['approval_required', 'diagnostic', 'mutation_result'],
+        approvalActionCount: 0,
+        responseContracts: ['knowledge_answer_v1', 'source_list_v1', 'source_locator_v1'],
+        textIncludes: [
+          responseDocumentSourcePdfPrompt,
+          'Control of Hazardous Energy Lockout/Tagout',
+          'Open highlighted PDF',
+        ],
+        textExcludes: [/file_path/i, /C:\\/i, /\/Users\//i],
+      },
+    })
+    await testInfo.attach('phase-29-source-pdf-highlight-semantic-probe.json', {
+      body: serializeSemanticProbe(summary),
+      contentType: 'application/json',
+    })
+    const snapshot = await snapshotForPage(page)
+    const sourceBlock = snapshot.response_document.blocks.find((block) => block.type === 'source_list')
+    const source = sourceBlock.sources[0]
+    expect(source.pdf_url).toBe('/documents/osha_3120_lockout_tagout/pdf')
+    expect(source.page).toBe(9)
+    expect(source.char_range).toEqual([488, 606])
+    expect(JSON.stringify(snapshot.response_document)).not.toMatch(/file_path|C:\\|\/Users\//i)
   })
 
   test('diagnostic documents cover no-result, partial failure, timeout, expired, and stale approvals', async ({ page }) => {

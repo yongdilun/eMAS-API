@@ -417,7 +417,16 @@ def _citation_payload(source: dict[str, Any]) -> dict[str, Any]:
         "organization": source.get("organization"),
         "snippet": source.get("snippet"),
     }
-    for key in ("page", "pdf_url", "policy_only", "source_kind"):
+    for key in (
+        "page",
+        "page_label",
+        "pdf_url",
+        "bbox",
+        "char_range",
+        "text_search",
+        "policy_only",
+        "source_kind",
+    ):
         if source.get(key) not in (None, "", [], {}):
             payload[key] = source.get(key)
     return {key: value for key, value in payload.items() if value not in (None, "", [], {})}

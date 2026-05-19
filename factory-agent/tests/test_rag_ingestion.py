@@ -2,7 +2,9 @@ import os
 import shutil
 import pytest
 import json
+import fitz
 from factory_agent.rag.ingestion import IngestionEngine
+from factory_agent.rag.document_registry import resolve_source_pdf_path, source_pdf_url
 from factory_agent.rag.schemas import DocumentEntry
 
 TEST_DB_PATH = "factory_agent/rag/test_vector_db"
@@ -45,6 +47,47 @@ def _write_test_register(tmp_path):
         encoding="utf-8",
     )
     return register_path
+
+
+def _write_pdf_test_register(tmp_path):
+    sources = tmp_path / "sources"
+    sources.mkdir(exist_ok=True)
+    doc_path = sources / "loto.pdf"
+    pdf = fitz.open()
+    page_1 = pdf.new_page()
+    page_1.insert_text((72, 72), "LOTO preparation. Notify affected employees before lockout starts.")
+    page_2 = pdf.new_page()
+    page_2.insert_text((72, 72), "LOTO verification. Verify zero energy after isolation and before maintenance.")
+    pdf.save(doc_path)
+    pdf.close()
+    register_path = tmp_path / "source_register.json"
+    register_path.write_text(
+        json.dumps(
+            {
+                "documents": [
+                    {
+                        "doc_id": "PDF-LOTO",
+                        "title": "PDF LOTO Procedure",
+                        "file_path": str(doc_path),
+                        "source_type": "official_public_pdf",
+                        "organization": "Factory Safety",
+                        "domain": "safety",
+                        "subdomain": "loto",
+                        "authority_level": "mandatory_procedure",
+                        "use_for": ["loto"],
+                        "do_not_use_for": ["live factory status lookup"],
+                        "related_entities": ["machine"],
+                        "risk_level": "high",
+                        "license": "internal",
+                        "version": "1.0",
+                        "retrieved_date": "2026-05-10",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    return register_path, doc_path
 
 @pytest.fixture
 def engine(tmp_path):
@@ -101,6 +144,26 @@ def test_full_ingestion(engine):
         assert isinstance(json.loads(meta["do_not_use_for"]), list)
         
         # I9: Section prefixing
+        assert text.startswith("[Section:")
+
+
+def test_pdf_ingestion_preserves_page_locator_metadata(engine, tmp_path):
+    register_path, doc_path = _write_pdf_test_register(tmp_path)
+
+    engine.run_full_ingestion(str(register_path))
+
+    results = engine.collection.get(where={"doc_id": "PDF-LOTO"}, include=["documents", "metadatas"])
+    assert results["ids"]
+    pages = {meta.get("page") for meta in results["metadatas"]}
+    assert pages == {1, 2}
+    assert resolve_source_pdf_path("PDF-LOTO", register_path=register_path) == doc_path.resolve()
+    for meta, text in zip(results["metadatas"], results["documents"]):
+        assert meta["pdf_url"] == source_pdf_url("PDF-LOTO")
+        assert meta["pdf_url"] == "/documents/PDF-LOTO/pdf"
+        assert "file_path" not in meta
+        assert "char_range" in meta
+        assert isinstance(json.loads(meta["char_range"]), list)
+        assert meta["text_search"]
         assert text.startswith("[Section:")
 
 def test_reingestion_logic(engine):

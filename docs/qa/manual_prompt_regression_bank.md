@@ -353,7 +353,7 @@ Phase 28 promotes the LOTO/RAG display proof from source-list-only evidence to t
 |---|---|---|---|
 | `response-document-phase28-loto-typed-rag-source-citation` | `According to the LOTO procedure, what notification is required before starting lockout` | Renders one typed knowledge answer with a dedicated safety notice, inline source chip, hover metadata, source drawer snippet/metadata, and `Knowledge sources` bibliography/details. No raw `:::safety`, footnote definitions, or unconverted `[^1]` markers are visible. | Covered: `factory-agent/tests/test_response_document_contract.py::test_rag_response_document_includes_knowledge_answer_and_source_blocks`; `FactoryAgentChatPanel.component.test.mjs`; `responseDocumentProbe.test.mjs`; `final-response-quality.spec.js::RD-009 response_document LOTO document content notification answer does not ask for machine ID`. |
 | `response-document-phase28-mixed-operation-rag-sections` | `Show M-CNC-01 status and the LOTO notification guidance as separate sections` | Renders live machine status as `status_result` and procedure guidance as separate `safety_notice`/`knowledge_answer`/`source_list` sections, with source chip evidence attached to the procedure claim. | Covered: `eMas Front/e2e/specs/final-response-quality.spec.js::typed RAG mixed operation answer renders separate operation and procedure sections`. |
-| `response-document-phase28-pdf-page-link-fallback` | Source chip with `pdf_url` and `page`. | Source drawer offers an `Open PDF page N` link when locator metadata exists, while exact PDF highlight remains Phase 29. | Covered: `FactoryAgentChatPanel.component.test.mjs::FactoryAgentChatPanel offers PDF page link when source locator includes pdf_url and page`. |
+| `response-document-phase28-pdf-page-link-fallback` | Source chip with `pdf_url` and `page`. | Source drawer offers a PDF link when locator metadata exists, while exact PDF highlight remains Phase 29. | Covered: `FactoryAgentChatPanel.component.test.mjs::FactoryAgentChatPanel offers PDF page search link when source locator includes pdf_url, page, and snippet`. |
 
 Phase 28 closure evidence:
 
@@ -362,6 +362,24 @@ Phase 28 closure evidence:
 - Passed: `node --test --test-concurrency=1 e2e/support/responseDocumentProbe.test.mjs` -> 11 passed.
 - Passed: `npm run test:e2e:response-document -- --grep "LOTO|typed RAG|source chip|safety notice|source drawer|mixed operation"` -> 4 passed.
 - Accepted limitation: exact PDF highlighting and page-aware ingestion remain Phase 29; Phase 28 only provides drawer and page-link fallback behavior.
+
+## Response Document Phase 29 PDF Source Locator And Highlight Upgrade
+
+Phase 29 promotes PDF source opening from drawer/page-link-only behavior to deterministic best-locator behavior.
+
+| Candidate ID | Prompt / flow class | Expected deterministic behavior | Coverage |
+|---|---|---|---|
+| `response-document-phase29-page-aware-ingestion` | Ingest a PDF-backed RAG source. | Chunks preserve page, safe `pdf_url`, snippet/text-search text, and optional `char_range` without exposing raw local `file_path` in normal UI payloads. | `factory-agent/tests/test_rag_ingestion.py::test_pdf_ingestion_preserves_page_locator_metadata`; `factory-agent/tests/test_rag_generation.py::test_generate_answer_safety_warning`; `factory-agent/tests/test_response_document_contract.py::test_rag_response_document_includes_knowledge_answer_and_source_blocks`. |
+| `response-document-phase29-highlight-fallback-order` | Click typed source chips with exact, text-search, page-only, and missing-PDF metadata. | The UI chooses exact `char_range`/`bbox`, then page plus text/snippet search, then page-only PDF open, then drawer-only fallback. | `FactoryAgentChatPanel.component.test.mjs::FactoryAgentChatPanel chooses deterministic source PDF highlight fallback order`. |
+| `response-document-phase29-source-pdf-browser-proof` | `Render response_document source PDF highlight fixture` | A PDF-backed OSHA LOTO source opens through `/documents/osha_3120_lockout_tagout/pdf#page=9&highlight=char_range...`; drawer source evidence remains visible and raw local paths are absent. | `eMas Front/e2e/specs/final-response-quality.spec.js::source PDF highlight locator opens cited page before source drawer fallback`. |
+
+Phase 29 closure evidence:
+
+- Passed: `python -m pytest tests/test_rag_ingestion.py tests/test_rag_generation.py tests/test_response_document_contract.py -q` -> 38 passed after setting pytest temp vars to the workspace because the default Windows temp directory denied access.
+- Passed: `python -m pytest tests/test_phase3_contract_coverage.py::test_openapi_route_contract_snapshot tests/test_phase3_contract_coverage.py::test_openapi_documents_sensitive_endpoint_auth_contracts -q` -> 2 passed.
+- Passed: `npm test` -> 120 passed.
+- Passed: `npm run test:e2e:response-document -- --grep "source PDF|source drawer|highlight|LOTO"` -> 4 passed.
+- Migration note: existing vector/BM25 indexes need reingestion from `rag_sources/00_metadata_templates/source_register.json` before live sources can rely on Phase 29 page/highlight fields. Until then, source drawer fallback remains valid.
 
 ## Phase 15 Release Enforcement Note
 

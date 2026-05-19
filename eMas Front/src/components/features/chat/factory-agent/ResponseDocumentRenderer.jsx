@@ -300,7 +300,11 @@ function citationFromSource(source) {
     organization: safeText(source.organization),
     snippet: safeText(source.snippet),
     page: source.page,
+    page_label: safeText(source.page_label || source.pageLabel),
     pdf_url: safeText(source.pdf_url || source.pdfUrl),
+    bbox: source.bbox || source.bounding_box || source.boundingBox || null,
+    char_range: source.char_range || source.charRange || source.text_range || source.textRange || null,
+    text_search: safeText(source.text_search || source.textSearch || source.highlight_text || source.highlightText),
     policy_only: Boolean(source.policy_only || source.policyOnly),
   }
 }
@@ -314,13 +318,69 @@ function sourceLocationLabel(source) {
   return null
 }
 
-function sourcePdfHref(source) {
-  const url = safeText(source?.pdf_url || source?.pdfUrl)
-  if (!url) return null
-  const page = safeText(source?.page)
-  if (!page) return url
+function normalCharRange(value) {
+  if (Array.isArray(value) && value.length >= 2) {
+    const start = Number(value[0])
+    const end = Number(value[1])
+    if (Number.isFinite(start) && Number.isFinite(end) && end >= start) return { start, end }
+  }
+  if (value && typeof value === 'object') {
+    const start = Number(value.start ?? value.from ?? value[0])
+    const end = Number(value.end ?? value.to ?? value[1])
+    if (Number.isFinite(start) && Number.isFinite(end) && end >= start) return { start, end }
+  }
+  return null
+}
+
+function appendPdfFragment(url, params) {
+  const entries = Object.entries(params).filter(([, value]) => value != null && value !== '')
+  if (!entries.length) return url
+  const fragment = new URLSearchParams(entries.map(([key, value]) => [key, String(value)])).toString()
   const separator = url.includes('#') ? '&' : '#'
-  return `${url}${separator}page=${encodeURIComponent(page)}`
+  return `${url}${separator}${fragment}`
+}
+
+function sourceOpenTarget(source) {
+  const url = safeText(source?.pdf_url || source?.pdfUrl)
+  if (!url) return { mode: 'drawer', href: null, highlightKind: null }
+  const page = safeText(source?.page)
+  const charRange = normalCharRange(source?.char_range || source?.charRange)
+  const bbox = source?.bbox || source?.bounding_box || source?.boundingBox
+  const searchText = safeText(source?.text_search || source?.textSearch || source?.snippet)
+  if (charRange) {
+    return {
+      mode: 'exact',
+      href: appendPdfFragment(url, {
+        page,
+        highlight: 'char_range',
+        char_start: charRange.start,
+        char_end: charRange.end,
+      }),
+      highlightKind: 'char_range',
+    }
+  }
+  if (bbox) {
+    return {
+      mode: 'exact',
+      href: appendPdfFragment(url, {
+        page,
+        highlight: 'bbox',
+        bbox: JSON.stringify(bbox),
+      }),
+      highlightKind: 'bbox',
+    }
+  }
+  if (page && searchText) {
+    return {
+      mode: 'search',
+      href: appendPdfFragment(url, { page, search: searchText }),
+      highlightKind: 'text_search',
+    }
+  }
+  if (page) {
+    return { mode: 'page', href: appendPdfFragment(url, { page }), highlightKind: null }
+  }
+  return { mode: 'pdf', href: url, highlightKind: null }
 }
 
 function SourceHoverCard({ source }) {
@@ -345,6 +405,7 @@ function SourceChip({ citation, index, activeHoverId, setActiveHoverId, onOpenSo
   if (!source) return null
   const id = citationKey(source) || `citation:${index + 1}`
   const label = `[${source.source_number || index + 1}]`
+  const openTarget = sourceOpenTarget(source)
   return (
     <span className="relative inline-flex align-baseline">
       <button
@@ -356,6 +417,8 @@ function SourceChip({ citation, index, activeHoverId, setActiveHoverId, onOpenSo
         data-doc-id={safeText(source.doc_id) || undefined}
         data-chunk-id={safeText(source.chunk_id) || undefined}
         data-source-number={safeText(source.source_number) || undefined}
+        data-source-open-mode={openTarget.mode}
+        data-source-highlight-kind={openTarget.highlightKind || undefined}
         onMouseEnter={() => setActiveHoverId(id)}
         onMouseLeave={() => setActiveHoverId((current) => (current === id ? null : current))}
         onFocus={() => setActiveHoverId(id)}
@@ -373,7 +436,8 @@ function SourceDrawer({ source, onClose }) {
   const safeSource = citationFromSource(source)
   if (!safeSource) return null
   const location = sourceLocationLabel(safeSource)
-  const pdfHref = sourcePdfHref(safeSource)
+  const openTarget = sourceOpenTarget(safeSource)
+  const pdfHref = openTarget.href
   return (
     <aside
       role="dialog"
@@ -383,6 +447,8 @@ function SourceDrawer({ source, onClose }) {
       data-source-id={safeText(safeSource.source_id) || undefined}
       data-doc-id={safeText(safeSource.doc_id) || undefined}
       data-chunk-id={safeText(safeSource.chunk_id) || undefined}
+      data-source-open-mode={openTarget.mode}
+      data-source-highlight-kind={openTarget.highlightKind || undefined}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -435,8 +501,16 @@ function SourceDrawer({ source, onClose }) {
           target="_blank"
           rel="noreferrer"
           data-source-pdf-link=""
+          data-source-open-mode={openTarget.mode}
+          data-source-highlight-kind={openTarget.highlightKind || undefined}
         >
-          {safeSource.page ? `Open PDF page ${safeSource.page}` : 'Open PDF'}
+          {openTarget.mode === 'exact'
+            ? 'Open highlighted PDF'
+            : openTarget.mode === 'search'
+              ? `Open PDF search on page ${safeSource.page}`
+              : safeSource.page
+                ? `Open PDF page ${safeSource.page}`
+                : 'Open PDF'}
         </a>
       ) : null}
     </aside>

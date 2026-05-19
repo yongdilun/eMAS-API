@@ -36,7 +36,7 @@ Created: 2026-05-18
 | 26 | Real flow release proof | Done | Codex | Real/seeded release proof passed for RD-001, machine status, LOTO RAG, no-op mutation, final visual quality, and real LangGraph critical; no safe non-job real/seeded browser path exists yet beyond Phase 24 backend contract coverage. |
 | 27 | RAG metadata readiness and legacy renderer cleanup | Done | Codex | Added minimum RAG source locator metadata, stopped raw `:::safety` answer injection, sanitized legacy safety markdown, prevented duplicate response-document RAG bodies, and isolated legacy source/safety chrome to no-response-document compatibility paths. |
 | 28 | Typed RAG answer and source citation UX | Done | Codex | Added typed safety notices, knowledge answer citations, inline source chips, compact hover metadata, source drawer click behavior, PDF page-link fallback, and separate operation/RAG sections. |
-| 29 | PDF source locator and highlight upgrade | Planned | Codex | Make PDF ingestion page-aware, add safe PDF/document locators, and support exact or fallback highlighting after typed RAG UX is stable. |
+| 29 | PDF source locator and highlight upgrade | Done | Codex | PDF ingestion is page-aware, sources use safe `/documents/{doc_id}/pdf` locators, source clicks choose exact/text-search/page/drawer fallbacks deterministically, and drawer-only fallback remains covered. |
 
 ## Current Blockers
 
@@ -125,9 +125,9 @@ Created: 2026-05-18
 - Phase 26 is the release-confidence proof after contract creation, migration, diversity coverage, and guardrails are green.
 - RAG/source UX must not build PDF highlight promises on doc-level-only metadata. Phase 27 prepares minimum source locators and removes legacy display leaks first.
 - RAG safety content is data, not markdown. Raw `:::safety` directives must not be part of visible answer text.
-- Source chips need minimum reliable metadata: `source_id`, `doc_id`, `chunk_id`, `title`, `organization`, and `snippet`; PDF page/highlight fields are optional until Phase 29.
+- Source chips need minimum reliable metadata: `source_id`, `doc_id`, `chunk_id`, `title`, `organization`, and `snippet`; PDF page/highlight fields are now supported when reingested source chunks include them.
 - Mixed operation plus RAG answers use separate sections so live operational facts and document/procedure guidance do not blur together.
-- Exact PDF highlight is a Phase 29 ingestion/source-locator upgrade, not a blocker for Phase 27 cleanup or Phase 28 typed RAG UX.
+- Exact PDF highlight now uses `char_range` or `bbox` locator metadata when available, then falls back to page plus text/snippet search, page-only PDF open, and drawer-only source evidence.
 
 ## Flagship Inputs
 
@@ -2140,7 +2140,7 @@ Results:
 
 ## Response Document Phase 29 PDF Source Locator And Highlight Upgrade
 
-Phase 29 is intentionally separate because current ingestion does not preserve enough PDF locator data for exact highlight.
+Phase 29 is complete. PDF-backed ingestion now preserves page/document locator metadata and the source-chip click path chooses the best available PDF locator before falling back to the drawer.
 
 | Candidate ID | Prompt / flow class | Expected deterministic behavior | First useful coverage |
 |---|---|---|---|
@@ -2148,7 +2148,38 @@ Phase 29 is intentionally separate because current ingestion does not preserve e
 | `response-document-phase29-pdf-open-page` | Click source chip with `pdf_url` and `page`. | Opens the PDF/document route at the cited page. | Frontend source-click/browser proof. |
 | `response-document-phase29-highlight-fallback-order` | Source chip with varying locator richness. | Uses exact `bbox`/`char_range` when present, then text/snippet search, then page-only, then drawer-only fallback. | Unit/component tests plus focused browser proof. |
 
-Phase 29 may require vector/BM25 reingestion or migration notes. It should not be used to block Phase 27 or Phase 28 RAG display cleanup.
+Implementation notes:
+
+- PDF ingestion splits per page, assigns `page`, `page_label`, safe `pdf_url`, `text_search`, and page-local `char_range` when text offsets can be found.
+- Chunk metadata stored for newly ingested documents omits raw `file_path`; normal source locator payloads continue to strip local path keys.
+- The backend serves source PDFs through `GET /documents/{doc_id}/pdf`, resolved through the source register instead of exposing the local path.
+- Response-document source citations and source lists pass through `page`, `pdf_url`, `bbox`, `char_range`, and `text_search`.
+- Frontend source chips and drawers expose deterministic locator modes: `exact`, `search`, `page`, `pdf`, or `drawer`.
+- The drawer-only fallback remains the terminal behavior when no safe PDF locator exists.
+
+Migration/reingestion note:
+
+- Existing Chroma/BM25 indexes created before Phase 29 do not have page-aware `page`, `pdf_url`, `text_search`, or `char_range` metadata. Re-run full RAG ingestion from `rag_sources/00_metadata_templates/source_register.json` and rebuild BM25 so old chunks are replaced with Phase 29 locator metadata. Until reingestion is complete, typed source drawers still work and PDF links fall back according to whatever locator metadata is present.
+
+Phase 29 verification:
+
+```powershell
+Set-Location "factory-agent"
+$env:TEMP=(Resolve-Path ".pytest_tmp").Path; $env:TMP=$env:TEMP
+python -m pytest tests/test_rag_ingestion.py tests/test_rag_generation.py tests/test_response_document_contract.py -q
+python -m pytest tests/test_phase3_contract_coverage.py::test_openapi_route_contract_snapshot tests/test_phase3_contract_coverage.py::test_openapi_documents_sensitive_endpoint_auth_contracts -q
+
+Set-Location "..\eMas Front"
+npm test
+npm run test:e2e:response-document -- --grep "source PDF|source drawer|highlight|LOTO"
+```
+
+Results:
+
+- Backend RAG/response-document lane: 38 passed.
+- Backend route/auth contract spot-check: 2 passed.
+- Frontend unit/component/probe lane: 120 passed.
+- Focused source PDF/source drawer/highlight/LOTO browser grep: 4 passed.
 
 ## Phase 10 Implementation Notes
 
@@ -2304,7 +2335,7 @@ rg -n "presentation|final response|session_completed|approval|required|pending|e
 
 ## Next Action
 
-Start Phase 29: PDF source locator and highlight upgrade. Use the Phase 28 typed source-chip/drawer UX as the baseline, and keep drawer-only fallback working while page-aware ingestion and safe PDF routes are added.
+Phase 29 is complete. Next response-document RAG work should start from the page-aware locator contract, reingest existing vector/BM25 indexes before relying on PDF page/highlight metadata in live data, and keep drawer-only fallback as the non-negotiable compatibility floor.
 
 ## Post-Gate Regression: Approved Data But UI Still Shows Approval
 

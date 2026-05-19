@@ -54,6 +54,8 @@ function backendSummary(snapshot) {
   const contracts = uniq([
     ...blocks.map((block) => block?.contract),
     ...blocks.flatMap((block) => Array.isArray(block?.groups) ? block.groups.map((group) => group?.contract) : []),
+    ...blocks.flatMap((block) => Array.isArray(block?.sources) ? block.sources.map((source) => source?.contract) : []),
+    ...blocks.flatMap((block) => Array.isArray(block?.citations) ? block.citations.map((citation) => citation?.contract) : []),
     document.invariants?.read_status_contract,
     document.invariants?.mutation_business_contract,
     document.invariants?.no_op_mutation_contract,

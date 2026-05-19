@@ -858,12 +858,14 @@ export async function collectVisibleResponseDocumentUi(page) {
       .map((node) => node.getAttribute('data-response-contract'))
       .filter(Boolean)
     const sourceChips = Array.from(latestRoot.querySelectorAll('[data-source-chip]')).map((node) => ({
-      sourceId: node.getAttribute('data-source-id') || null,
-      docId: node.getAttribute('data-doc-id') || null,
-      chunkId: node.getAttribute('data-chunk-id') || null,
-      sourceNumber: node.getAttribute('data-source-number') || null,
-      text: compact(node.innerText || node.textContent || '', 40),
-    }))
+        sourceId: node.getAttribute('data-source-id') || null,
+        docId: node.getAttribute('data-doc-id') || null,
+        chunkId: node.getAttribute('data-chunk-id') || null,
+        sourceNumber: node.getAttribute('data-source-number') || null,
+        openMode: node.getAttribute('data-source-open-mode') || null,
+        highlightKind: node.getAttribute('data-source-highlight-kind') || null,
+        text: compact(node.innerText || node.textContent || '', 40),
+      }))
     const drawer = latestRoot.querySelector('[data-source-drawer]')
     const sourceDrawer = drawer
       ? {
@@ -871,6 +873,8 @@ export async function collectVisibleResponseDocumentUi(page) {
         sourceId: drawer.getAttribute('data-source-id') || null,
         docId: drawer.getAttribute('data-doc-id') || null,
         chunkId: drawer.getAttribute('data-chunk-id') || null,
+        openMode: drawer.getAttribute('data-source-open-mode') || null,
+        highlightKind: drawer.getAttribute('data-source-highlight-kind') || null,
         text: compact(drawer.innerText || drawer.textContent || '', 220),
       }
       : null

@@ -13,6 +13,14 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _FOOTNOTE_DEFINITION_RE = re.compile(r"(?m)^[ \t]*\[\^[^\]\n]+\]:[^\n]*(?:\n[ \t]+[^\n]*)*")
 _FOOTNOTE_MARKER_RE = re.compile(r"\[\^[^\]\n]+\]")
 _LOCAL_FILE_KEYS = {"file_path", "filepath", "local_file_path", "local_path"}
+_LOCATOR_ALIASES = {
+    "page": ("page", "pageNumber", "page_number"),
+    "page_label": ("page_label", "pageLabel"),
+    "pdf_url": ("pdf_url", "pdfUrl", "pdfurl"),
+    "bbox": ("bbox", "bounding_box", "boundingBox"),
+    "char_range": ("char_range", "charRange", "charrange", "text_range", "textRange"),
+    "text_search": ("text_search", "textSearch", "highlight_text", "highlightText"),
+}
 
 
 def sanitize_rag_answer_text(value: Any) -> str:
@@ -88,6 +96,13 @@ def _chunk_id(data: dict[str, Any], doc_id: str, number: int, *, policy_only: bo
     return f"{doc_id}:{prefix}-{number}"
 
 
+def _first_locator_value(data: dict[str, Any], key: str) -> Any:
+    for candidate in _LOCATOR_ALIASES.get(key, (key,)):
+        if candidate in data:
+            return data.get(candidate)
+    return None
+
+
 def normalize_source_locator(
     source: Any,
     index: int = 0,
@@ -146,10 +161,13 @@ def normalize_source_locator(
         normalized["policy_only"] = True
         normalized.setdefault("source_kind", "policy")
 
-    for key in ("page", "pdf_url", "bbox", "char_range"):
-        value = data.get(key) if key in data else data.get(key.replace("_", ""))
+    for key in ("page", "page_label", "pdf_url", "bbox", "char_range", "text_search"):
+        value = _first_locator_value(data, key)
         if value not in (None, "", [], {}):
             normalized[key] = value
+
+    if "text_search" not in normalized and normalized.get("page") and snippet:
+        normalized["text_search"] = snippet_from_text(snippet, limit=240)
 
     return normalized
 

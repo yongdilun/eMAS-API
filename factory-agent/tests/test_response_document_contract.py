@@ -2032,6 +2032,10 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
         "title": "LOTO procedure",
         "organization": "Factory Safety",
         "file_path": "C:/local/docs/loto.pdf",
+        "pdf_url": "/documents/LOTO-M-CNC-01/pdf",
+        "page": 9,
+        "char_range": [120, 188],
+        "text_search": "Notify affected employees before lockout starts.",
     }
     db_session.add_all(
         [
@@ -2074,6 +2078,10 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
     assert knowledge_block["citations"][0]["contract"] == "source_citation_v1"
     assert knowledge_block["citations"][0]["doc_id"] == "LOTO-M-CNC-01"
     assert knowledge_block["citations"][0]["chunk_id"]
+    assert knowledge_block["citations"][0]["pdf_url"] == "/documents/LOTO-M-CNC-01/pdf"
+    assert knowledge_block["citations"][0]["page"] == 9
+    assert knowledge_block["citations"][0]["char_range"] == [120, 188]
+    assert knowledge_block["citations"][0]["text_search"] == "Notify affected employees before lockout starts."
     assert document["message"] != knowledge_block["answer"]
     assert document["message"] == "I found a source-backed answer."
     assert ":::safety" not in json.dumps(document)
@@ -2086,6 +2094,11 @@ async def test_rag_response_document_includes_knowledge_answer_and_source_blocks
     for key in ("source_id", "source_number", "doc_id", "chunk_id", "title", "organization", "snippet"):
         assert source_payload[key]
     assert "file_path" not in source_payload
+    assert source_payload["pdf_url"] == "/documents/LOTO-M-CNC-01/pdf"
+    assert source_payload["page"] == 9
+    assert source_payload["char_range"] == [120, 188]
+    assert source_payload["text_search"] == "Notify affected employees before lockout starts."
+    assert "C:/local/docs" not in json.dumps(document)
     assert any(step["kind"] == "knowledge" for step in document["run_steps"])
 
 

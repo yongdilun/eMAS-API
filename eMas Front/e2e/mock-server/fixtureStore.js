@@ -73,6 +73,7 @@ import {
   lotoDocument,
   lotoNotificationDocument,
   mixedOperationRagDocument,
+  sourcePdfLocatorDocument,
   noResultsDocument,
   partialFailureDocument,
   partialNoOpApprovalPayload,
@@ -89,6 +90,7 @@ import {
   responseDocumentLotoPrompt,
   responseDocumentLotoNotificationPrompt,
   responseDocumentMixedOperationRagPrompt,
+  responseDocumentSourcePdfPrompt,
   responseDocumentNoResultsPrompt,
   responseDocumentPartialNoOpPrompt,
   responseDocumentPartialFailurePrompt,
@@ -970,6 +972,14 @@ export const scenarioCatalog = {
     operationId: 'pw-plan-rd-mixed-operation-rag',
     objective: 'Render response_document mixed operation and RAG sections.',
     buildDocument: mixedOperationRagDocument,
+  }),
+
+  responseDocumentSourcePdfLocator: responseDocumentCompletionScenario({
+    name: 'responseDocumentSourcePdfLocator',
+    prompt: responseDocumentSourcePdfPrompt,
+    operationId: 'pw-plan-rd-source-pdf',
+    objective: 'Render response_document source PDF locator and highlight evidence.',
+    buildDocument: sourcePdfLocatorDocument,
   }),
 
   responseDocumentNoResults: responseDocumentCompletionScenario({

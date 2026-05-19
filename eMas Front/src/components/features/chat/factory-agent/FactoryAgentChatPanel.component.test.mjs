@@ -1265,7 +1265,7 @@ test('FactoryAgentChatPanel strips legacy raw safety markdown from response_docu
   await view.unmount()
 })
 
-test('FactoryAgentChatPanel offers PDF page link when source locator includes pdf_url and page', async () => {
+test('FactoryAgentChatPanel offers PDF page search link when source locator includes pdf_url, page, and snippet', async () => {
   const answer = 'Use page-specific LOTO notification guidance.'
   const document = baseResponseDocument({
     blocks: [
@@ -1329,8 +1329,126 @@ test('FactoryAgentChatPanel offers PDF page link when source locator includes pd
     assert.ok(node)
     return node
   })
-  assert.match(link.textContent, /Open PDF page 9/)
-  assert.match(link.getAttribute('href'), /\/documents\/pdf-loto\.pdf#page=9$/)
+  assert.match(link.textContent, /Open PDF search on page 9/)
+  assert.match(link.getAttribute('href'), /\/documents\/pdf-loto\.pdf#page=9&search=Page\+9\+covers\+notification\+timing\.$/)
+
+  await view.unmount()
+})
+
+test('FactoryAgentChatPanel chooses deterministic source PDF highlight fallback order', async () => {
+  const sourceRows = [
+    {
+      source_id: 'PDF-LOTO#exact-char',
+      source_number: 1,
+      title: 'PDF LOTO Procedure',
+      doc_id: 'PDF-LOTO',
+      chunk_id: 'exact-char',
+      organization: 'Factory Safety',
+      snippet: 'Exact text-layer notification range.',
+      pdf_url: '/documents/PDF-LOTO/pdf',
+      page: 4,
+      char_range: [120, 188],
+    },
+    {
+      source_id: 'PDF-LOTO#text-search',
+      source_number: 2,
+      title: 'PDF LOTO Procedure',
+      doc_id: 'PDF-LOTO',
+      chunk_id: 'text-search',
+      organization: 'Factory Safety',
+      snippet: 'Searchable notification fallback text.',
+      pdf_url: '/documents/PDF-LOTO/pdf',
+      page: 5,
+    },
+    {
+      source_id: 'PDF-LOTO#page-only',
+      source_number: 3,
+      title: 'PDF LOTO Procedure',
+      doc_id: 'PDF-LOTO',
+      chunk_id: 'page-only',
+      organization: 'Factory Safety',
+      snippet: '',
+      pdf_url: '/documents/PDF-LOTO/pdf',
+      page: 6,
+    },
+    {
+      source_id: 'DRAWER-ONLY#chunk',
+      source_number: 4,
+      title: 'Drawer Only Source',
+      doc_id: 'DRAWER-ONLY',
+      chunk_id: 'chunk',
+      organization: 'Factory Safety',
+      snippet: 'Drawer fallback remains available without PDF metadata.',
+    },
+  ].map((source) => ({
+    contract: 'source_locator_v1',
+    citation_id: `citation:${source.source_id}`,
+    ...source,
+  }))
+  const document = baseResponseDocument({
+    blocks: [
+      { id: 'message:knowledge', type: 'short_message', message: 'I found source PDF locator evidence.', status: 'completed' },
+      {
+        id: 'knowledge:pdf-fallbacks',
+        type: 'knowledge_answer',
+        contract: 'knowledge_answer_v1',
+        answer: 'Exact range. Text search. Page only. Drawer only.',
+        segments: sourceRows.map((source) => ({
+          text: source.snippet || source.title,
+          citation_ids: [source.citation_id],
+        })),
+        citations: sourceRows.map((source) => ({ ...source, contract: 'source_citation_v1' })),
+      },
+      {
+        id: 'sources:pdf-fallbacks',
+        type: 'source_list',
+        contract: 'source_list_v1',
+        sources: sourceRows,
+      },
+    ],
+  })
+  const chatState = createChatState({
+    session: { session_id: 'session-rd-pdf-fallbacks', name: 'RD PDF fallbacks', status: 'COMPLETED' },
+    sessionList: [{ session_id: 'session-rd-pdf-fallbacks', name: 'RD PDF fallbacks', status: 'COMPLETED' }],
+    activeSessionName: 'RD PDF fallbacks',
+    turns: [responseDocumentTurn(document)],
+  })
+
+  const view = await renderPanelWithState(chatState)
+
+  async function clickSource(sourceId, expectedMode) {
+    const chip = view.container.querySelector(`[data-source-chip][data-source-id="${sourceId}"]`)
+    assert.ok(chip)
+    assert.equal(chip.getAttribute('data-source-open-mode'), expectedMode)
+    await click(chip)
+    return waitFor(() => {
+      const drawer = view.container.querySelector('[data-source-drawer]')
+      assert.equal(drawer?.getAttribute('data-source-id'), sourceId)
+      assert.equal(drawer?.getAttribute('data-source-open-mode'), expectedMode)
+      return drawer
+    })
+  }
+
+  let drawer = await clickSource('PDF-LOTO#exact-char', 'exact')
+  let link = drawer.querySelector('[data-source-pdf-link]')
+  assert.ok(link)
+  assert.equal(link.getAttribute('data-source-highlight-kind'), 'char_range')
+  assert.match(link.getAttribute('href'), /\/documents\/PDF-LOTO\/pdf#page=4&highlight=char_range&char_start=120&char_end=188$/)
+
+  drawer = await clickSource('PDF-LOTO#text-search', 'search')
+  link = drawer.querySelector('[data-source-pdf-link]')
+  assert.ok(link)
+  assert.equal(link.getAttribute('data-source-highlight-kind'), 'text_search')
+  assert.match(link.getAttribute('href'), /\/documents\/PDF-LOTO\/pdf#page=5&search=Searchable\+notification\+fallback\+text\.$/)
+
+  drawer = await clickSource('PDF-LOTO#page-only', 'page')
+  link = drawer.querySelector('[data-source-pdf-link]')
+  assert.ok(link)
+  assert.match(link.getAttribute('href'), /\/documents\/PDF-LOTO\/pdf#page=6$/)
+
+  drawer = await clickSource('DRAWER-ONLY#chunk', 'drawer')
+  assert.equal(drawer.querySelector('[data-source-pdf-link]'), null)
+  assert.match(view.text(), /Drawer fallback remains available/)
 
   await view.unmount()
 })
