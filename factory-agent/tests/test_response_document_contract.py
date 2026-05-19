@@ -2225,6 +2225,18 @@ async def test_phase37_multi_entity_status_read_returns_typed_collection_without
     session_id = "rd-028-multi-job-status"
     plan_id = "rd-028-multi-job-status-plan"
     prompt = "find status for job with job id JOB-SEED-001 and JOB-SEED-002"
+    raw_multi_status_answer = (
+        "**Success** Job **P-001** is currently **planned**.\n"
+        "- **Job ID:** JOB-SEED-001\n"
+        "- **Product ID:** P-001\n"
+        "- **Priority:** low\n"
+        "- **Deadline:** 2026-06-02T08:00:00+08:00\n\n"
+        "**Success** Job **P-002** is currently **planned**.\n"
+        "- **Job ID:** JOB-SEED-002\n"
+        "- **Product ID:** P-002\n"
+        "- **Priority:** low\n"
+        "- **Deadline:** 2026-06-02T08:00:00+08:00"
+    )
     db_session.add_all(
         [
             _session(
@@ -2244,7 +2256,7 @@ async def test_phase37_multi_entity_status_read_returns_typed_collection_without
                 step_id="rd-028-job-1",
                 completed_at=created_at + timedelta(seconds=2),
                 rows=[],
-                summary="First job status retrieved.",
+                summary=raw_multi_status_answer,
                 tool_name="get__jobs_{id}",
                 args={"id": "JOB-SEED-001"},
                 result={"success": True, "data": {"jobID": "JOB-SEED-001", "priority": "high", "status": "RUNNING"}},
@@ -2255,14 +2267,14 @@ async def test_phase37_multi_entity_status_read_returns_typed_collection_without
                 step_id="rd-028-job-2",
                 completed_at=created_at + timedelta(seconds=3),
                 rows=[],
-                summary="Second job status retrieved.",
+                summary=raw_multi_status_answer,
                 tool_name="get__jobs_{id}",
                 args={"id": "JOB-SEED-002"},
                 result={"success": True, "data": {"jobID": "JOB-SEED-002", "priority": "medium", "status": "PLANNED"}},
             ),
             _assistant_message(
                 session_id=session_id,
-                content="Job statuses retrieved.",
+                content=raw_multi_status_answer,
                 step_id=plan_id,
                 created_at=created_at + timedelta(seconds=4),
             ),
@@ -2290,7 +2302,14 @@ async def test_phase37_multi_entity_status_read_returns_typed_collection_without
         {"job_id": "JOB-SEED-001", "status": "running"},
         {"job_id": "JOB-SEED-002", "status": "planned"},
     ]
-    assert "priority" not in json.dumps(table).lower()
+    short_message = next(block for block in document["blocks"] if block["type"] == "short_message")
+    assert document["message"] == "Found 2 job statuses."
+    assert short_message["message"] == "Found 2 job statuses."
+    serialized = json.dumps(document)
+    assert "**Success**" not in serialized
+    assert "Product ID" not in serialized
+    assert "Priority" not in serialized
+    assert "Deadline" not in serialized
     assert not any(block["type"] == "diagnostic" for block in document["blocks"])
 
 

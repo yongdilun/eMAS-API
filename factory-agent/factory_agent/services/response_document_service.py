@@ -2295,6 +2295,23 @@ def _read_summary(rows: list[dict[str, Any]], fallback: str | None) -> str:
     return f"Found {len(rows)} {_plural(len(rows), 'record')}."
 
 
+def _read_policy_summary(
+    rows: list[dict[str, Any]],
+    policy: ReadDisplayPolicy | None,
+    fallback: str | None,
+) -> str:
+    if policy and policy.contract == ENTITY_STATUS_CONTRACT:
+        count = max(int(policy.entity_count or 0), len(rows))
+        entity_label = _human_status_label(policy.entity_type or "record").lower()
+        if count <= 0:
+            return f"No matching {entity_label} statuses were found."
+        status_noun = f"{entity_label} status" if count == 1 else f"{entity_label} statuses"
+        return f"Found {count} {status_noun}."
+    if policy and policy.display_mode == DISPLAY_MODE_NO_MATCH_DIAGNOSTIC:
+        return "No matching records were found."
+    return _read_summary(rows, fallback)
+
+
 def _read_scope_for_request(session: Any) -> str:
     text = _trimmed(getattr(session, "current_intent", None))
     if _status_request_wants_full_details(session):
@@ -2760,6 +2777,7 @@ def _compose_run_steps(
     read_evidence: list[ReadEvidence],
     sources: list[dict[str, Any]],
     status_result: dict[str, Any] | None,
+    read_policy: ReadDisplayPolicy | None,
     presentation: PresentationResponse,
     timeline: list[TimelineEventResponse],
     activity_steps: list[ActivityStepResponse],
@@ -2935,9 +2953,15 @@ def _compose_run_steps(
                 title=(
                     f"Read {status_result['entity_type']} status"
                     if status_result and status_result.get("entity_type")
+                    else f"Read {_human_status_label(read_policy.entity_type).lower()} statuses"
+                    if read_policy and read_policy.contract == ENTITY_STATUS_CONTRACT and read_policy.entity_type
                     else f"Read {total_rows} {_plural(total_rows, 'record')}"
                 ),
-                summary=status_result.get("summary") if status_result else _read_summary(read_rows, presentation.summary),
+                summary=(
+                    status_result.get("summary")
+                    if status_result
+                    else _read_policy_summary(read_rows, read_policy, presentation.summary)
+                ),
                 operation_id=operation_id,
                 record_count=total_rows,
             )
@@ -2989,6 +3013,9 @@ def _compose_run_steps(
             completion_summary = _aggregate_mutation_summary(mutation_groups)
         elif status_result:
             completion_summary = _trimmed(status_result.get("summary")) or None
+        elif read_evidence:
+            read_rows = [row for item in read_evidence for row in item.rows]
+            completion_summary = _read_policy_summary(read_rows, read_policy, presentation.summary)
         elif sources:
             completion_summary = _strip_footnote_markup(presentation.summary) or "Source-backed answer is ready."
         else:
@@ -3109,6 +3136,7 @@ def _short_message(
     mutation_groups: list[MutationGroup],
     read_rows: list[dict[str, Any]],
     status_result: dict[str, Any] | None,
+    read_policy: ReadDisplayPolicy | None,
     sources: list[dict[str, Any]],
     presentation: PresentationResponse,
     session: Any,
@@ -3149,7 +3177,7 @@ def _short_message(
         return _trimmed(status_result.get("summary")) or "Status is ready."
 
     if read_rows:
-        return _read_summary(read_rows, presentation.summary)
+        return _read_policy_summary(read_rows, read_policy, presentation.summary)
 
     if presentation.kind == "answer" and state == "completed":
         return _trimmed(presentation.summary) or "No matching records were found."
@@ -3597,6 +3625,7 @@ def compose_response_document(
         read_evidence=read_groups,
         sources=sources,
         status_result=status_result,
+        read_policy=read_policy,
         presentation=presentation,
         timeline=timeline,
         activity_steps=activity_steps,
@@ -3610,6 +3639,7 @@ def compose_response_document(
         mutation_groups=mutation_groups,
         read_rows=read_rows,
         status_result=status_result,
+        read_policy=read_policy,
         sources=sources,
         presentation=presentation,
         session=session,
