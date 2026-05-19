@@ -792,6 +792,31 @@ function FactoryAgentDiagnostics({ error, streamDiagnostics = [], retrying, onRe
   )
 }
 
+function FullscreenWindowIcon({ isFullscreen }) {
+  if (isFullscreen) {
+    return (
+      <span
+        className="relative block h-4 w-4"
+        aria-hidden="true"
+        data-ai-assistant-fullscreen-icon="restore"
+      >
+        <span className="absolute left-[4px] top-[2px] h-[10px] w-[10px] rounded-[2px] border-2 border-current" />
+        <span className="absolute left-[1px] top-[5px] h-[10px] w-[10px] rounded-[2px] border-2 border-current bg-surface-1" />
+      </span>
+    )
+  }
+
+  return (
+    <span
+      className="relative block h-4 w-4"
+      aria-hidden="true"
+      data-ai-assistant-fullscreen-icon="maximize"
+    >
+      <span className="absolute left-[3px] top-[3px] h-[10px] w-[10px] rounded-[2px] border-2 border-current" />
+    </span>
+  )
+}
+
 const FactoryAgentChatPanel = ({
   onClose,
   onHeaderMouseDown,
@@ -979,15 +1004,13 @@ const FactoryAgentChatPanel = ({
               <button
                 type="button"
                 onClick={onToggleFullscreen}
-                className="p-2 rounded-md hover:bg-surface-2 text-ink-subtle"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink hover:bg-surface-2 focus:outline-none focus:ring-2 focus:ring-primary/30"
                 aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}
                 title={isFullscreen ? 'Exit full screen' : 'Full screen'}
                 data-ai-assistant-fullscreen-toggle=""
                 data-ai-assistant-fullscreen-state={isFullscreen ? 'fullscreen' : 'windowed'}
               >
-                <span className="material-symbols-outlined">
-                  {isFullscreen ? 'fullscreen_exit' : 'fullscreen'}
-                </span>
+                <FullscreenWindowIcon isFullscreen={isFullscreen} />
               </button>
             ) : null}
             {onClose && (

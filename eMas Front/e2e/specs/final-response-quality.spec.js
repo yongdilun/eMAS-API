@@ -1087,9 +1087,11 @@ test.describe('Final response quality response_document gate', () => {
 
     const fullscreenToggle = page.locator('[data-ai-assistant-fullscreen-toggle]').first()
     await expect(fullscreenToggle).toHaveAttribute('data-ai-assistant-fullscreen-state', 'windowed')
+    await expect(fullscreenToggle.locator('[data-ai-assistant-fullscreen-icon]')).toHaveAttribute('data-ai-assistant-fullscreen-icon', 'maximize')
     await fullscreenToggle.click()
     await expect(modal).toHaveAttribute('data-ai-assistant-fullscreen', 'true')
     await expect(fullscreenToggle).toHaveAttribute('data-ai-assistant-fullscreen-state', 'fullscreen')
+    await expect(fullscreenToggle.locator('[data-ai-assistant-fullscreen-icon]')).toHaveAttribute('data-ai-assistant-fullscreen-icon', 'restore')
     const fullscreenModal = await elementBox(modal)
     expectBoxInside(fullscreenModal, { left: 0, top: 0, right: 1500, bottom: 920 }, 'fullscreen assistant modal', 2)
     await fullscreenToggle.click()
