@@ -55,6 +55,11 @@ _SENSITIVE_VALUE_RE = re.compile(
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[a-z0-9._\-]+")
 _STACK_TRACE_RE = re.compile(r"(?is)traceback\s+\(most recent call last\):.*")
 _HTTP_STATUS_RE = re.compile(r"\bhttp\s*(?P<status>[45]\d\d)\b", re.IGNORECASE)
+_AUTH_DENIED_RE = re.compile(
+    r"\b(unauthori[sz]ed|forbidden|access denied|permission denied|insufficient permissions?|"
+    r"authentication required|authorization denied|not authorized|requires? authentication|401|403)\b",
+    re.IGNORECASE,
+)
 _USER_FACING_FAILURE_RE = re.compile(
     r"\b(could\s+not|cannot|failed|failure|error|unavailable|retry|expired|stale|did\s+not\s+apply|not\s+apply|no\s+\w+\s+(?:rows?\s+)?(?:were\s+)?changed|no\s+audit\s+rows?)\b",
     re.IGNORECASE,
@@ -695,7 +700,7 @@ def _failure_reason(
     if "sse" in text or "server-sent" in text or "event stream" in text:
         if "disconnect" in text or "interrupted" in text or "closed" in text:
             return "sse_stream_interrupted"
-    if "auth" in text or "unauthorized" in text or "forbidden" in text or "permission" in text or "401" in text or "403" in text:
+    if _AUTH_DENIED_RE.search(text):
         return "auth_denied"
     if "malformed" in text or ("invalid" in text and "payload" in text) or "invalid response" in text:
         return "malformed_response_payload"
@@ -3034,7 +3039,17 @@ def _read_evidence_collection_summary(item: ReadEvidence, *, rows: list[dict[str
     sort_suffix = f" sorted by {_human_status_label(sort_fields[0]).lower()}" if sort_fields else ""
     if count <= 0:
         return f"No matching {descriptor}{noun} were found."
+    if _read_rows_include_business_rule(rows):
+        return f"Rule Applied: found {count} {descriptor}{noun}{sort_suffix}."
     return f"Found {count} {descriptor}{noun}{sort_suffix}."
+
+
+def _read_rows_include_business_rule(rows: list[dict[str, Any]]) -> bool:
+    return any(
+        _trimmed(row.get("rule") or row.get("business_rule") or row.get("rule_result"))
+        for row in rows
+        if isinstance(row, dict)
+    )
 
 
 def _read_evidence_summary_for_mixed_read(item: ReadEvidence, *, session: Any) -> str | None:

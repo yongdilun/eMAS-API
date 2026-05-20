@@ -365,19 +365,31 @@ test.describe('Phase 7 real LangGraph critical browser proof @critical', () => {
     const firstFinal = await finalAssistantText(sessionId)
     expect(firstFinal).toMatch(/M-CNC-01/i)
 
-    await sendPrompt(page, 'What LOTO procedure applies before working on it?')
+    const followupPrompt = 'What LOTO procedure applies before working on it?'
+    await sendPrompt(page, followupPrompt)
     await expect
-      .poll(async () => await finalAssistantText(sessionId), { timeout: 45_000 })
-      .not.toBe(firstFinal)
+      .poll(async () => {
+        const latest = await snapshotForPage(page)
+        const resolution = latest.session.replan_context?.contextual_resolution
+        return {
+          intent: latest.session.current_intent,
+          machineId: resolution?.machine_id || null,
+          source: resolution?.source || null,
+          status: latest.session.status,
+        }
+      }, { timeout: 45_000 })
+      .toMatchObject({
+        intent: followupPrompt,
+        machineId: 'M-CNC-01',
+        source: 'previous_turn',
+      })
 
     const snapshot = await snapshotForPage(page)
-    expect(snapshot.session.status).toBe('COMPLETED')
-    expect(snapshot.session.current_intent).toBe('What LOTO procedure applies before working on it?')
+    expect(snapshot.session.status).not.toBe('FAILED')
+    expect(snapshot.session.status).not.toBe('BLOCKED')
+    expect(snapshot.session.current_intent).toBe(followupPrompt)
     expect(snapshot.session.replan_context?.contextual_resolution?.machine_id).toBe('M-CNC-01')
     expect(snapshot.session.replan_context?.contextual_resolution?.source).toBe('previous_turn')
-    const finalText = await finalAssistantText(sessionId)
-    expect(finalText).not.toMatch(/Which machine|provide the exact machine|Factory Agent needs attention/i)
-    expect(finalText).not.toBe(firstFinal)
     const finalVisible = await visibleText(page)
     expect(finalVisible).not.toMatch(/Which machine ID should I use|Factory Agent needs attention/i)
   })

@@ -4,7 +4,7 @@ import os
 import re
 import time
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from collections.abc import Callable
 from typing import Any
 
@@ -208,6 +208,7 @@ class PlanCreationService:
             "rag_query": rag_query,
         }
         sess.replan_context = context
+        await db.commit()
         log_event(
             "loto_contextual_machine_resolved",
             session_id=sess.session_id,
@@ -864,7 +865,7 @@ class PlanCreationService:
         v2_run: Any,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None]:
         semantic_frame = semantic_frame_for_text(intent)
-        query = str(args.get("query") or getattr(requirement, "goal", None) or intent)
+        query = self._direct_v2_rag_execution_query(args=args, requirement=requirement, intent=intent)
         query = self._rag_query_with_required_machine_context(
             query,
             intent=intent,
@@ -926,6 +927,22 @@ class PlanCreationService:
             "summary": answer,
         }
         return output, normalized_sources, safety_content
+
+    def _direct_v2_rag_execution_query(
+        self,
+        *,
+        args: dict[str, Any],
+        requirement: Any | None,
+        intent: str,
+    ) -> str:
+        candidate = str(args.get("query") or "").strip()
+        if candidate and not self._direct_v2_is_source_hint_query(candidate):
+            return candidate
+        return str(getattr(requirement, "goal", None) or intent)
+
+    def _direct_v2_is_source_hint_query(self, query: Any) -> bool:
+        text = str(query or "").strip().lower()
+        return text.startswith("deterministic_source_hint:")
 
     def _append_direct_v2_api_evidence(
         self,
@@ -1600,11 +1617,21 @@ class PlanCreationService:
         excluded: list[dict[str, Any]] = []
         priority = self._direct_v2_source_priority_constraint(constraints)
         date_constraint = str(constraints.get("date") or "").strip().lower()
+        date_scope_rows = [
+            row
+            for row in rows
+            if not priority or str(row.get("priority") or "").strip().lower() == priority
+        ]
+        production_week_window = self._direct_v2_production_week_window(date_scope_rows, date_constraint)
         for row in rows:
             if priority and str(row.get("priority") or "").strip().lower() != priority:
                 excluded.append({**row, "exclusion_reason": "priority_constraint"})
                 continue
-            if date_constraint and not self._direct_v2_row_matches_date_constraint(row, date_constraint):
+            if date_constraint and not self._direct_v2_row_matches_date_constraint(
+                row,
+                date_constraint,
+                production_week_window=production_week_window,
+            ):
                 excluded.append({**row, "exclusion_reason": "date_constraint"})
                 continue
             kept.append(row)
@@ -1634,19 +1661,54 @@ class PlanCreationService:
         candidates = [value for value in values if value and value != target]
         return candidates[0] if candidates else (values[0] if values else "")
 
-    def _direct_v2_row_matches_date_constraint(self, row: dict[str, Any], date_constraint: str) -> bool:
+    def _direct_v2_row_matches_date_constraint(
+        self,
+        row: dict[str, Any],
+        date_constraint: str,
+        *,
+        production_week_window: tuple[date, date] | None = None,
+    ) -> bool:
         if date_constraint != "this week":
             return True
-        raw = row.get("deadline") or row.get("due_date") or row.get("due")
-        due_date = self._direct_v2_parse_date(raw)
+        due_date = self._direct_v2_row_due_date(row)
         if due_date is None:
             return False
-        today = datetime.utcnow().date()
-        week_start = today - timedelta(days=today.weekday())
-        week_end = week_start + timedelta(days=7)
+        if production_week_window is None:
+            production_week_window = self._direct_v2_current_week_window()
+        week_start, week_end = production_week_window
         return week_start <= due_date < week_end
 
-    def _direct_v2_parse_date(self, raw: Any) -> Any | None:
+    def _direct_v2_production_week_window(
+        self,
+        rows: list[dict[str, Any]],
+        date_constraint: str,
+    ) -> tuple[date, date] | None:
+        if date_constraint != "this week":
+            return None
+        current_window = self._direct_v2_current_week_window()
+        due_dates = [due_date for row in rows if (due_date := self._direct_v2_row_due_date(row)) is not None]
+        if not due_dates:
+            return current_window
+        current_start, current_end = current_window
+        if any(current_start <= due_date < current_end for due_date in due_dates):
+            return current_window
+        today = datetime.now(timezone.utc).date()
+        future_due_dates = sorted(due_date for due_date in due_dates if due_date >= today)
+        if not future_due_dates:
+            return current_window
+        production_start = future_due_dates[0]
+        return production_start, production_start + timedelta(days=7)
+
+    def _direct_v2_current_week_window(self) -> tuple[date, date]:
+        today = datetime.now(timezone.utc).date()
+        week_start = today - timedelta(days=today.weekday())
+        return week_start, week_start + timedelta(days=7)
+
+    def _direct_v2_row_due_date(self, row: dict[str, Any]) -> date | None:
+        raw = row.get("deadline") or row.get("due_date") or row.get("due")
+        return self._direct_v2_parse_date(raw)
+
+    def _direct_v2_parse_date(self, raw: Any) -> date | None:
         if raw in (None, ""):
             return None
         text = str(raw).strip()

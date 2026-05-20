@@ -94,11 +94,18 @@ def test_validate_knowledge_answer_rejects_unknown_source_number():
     assert answer == insufficient_context_answer(has_sources=True)
 
 
-def test_validate_knowledge_answer_rejects_plain_bracket_source_number():
-    answer, result = answer_or_insufficient_context("Use the procedure [1].", [_source(1)])
+def test_validate_knowledge_answer_accepts_plain_bracket_source_number():
+    result = validate_knowledge_answer("Use the procedure [1].", [_source(1)])
+
+    assert result.valid
+    assert result.cited_source_numbers == (1,)
+
+
+def test_validate_knowledge_answer_rejects_unknown_plain_bracket_source_number():
+    answer, result = answer_or_insufficient_context("Use the procedure [2].", [_source(1)])
 
     assert not result.valid
-    assert result.reason == "missing_citations"
+    assert result.reason == "unknown_citation"
     assert answer == insufficient_context_answer(has_sources=True)
 
 

@@ -11,11 +11,11 @@ from factory_agent.rag.source_metadata import (
 )
 
 
-_CITATION_MARKER_RE = re.compile(r"\[\^(\d+)\]")
+_CITATION_MARKER_RE = re.compile(r"\[(?:\^)?(\d+)\]")
 _NUMBERED_PROCEDURE_LINE_RE = re.compile(r"^\s*(?:\d+[\.)]|[-*]\s*\d+[\.)])\s+")
 _NUMBERED_PROCEDURE_STEP_RE = re.compile(r"(?<!\w)(?:[-*]\s*)?\d+[\.)]\s+")
 _INCOMPLETE_NUMBERED_ITEM_RE = re.compile(r"^\s*(?:[-*]\s*)?\d+[\.)]?\s*$")
-_INCOMPLETE_NUMBERED_AFTER_CITATION_TAIL_RE = re.compile(r"\[\^\d+\][\s;]+(?:[-*]\s*)?\d+[\.)]?\s*$")
+_INCOMPLETE_NUMBERED_AFTER_CITATION_TAIL_RE = re.compile(r"\[(?:\^)?\d+\][\s;]+(?:[-*]\s*)?\d+[\.)]?\s*$")
 _WORD_RE = re.compile(r"[A-Za-z0-9]")
 
 

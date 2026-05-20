@@ -41,6 +41,7 @@ const fingerprint = {
 fs.writeFileSync(env.fingerprintPath, JSON.stringify(fingerprint, null, 2))
 
 function append(logPath, line) {
+  fs.mkdirSync(path.dirname(logPath), { recursive: true })
   fs.appendFileSync(logPath, line)
 }
 

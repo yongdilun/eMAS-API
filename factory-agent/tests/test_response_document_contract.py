@@ -14,17 +14,20 @@ from factory_agent.orchestration.session_manager import SessionManager
 from factory_agent.persistence.models import Approval, Message, Plan, PlanStep, Session
 from factory_agent.rag.source_metadata import insufficient_context_answer
 from factory_agent.registry.tool_registry import ToolRegistry
-from factory_agent.schemas import ResponseDocument
+from factory_agent.schemas import PresentationResponse, ResponseDocument
 from factory_agent.services import response_document_service
 from factory_agent.services.response_document_service import (
     BUSINESS_CHANGE_CONTRACT,
     ENTITY_STATUS_CONTRACT,
     MutationGroup,
     NO_OP_MUTATION_CONTRACT,
+    ReadEvidence,
     _business_change_order_from_text,
     _business_change_summary,
     _business_group_sort_key,
+    _failure_reason,
     _merge_mutation_groups_by_business_change,
+    _read_evidence_collection_summary,
     _status_result_from_read_rows,
 )
 from factory_agent.services.session_snapshot_service import SessionSnapshotService
@@ -177,6 +180,53 @@ def _approval(
         decided_by="operator" if decided_at else None,
         created_at=created_at + timedelta(seconds=created_offset_s),
     )
+
+
+def test_failure_reason_does_not_treat_redacted_authorization_metadata_as_auth_denied():
+    presentation = PresentationResponse(
+        kind="diagnostic",
+        state="failed",
+        summary="Execution stopped after response-document assembly saw authorization=[redacted] metadata.",
+    )
+
+    assert _failure_reason(
+        presentation=presentation,
+        steps=[],
+        approvals=[],
+        mutation_groups=[],
+    ) is None
+
+    denied = PresentationResponse(
+        kind="diagnostic",
+        state="failed",
+        summary="The backend returned authorization denied for this protected action.",
+    )
+
+    assert _failure_reason(
+        presentation=denied,
+        steps=[],
+        approvals=[],
+        mutation_groups=[],
+    ) == "auth_denied"
+
+
+def test_read_evidence_collection_summary_surfaces_business_rule_rows():
+    item = ReadEvidence(
+        key="read:jobs",
+        operation_id="op-rule",
+        tool_name="get__jobs",
+        args={"priority": "low"},
+    )
+
+    summary = _read_evidence_collection_summary(
+        item,
+        rows=[
+            {"job_id": "job-alpha", "priority": "low", "rule": "expedite"},
+            {"job_id": "job-beta", "priority": "low", "rule": "monitor"},
+        ],
+    )
+
+    assert summary == "Rule Applied: found 2 low-priority jobs."
 
 
 def _write_step(

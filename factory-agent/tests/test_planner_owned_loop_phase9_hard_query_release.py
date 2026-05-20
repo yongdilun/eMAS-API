@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -555,6 +556,67 @@ async def test_phase9_mixed_api_rag_uses_rag_only_for_document_requirement_and_r
     assert evidence is None
     assert answer.startswith("I do not have enough retrieved evidence")
     assert sources == []
+
+
+def test_phase9_direct_v2_rag_execution_query_uses_requirement_goal_for_source_hint():
+    service = PlanCreationService.__new__(PlanCreationService)
+    requirement = type(
+        "Requirement",
+        (),
+        {"goal": "Find the approved reenergizing notification guidance."},
+    )()
+
+    query = service._direct_v2_rag_execution_query(
+        args={"query": "deterministic_source_hint:document_knowledge"},
+        requirement=requirement,
+        intent="Show the relevant guidance.",
+    )
+
+    assert query == "Find the approved reenergizing notification guidance."
+    assert service._direct_v2_rag_execution_query(
+        args={"query": "Use the documented restart procedure."},
+        requirement=requirement,
+        intent="Show the relevant guidance.",
+    ) == "Use the documented restart procedure."
+
+
+def test_phase9_direct_v2_stage_rows_uses_next_production_week_when_calendar_week_has_no_rows():
+    service = PlanCreationService.__new__(PlanCreationService)
+    today = datetime.now(timezone.utc).date()
+    rows = [
+        {"job_id": "job-low-current", "priority": "low", "deadline": today.isoformat()},
+        {"job_id": "job-alpha", "priority": "high", "deadline": (today + timedelta(days=9)).isoformat()},
+        {"job_id": "job-beta", "priority": "high", "deadline": (today + timedelta(days=14)).isoformat()},
+        {"job_id": "job-gamma", "priority": "high", "deadline": (today + timedelta(days=17)).isoformat()},
+    ]
+
+    kept, excluded = service._direct_v2_stage_rows(
+        tool_outputs=[{"result": {"data": rows}}],
+        constraints={"priority": "high", "date": "this week"},
+    )
+
+    assert [row["job_id"] for row in kept] == ["job-alpha", "job-beta"]
+    assert [row["job_id"] for row in excluded] == ["job-low-current", "job-gamma"]
+    assert excluded[0]["exclusion_reason"] == "priority_constraint"
+    assert excluded[1]["exclusion_reason"] == "date_constraint"
+
+
+def test_phase9_direct_v2_stage_rows_keeps_literal_calendar_week_when_matching_rows_exist():
+    service = PlanCreationService.__new__(PlanCreationService)
+    today = datetime.now(timezone.utc).date()
+    rows = [
+        {"job_id": "job-current", "priority": "high", "deadline": today.isoformat()},
+        {"job_id": "job-future", "priority": "high", "deadline": (today + timedelta(days=9)).isoformat()},
+    ]
+
+    kept, excluded = service._direct_v2_stage_rows(
+        tool_outputs=[{"result": {"data": rows}}],
+        constraints={"priority": "high", "date": "this week"},
+    )
+
+    assert [row["job_id"] for row in kept] == ["job-current"]
+    assert [row["job_id"] for row in excluded] == ["job-future"]
+    assert excluded[0]["exclusion_reason"] == "date_constraint"
 
 
 @pytest.mark.asyncio
