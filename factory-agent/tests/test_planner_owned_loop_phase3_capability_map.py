@@ -223,8 +223,8 @@ def test_phase3_document_knowledge_families_hint_procedure_loto_safety_and_polic
     doc_entries = [entry for entry in capability_map.capabilities if entry.source_of_truth == "document_knowledge"]
     assert {entry.entity for entry in doc_entries} == {"procedure", "policy"}
     assert all(entry.output_contract == "knowledge_answer_v1" for entry in doc_entries)
-    assert all(entry.metadata["legacy_route_name"] == "legacy_rag_route" for entry in doc_entries)
-    assert all(entry.metadata["v2_rag_tool"] == "not_implemented_phase3" for entry in doc_entries)
+    assert all(entry.metadata["rag_tool_contract"] == "knowledge_answer_v1" for entry in doc_entries)
+    assert all("historical_route_name" not in entry.metadata for entry in doc_entries)
 
     needs = build_capability_needs_for_text(
         "Which LOTO procedure applies before servicing the press?",
@@ -367,22 +367,6 @@ def test_phase3_helpers_generalize_across_non_seed_paraphrased_examples():
         assert not any(value.startswith("M-CNC-01") for value in needs[0].known_args.values())
 
 
-def test_phase3_runtime_code_still_does_not_claim_v2_or_shadow_execution():
-    pretend_v2_patterns = [
-        re.compile(r"engine_version[\"']?\s*[:=]\s*[\"']v2(?:_shadow)?[\"']"),
-        re.compile(r"generated_by[\"']?\s*[:=]\s*[\"']v2_planner_loop[\"']"),
-    ]
-    hits: list[str] = []
-    for path in RUNTIME_ROOT.rglob("*.py"):
-        if "__pycache__" in path.parts:
-            continue
-        source = path.read_text(encoding="utf-8")
-        for pattern in pretend_v2_patterns:
-            for match in pattern.finditer(source):
-                line = source.count("\n", 0, match.start()) + 1
-                hits.append(f"{path.relative_to(REPO_ROOT)}:{line}: {match.group(0)}")
-
-    assert hits == [], "Phase 3 must not claim v2 runtime execution yet:\n" + "\n".join(hits)
 
 
 def test_phase3_helper_source_has_no_seed_id_runtime_branches():

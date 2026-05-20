@@ -10,9 +10,9 @@ Migrate Factory Agent from a splitter-scaffolded planner loop to a planner-owned
 
 The goal is to keep the LLM planner as the decision-making brain while making orchestration more durable, auditable, cheaper on obvious read paths, and safer for mixed API/RAG/write/approval workflows.
 
-## Current Design Summary
+## Original Baseline And Current Runtime Summary
 
-Current high-level shape:
+Original pre-migration high-level shape:
 
 ```text
 User request
@@ -25,7 +25,22 @@ User request
 -> response_document
 ```
 
-Current useful pieces to keep:
+Current Phase 15 runtime shape:
+
+```text
+User request
+-> semantic intake and requirement sketch
+-> planner-owned v2 agenda and requirement ledger
+-> V2CapabilityToolRetriever adapts the active capability need to ToolSelector
+-> execute API/RAG/read/write/approval steps through v2 contracts
+-> typed evidence ledger
+-> deterministic satisfaction and final validation
+-> response_document
+```
+
+Historical legacy and shadow enum values remain readable only for old traces/sessions. They are not normal execution authority.
+
+Useful pieces retained:
 
 - `split_user_intents` extracts obvious clauses, entities, and hard constraints.
 - `semantic_frame_for_text` helps distinguish operational state, document knowledge, approval, unsupported dangerous actions, and clarification cases.
@@ -34,7 +49,7 @@ Current useful pieces to keep:
 - Response documents already provide typed frontend rendering contracts.
 - Approval, stale approval, cancel, and response-document evidence contracts already exist.
 
-Current weak points to fix:
+Weak points this migration targeted:
 
 - `working_intents` is treated like an execution scaffold instead of only a proposal.
 - Planner can mark intent state but cannot cleanly revise agenda structure.
@@ -83,7 +98,7 @@ Design principles:
 
 | Concept | Meaning |
 | --- | --- |
-| `engine_version` | Explicit runtime label: `legacy`, `v2_shadow`, or `v2`. |
+| `engine_version` | Explicit runtime label. Current normal runtime emits `v2`; `legacy` and `v2_shadow` remain parse-only historical values for old traces/sessions. |
 | `capability_map` | Compact high-level list of available capability families, not full schemas. |
 | `capability_need` | Planner-declared next need, such as read machine status or search procedure documents. |
 | `v2_capability_tool_retriever` | Thin adapter from planner `capability_need` to existing `ToolSelector` candidate retrieval. |
@@ -108,7 +123,7 @@ Design principles:
 
 These decisions are already settled and should not be reopened without a new explicit design review:
 
-1. Use trace-only `v2_shadow` first. Legacy returns the visible answer while v2 records planner actions, capability needs, retrieval windows, requirement/evidence state, and expected response contracts. Production shadow mode must not commit writes.
+1. Use trace-only `v2_shadow` first during rollout. Phase 15 retires shadow/legacy execution authority from normal runtime; old values are retained only for historical trace parsing.
 2. Use a two-pass deterministic guard around the LLM requirement sketcher. The pre-pass extracts hard constraints; the post-pass verifies the sketch preserved them before the ledger is accepted.
 3. The sketcher vocabulary must come from a generated capability registry only. No normal handwritten runtime vocabulary overrides, exact-prompt branches, seeded-ID branches, or entity-label branches.
 4. Reuse the current `ToolSelector` through a `V2CapabilityToolRetriever` adapter. Do not build a second retrieval/ranking stack.
@@ -666,6 +681,7 @@ Use this table for architecture sequence only. Live phase status, commits, verif
 | 12 | Citation-first RAG answer contract and fallback cleanup | Validate generated RAG citations before evidence/response-document content. |
 | 13 | Mixed-read response summary and table clarity | Fix multi-read final response copy and collection table semantics for machine + job + filtered-list prompts. |
 | 14 | Zero-match approval chain and active approval UI | Fix no-op first business change handling when a later mutation still needs approval. |
+| 15 | Final legacy code and test cleanup | Remove or quarantine leftover legacy/migration-only execution paths and retire obsolete compatibility tests. |
 
 ## Phase 1: Boundary And Baseline Audit
 
@@ -1350,6 +1366,71 @@ Acceptance criteria:
 - Priority mutation parsing keeps the source selector and target value separate for prompts such as `change low priority jobs to high priority`, so release approval staging receives a scalar source filter and the intended target priority.
 - Frontend component and RD-014 Playwright fixture prove the visible no-match low-priority summary, medium-to-high active approval copy, and absence of stale `Waiting for approval 2` active-card semantics.
 - A full-stack zero-low/medium-remaining setup was not added because the seeded harness does not expose a clean setup for that state without contaminating other seeded scenarios; the response-document fixture remains the required UI proof.
+
+## Phase 15: Final Legacy Code And Test Cleanup
+
+Goal: remove or quarantine leftover legacy and migration-only code/tests now that the planner-owned v2 path, post-migration hardening, RAG contract, mixed-read UI, and zero-match approval UI are complete.
+
+This is the final cleanup phase. It must not add new product behavior unless a tiny compatibility adjustment is required to remove dead legacy code safely.
+
+Cleanup inventory:
+
+- Runtime engine flags and switches: `FACTORY_AGENT_ENGINE=legacy`, `v2_shadow`, `test_only_legacy_engine_enabled`, and any emergency fallback branch.
+- Legacy execution authority: `legacy_graph_loop`, `legacy_rag_route`, `legacy_working_intents`, `working_intents`, `intent_cursor`, `intent_completed` loops, and legacy whole-query tool scoping where it is no longer used as a current v2 guardrail.
+- Legacy compatibility tests: skipped or compatibility-only tests whose only purpose is to prove retired relational `PlanStep`, legacy planner/scaffold, or legacy RAG behavior.
+- Migration-only tests: phase-specific tests that are now redundant with stronger v2 release, response-document, hard-query, and hardcode guardrails.
+- Test harnesses/adapters: seeded or mocked adapters that bypass planner-owned v2 contracts in ways that can hide regressions.
+- Docs and generated artifacts: stale references that present legacy mode as a supported path rather than as historical context.
+
+Cleanup decision rules:
+
+- Delete code when no normal product path, release test, data migration, or historical trace reader requires it.
+- Convert tests to v2 contract assertions when the user-facing behavior still matters.
+- Delete tests when they only prove retired legacy implementation details.
+- Keep tests that guard current v2 behavior, hardcode prevention, typed evidence, response-document rendering, approval safety, or historical trace decoding.
+- Keep historical enum/string values only if persisted old sessions or old traces need to be readable. Historical values must remain parse-only, not execution authority.
+- If an emergency fallback remains, it must be explicit, disabled by default, telemetry-tagged, documented with a removal owner/date, and excluded from normal runtime tests.
+- Do not remove live/external-service skips, such as live LLM, live RAG, or MySQL schema smoke tests, unless this phase explicitly replaces those gates.
+
+Maintainability and hardcode rules:
+
+- Do not delete guardrails just to make the suite smaller.
+- Do not replace legacy code with exact-prompt, seeded-ID, fixture-source, or screenshot-specific branches.
+- Do not introduce a new retriever, RAG stack, response-document renderer, approval renderer, or planner loop.
+- Prefer removing obsolete branches over adding compatibility shims.
+- If a compatibility shim remains, it must be named as historical/read-only/test-only and have a deletion condition.
+- Runtime defaults must stay planner-owned v2.
+
+Required proof tests:
+
+- Add or update a final static guard test, preferably `factory-agent/tests/test_planner_owned_loop_phase15_legacy_cleanup.py`, proving normal product code no longer exposes legacy execution authority. The guard should check for disallowed runtime uses of legacy engine/scaffold/RAG/cursor concepts while allowing historical docs, migrations, and explicit test fixtures.
+- Add or update tests proving `FACTORY_AGENT_ENGINE=legacy` cannot activate a normal legacy runtime path. If the env value still exists for compatibility, it must resolve to v2 or be rejected with a clear configuration error.
+- Add or update tests proving no `pytest.mark.xfail` or legacy-compatibility skip remains for retired planner-owned loop behavior. Skips for external/live dependencies may remain with clear reasons.
+- Add or update hardcode guardrails to cover any cleanup-sensitive legacy fallback strings, exact prompts, seeded IDs, and synthetic source ids.
+- If `v2_shadow` or an emergency fallback remains, add a test proving it is disabled by default, telemetry-tagged when invoked, and cannot answer as normal product authority.
+- Run full backend and frontend release gates after cleanup. If broader seeded oracle failures remain, record whether they are unrelated pre-existing failures or in-scope cleanup blockers.
+
+Acceptance criteria:
+
+- Normal runtime has one planner-owned v2 authority path for Factory Agent plan creation/execution.
+- Legacy graph/RAG/scaffold/cursor paths are deleted, parse-only, or test-only with explicit owner/removal rationale.
+- Retired legacy compatibility tests are deleted or converted to stronger v2 contract tests.
+- `0 xfailed` remains true for the normal backend suite.
+- Backend skips are intentional external/live-service or explicit historical compatibility skips, not silent legacy behavior waivers.
+- Full backend passes with project-local temp.
+- Frontend unit, response-document, seeded-oracle or recorded seeded subset, real-LangGraph critical, and release Playwright gates are run as appropriate for touched code.
+- `git diff --check` passes.
+
+### Phase 15 Evidence (2026-05-21)
+
+- Runtime engine resolution is v2-only: `FACTORY_AGENT_ENGINE=legacy`, `FACTORY_AGENT_ENGINE=v2_shadow`, and unknown values normalize to `v2`, and `test_only_legacy_engine_enabled` has been removed from settings.
+- Legacy/shadow trace attachment helpers and normal product branches for legacy engine activation, legacy RAG shortcut authority, legacy graph detector authority, and v2 shadow emergency fallback were removed from the v2 planner/service path.
+- Historical values such as `legacy_graph_loop`, `legacy_rag_route`, `legacy_working_intents`, `v2_shadow`, `working_intents`, `intent_cursor`, and `intent_completed` remain only in historical contracts, explicit tests, schemas, or the quarantined legacy graph package; `legacy_rag_route` evidence cannot satisfy current v2 requirements.
+- Retired legacy compatibility tests were deleted or converted to v2 contract assertions; normal backend remains `0 xfailed`.
+- Generated wiki pages were updated so they no longer present `working_intents` or `intent_completed` as current planner-owned-loop runtime behavior.
+- Phase 15 verification passed: cleanup guard plus hardcode guardrails `19 passed`; route/splitter/selector/hardcode `107 passed`; response-document/API/approval `80 passed`; full backend `913 passed, 3 skipped, 1271 warnings`; frontend unit `131 passed`; response-document Playwright `30 passed`; release Playwright `21 passed`.
+- Live/external-service backend skips remain explicit (`FACTORY_AGENT_LIVE_LLM`, live RAG LLM, MySQL schema, Redis smoke). They are not planner-owned-loop behavior waivers.
+- Broader seeded-oracle and real-LangGraph failures were rerun and reclassified as out-of-scope debt for this cleanup: seeded oracles `27 passed, 8 failed` on HQ-9 mixed RAG/approval/interrupt, LOTO RAG regressions, scenario 34b insufficient-context, and SO-014 SSE `Rule Applied`; real LangGraph `2 passed, 1 failed` on SO-026 LOTO follow-up pronoun handling.
 
 ## Stop Conditions
 

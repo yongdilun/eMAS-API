@@ -62,6 +62,10 @@ test.describe('L4 release resilience and accessibility @l4-release', () => {
     await sendPrompt(page, prompt)
     await expect.poll(() => activeSessionId(page)).not.toBeNull()
     const sessionId = await activeSessionId(page)
+    await expect.poll(async () => {
+      const messages = await factoryAgentJson(`/sessions/${sessionId}/messages`)
+      return messages.filter((message) => message.role === 'user' && message.content === prompt).length
+    }, { timeout: releaseEnv.latencyBudgetsMs.firstProgress }).toBe(1)
 
     await page.reload()
     await page.getByRole('button', { name: /AI Assistant/i }).click()
@@ -148,12 +152,21 @@ test.describe('L4 release resilience and accessibility @l4-release', () => {
     await page.keyboard.press('Enter')
     await expect(page.getByRole('dialog')).toBeVisible()
 
-    await page.getByPlaceholder('Ask factory agent...').focus()
-    await page.keyboard.insertText('Release keyboard approval: change medium priority jobs to high priority')
-    await page.getByRole('button', { name: 'Send' }).focus()
+    const keyboardPrompt = 'Release keyboard approval: change medium priority jobs to high priority'
+    const composer = page.getByPlaceholder('Ask factory agent...')
+    await expect(composer).toBeEnabled()
+    await composer.focus()
+    await page.keyboard.type(keyboardPrompt)
+    await expect(composer).toHaveValue(keyboardPrompt)
+    const sendButton = page.getByRole('button', { name: 'Send' })
+    await expect(sendButton).toBeEnabled()
+    await sendButton.focus()
     await page.keyboard.press('Enter')
+    await expect(page.getByText(keyboardPrompt)).toBeVisible()
 
-    await expect(page.getByText('Approval required').first()).toBeVisible()
+    await expect(page.getByText('Approval required').first()).toBeVisible({
+      timeout: releaseEnv.latencyBudgetsMs.finalAnswer,
+    })
     await page.getByPlaceholder('Optional rejection reason').focus()
     await page.keyboard.insertText('Keyboard-only release validation rejection.')
     await page.getByRole('button', { name: 'Reject' }).focus()

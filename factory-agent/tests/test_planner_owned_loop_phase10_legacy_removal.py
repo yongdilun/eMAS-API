@@ -24,7 +24,7 @@ from tests.test_planner_owned_loop_phase8_legacy_cleanup_switch import FakeRAGPi
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _settings(*, factory_agent_engine: str = "v2", test_only_legacy: bool = False) -> Settings:
+def _settings(*, factory_agent_engine: str = "v2") -> Settings:
     return Settings(
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url=None,
@@ -42,7 +42,6 @@ def _settings(*, factory_agent_engine: str = "v2", test_only_legacy: bool = Fals
         auto_repair_tool_registry=False,
         min_healthy_tool_count=0,
         factory_agent_engine=factory_agent_engine,  # type: ignore[arg-type]
-        test_only_legacy_engine_enabled=test_only_legacy,
     )
 
 
@@ -50,7 +49,6 @@ async def _make_app(
     sessionmaker_override: Any,
     *,
     factory_agent_engine: str = "v2",
-    test_only_legacy: bool = False,
     rag_pipeline_adapter: Any | None = None,
 ) -> FastAPI:
     app = FastAPI()
@@ -62,10 +60,7 @@ async def _make_app(
     app.dependency_overrides[database.get_db] = override_get_db
     app.include_router(
         build_router(
-            settings=_settings(
-                factory_agent_engine=factory_agent_engine,
-                test_only_legacy=test_only_legacy,
-            ),
+            settings=_settings(factory_agent_engine=factory_agent_engine),
             tool_registry=ToolRegistry(),
             event_bus=FakeEventBus(),
             rag_pipeline_adapter=rag_pipeline_adapter,
@@ -80,12 +75,6 @@ def test_phase10_legacy_engine_value_normalizes_to_v2(monkeypatch):
     assert normalize_factory_agent_engine("legacy") == "v2"
     assert get_settings().factory_agent_engine == "v2"
     assert resolve_factory_agent_engine_for_runtime(_settings(factory_agent_engine="legacy")) == "v2"
-    assert (
-        resolve_factory_agent_engine_for_runtime(
-            _settings(factory_agent_engine="legacy", test_only_legacy=True)
-        )
-        == "legacy"
-    )
 
 
 @pytest.mark.asyncio
@@ -94,7 +83,6 @@ async def test_phase10_legacy_env_value_still_runs_normal_rag_as_v2_tool(session
     app = await _make_app(
         sessionmaker_override,
         factory_agent_engine="legacy",
-        test_only_legacy=False,
         rag_pipeline_adapter=rag,
     )
 

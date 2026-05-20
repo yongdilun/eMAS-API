@@ -305,7 +305,6 @@ def test_phase2_requirement_vocabulary_stays_separate_from_capability_and_tool_a
             actions=["single_entity_status"],
         )
 
-
 def test_phase2_agenda_patch_contract_preserves_locked_constraints():
     original = _status_requirement()
     revised = _status_requirement(goal="Report current machine status")
@@ -511,21 +510,3 @@ def test_phase2_evidence_sources_distinguish_api_rag_legacy_approval_diagnostic_
             source_of_truth="document_knowledge",
             tool_name="rag_search_documents",
         )
-
-
-def test_phase2_runtime_code_still_does_not_claim_v2_or_shadow_execution():
-    pretend_v2_patterns = [
-        re.compile(r"engine_version[\"']?\s*[:=]\s*[\"']v2(?:_shadow)?[\"']"),
-        re.compile(r"generated_by[\"']?\s*[:=]\s*[\"']v2_planner_loop[\"']"),
-    ]
-    hits: list[str] = []
-    for path in RUNTIME_ROOT.rglob("*.py"):
-        if "__pycache__" in path.parts:
-            continue
-        source = path.read_text(encoding="utf-8")
-        for pattern in pretend_v2_patterns:
-            for match in pattern.finditer(source):
-                line = source.count("\n", 0, match.start()) + 1
-                hits.append(f"{path.relative_to(REPO_ROOT)}:{line}: {match.group(0)}")
-
-    assert hits == [], "Phase 2 must not claim v2 runtime execution yet:\n" + "\n".join(hits)

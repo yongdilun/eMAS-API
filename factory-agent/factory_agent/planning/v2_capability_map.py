@@ -459,8 +459,7 @@ def _document_knowledge_capabilities() -> list[CapabilityMapEntry]:
             metadata={
                 "capability_family": "document_knowledge",
                 "knowledge_family": "loto_procedure",
-                "legacy_route_name": "legacy_rag_route",
-                "v2_rag_tool": "not_implemented_phase3",
+                "rag_tool_contract": "knowledge_answer_v1",
             },
         ),
         CapabilityMapEntry(
@@ -473,8 +472,7 @@ def _document_knowledge_capabilities() -> list[CapabilityMapEntry]:
             metadata={
                 "capability_family": "document_knowledge",
                 "knowledge_family": "procedure",
-                "legacy_route_name": "legacy_rag_route",
-                "v2_rag_tool": "not_implemented_phase3",
+                "rag_tool_contract": "knowledge_answer_v1",
             },
         ),
         CapabilityMapEntry(
@@ -487,8 +485,7 @@ def _document_knowledge_capabilities() -> list[CapabilityMapEntry]:
             metadata={
                 "capability_family": "document_knowledge",
                 "knowledge_family": "safety_policy",
-                "legacy_route_name": "legacy_rag_route",
-                "v2_rag_tool": "not_implemented_phase3",
+                "rag_tool_contract": "knowledge_answer_v1",
             },
         ),
     ]

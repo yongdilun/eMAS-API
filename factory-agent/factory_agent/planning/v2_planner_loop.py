@@ -6,7 +6,6 @@ from typing import Any
 
 from ..config import normalize_factory_agent_engine
 from ..schemas import PlanDraft, PlanStepDraft, ToolInfo
-from .intent import split_user_intents
 from .tool_selector import ToolSelector
 from .v2_capability_map import (
     build_capability_needs_for_text,
@@ -16,14 +15,9 @@ from .v2_capability_map import (
 )
 from .v2_contracts import (
     EvidenceLedgerEntry,
-    ExecutionDetectors,
     ExecutionTrace,
     EngineVersion,
     HydratedToolCard,
-    LegacyRagRouteMetadata,
-    LegacyRagShortcutTrace,
-    LegacyWholeQueryToolScopeTrace,
-    LegacyWorkingIntentExecutionTrace,
     PlannerOwnedLoopV2State,
     ToolRetrievalTrace,
 )
@@ -36,140 +30,10 @@ from .v2_tool_retriever import V2CapabilityToolRetriever
 
 
 @dataclass(frozen=True)
-class LegacyExecutionSignals:
-    generated_by: str = "legacy_graph_loop"
-    planner_call_count: int = 0
-    tool_retrieval_call_count: int = 0
-    selected_candidate_tool_names: tuple[str, ...] = ()
-    reranker_call_count: int = 0
-    backend_used: str | None = None
-    legacy_rag_route: str | None = None
-    legacy_rag_source_function: str | None = None
-    legacy_rag_policy_id: str | None = None
-    legacy_rag_persisted_empty_plan: bool = False
-    whole_query_tool_scope_used: bool = False
-    whole_query_source_function: str | None = None
-    working_intents_count: int | None = None
-    intent_cursor_start: int | None = None
-    intent_cursor_final: int | None = None
-    intent_completed_count: int = 0
-    planner_completion_only_call_count: int = 0
-
-
-@dataclass(frozen=True)
 class PlannerOwnedV2LoopRun:
     state: PlannerOwnedLoopV2State
     draft: PlanDraft | None = None
     tool_outputs: list[dict[str, Any]] | None = None
-
-
-def legacy_graph_signals(
-    *,
-    intent: str,
-    selected_candidate_tool_names: list[str] | tuple[str, ...] = (),
-    planner_call_count: int = 0,
-    reranker_call_count: int = 0,
-    backend_used: str | None = None,
-    source_function: str,
-) -> LegacyExecutionSignals:
-    return LegacyExecutionSignals(
-        generated_by="legacy_working_intents",
-        planner_call_count=max(0, planner_call_count),
-        tool_retrieval_call_count=1 if selected_candidate_tool_names else 0,
-        selected_candidate_tool_names=tuple(selected_candidate_tool_names),
-        reranker_call_count=max(0, reranker_call_count),
-        backend_used=backend_used,
-        whole_query_tool_scope_used=bool(selected_candidate_tool_names),
-        whole_query_source_function=source_function,
-        working_intents_count=len(split_user_intents(intent)),
-        intent_cursor_start=0,
-        intent_cursor_final=None,
-        intent_completed_count=0,
-        planner_completion_only_call_count=0,
-    )
-
-
-def legacy_rag_signals(
-    *,
-    route: str,
-    source_function: str,
-    policy_id: str | None = None,
-    persisted_empty_plan: bool = True,
-) -> LegacyExecutionSignals:
-    return LegacyExecutionSignals(
-        generated_by="legacy_rag_route",
-        planner_call_count=0,
-        tool_retrieval_call_count=0,
-        legacy_rag_route=route,
-        legacy_rag_source_function=source_function,
-        legacy_rag_policy_id=policy_id,
-        legacy_rag_persisted_empty_plan=persisted_empty_plan,
-    )
-
-
-def build_legacy_execution_trace(
-    signals: LegacyExecutionSignals | None = None,
-    *,
-    engine_version: EngineVersion = "legacy",
-) -> ExecutionTrace:
-    signals = signals or LegacyExecutionSignals()
-    generated_by = signals.generated_by if signals.generated_by in {
-        "legacy_graph_loop",
-        "legacy_rag_route",
-        "legacy_working_intents",
-    } else "legacy_graph_loop"
-    detectors = ExecutionDetectors()
-    if signals.legacy_rag_route:
-        detectors.legacy_rag_shortcut = LegacyRagShortcutTrace(
-            used=True,
-            route=signals.legacy_rag_route,
-            source_function=signals.legacy_rag_source_function,
-            policy_id=signals.legacy_rag_policy_id,
-            persisted_empty_plan=signals.legacy_rag_persisted_empty_plan,
-        )
-    trace = ExecutionTrace(
-        engine_version=engine_version,
-        generated_by=generated_by,  # type: ignore[arg-type]
-        detectors=detectors,
-    )
-    trace.planner.call_count = max(0, signals.planner_call_count)
-    trace.tool_retrieval.call_count = max(0, signals.tool_retrieval_call_count)
-    trace.tool_retrieval.selected_candidate_tool_names = list(signals.selected_candidate_tool_names)
-    trace.tool_retrieval.backend_used = signals.backend_used
-    trace.tool_retrieval.reranker.call_count = max(0, signals.reranker_call_count)
-    trace.selected_tool_names = list(signals.selected_candidate_tool_names)
-    _apply_legacy_detectors(trace, signals)
-    return trace
-
-
-def attach_legacy_trace_to_intent_contract(
-    intent_contract: Mapping[str, Any] | None,
-    *,
-    intent: str,
-    signals: LegacyExecutionSignals | None = None,
-) -> dict[str, Any]:
-    contract = dict(intent_contract or {})
-    contract.setdefault("intent", intent)
-    contract["engine_version"] = "legacy"
-    contract["execution_trace"] = build_legacy_execution_trace(signals).model_dump(mode="json")
-    return contract
-
-
-def attach_v2_shadow_trace_to_intent_contract(
-    intent_contract: Mapping[str, Any] | None,
-    *,
-    intent: str,
-    v2_state: PlannerOwnedLoopV2State,
-    legacy_signals: LegacyExecutionSignals | None = None,
-) -> dict[str, Any]:
-    contract = dict(intent_contract or {})
-    contract.setdefault("intent", intent)
-    legacy_trace = build_legacy_execution_trace(legacy_signals)
-    contract["engine_version"] = "v2_shadow"
-    contract["execution_trace"] = v2_state.execution_trace.model_dump(mode="json")
-    contract["legacy_execution_trace"] = legacy_trace.model_dump(mode="json")
-    contract["v2_shadow_state"] = v2_state.model_dump(mode="json")
-    return contract
 
 
 def attach_direct_v2_trace_to_intent_contract(
@@ -199,10 +63,7 @@ class PlannerOwnedV2Loop:
         self._tool_selector = tool_selector
 
     def _resolve_loop_mode(self, engine_mode: str | None) -> EngineVersion:
-        raw = str(engine_mode or "v2").strip().lower()
-        if raw == "v2_shadow":
-            return "v2_shadow"
-        return normalize_factory_agent_engine(raw)
+        return normalize_factory_agent_engine(engine_mode)
 
     async def run(
         self,
@@ -210,22 +71,15 @@ class PlannerOwnedV2Loop:
         intent: str,
         tools_by_name: Mapping[str, ToolInfo],
         engine_mode: str | None,
-        legacy_signals: LegacyExecutionSignals | None = None,
         mode: str = "normal",
         direct_test_evidence: Sequence[EvidenceLedgerEntry | Mapping[str, Any]] | None = None,
     ) -> PlannerOwnedV2LoopRun:
         resolved_mode = self._resolve_loop_mode(engine_mode)
 
-        generated_by = "v2_shadow_planner_loop" if resolved_mode == "v2_shadow" else "v2_planner_loop"
-        trace = ExecutionTrace(engine_version=resolved_mode, generated_by=generated_by)
-        _apply_legacy_detectors(trace, legacy_signals or LegacyExecutionSignals())
-        trace.diagnostics["visible_authority"] = "legacy" if resolved_mode == "v2_shadow" else "v2"
-        trace.diagnostics["shadow_only"] = resolved_mode == "v2_shadow"
-        trace.diagnostics["write_policy"] = (
-            "trace_only_no_tool_execution"
-            if resolved_mode == "v2_shadow"
-            else "read_tools_only_writes_remain_dry_run"
-        )
+        trace = ExecutionTrace(engine_version=resolved_mode, generated_by="v2_planner_loop")
+        trace.diagnostics["visible_authority"] = "v2"
+        trace.diagnostics["shadow_only"] = False
+        trace.diagnostics["write_policy"] = "read_tools_only_writes_remain_dry_run"
 
         tools = dict(tools_by_name)
         capability_map = build_v2_capability_map(tools)
@@ -300,28 +154,6 @@ class PlannerOwnedV2Loop:
             cards.model_dump(mode="json") for cards in state.hydrated_tool_cards
         ]
 
-        if legacy_signals and legacy_signals.legacy_rag_route:
-            state.evidence_ledger.evidence.append(
-                EvidenceLedgerEntry(
-                    id="legacy-rag-route-001",
-                    requirement_id=(
-                        requirement_ledger.requirements[0].id
-                        if requirement_ledger.requirements
-                        else "req-legacy-rag"
-                    ),
-                    source_type="legacy_rag_route",
-                    source_of_truth="document_knowledge",
-                    confidence="deterministic",
-                    diagnostic_metadata={"represented_as": "legacy_route_not_v2_rag_tool"},
-                    legacy_rag_route=LegacyRagRouteMetadata(
-                        route=legacy_signals.legacy_rag_route,
-                        source_function=legacy_signals.legacy_rag_source_function,
-                        policy_id=legacy_signals.legacy_rag_policy_id,
-                        persisted_empty_plan=legacy_signals.legacy_rag_persisted_empty_plan,
-                    ),
-                )
-            )
-
         for raw_evidence in direct_test_evidence or ():
             evidence = (
                 raw_evidence
@@ -330,47 +162,11 @@ class PlannerOwnedV2Loop:
             )
             state.evidence_ledger.evidence.append(evidence)
 
-        if resolved_mode == "v2":
-            apply_deterministic_evidence_satisfaction(state)
-            validate_v2_final_state(state)
-        else:
-            trace.final_validator_status = "not_run_shadow_mode" if resolved_mode == "v2_shadow" else None
+        apply_deterministic_evidence_satisfaction(state)
+        validate_v2_final_state(state)
 
-        draft = _direct_v2_draft(state, tools) if resolved_mode == "v2" else None
+        draft = _direct_v2_draft(state, tools)
         return PlannerOwnedV2LoopRun(state=state, draft=draft, tool_outputs=[])
-
-
-def _apply_legacy_detectors(trace: ExecutionTrace, signals: LegacyExecutionSignals) -> None:
-    if signals.legacy_rag_route:
-        trace.detectors.legacy_rag_shortcut = LegacyRagShortcutTrace(
-            used=True,
-            route=signals.legacy_rag_route,
-            source_function=signals.legacy_rag_source_function,
-            policy_id=signals.legacy_rag_policy_id,
-            persisted_empty_plan=signals.legacy_rag_persisted_empty_plan,
-        )
-    if signals.working_intents_count is not None or signals.generated_by == "legacy_working_intents":
-        trace.detectors.legacy_working_intent_execution = LegacyWorkingIntentExecutionTrace(
-            used=True,
-            working_intents_count=signals.working_intents_count,
-            intent_cursor_start=signals.intent_cursor_start,
-            intent_cursor_final=signals.intent_cursor_final,
-        )
-    if signals.whole_query_tool_scope_used:
-        trace.detectors.legacy_whole_query_tool_scope = LegacyWholeQueryToolScopeTrace(
-            used=True,
-            source_function=signals.whole_query_source_function,
-            selector_intent_scope="whole_user_query",
-            selected_candidate_tool_names=list(signals.selected_candidate_tool_names),
-        )
-    trace.detectors.legacy_intent_completion_loop.used = (
-        signals.intent_completed_count > 0 or signals.generated_by == "legacy_working_intents"
-    )
-    trace.detectors.legacy_intent_completion_loop.intent_completed_count = max(0, signals.intent_completed_count)
-    trace.detectors.legacy_intent_completion_loop.planner_completion_only_call_count = max(
-        0,
-        signals.planner_completion_only_call_count,
-    )
 
 
 def _merge_tool_retrieval_trace(target: ToolRetrievalTrace, incoming: ToolRetrievalTrace) -> None:

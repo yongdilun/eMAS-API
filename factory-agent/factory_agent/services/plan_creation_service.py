@@ -46,13 +46,8 @@ from factory_agent.planning.plan_validator import validate_plan
 from factory_agent.planning.tool_output_alignment import align_tool_outputs_to_steps
 from factory_agent.planning.tool_selector import ToolSelector
 from factory_agent.planning.v2_planner_loop import (
-    LegacyExecutionSignals,
     PlannerOwnedV2Loop,
     attach_direct_v2_trace_to_intent_contract,
-    attach_legacy_trace_to_intent_contract,
-    attach_v2_shadow_trace_to_intent_contract,
-    legacy_graph_signals,
-    legacy_rag_signals,
 )
 from factory_agent.planning.v2_contracts import EvidenceLedgerEntry, ExecutionTrace, PlannerOwnedLoopV2State
 from factory_agent.planning.v2_rag_tool import (
@@ -550,60 +545,8 @@ class PlanCreationService:
         mode: str,
         base_context: dict[str, Any] | None,
         base_intent_contract: dict[str, Any] | None,
-        legacy_signals: LegacyExecutionSignals,
     ) -> dict[str, Any]:
         context = dict(base_context or {})
-        engine = resolve_factory_agent_engine_for_runtime(self._settings)
-        if engine == "v2_shadow":
-            log_event(
-                "planner_owned_loop_v2_shadow_emergency_fallback_used",
-                level="WARNING",
-                source_function="PlanCreationService._context_with_engine_trace",
-                removal_target="next cleanup milestone",
-                deletion_rationale="Shadow trace is an explicit emergency fallback, not normal legacy mode.",
-            )
-            try:
-                v2_run = await PlannerOwnedV2Loop(self._tool_selector).run(
-                    intent=intent,
-                    tools_by_name=tools_by_name,
-                    engine_mode=engine,
-                    legacy_signals=legacy_signals,
-                    mode=mode,
-                )
-                context["intent_contract"] = attach_v2_shadow_trace_to_intent_contract(
-                    base_intent_contract,
-                    intent=intent,
-                    v2_state=v2_run.state,
-                    legacy_signals=legacy_signals,
-                )
-                return context
-            except Exception as exc:
-                log_event(
-                    "v2_shadow_trace_failed",
-                    level="WARNING",
-                    intent=intent,
-                    error=str(exc),
-                )
-
-        if engine == "legacy":
-            contract = attach_legacy_trace_to_intent_contract(
-                base_intent_contract,
-                intent=intent,
-                signals=legacy_signals,
-            )
-            trace = contract.get("execution_trace")
-            if isinstance(trace, dict):
-                diagnostics = trace.setdefault("diagnostics", {})
-                if isinstance(diagnostics, dict):
-                    diagnostics["test_only_legacy_runtime"] = True
-                    diagnostics["deletion_rationale"] = (
-                        "Legacy planner/scaffold coverage is test-only after kill-switch removal; "
-                        "normal FACTORY_AGENT_ENGINE=legacy values resolve to v2."
-                    )
-            contract["test_only_legacy_compatibility"] = True
-            context["intent_contract"] = contract
-            return context
-
         try:
             tools_with_rag = ensure_v2_rag_tool(tools_by_name)
             v2_run = await PlannerOwnedV2Loop(self._tool_selector).run(
@@ -2288,7 +2231,6 @@ class PlanCreationService:
                 mode=mode,
                 base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
                 base_intent_contract=None,
-                legacy_signals=LegacyExecutionSignals(generated_by="legacy_graph_loop"),
             )
             plan_resp = await self._persist_conversation_reply_as_empty_plan(
                 db=db,
@@ -2313,11 +2255,6 @@ class PlanCreationService:
                 mode=mode,
                 base_context=context_to_keep,
                 base_intent_contract=None,
-                legacy_signals=legacy_rag_signals(
-                    route=str(semantic_frame.route or "unknown"),
-                    source_function="PlanCreationService.create_plan",
-                    policy_id=str(semantic_frame.route or "unknown"),
-                ),
             )
             plan_resp = await self._answer_knowledge_question_as_plan(
                 db=db,
@@ -2339,11 +2276,6 @@ class PlanCreationService:
                     mode=mode,
                     base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
                     base_intent_contract=None,
-                    legacy_signals=legacy_rag_signals(
-                        route=str(semantic_frame.route or "assessment.non_operations_rag"),
-                        source_function="PlanCreationService.create_plan",
-                        policy_id=str(semantic_frame.route or "unknown"),
-                    ),
                 )
                 plan_resp = await self._answer_knowledge_question_as_plan(
                     db=db,
@@ -2363,7 +2295,6 @@ class PlanCreationService:
                 mode=mode,
                 base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
                 base_intent_contract=None,
-                legacy_signals=LegacyExecutionSignals(generated_by="legacy_graph_loop"),
             )
             plan_resp = await self._persist_conversation_reply_as_empty_plan(
                 db=db,
@@ -2425,14 +2356,6 @@ class PlanCreationService:
                         mode=mode,
                         base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
                         base_intent_contract=intent_contract if isinstance(intent_contract, dict) else None,
-                        legacy_signals=legacy_graph_signals(
-                            intent=intent,
-                            selected_candidate_tool_names=selection.tool_names,
-                            planner_call_count=getattr(generated, "llm_calls", 0),
-                            reranker_call_count=selection.llm_calls,
-                            backend_used=getattr(selection, "backend_used", None),
-                            source_function="PlanCreationService.create_plan",
-                        ),
                     )
                     sess.replan_context = context
                     context_to_keep = context
@@ -2453,7 +2376,6 @@ class PlanCreationService:
                         mode=mode,
                         base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
                         base_intent_contract=None,
-                        legacy_signals=LegacyExecutionSignals(generated_by="legacy_graph_loop"),
                     )
             except PlannerConfirmationRequired as e:
                 plan_resp = await self._persist_confirmation_request_as_empty_plan(

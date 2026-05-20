@@ -593,9 +593,8 @@ def _hydrate_tool_card(tool: ToolInfo) -> HydratedToolCard:
     if source == "document_knowledge":
         metadata.update(
             {
-                "legacy_route_name": "legacy_rag_route",
-                "executes_rag": False,
-                "rag_execution_policy": "candidate_card_only",
+                "executes_rag": True,
+                "rag_execution_policy": "planner_owned_tool_execution",
             }
         )
 

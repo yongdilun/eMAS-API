@@ -8,10 +8,11 @@ from factory_agent.planning.tool_selector import ToolSelectionResult
 from factory_agent.planning.v2_contracts import (
     EvidenceCitation,
     EvidenceLedgerEntry,
+    LegacyRagRouteMetadata,
     RequirementLedgerEntry,
     SatisfactionCheck,
 )
-from factory_agent.planning.v2_planner_loop import PlannerOwnedV2Loop, legacy_rag_signals
+from factory_agent.planning.v2_planner_loop import PlannerOwnedV2Loop
 from factory_agent.planning.v2_satisfaction import validate_v2_final_state
 from factory_agent.schemas import ToolInfo
 
@@ -450,11 +451,20 @@ async def test_phase6_legacy_rag_shortcut_does_not_satisfy_v2_document_answer():
         intent="Explain the lockout tagout procedure.",
         tools_by_name=_base_tools(),
         engine_mode="v2",
-        legacy_signals=legacy_rag_signals(
-            route="rag.procedure",
-            source_function="PlanCreationService.create_plan",
-            policy_id="rag.procedure",
-        ),
+        direct_test_evidence=[
+            EvidenceLedgerEntry(
+                id="historical-rag-route-001",
+                requirement_id="req-001",
+                source_type="legacy_rag_route",
+                source_of_truth="document_knowledge",
+                confidence="deterministic",
+                legacy_rag_route=LegacyRagRouteMetadata(
+                    route="rag.procedure",
+                    source_function="PlanCreationService.create_plan",
+                    policy_id="rag.procedure",
+                ),
+            )
+        ],
     )
 
     requirement = run.state.requirement_ledger.requirements[0]  # type: ignore[union-attr]

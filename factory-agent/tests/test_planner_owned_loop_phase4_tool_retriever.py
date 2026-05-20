@@ -338,7 +338,7 @@ async def test_phase4_write_need_completes_with_read_preflight_and_write_candida
 
 
 @pytest.mark.asyncio
-async def test_phase4_document_knowledge_need_retrieves_rag_candidate_without_executing_rag():
+async def test_phase4_document_knowledge_need_retrieves_rag_candidate_as_v2_tool_contract():
     retriever = V2CapabilityToolRetriever(_selector())
     tools = {
         "rag_search_documents": _rag_tool(),
@@ -361,8 +361,9 @@ async def test_phase4_document_knowledge_need_retrieves_rag_candidate_without_ex
     assert card.actions == ["search_documents", "read"]
     assert card.output_contract == "knowledge_answer_v1"
     assert card.metadata["evidence_source_type"] == "rag_tool"
-    assert card.metadata["legacy_route_name"] == "legacy_rag_route"
-    assert card.metadata["executes_rag"] is False
+    assert "historical_route_name" not in card.metadata
+    assert card.metadata["rag_execution_policy"] == "planner_owned_tool_execution"
+    assert card.metadata["executes_rag"] is True
     assert result.trace.diagnostics["retrieval_phrase"] != "Which OSHA LOTO procedure applies?"
 
 
@@ -595,21 +596,3 @@ async def test_phase4_compatibility_fallback_use_is_traced_for_untagged_legacy_t
     assert result.status == "ok"
     assert result.candidate_window.candidates[0].tool_name == "get__machines_{id}"
     assert result.trace.compatibility_fallback_used is True
-
-
-def test_phase4_runtime_code_still_does_not_claim_v2_or_shadow_execution():
-    pretend_v2_patterns = [
-        re.compile(r"engine_version[\"']?\s*[:=]\s*[\"']v2(?:_shadow)?[\"']"),
-        re.compile(r"generated_by[\"']?\s*[:=]\s*[\"']v2_planner_loop[\"']"),
-    ]
-    hits: list[str] = []
-    for path in RUNTIME_ROOT.rglob("*.py"):
-        if "__pycache__" in path.parts:
-            continue
-        source = path.read_text(encoding="utf-8")
-        for pattern in pretend_v2_patterns:
-            for match in pattern.finditer(source):
-                line = source.count("\n", 0, match.start()) + 1
-                hits.append(f"{path.relative_to(REPO_ROOT)}:{line}: {match.group(0)}")
-
-    assert hits == [], "Phase 4 must not claim v2 runtime execution yet:\n" + "\n".join(hits)

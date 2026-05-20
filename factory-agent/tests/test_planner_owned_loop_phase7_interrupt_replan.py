@@ -394,12 +394,12 @@ async def test_phase7_approval_payload_revision_gate_rejects_stale_and_allows_ne
 
 
 @pytest.mark.asyncio
-async def test_phase7_shadow_mode_stays_trace_only_when_interrupt_state_is_revised():
+async def test_phase7_v2_interrupt_state_revision_preserves_current_draft():
     selector = RecordingSelector(["get__machines_{id}", "get__jobs_{id}"])
     run = await PlannerOwnedV2Loop(selector).run(  # type: ignore[arg-type]
         intent="Show machine M-LTH-77 status.",
         tools_by_name=_base_tools(),
-        engine_mode="v2_shadow",
+        engine_mode="v2",
     )
     ledger = run.state.requirement_ledger
     assert ledger is not None
@@ -407,9 +407,9 @@ async def test_phase7_shadow_mode_stays_trace_only_when_interrupt_state_is_revis
     interrupt = classify_user_interrupt("Also show job JOB-ALPHA-77 status.", previous_goal=ledger.user_goal)
     apply_user_interrupt_to_v2_state(run.state, interrupt)
 
-    assert run.draft is None
+    assert run.draft is not None
     assert run.tool_outputs == []
-    assert run.state.execution_trace.diagnostics["shadow_only"] is True
+    assert run.state.execution_trace.diagnostics["shadow_only"] is False
     assert ledger.revision_history[-1].actor == "user"
 
 

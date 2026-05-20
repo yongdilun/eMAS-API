@@ -16,7 +16,6 @@ from factory_agent.persistence.models import Session as SessionRow
 from factory_agent.planner import PlannerApprovalRequired, PlannerBackendError, PlannerClarificationError, PlannerPlanRejected
 from factory_agent.planning.tool_selector import ToolSelector
 from factory_agent.planning.v2_interrupts import execution_result_is_stale_after_interrupt
-from factory_agent.planning.v2_planner_loop import legacy_graph_signals
 from factory_agent.security.permissions import filter_tools_for_role, role_from_claims
 from factory_agent.services.plan_creation_service import PlanCreationService, _bump_session_revision
 
@@ -114,14 +113,6 @@ class ExecutionService:
             mode=mode,
             base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
             base_intent_contract=intent_contract if isinstance(intent_contract, dict) else None,
-            legacy_signals=legacy_graph_signals(
-                intent=intent,
-                selected_candidate_tool_names=selection.tool_names,
-                planner_call_count=getattr(generated, "llm_calls", 0),
-                reranker_call_count=selection.llm_calls,
-                backend_used=getattr(selection, "backend_used", None),
-                source_function="ExecutionService.run_langgraph_session",
-            ),
         )
         context.pop("langgraph_pending_approval", None)
         await db.refresh(sess)
