@@ -2,6 +2,7 @@
 
 Branch: `codex/playwright-e2e-plan`
 Created: 2026-05-20
+Progress tracker: [`PLANNER_OWNED_AGENT_LOOP_MIGRATION_TRACK.md`](PLANNER_OWNED_AGENT_LOOP_MIGRATION_TRACK.md)
 
 ## Purpose
 
@@ -571,6 +572,27 @@ The plan must explicitly cover these details before implementation can be consid
 - Frontend proof: frontend tests should assert response-document contract evidence and layout choice, not just visible strings.
 - No-hardcode proof: static guardrails plus swapped-fixture tests must fail if runtime code uses seeded IDs, exact prompts, fixture source ids, or entity-name display branches.
 
+## Testing Migration Impact Map
+
+The existing QA plans remain release requirements. This migration changes what those tests should prove: legacy route, splitter, cursor, and prose assertions must move toward v2 requirement-ledger, capability-need, tool-call, evidence, satisfaction, response-document, and execution-trace assertions.
+
+| Existing test family | Source plan | Required post-migration proof | Migration coverage |
+| --- | --- | --- | --- |
+| Hard natural-language E2E scenarios | `FACTORY_AGENT_HARD_QUERY_E2E_PLAN.md` | Hard read/write/RAG/approval/interrupt queries run through v2 capability needs, small hydrated candidate windows, typed evidence, and final satisfaction. | Phase 9 owns the release proof. Phase 5 now has focused trace-only/direct v2 engine coverage; Phase 8 must migrate or mark legacy-only tests. |
+| Read filter/sort/limit/fields | `FACTORY_AGENT_HARD_QUERY_E2E_PLAN.md`, `HARDCODE_REDUCTION_PLAN.md` | Requested filters, sort, limit, and field projections survive sketching, locking, tool selection, execution, evidence, and response-document rendering. | Phases 2, 3, 4, 6, and 9 cover the contract. Tests should assert locked constraints and evidence fields, not final prose. |
+| Multi-step read termination | `FACTORY_AGENT_HARD_QUERY_E2E_PLAN.md`, `STATEFUL_ORACLE_TESTING_PLAN.md` | Obvious read requirements close by deterministic satisfaction instead of planner calls whose only purpose is legacy `intent_completed` advancement. | Phase 6 owns deterministic satisfaction; Phase 9 must prove no legacy completion loop for multi-step reads. |
+| Stateful oracle and operation ledger | `STATEFUL_ORACLE_TESTING_PLAN.md` | Existing state oracles map to v2 requirement revisions, capability retrieval events, evidence ledger entries, satisfaction state, final validator decisions, and response-document revisions. | Partially covered by Phases 2, 5, 6, 7, and 8. Add a concrete oracle-event mapping before marking Phase 8 complete. |
+| Approval, rejection, stale approval, and read-after-write | `STATEFUL_ORACLE_TESTING_PLAN.md`, `FACTORY_AGENT_HARD_QUERY_E2E_PLAN.md` | Approval payloads bind to newest ledger revisions, locked constraints, staged write evidence, and post-approval read evidence; stale approvals cannot commit. | Phases 6, 7, 8, and 9 cover this. Phase 5 proves shadow mode does not execute or commit write candidates. |
+| User interruption and `pending_user_message` | `STATEFUL_ORACLE_TESTING_PLAN.md` | New messages during execution or approval create ledger revisions, supersede stale requirements/evidence, and either consume or retire `pending_user_message`. | Phase 7 owns this and must add tests before Phase 8 cleanup. |
+| RAG source and insufficient-context UX | `FACTORY_AGENT_HARD_QUERY_E2E_PLAN.md`, `RESPONSE_DOCUMENT_UX_PLAN.md` | RAG answers use `rag_tool` capability/evidence with source locators, citations, insufficient-context state, and no fake sources. Legacy RAG shortcut traces stay explicit while they exist. | Phases 2, 3, 4, 5, 8, and 9 cover this. Source-chip/drawer/PDF locator tests remain owned by the response-document UX plan. |
+| Response-document frontend rendering | `RESPONSE_DOCUMENT_UX_PLAN.md` | The frontend renders typed response-document blocks from accepted evidence and layout contracts, not legacy `presentation`, phrase matching, or entity-specific branches. | Phase 8 and Phase 9 cover migration proof. Detailed compatibility cleanup remains in the response-document UX plan. |
+| SSE, timeline, snapshot, and revision ordering | `STATEFUL_ORACLE_TESTING_PLAN.md`, `RESPONSE_DOCUMENT_UX_PLAN.md` | Engine trace, requirement revisions, evidence updates, approval waits/resumes, interrupts, cancel, stale approval rejection, and final response revisions appear in coherent order. | Partially covered by Phases 5, 7, and 8. Add explicit v2 event/revision assertions before defaulting to v2. |
+| Hardcode guardrails and seeded fixtures | `HARDCODE_REDUCTION_PLAN.md` | V2 code paths are covered by static and swapped-fixture tests that reject exact prompts, seeded IDs, fixture source IDs, and entity-label branches in runtime code. | Covered by No-Hardcode rules and every implementation phase. Each new v2 module must be added to guardrail scope. |
+| Seeded adapters and real/direct planner coverage | `STATEFUL_ORACLE_TESTING_PLAN.md`, `FACTORY_AGENT_HARD_QUERY_E2E_PLAN.md` | Seeded tests must not bypass the planner-owned loop in ways that hide regressions; direct v2 and real LangGraph subsets must prove the same contracts. | Partially covered by Phase 5 and Phase 9. Add explicit seeded-adapter ownership before Phase 9 release proof. |
+| CI and release lanes | `STATEFUL_ORACLE_TESTING_PLAN.md`, `FACTORY_AGENT_HARD_QUERY_E2E_PLAN.md` | CI separates fast contract tests, backend oracle tests, shadow/direct v2 tests, frontend semantic tests, hard-query release gates, and real LangGraph smoke coverage. | Partially covered by Phases 8, 9, and 10. Add exact commands/lane ownership before Phase 9 completion. |
+
+Before Phase 8 is marked complete, each affected legacy test should be in one of three states: migrated to v2 contract assertions, explicitly marked legacy-only with a removal phase, or replaced by a stronger v2 test. Tests must not pass merely because legacy RAG, legacy whole-query tool scoping, `working_intents`, `intent_cursor`, or seeded adapters produced the answer.
+
 ## Phase Readiness Gates
 
 Apply the migration in controlled order:
@@ -590,20 +612,22 @@ Tool call = exact executable API/RAG invocation.
 Evidence = what has been proven.
 ```
 
-## Phase Tracker
+## Phase Sequence And Status Pointer
 
-| Phase | Name | Status | Notes |
-| --- | --- | --- | --- |
-| 1 | Boundary and baseline audit | Completed 2026-05-20 | Legacy scaffold, RAG shortcut, whole-query tool scope, interrupt gap, and ToolSelector reuse boundary documented. |
-| 2 | Requirement ledger and v2 state contracts only | Planned | Add serializable contracts without changing production behavior. |
-| 3 | Capability map and source-of-truth hints | Planned | Add compact capability map and deterministic source-of-truth hints. |
-| 4 | Need-based tool retrieval and hydration | Planned | Planner declares capability need; retriever returns a small hydrated tool window. |
-| 5 | Planner-owned v2 loop behind flag | Planned | Add `v2_shadow`, direct v2 test path, and explicit engine trace. |
-| 6 | Evidence satisfaction and replan | Planned | Close obvious read evidence deterministically and return uncertain cases to planner. |
-| 7 | User interrupt and mid-execution replan | Planned | Convert `pending_user_message` into real interrupt/replan handling. |
-| 8 | Legacy cleanup switch | Planned | Switch default to v2 and retire legacy RAG/scaffold/tool-routing authority. |
-| 9 | Hard query release proof | Planned | Prove hard API/RAG/read/write/approval/interrupt cases end to end. |
-| 10 | Legacy kill-switch removal | Planned | Remove legacy option after v2 release proof and cleanup guardrails pass. |
+Use this table for architecture sequence only. Live phase status, commits, verification commands, and handoff notes are tracked in [`PLANNER_OWNED_AGENT_LOOP_MIGRATION_TRACK.md`](PLANNER_OWNED_AGENT_LOOP_MIGRATION_TRACK.md).
+
+| Phase | Name | Notes |
+| --- | --- | --- |
+| 1 | Boundary and baseline audit | Legacy scaffold, RAG shortcut, whole-query tool scope, interrupt gap, and ToolSelector reuse boundary documented. |
+| 2 | Requirement ledger and v2 state contracts only | Add serializable contracts without changing production behavior. |
+| 3 | Capability map and source-of-truth hints | Add compact capability map and deterministic source-of-truth hints. |
+| 4 | Need-based tool retrieval and hydration | Planner declares capability need; retriever returns a small hydrated tool window. |
+| 5 | Planner-owned v2 loop behind flag | Add `v2_shadow`, direct v2 test path, and explicit engine trace. |
+| 6 | Evidence satisfaction and replan | Close obvious read evidence deterministically and return uncertain cases to planner. |
+| 7 | User interrupt and mid-execution replan | Convert `pending_user_message` into real interrupt/replan handling. |
+| 8 | Legacy cleanup switch | Switch default to v2 and retire legacy RAG/scaffold/tool-routing authority. |
+| 9 | Hard query release proof | Prove hard API/RAG/read/write/approval/interrupt cases end to end. |
+| 10 | Legacy kill-switch removal | Remove legacy option after v2 release proof and cleanup guardrails pass. |
 
 ## Phase 1: Boundary And Baseline Audit
 

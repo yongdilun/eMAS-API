@@ -41,6 +41,15 @@ from factory_agent.planning.intent import (
 from factory_agent.planning.plan_validator import validate_plan
 from factory_agent.planning.tool_output_alignment import align_tool_outputs_to_steps
 from factory_agent.planning.tool_selector import ToolSelector
+from factory_agent.planning.v2_planner_loop import (
+    LegacyExecutionSignals,
+    PlannerOwnedV2Loop,
+    attach_direct_v2_trace_to_intent_contract,
+    attach_legacy_trace_to_intent_contract,
+    attach_v2_shadow_trace_to_intent_contract,
+    legacy_graph_signals,
+    legacy_rag_signals,
+)
 from factory_agent.rag.knowledge_policy import default_knowledge_policy_registry
 from factory_agent.rag.source_metadata import normalize_source_locators, sanitize_rag_answer_text
 from factory_agent.registry.tool_registry import ToolRegistry
@@ -488,6 +497,83 @@ class PlanCreationService:
                     raise HTTPException(status_code=503, detail={"errors": errors})
         return tools_by_name
 
+    async def _context_with_engine_trace(
+        self,
+        *,
+        intent: str,
+        tools_by_name: dict[str, ToolInfo],
+        mode: str,
+        base_context: dict[str, Any] | None,
+        base_intent_contract: dict[str, Any] | None,
+        legacy_signals: LegacyExecutionSignals,
+    ) -> dict[str, Any]:
+        context = dict(base_context or {})
+        engine = getattr(self._settings, "factory_agent_engine", "legacy")
+        if engine == "v2_shadow":
+            try:
+                v2_run = await PlannerOwnedV2Loop(self._tool_selector).run(
+                    intent=intent,
+                    tools_by_name=tools_by_name,
+                    engine_mode=engine,
+                    legacy_signals=legacy_signals,
+                    mode=mode,
+                )
+                context["intent_contract"] = attach_v2_shadow_trace_to_intent_contract(
+                    base_intent_contract,
+                    intent=intent,
+                    v2_state=v2_run.state,
+                    legacy_signals=legacy_signals,
+                )
+                return context
+            except Exception as exc:
+                log_event(
+                    "v2_shadow_trace_failed",
+                    level="WARNING",
+                    intent=intent,
+                    error=str(exc),
+                )
+
+        context["intent_contract"] = attach_legacy_trace_to_intent_contract(
+            base_intent_contract,
+            intent=intent,
+            signals=legacy_signals,
+        )
+        return context
+
+    async def _create_direct_v2_plan(
+        self,
+        *,
+        db: AsyncSession,
+        sess: SessionRow,
+        tools_by_name: dict[str, ToolInfo],
+        intent: str,
+        mode: str,
+    ) -> PlanResponse:
+        v2_run = await PlannerOwnedV2Loop(self._tool_selector).run(
+            intent=intent,
+            tools_by_name=tools_by_name,
+            engine_mode="v2",
+            mode=mode,
+        )
+        context = dict(sess.replan_context or {})
+        context["intent_contract"] = attach_direct_v2_trace_to_intent_contract(
+            None,
+            intent=intent,
+            v2_state=v2_run.state,
+        )
+        return await self._persist_plan(
+            db=db,
+            sess=sess,
+            draft=v2_run.draft,
+            tools_by_name=tools_by_name,
+            backend_used="v2_planner_loop",
+            kind="discovery" if mode == "plan" else "execution",
+            status="DRAFT",
+            intent=intent,
+            context_to_keep=context,
+            tool_outputs=v2_run.tool_outputs,
+        )
+
     async def _persist_plan(self,
         *,
         db: AsyncSession,
@@ -902,11 +988,32 @@ class PlanCreationService:
         backend_used = "langgraph" if req.draft is None else "client"
         draft = req.draft
 
+        if getattr(self._settings, "factory_agent_engine", "legacy") == "v2" and draft is None:
+            if not tools_by_name:
+                raise HTTPException(status_code=403, detail={"errors": ["No tools are allowed for this user role."]})
+            plan_resp = await self._create_direct_v2_plan(
+                db=db,
+                sess=sess,
+                tools_by_name=tools_by_name,
+                intent=intent,
+                mode=mode,
+            )
+            metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
+            return plan_resp
+
         if (
             semantic_frame.route.startswith("clarification.")
             and semantic_frame.missing_required_entities
             and not self._seeded_planner_handles_intent(intent)
         ):
+            context_to_keep = await self._context_with_engine_trace(
+                intent=intent,
+                tools_by_name=tools_by_name,
+                mode=mode,
+                base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+                base_intent_contract=None,
+                legacy_signals=LegacyExecutionSignals(generated_by="legacy_graph_loop"),
+            )
             plan_resp = await self._persist_conversation_reply_as_empty_plan(
                 db=db,
                 sess=sess,
@@ -914,6 +1021,7 @@ class PlanCreationService:
                 mode=mode,
                 tools_by_name=tools_by_name,
                 intent=intent,
+                context_to_keep=context_to_keep,
             )
             metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
             return plan_resp
@@ -923,6 +1031,18 @@ class PlanCreationService:
             if semantic_frame.route != "unknown":
                 context_to_keep = dict(context_to_keep or sess.replan_context or {})
                 context_to_keep["semantic_frame"] = semantic_frame.to_payload()
+            context_to_keep = await self._context_with_engine_trace(
+                intent=loto_rag_intent if resolved_loto_machine_id else intent,
+                tools_by_name=tools_by_name,
+                mode=mode,
+                base_context=context_to_keep,
+                base_intent_contract=None,
+                legacy_signals=legacy_rag_signals(
+                    route=str(semantic_frame.route or "unknown"),
+                    source_function="PlanCreationService.create_plan",
+                    policy_id=str(semantic_frame.route or "unknown"),
+                ),
+            )
             plan_resp = await self._answer_knowledge_question_as_plan(
                 db=db,
                 sess=sess,
@@ -937,17 +1057,38 @@ class PlanCreationService:
 
         if assessment.kind != "operations":
             if assessment.reply is None:
+                context_to_keep = await self._context_with_engine_trace(
+                    intent=intent,
+                    tools_by_name=tools_by_name,
+                    mode=mode,
+                    base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+                    base_intent_contract=None,
+                    legacy_signals=legacy_rag_signals(
+                        route=str(semantic_frame.route or "assessment.non_operations_rag"),
+                        source_function="PlanCreationService.create_plan",
+                        policy_id=str(semantic_frame.route or "unknown"),
+                    ),
+                )
                 plan_resp = await self._answer_knowledge_question_as_plan(
                     db=db,
                     sess=sess,
                     mode=mode,
                     tools_by_name=tools_by_name,
                     intent=intent,
+                    context_to_keep=context_to_keep,
                     semantic_frame=semantic_frame,
                 )
                 metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
                 return plan_resp
             reply = assessment.reply or "I need an operation request before I can create a plan."
+            context_to_keep = await self._context_with_engine_trace(
+                intent=intent,
+                tools_by_name=tools_by_name,
+                mode=mode,
+                base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+                base_intent_contract=None,
+                legacy_signals=LegacyExecutionSignals(generated_by="legacy_graph_loop"),
+            )
             plan_resp = await self._persist_conversation_reply_as_empty_plan(
                 db=db,
                 sess=sess,
@@ -955,6 +1096,7 @@ class PlanCreationService:
                 mode=mode,
                 tools_by_name=tools_by_name,
                 intent=intent,
+                context_to_keep=context_to_keep,
             )
             metrics.observe("plan_generation_latency_ms", (time.perf_counter() - started) * 1000.0)
             return plan_resp
@@ -997,11 +1139,23 @@ class PlanCreationService:
                     backend_used = generated.backend_used
                     tool_outputs_for_plan = getattr(generated, "tool_outputs", None)
                     intent_contract = getattr(generated, "intent_contract", None)
-                    if intent_contract:
-                        context = dict(sess.replan_context or {})
-                        context["intent_contract"] = intent_contract
-                        sess.replan_context = context
-                        context_to_keep = context
+                    context = await self._context_with_engine_trace(
+                        intent=intent,
+                        tools_by_name=tools_by_name,
+                        mode=mode,
+                        base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+                        base_intent_contract=intent_contract if isinstance(intent_contract, dict) else None,
+                        legacy_signals=legacy_graph_signals(
+                            intent=intent,
+                            selected_candidate_tool_names=selection.tool_names,
+                            planner_call_count=getattr(generated, "llm_calls", 0),
+                            reranker_call_count=selection.llm_calls,
+                            backend_used=getattr(selection, "backend_used", None),
+                            source_function="PlanCreationService.create_plan",
+                        ),
+                    )
+                    sess.replan_context = context
+                    context_to_keep = context
                     sess.llm_call_count += selection.llm_calls
                     sess.llm_call_count += generated.llm_calls
                 else:
@@ -1013,6 +1167,14 @@ class PlanCreationService:
                         steps=[],
                     )
                     backend_used = "system"
+                    context_to_keep = await self._context_with_engine_trace(
+                        intent=intent,
+                        tools_by_name=tools_by_name,
+                        mode=mode,
+                        base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+                        base_intent_contract=None,
+                        legacy_signals=LegacyExecutionSignals(generated_by="legacy_graph_loop"),
+                    )
             except PlannerConfirmationRequired as e:
                 plan_resp = await self._persist_confirmation_request_as_empty_plan(
                     db=db,

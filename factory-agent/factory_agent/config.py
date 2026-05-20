@@ -1,11 +1,15 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from dotenv import load_dotenv
 
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
+
+
+FactoryAgentEngine = Literal["legacy", "v2_shadow", "v2"]
 
 
 @dataclass(frozen=True)
@@ -120,6 +124,8 @@ class Settings:
     # Phase 5 / FA-004 rollback flag. Prefer explicit migrations; enable only
     # as a temporary compatibility bridge.
     enable_startup_schema_compat: bool = False
+    # Planner-owned loop migration flag. Default legacy preserves production behavior.
+    factory_agent_engine: FactoryAgentEngine = "legacy"
 
 
 def _normalize_summary_backend(value: str) -> str:
@@ -139,6 +145,13 @@ def _normalize_graph_checkpoint_backend(raw: str | None) -> str:
     v = (raw or "auto").strip().lower() or "auto"
     allowed = {"auto", "memory", "postgres", "off", "db", "database", "sqlalchemy"}
     return v if v in allowed else "auto"
+
+
+def normalize_factory_agent_engine(raw: str | None) -> FactoryAgentEngine:
+    v = (raw or "legacy").strip().lower() or "legacy"
+    if v in {"legacy", "v2_shadow", "v2"}:
+        return v  # type: ignore[return-value]
+    return "legacy"
 
 
 def _env_truthy(key: str, default: str = "0") -> bool:
@@ -375,4 +388,5 @@ def get_settings() -> Settings:
         ),
         enable_startup_schema_compat=_env_truthy("ENABLE_STARTUP_SCHEMA_COMPAT", "0"),
         bge_reranker_model=os.getenv("BGE_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3").strip(),
+        factory_agent_engine=normalize_factory_agent_engine(os.getenv("FACTORY_AGENT_ENGINE", "legacy")),
     )

@@ -14,6 +14,7 @@ from factory_agent.orchestration.memory_manager import MemoryManager
 from factory_agent.orchestration.session_manager import SessionManager, TransitionError
 from factory_agent.persistence.models import Session as SessionRow
 from factory_agent.planner import PlannerApprovalRequired, PlannerBackendError, PlannerClarificationError, PlannerPlanRejected
+from factory_agent.planning.v2_planner_loop import legacy_graph_signals
 from factory_agent.planning.tool_selector import ToolSelector
 from factory_agent.security.permissions import filter_tools_for_role, role_from_claims
 from factory_agent.services.plan_creation_service import PlanCreationService, _bump_session_revision
@@ -102,10 +103,22 @@ class ExecutionService:
             await db.commit()
             raise HTTPException(status_code=503, detail={"errors": [str(e)]}) from e
 
-        context = dict(sess.replan_context or {})
         intent_contract = getattr(generated, "intent_contract", None)
-        if intent_contract:
-            context["intent_contract"] = intent_contract
+        context = await self._plan_service._context_with_engine_trace(
+            intent=intent,
+            tools_by_name=tools_by_name,
+            mode=mode,
+            base_context=sess.replan_context if isinstance(sess.replan_context, dict) else None,
+            base_intent_contract=intent_contract if isinstance(intent_contract, dict) else None,
+            legacy_signals=legacy_graph_signals(
+                intent=intent,
+                selected_candidate_tool_names=selection.tool_names,
+                planner_call_count=getattr(generated, "llm_calls", 0),
+                reranker_call_count=selection.llm_calls,
+                backend_used=getattr(selection, "backend_used", None),
+                source_function="ExecutionService.run_langgraph_session",
+            ),
+        )
         context.pop("langgraph_pending_approval", None)
         await db.refresh(sess)
         if self._plan_service._is_cancelled_session(sess):

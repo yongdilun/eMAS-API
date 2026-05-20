@@ -14,9 +14,11 @@ Use the main plan for architecture, contracts, phase definitions, stop condition
 
 ## Current Status
 
-Phase 1, Phase 2, Phase 3, and Phase 4 are complete. Phase 5 is the next implementation phase.
+Phase 1, Phase 2, Phase 3, Phase 4, and Phase 5 are complete. Phase 6 is the next implementation phase.
 
-Important handoff for Phase 5: the Phase 4 retriever is contract-only and returns per-need candidate windows plus hydrated cards without executing the v2 planner loop or RAG. Wire it only behind an explicit engine flag, start with trace-only `v2_shadow`, and keep production shadow reads/writes non-mutating.
+Important handoff for Phase 6: Phase 5 added explicit `FACTORY_AGENT_ENGINE` plumbing, trace-only `v2_shadow`, and a direct v2 test path over the Phase 4 retriever. It does not implement deterministic satisfaction or production v2 authority; Phase 6 should consume the recorded requirement, candidate, evidence, and trace state without expanding shadow mode into committed execution.
+
+Testing handoff for Phase 5 and later: the main plan now includes a Testing Migration Impact Map. Future phases must update or satisfy that map when they affect hard-query E2E, stateful oracle, response-document UX, RAG/source UX, SSE/timeline, seeded adapter, or hardcode guardrail coverage.
 
 ## Phase Progress
 
@@ -26,7 +28,7 @@ Important handoff for Phase 5: the Phase 4 retriever is contract-only and return
 | 2 | Requirement ledger and v2 state contracts only | Complete | Codex | `feat: add planner-owned loop v2 state contracts` | Phase 1/2 contract suite: `11 passed, 1 warning`; route/splitter/selector suite: `88 passed, 35 warnings`; `git diff --check` passed | Contracts only. Added serializable v2 state, agenda patch locked-constraint guard, adapter trace contracts, and distinct legacy RAG route evidence. No runtime switch or v2/v2_shadow production claim. |
 | 3 | Capability map and source-of-truth hints | Complete | Codex | `feat: add planner-owned loop capability map hints` | Phase 1/2/3 contract suite: `21 passed, 1 warning`; route/splitter/selector suite: `88 passed, 35 warnings`; `git diff --check` passed | Added compact metadata-driven capability map helpers, source-of-truth hints, document-knowledge families, field aliases, and requirement sketch/ledger locking. No runtime switch or v2/v2_shadow production claim. |
 | 4 | Need-based tool retrieval and hydration | Complete | Codex | `feat: add planner-owned loop capability retriever` | Phase 1/2/3/4 contract suite: `32 passed, 2 warnings`; route/splitter/selector suite: `88 passed, 35 warnings`; `git diff --check` passed | Added contract-only `V2CapabilityToolRetriever` that wraps `ToolSelector`, returns max-5 per-need candidate windows, hydrates only selected cards, traces fallback/failures, and keeps RAG as candidate cards only. |
-| 5 | Planner-owned v2 loop behind flag | Planned | TBD | TBD | TBD | Use Phase 4 windows/cards in trace-only `v2_shadow`; production shadow must not mutate state or claim visible v2 execution. |
+| 5 | Planner-owned v2 loop behind flag | Complete | Codex | `feat: add planner-owned loop shadow engine` | Phase 1-5 contract suite: `39 passed, 2 warnings`; route/splitter/selector suite: `88 passed, 35 warnings`; `git diff --check` passed | Added `FACTORY_AGENT_ENGINE=legacy|v2_shadow|v2`, shadow trace attachment, direct v2 test path, retriever-backed capability windows, legacy detector flags, and RAG shortcut tracing as legacy evidence. |
 | 6 | Evidence satisfaction and replan | Planned | TBD | TBD | TBD | Deterministic satisfaction may close obvious read requirements only with typed evidence. |
 | 7 | User interrupt and mid-execution replan | Planned | TBD | TBD | TBD | Convert `pending_user_message` into real interrupt/replan handling or retire it. |
 | 8 | Legacy cleanup switch | Planned | TBD | TBD | TBD | Retire legacy authority only after v2 proofs pass. |
@@ -48,8 +50,9 @@ When a phase is completed:
 1. Update `Last updated`.
 2. Change the phase status and fill in owner, commit/PR, verification, and notes.
 3. Add any handoff notes that affect the next phase.
-4. Keep architectural decisions in the main plan, not this tracker.
-5. Run `git diff --check`.
+4. If the phase affects tests, update the Testing Migration Impact Map status in the main plan or add a tracker handoff explaining the remaining coverage gap.
+5. Keep architectural decisions in the main plan, not this tracker.
+6. Run `git diff --check`.
 
 ## Progress Log
 
@@ -67,3 +70,7 @@ When a phase is completed:
 - Phase 4 need-based retriever added in `factory_agent/planning/v2_tool_retriever.py` with focused tests in `tests/test_planner_owned_loop_phase4_tool_retriever.py`.
 - Verification passed: `python -m pytest tests/test_planner_owned_loop_phase1_boundary.py tests/test_planner_owned_loop_phase2_contracts.py tests/test_planner_owned_loop_phase3_capability_map.py tests/test_planner_owned_loop_phase4_tool_retriever.py -q` reported `32 passed, 2 warnings`; `python -m pytest tests/test_route_to_execution_contract.py tests/test_intent_splitter.py tests/test_tool_selector.py -q` reported `88 passed, 35 warnings`; `git diff --check` passed.
 - Handoff for Phase 5: consume `V2CapabilityToolRetriever` only behind the explicit engine flag, record per-need retrieval traces in `v2_shadow`, keep shadow mode trace-only/non-mutating, and continue to distinguish v2 `rag_tool` candidate/evidence contracts from the legacy `legacy_rag_route`.
+- Plan coverage improved with a Testing Migration Impact Map that ties the migration to the hard-query E2E, stateful oracle, response-document UX, RAG/source UX, SSE/timeline, seeded adapter, hardcode guardrail, and CI/release-lane testing plans.
+- Phase 5 shadow engine added in `factory_agent/planning/v2_planner_loop.py`, `factory_agent/config.py`, `factory_agent/services/plan_creation_service.py`, and `factory_agent/services/execution_service.py`, with focused tests in `tests/test_planner_owned_loop_phase5_shadow_engine.py`.
+- Verification passed: `python -m pytest tests/test_planner_owned_loop_phase1_boundary.py tests/test_planner_owned_loop_phase2_contracts.py tests/test_planner_owned_loop_phase3_capability_map.py tests/test_planner_owned_loop_phase4_tool_retriever.py tests/test_planner_owned_loop_phase5_shadow_engine.py -q` reported `39 passed, 2 warnings`; `python -m pytest tests/test_route_to_execution_contract.py tests/test_intent_splitter.py tests/test_tool_selector.py -q` reported `88 passed, 35 warnings`; `git diff --check` passed.
+- Handoff for Phase 6: use the Phase 5 v2 state as trace input only. Direct v2 currently creates read-only draft steps for tests and records write candidates as dry-run diagnostics; it does not satisfy evidence, execute RAG, commit writes, or replace legacy visible authority.
