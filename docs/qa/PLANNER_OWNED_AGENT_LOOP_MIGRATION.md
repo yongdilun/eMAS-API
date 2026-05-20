@@ -593,6 +593,40 @@ The existing QA plans remain release requirements. This migration changes what t
 
 Before Phase 8 is marked complete, each affected legacy test should be in one of three states: migrated to v2 contract assertions, explicitly marked legacy-only with a removal phase, or replaced by a stronger v2 test. Tests must not pass merely because legacy RAG, legacy whole-query tool scoping, `working_intents`, `intent_cursor`, or seeded adapters produced the answer.
 
+## Full Pipeline Verification Gates
+
+Focused phase tests are acceptable for Phases 1-5 because those phases are contract, metadata, retriever, and shadow plumbing. Starting at Phase 6, v2 changes can affect behavioral correctness, so verification must widen at defined gates.
+
+| Gate | Required verification | Notes |
+| --- | --- | --- |
+| Phase 6 completion | Phase 1-6 focused suite, route/splitter/selector suite, and the full backend pytest suite. | Phase 6 adds deterministic satisfaction and final validation, so run the full backend suite unless an environmental blocker is documented. |
+| Phase 7 completion | Phase 1-7 focused suite plus affected interrupt, approval, stateful oracle, SSE/timeline, and response-document contract tests. | Run the full backend suite if Phase 7 touches shared execution/session/approval plumbing beyond the interrupt controller. |
+| Phase 8 completion | Full backend suite, frontend unit/component tests, mocked Playwright semantic tests, response-document E2E, seeded oracle E2E, and relevant lint/build checks for touched frontend code. | Phase 8 starts retiring legacy authority, so this is the main pre-release regression gate. |
+| Phase 9 completion | Full release pipeline: backend, frontend, hard-query E2E, stateful oracle, response-document UX, RAG/source UX, approval/write, no-hardcode guardrails, seeded oracle, and real LangGraph critical smoke. | Phase 9 is the release proof. Do not mark complete with only focused tests. |
+| Phase 10 completion | Full release pipeline again after legacy kill-switch removal. | Proves the product no longer depends on legacy fallback paths. |
+
+Known local command anchors:
+
+```text
+Backend full suite from factory-agent:
+python -m pytest -q
+
+Backend full suite with project-local temp directory if Windows temp permissions fail:
+$env:TMP='.pytest-phase6'; $env:TEMP='.pytest-phase6'; python -m pytest -q
+
+Frontend unit/component tests from eMas Front:
+npm test
+
+Frontend Playwright gates from eMas Front:
+npm run test:e2e:mocked
+npm run test:e2e:response-document
+npm run test:e2e:seeded-oracles
+npm run test:e2e:real-langgraph
+npm run test:e2e:release
+```
+
+Each phase handoff must record which gate was run, the exact commands, pass/fail counts, skipped/xfailed counts, and any environmental blocker. If a full gate is deferred, the tracker must say why, what narrower suite was run instead, and which later phase must pick up the deferred verification.
+
 ## Phase Readiness Gates
 
 Apply the migration in controlled order:

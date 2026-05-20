@@ -20,6 +20,8 @@ Important handoff for Phase 6: Phase 5 added explicit `FACTORY_AGENT_ENGINE` plu
 
 Testing handoff for Phase 5 and later: the main plan now includes a Testing Migration Impact Map. Future phases must update or satisfy that map when they affect hard-query E2E, stateful oracle, response-document UX, RAG/source UX, SSE/timeline, seeded adapter, or hardcode guardrail coverage.
 
+Full-pipeline handoff: Phase 6 should run the full backend pytest suite after focused Phase 1-6 verification. Phase 8 should run full backend plus frontend unit/Playwright semantic gates. Phase 9 and Phase 10 should run the full release pipeline. If any full gate is blocked, record the blocker, narrower suite, and deferred owner in this tracker.
+
 ## Phase Progress
 
 | Phase | Name | Status | Owner | Commit / PR | Verification | Notes |
@@ -51,8 +53,9 @@ When a phase is completed:
 2. Change the phase status and fill in owner, commit/PR, verification, and notes.
 3. Add any handoff notes that affect the next phase.
 4. If the phase affects tests, update the Testing Migration Impact Map status in the main plan or add a tracker handoff explaining the remaining coverage gap.
-5. Keep architectural decisions in the main plan, not this tracker.
-6. Run `git diff --check`.
+5. Run the Full Pipeline Verification Gate for the phase when applicable, or record the exact blocker and deferred owner.
+6. Keep architectural decisions in the main plan, not this tracker.
+7. Run `git diff --check`.
 
 ## Progress Log
 
@@ -74,6 +77,7 @@ When a phase is completed:
 - Phase 5 shadow engine added in `factory_agent/planning/v2_planner_loop.py`, `factory_agent/config.py`, `factory_agent/services/plan_creation_service.py`, and `factory_agent/services/execution_service.py`, with focused tests in `tests/test_planner_owned_loop_phase5_shadow_engine.py`.
 - Verification passed: `python -m pytest tests/test_planner_owned_loop_phase1_boundary.py tests/test_planner_owned_loop_phase2_contracts.py tests/test_planner_owned_loop_phase3_capability_map.py tests/test_planner_owned_loop_phase4_tool_retriever.py tests/test_planner_owned_loop_phase5_shadow_engine.py -q` reported `39 passed, 2 warnings`; `python -m pytest tests/test_route_to_execution_contract.py tests/test_intent_splitter.py tests/test_tool_selector.py -q` reported `88 passed, 35 warnings`; `git diff --check` passed.
 - Handoff for Phase 6: use the Phase 5 v2 state as trace input only. Direct v2 currently creates read-only draft steps for tests and records write candidates as dry-run diagnostics; it does not satisfy evidence, execute RAG, commit writes, or replace legacy visible authority.
+- Full-pipeline gate added to the main plan. Phase 6 should run the full backend pytest suite after focused verification; Phase 8 should run full backend plus frontend unit/Playwright semantic gates; Phase 9 and Phase 10 should run the full release pipeline.
 - Phase 6 implementation added in `factory_agent/planning/v2_satisfaction.py`, `factory_agent/planning/v2_contracts.py`, and `factory_agent/planning/v2_planner_loop.py`, with focused tests in `tests/test_planner_owned_loop_phase6_satisfaction.py`.
 - Verification passed: `python -m pytest tests/test_planner_owned_loop_phase6_satisfaction.py -q` reported `10 passed, 1 warning`.
 - Verification passed: `python -m pytest tests/test_planner_owned_loop_phase1_boundary.py tests/test_planner_owned_loop_phase2_contracts.py tests/test_planner_owned_loop_phase3_capability_map.py tests/test_planner_owned_loop_phase4_tool_retriever.py tests/test_planner_owned_loop_phase5_shadow_engine.py tests/test_planner_owned_loop_phase6_satisfaction.py -q` reported `49 passed, 2 warnings` on the first Phase 6 draft run.
