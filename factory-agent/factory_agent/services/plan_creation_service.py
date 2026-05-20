@@ -655,6 +655,7 @@ class PlanCreationService:
             engine_mode="v2",
             mode=mode,
         )
+        sess.llm_call_count = (sess.llm_call_count or 0) + self._direct_v2_llm_call_count(v2_run)
 
         if (
             semantic_frame is not None
@@ -767,6 +768,15 @@ class PlanCreationService:
             context_to_keep=context,
             tool_outputs=tool_outputs or v2_run.tool_outputs,
         )
+
+    def _direct_v2_llm_call_count(self, v2_run: Any) -> int:
+        trace = getattr(getattr(v2_run, "state", None), "execution_trace", None)
+        tool_retrieval = getattr(trace, "tool_retrieval", None)
+        reranker = getattr(tool_retrieval, "reranker", None)
+        try:
+            return max(0, int(getattr(reranker, "call_count", 0) or 0))
+        except Exception:
+            return 0
 
     async def _execute_direct_v2_steps(
         self,

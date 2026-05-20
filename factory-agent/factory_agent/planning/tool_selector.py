@@ -394,10 +394,10 @@ class ToolSelector:
     def _should_rerank(self, *, intent: str, candidates: list[tuple[str, int]], tools_by_name: dict[str, ToolInfo]) -> bool:
         if len(candidates) < 2 or not self._can_use_llm_reranker():
             return False
-        if self._has_clear_winner(intent=intent, candidates=candidates, tools_by_name=tools_by_name):
-            return False
         if self._settings.force_llm_trace_all:
             return True
+        if self._has_clear_winner(intent=intent, candidates=candidates, tools_by_name=tools_by_name):
+            return False
         top_score = candidates[0][1]
         second_score = candidates[1][1]
         return (top_score - second_score) <= self._settings.tool_selector_max_score_gap
@@ -802,15 +802,16 @@ class ToolSelector:
             intent=intent,
             tools_by_name=tools_by_name,
         )
-        if compound_semantic_tools is not None:
+        force_reranker_trace = bool(self._settings.force_llm_trace_all and self._can_use_llm_reranker())
+        if compound_semantic_tools is not None and not force_reranker_trace:
             return ToolSelectionResult(tool_names=compound_semantic_tools[:max_tools], backend_used="retrieval", llm_calls=0)
 
         semantic_tools = self._semantic_route_tool_names(intent=intent, frame=semantic_frame, tools_by_name=tools_by_name)
-        if semantic_tools is not None:
+        if semantic_tools is not None and not force_reranker_trace:
             return ToolSelectionResult(tool_names=semantic_tools[:max_tools], backend_used="retrieval", llm_calls=0)
 
         diagnostic = self._diagnostic_tool_names(intent=intent, tools_by_name=tools_by_name)
-        if diagnostic:
+        if diagnostic and not force_reranker_trace:
             return ToolSelectionResult(tool_names=diagnostic[:max_tools], backend_used="retrieval", llm_calls=0)
 
         effective_intent, contextual_binding = self._contextualize_followup_intent(intent=intent, context=context)
@@ -849,7 +850,7 @@ class ToolSelector:
                 reason="reranker_exception",
                 error=str(exc),
             )
-            return ToolSelectionResult(tool_names=candidate_names, backend_used="retrieval", llm_calls=0)
+            return ToolSelectionResult(tool_names=candidate_names, backend_used="retrieval", llm_calls=1)
         if not isinstance(parsed, dict):
             log_event("tool_selector_rerank_fallback", level="WARNING", intent=intent, reason="invalid_llm_response")
             return ToolSelectionResult(tool_names=candidate_names, backend_used="retrieval", llm_calls=0)
