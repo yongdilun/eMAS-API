@@ -38,6 +38,15 @@ LEGACY_RUNTIME_RETIRED_XFAIL = pytest.mark.xfail(
     strict=True,
 )
 
+LEGACY_CLARIFICATION_400_XFAIL = pytest.mark.xfail(
+    reason=(
+        "The pre-graph create-plan contract returned HTTP 400 for missing required "
+        "read args. Current graph-native UX persists an assistant clarification "
+        "message/empty plan so the frontend can render the blocked turn."
+    ),
+    strict=True,
+)
+
 
 class FakeEventBus:
     def __init__(self):
@@ -661,6 +670,8 @@ async def test_legacy_planner_prefers_entity_machine_tool_when_id_present(sessio
 
 
 @pytest.mark.asyncio
+@pytest.mark.legacy_compatibility
+@LEGACY_CLARIFICATION_400_XFAIL
 async def test_legacy_planner_returns_clarification_when_required_args_missing(sessionmaker_override, db_session):
     from factory_agent.persistence.models import Plan
 

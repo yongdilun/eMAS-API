@@ -247,6 +247,69 @@ class ToolSelector:
                 return True
         return False
 
+    def _tool_accepts_entity_id(self, tool: ToolInfo, entity: str) -> bool:
+        normalized_entity = self._normalize_token(entity)
+        if not normalized_entity:
+            return False
+
+        fields = {
+            str(field).strip().lower()
+            for field in [
+                *(tool.path_params or []),
+                *(tool.query_params or []),
+                *(tool.body_fields or []),
+                *(tool.required_body_fields or []),
+            ]
+            if str(field).strip()
+        }
+        if f"{normalized_entity}_id" in fields or f"{normalized_entity}s_id" in fields:
+            return True
+
+        tags = self._capability_tag_tokens(tool)
+        parts = [part for part in (tool.endpoint or "").strip("/").split("/") if part]
+        for idx, part in enumerate(parts):
+            if not (part.startswith("{") and part.endswith("}")):
+                continue
+            prior = next((segment for segment in reversed(parts[:idx]) if not segment.startswith("{")), "")
+            prior_entity = self._normalize_token(prior)
+            if prior_entity == normalized_entity:
+                return True
+            if prior_entity and prior_entity in tags:
+                continue
+            if normalized_entity in tags:
+                return True
+        return False
+
+    def _select_entity_id_read_tools(
+        self,
+        *,
+        entity: str,
+        intent: str,
+        tools_by_name: dict[str, ToolInfo],
+        fallback_names: tuple[str, ...],
+    ) -> list[str] | None:
+        request = CapabilitySelectionRequest(
+            entity=entity,
+            actions=("read", "lookup"),
+            safety="read_only",
+            endpoint_shape="any",
+            fallback_names=fallback_names,
+        )
+        ranked = self._capability_candidates(request, tools_by_name, intent=intent)
+        names = [name for name, _score in ranked] if ranked else self._capability_fallback_names(request, tools_by_name)
+        selected = [
+            name
+            for name in names
+            if name in tools_by_name and self._tool_accepts_entity_id(tools_by_name[name], entity)
+        ]
+        if not selected and ranked:
+            selected = [
+                name
+                for name in self._capability_fallback_names(request, tools_by_name)
+                if name in tools_by_name and self._tool_accepts_entity_id(tools_by_name[name], entity)
+            ]
+        return selected or None
+
     def _add_planning_companions(
         self,
         *,
@@ -1003,13 +1066,10 @@ class ToolSelector:
             "rag.procedure",
             "rag.safety_policy",
             "unsupported_dangerous_action",
-            "clarification.machine_id_missing",
             "clarification.job_mutation_incomplete",
         }:
             return []
-        if route == "tool.read.machine_status":
-            if frame.normalized_entities.get("job_id"):
-                return None
+        if route == "clarification.machine_id_missing":
             return self._select_capability_tools(
                 [
                     CapabilitySelectionRequest(
@@ -1019,24 +1079,33 @@ class ToolSelector:
                         endpoint_shape="item",
                         fallback_names=("get__machines_{id}",),
                     ),
+                    CapabilitySelectionRequest(
+                        entity="machine",
+                        actions=("read", "list"),
+                        safety="read_only",
+                        endpoint_shape="collection",
+                        fallback_names=("get__machines",),
+                    ),
                 ],
                 tools_by_name,
                 intent=intent,
             )
+        if route == "tool.read.machine_status":
+            if frame.normalized_entities.get("job_id"):
+                return None
+            return self._select_entity_id_read_tools(
+                entity="machine",
+                intent=intent,
+                tools_by_name=tools_by_name,
+                fallback_names=("get__machines_{id}",),
+            )
         if route == "tool.read.jobs":
             if frame.normalized_entities.get("job_id"):
-                return self._select_capability_tools(
-                    [
-                        CapabilitySelectionRequest(
-                            entity="job",
-                            actions=("read", "lookup"),
-                            safety="read_only",
-                            endpoint_shape="item",
-                            fallback_names=("get__jobs_{id}",),
-                        )
-                    ],
-                    tools_by_name,
+                return self._select_entity_id_read_tools(
+                    entity="job",
                     intent=intent,
+                    tools_by_name=tools_by_name,
+                    fallback_names=("get__jobs_{id}",),
                 )
             return self._select_capability_tools(
                 [

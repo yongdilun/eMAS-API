@@ -1261,29 +1261,37 @@ class PlanCreationService:
         if not validation.ok:
             metrics.inc("plan_validation_failure_total")
             metrics.inc("plan_validation_failure_rate")
-            if sess.status == "PLANNING":
-                context = dict(sess.replan_context or {})
-                failures = int(context.get("validation_failure_count", 0)) + 1
-                context["validation_failure_count"] = failures
-                context["last_validation_errors"] = validation.errors
-                sess.replan_context = context
-                sess.error = "Plan validation failed"
-                sess.status = "BLOCKED"
-                _bump_session_revision(sess)
-                if failures >= 3:
+            context = dict(sess.replan_context or {})
+            failures = int(context.get("validation_failure_count", 0)) + 1
+            context["validation_failure_count"] = failures
+            context["last_validation_errors"] = validation.errors
+            sess.replan_context = context
+            sess.error = "Plan validation failed"
+            sess.status = "BLOCKED"
+            sess.completed_at = None
+            _bump_session_revision(sess)
+            if failures >= 3:
+                existing_dlq = (
+                    await db.execute(
+                        select(DeadLetterRow)
+                        .where(DeadLetterRow.session_id == session_id)
+                        .where(DeadLetterRow.failure_type == "replan_limit_reached")
+                    )
+                ).scalars().first()
+                if existing_dlq is None:
                     db.add(
                         DeadLetterRow(
                             dlq_id=self._generate_uuid(),
                             session_id=session_id,
                             step_id=None,
-                                failure_type="replan_limit_reached",
-                                reason="Plan validation failed 3 consecutive times",
-                                payload={"errors": validation.errors, "validation_failure_count": failures},
-                                status="PENDING",
-                            )
+                            failure_type="replan_limit_reached",
+                            reason="Plan validation failed 3 consecutive times",
+                            payload={"errors": validation.errors, "validation_failure_count": failures},
+                            status="PENDING",
                         )
-                await db.commit()
-                raise HTTPException(status_code=400, detail={"errors": validation.errors})
+                    )
+            await db.commit()
+            raise HTTPException(status_code=400, detail={"errors": validation.errors})
 
         response = await self._persist_plan(
             db=db,

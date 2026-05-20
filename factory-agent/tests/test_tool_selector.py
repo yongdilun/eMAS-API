@@ -899,6 +899,32 @@ async def test_selector_prefers_feature_specific_job_explanation_endpoint():
 
 
 @pytest.mark.asyncio
+async def test_semantic_job_id_read_prefers_metadata_matched_child_endpoint():
+    selector = _semantic_selector()
+    tools = {
+        "work_order_reader": _tool(
+            "work_order_reader",
+            endpoint="/work-orders/{id}",
+            tags=["job", "lookup"],
+        ),
+        "work_order_window_reader": _tool(
+            "work_order_window_reader",
+            endpoint="/work-orders/{id}/inspection-windows",
+            tags=["job", "inspection", "window", "lookup", "list"],
+        ),
+    }
+
+    result = await selector.select_tools(
+        intent="show inspection windows for job JOB-SEED-001",
+        tools_by_name=tools,
+        mode="normal",
+        max_tools=10,
+    )
+
+    assert result.tool_names[:2] == ["work_order_window_reader", "work_order_reader"]
+
+
+@pytest.mark.asyncio
 async def test_selector_prefers_create_job_tool_when_prompt_mentions_reject_after_create():
     selector = ToolSelector(_settings(tool_selector_backend="retrieval", tool_selector_top_k=5))
     tools = {

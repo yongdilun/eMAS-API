@@ -179,7 +179,8 @@ class ExecutionService:
         if sess.status == "WAITING_APPROVAL":
             return sess
         if sess.status in {"BLOCKED", "FAILED"}:
-            return sess
+            detail = sess.error or f"session is {sess.status.lower()}"
+            raise HTTPException(status_code=400, detail={"errors": [detail]})
         if current_plan and current_plan.status == "COMPLETED" and sess.status == "COMPLETED":
             return sess
         if sess.status == "COMPLETED":

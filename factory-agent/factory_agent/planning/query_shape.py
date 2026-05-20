@@ -269,7 +269,7 @@ def merge_inferred_read_args(intent: str, tool: ToolInfo, args: dict[str, Any]) 
         else infer_lookup_query_args(intent, tool)
     )
     for key, value in inferred.items():
-        if _supports_arg(tool, key):
+        if _supports_arg(tool, key) and merged.get(key) in (None, ""):
             merged[key] = value
     return merged
 
